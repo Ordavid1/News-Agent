@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Try AIPostGen - Interactive Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glow-purple: #a855f7;
+            --glow-pink: #ec4899;
+            --glow-blue: #3b82f6;
+            --glow-cyan: #06b6d4;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+        }
+        
+        .glow-text {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.5));
+        }
+        
+        .neon-border {
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
+                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .neon-border:hover {
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
+                       0 0 50px rgba(236, 72, 153, 0.3);
+        }
+        
+        .topic-card {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .topic-card.selected {
+            border-color: var(--glow-purple);
+            background: rgba(168, 85, 247, 0.1);
+            transform: scale(1.05);
+        }
+        
+        .platform-card {
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0.6;
+        }
+        
+        .platform-card.available {
+            opacity: 1;
+        }
+        
+        .platform-card.selected {
+            border-color: var(--glow-pink);
+            background: rgba(236, 72, 153, 0.1);
+            transform: scale(1.05);
+        }
+        
+        .platform-card.unavailable {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        
+        .preview-post {
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .typing-animation {
+            overflow: hidden;
+            border-right: 2px solid var(--glow-purple);
+            animation: typing 2s steps(40, end), blink-caret 0.75s step-end infinite;
+        }
+        
+        @keyframes typing {
+            from { width: 0 }
+            to { width: 100% }
+        }
+        
+        @keyframes blink-caret {
+            from, to { border-color: transparent }
+            50% { border-color: var(--glow-purple) }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-black text-white">
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div class="text-2xl font-bold glow-text">AIPostGen Demo ✨</div>
+                <div class="flex gap-4">
+                    <a href="/" class="hover:text-purple-400 transition">Back to Home</a>
+                    <button onclick="showSignup()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition">
+                        Start Free Trial
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Demo Section -->
+    <section class="pt-24 pb-20 px-6">
+        <div class="container mx-auto max-w-6xl">
+            <h1 class="text-5xl font-bold text-center mb-4 glow-text">
+                Configure Your AI Social Media Bot 🤖
+            </h1>
+            <p class="text-center text-gray-400 mb-12 text-lg">
+                See how easy it is to set up your personalized content generation
+            </p>
+
+            <!-- Step 1: Choose Your Plan -->
+            <div class="mb-12">
+                <h2 class="text-3xl font-bold mb-6 flex items-center">
+                    <span class="text-purple-400 mr-3">1</span> Choose Your Plan
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div id="plan-starter" class="topic-card neon-border p-6 text-center" style="cursor: pointer;">
+                        <div class="text-2xl mb-2">🚀</div>
+                        <h3 class="font-bold mb-1">Starter</h3>
+                        <p class="text-gray-400 text-sm">10 posts/day</p>
+                        <p class="text-2xl font-bold text-purple-400">$49/mo</p>
+                    </div>
+                    <div onclick="selectPlan('growth')" id="plan-growth" class="topic-card neon-border p-6 text-center selected">
+                        <div class="text-2xl mb-2">📈</div>
+                        <h3 class="font-bold mb-1">Growth</h3>
+                        <p class="text-gray-400 text-sm">20 posts/day</p>
+                        <p class="text-2xl font-bold text-purple-400">$149/mo</p>
+                    </div>
+                    <div onclick="selectPlan('professional')" id="plan-professional" class="topic-card neon-border p-6 text-center">
+                        <div class="text-2xl mb-2">💼</div>
+                        <h3 class="font-bold mb-1">Professional</h3>
+                        <p class="text-gray-400 text-sm">30 posts/day</p>
+                        <p class="text-2xl font-bold text-purple-400">$399/mo</p>
+                    </div>
+                    <div onclick="selectPlan('business')" id="plan-business" class="topic-card neon-border p-6 text-center">
+                        <div class="text-2xl mb-2">🏢</div>
+                        <h3 class="font-bold mb-1">Business</h3>
+                        <p class="text-gray-400 text-sm">45 posts/day</p>
+                        <p class="text-2xl font-bold text-purple-400">$799/mo</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Select Topics -->
+            <div class="mb-12">
+                <h2 class="text-3xl font-bold mb-6 flex items-center">
+                    <span class="text-purple-400 mr-3">2</span> Select Your Topic of Interest
+                </h2>
+                <p class="text-gray-400 mb-4">Choose one topic to generate content about</p>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div onclick="toggleTopic('ai')" id="topic-ai" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">🤖</div>
+                        <h3 class="font-semibold">AI & Machine Learning</h3>
+                    </div>
+                    <div onclick="toggleTopic('tech')" id="topic-tech" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">💻</div>
+                        <h3 class="font-semibold">Tech News</h3>
+                    </div>
+                    <div onclick="toggleTopic('startup')" id="topic-startup" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">🚀</div>
+                        <h3 class="font-semibold">Startups</h3>
+                    </div>
+                    <div onclick="toggleTopic('crypto')" id="topic-crypto" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">₿</div>
+                        <h3 class="font-semibold">Crypto & Web3</h3>
+                    </div>
+                    <div onclick="toggleTopic('productivity')" id="topic-productivity" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">⚡</div>
+                        <h3 class="font-semibold">Productivity</h3>
+                    </div>
+                    <div onclick="toggleTopic('design')" id="topic-design" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">🎨</div>
+                        <h3 class="font-semibold">Design & UX</h3>
+                    </div>
+                    <div onclick="toggleTopic('business')" id="topic-business" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">💼</div>
+                        <h3 class="font-semibold">Business</h3>
+                    </div>
+                    <div onclick="toggleTopic('marketing')" id="topic-marketing" class="topic-card neon-border p-6 text-center">
+                        <div class="text-3xl mb-2">📈</div>
+                        <h3 class="font-semibold">Marketing</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Choose Platforms -->
+            <div class="mb-12">
+                <h2 class="text-3xl font-bold mb-6 flex items-center">
+                    <span class="text-purple-400 mr-3">3</span> Choose Your Platforms (Optional)
+                </h2>
+                <p class="text-gray-400 mb-4">Demo will show all 3 platforms. In the full version, content is posted only to your selected platforms.</p>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-6">
+                    <div onclick="togglePlatform('twitter')" id="platform-twitter" class="platform-card neon-border p-8 text-center available">
+                        <div class="text-4xl mb-3">🐦</div>
+                        <h3 class="text-xl font-semibold mb-2">Twitter/X</h3>
+                        <p class="text-gray-400 text-sm">280 character posts</p>
+                        <p class="text-xs text-green-400 mt-2">Available in all plans</p>
+                    </div>
+                    <div onclick="togglePlatform('linkedin')" id="platform-linkedin" class="platform-card neon-border p-8 text-center available">
+                        <div class="text-4xl mb-3">💼</div>
+                        <h3 class="text-xl font-semibold mb-2">LinkedIn</h3>
+                        <p class="text-gray-400 text-sm">Professional content</p>
+                        <p class="text-xs text-green-400 mt-2">Starter+</p>
+                    </div>
+                    <div onclick="togglePlatform('reddit')" id="platform-reddit" class="platform-card neon-border p-8 text-center available">
+                        <div class="text-4xl mb-3">🔴</div>
+                        <h3 class="text-xl font-semibold mb-2">Reddit</h3>
+                        <p class="text-gray-400 text-sm">Community posts</p>
+                        <p class="text-xs text-purple-400 mt-2">Growth+</p>
+                    </div>
+                    <div onclick="togglePlatform('facebook')" id="platform-facebook" class="platform-card neon-border p-8 text-center unavailable">
+                        <div class="text-4xl mb-3">📘</div>
+                        <h3 class="text-xl font-semibold mb-2">Facebook</h3>
+                        <p class="text-gray-400 text-sm">Social updates</p>
+                        <p class="text-xs text-orange-400 mt-2">Professional+</p>
+                    </div>
+                    <div onclick="togglePlatform('instagram')" id="platform-instagram" class="platform-card neon-border p-8 text-center unavailable">
+                        <div class="text-4xl mb-3">📸</div>
+                        <h3 class="text-xl font-semibold mb-2">Instagram</h3>
+                        <p class="text-gray-400 text-sm">Visual stories</p>
+                        <p class="text-xs text-orange-400 mt-2">Professional+</p>
+                    </div>
+                    <div onclick="togglePlatform('tiktok')" id="platform-tiktok" class="platform-card neon-border p-8 text-center unavailable">
+                        <div class="text-4xl mb-3">🎵</div>
+                        <h3 class="text-xl font-semibold mb-2">TikTok</h3>
+                        <p class="text-gray-400 text-sm">Short videos</p>
+                        <p class="text-xs text-red-400 mt-2">Business only</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Set Posting Schedule -->
+            <div class="mb-12">
+                <h2 class="text-3xl font-bold mb-6 flex items-center">
+                    <span class="text-purple-400 mr-3">4</span> Set Your Posting Schedule
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="neon-border p-6">
+                        <h3 class="text-xl font-semibold mb-4">Posts Per Day</h3>
+                        <input type="range" id="postsPerDay" min="1" max="20" value="5" class="w-full mb-2" onchange="updatePostsPerDay()">
+                        <p class="text-center text-2xl font-bold text-purple-400">
+                            <span id="postsPerDayValue">5</span> posts/day
+                        </p>
+                        <p class="text-center text-sm text-gray-400 mt-2">
+                            Out of your <span id="dailyLimit">20</span> daily limit
+                        </p>
+                    </div>
+                    <div class="neon-border p-6">
+                        <h3 class="text-xl font-semibold mb-4">Best Times to Post</h3>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="checkbox" checked class="mr-2 rounded text-purple-500">
+                                <span>Morning (9-11 AM)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" checked class="mr-2 rounded text-purple-500">
+                                <span>Lunch (12-2 PM)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" class="mr-2 rounded text-purple-500">
+                                <span>Evening (5-7 PM)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="checkbox" class="mr-2 rounded text-purple-500">
+                                <span>Night (8-10 PM)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Preview -->
+            <div class="mb-12">
+                <h2 class="text-3xl font-bold mb-6 flex items-center">
+                    <span class="text-purple-400 mr-3">5</span> See It In Action
+                </h2>
+                <div class="neon-border p-8">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-semibold">Live Post Generation Preview</h3>
+                        <button onclick="generatePreview()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition inline-flex items-center gap-2">
+                            <span id="generateBtnText">Generate Sample Post</span>
+                            <div id="loadingSpinner" class="hidden">
+                                <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </div>
+                        </button>
+                    </div>
+                    
+                    <div id="previewContainer" class="hidden">
+                        <div class="preview-post space-y-4">
+                            <div class="text-gray-400 text-sm mb-4">
+                                <div>Generated for topic: <span id="previewTopic" class="text-purple-400 font-semibold"></span></div>
+                                <div class="text-xs mt-1">Preview shows how your content will appear on all platforms</div>
+                            </div>
+                            
+                            <!-- Twitter Preview -->
+                            <div id="twitterPreview" class="hidden">
+                                <h4 class="text-lg font-semibold mb-2 flex items-center">
+                                    <span class="mr-2">🐦</span> Twitter/X
+                                </h4>
+                                <div class="bg-gray-900 rounded-lg p-4">
+                                    <p id="twitterContent" class="text-lg mb-2"></p>
+                                    <p class="text-gray-500 text-sm">
+                                        <span id="twitterChars">0</span>/280 characters
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <!-- LinkedIn Preview -->
+                            <div id="linkedinPreview" class="hidden">
+                                <h4 class="text-lg font-semibold mb-2 flex items-center">
+                                    <span class="mr-2">💼</span> LinkedIn
+                                </h4>
+                                <div class="bg-gray-900 rounded-lg p-4">
+                                    <p id="linkedinContent" class="text-base whitespace-pre-line"></p>
+                                </div>
+                            </div>
+                            
+                            <!-- Reddit Preview -->
+                            <div id="redditPreview" class="hidden">
+                                <h4 class="text-lg font-semibold mb-2 flex items-center">
+                                    <span class="mr-2">🔴</span> Reddit
+                                </h4>
+                                <div class="bg-gray-900 rounded-lg p-4">
+                                    <h5 id="redditTitle" class="font-bold mb-2"></h5>
+                                    <p id="redditContent" class="text-base"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CTA Section -->
+            <div class="text-center">
+                <h2 class="text-3xl font-bold mb-4 glow-text">Ready to Automate Your Social Media?</h2>
+                <p class="text-gray-400 mb-8 text-lg">Join thousands of creators who save hours every week</p>
+                <button onclick="startFreeTrial()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-12 py-4 rounded-full text-xl font-semibold hover:scale-105 transition">
+                    Start Your Free Trial
+                </button>
+                <p class="text-gray-500 mt-4">No credit card required • 5 free posts daily</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Modal Container -->
+    <div id="modalContainer"></div>
+
+    <script src="/js/demo.js"></script>
+    
+    <!-- Debug info -->
+    <div id="debug" style="position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.8); padding: 10px; border: 1px solid #666; display: none;">
+        <h4 style="margin: 0 0 10px 0;">Debug Info</h4>
+        <pre id="debugOutput" style="margin: 0; font-size: 12px;"></pre>
+    </div>
+    
+    <script>
+        // Debug mode
+        window.addEventListener('DOMContentLoaded', () => {
+            // Show debug info with keyboard shortcut
+            document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'd') {
+                    const debug = document.getElementById('debug');
+                    debug.style.display = debug.style.display === 'none' ? 'block' : 'none';
+                    updateDebugInfo();
+                }
+            });
+            
+            function updateDebugInfo() {
+                const debugOutput = document.getElementById('debugOutput');
+                debugOutput.textContent = JSON.stringify({
+                    selectedPlan,
+                    selectedTopics,
+                    selectedPlatforms,
+                    functionsLoaded: {
+                        selectPlan: typeof selectPlan !== 'undefined',
+                        toggleTopic: typeof toggleTopic !== 'undefined',
+                        togglePlatform: typeof togglePlatform !== 'undefined'
+                    }
+                }, null, 2);
+            }
+            
+            // Override console.error to show alerts
+            const originalError = console.error;
+            console.error = function(...args) {
+                originalError.apply(console, args);
+                alert('Error: ' + args.join(' '));
+            };
+        });
+    </script>
+</body>
+</html>

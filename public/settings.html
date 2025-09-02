@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configure Agent - AI News Agent ✨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glow-purple: #a855f7;
+            --glow-pink: #ec4899;
+            --glow-blue: #3b82f6;
+            --glow-cyan: #06b6d4;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+        }
+        
+        .glow-text {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
+        }
+        
+        .neon-border {
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
+                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+        }
+        
+        .magic-button {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
+            transition: all 0.3s ease;
+        }
+        
+        .magic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
+        }
+        
+        input[type="checkbox"]:checked {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
+            border-color: var(--glow-purple);
+        }
+    </style>
+</head>
+<body class="bg-black text-white min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg border-b border-purple-500/30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                </div>
+                <a href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
+                    ← Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pb-12">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+            <div class="mb-8">
+                <h2 class="text-4xl font-bold mb-2 glow-text">Configure Your News Agent 🎮</h2>
+                <p class="text-gray-400">Customize how your AI agent discovers and posts trending content</p>
+            </div>
+
+            <form id="settingsForm" class="space-y-8">
+                <!-- Topic Categories -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-purple-400">📰 Topic Categories</h3>
+                    <p class="text-gray-400 text-sm mb-4">Select the topics your agent will track</p>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="technology" class="rounded bg-black/50 border-purple-500/30">
+                            <span>💻 Technology</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="business" class="rounded bg-black/50 border-purple-500/30">
+                            <span>💼 Business</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="entertainment" class="rounded bg-black/50 border-purple-500/30">
+                            <span>🎬 Entertainment</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="sports" class="rounded bg-black/50 border-purple-500/30">
+                            <span>⚽ Sports</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="health" class="rounded bg-black/50 border-purple-500/30">
+                            <span>🏥 Health</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                            <input type="checkbox" name="topics" value="science" class="rounded bg-black/50 border-purple-500/30">
+                            <span>🔬 Science</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Posting Schedule -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-pink-400">⏰ Posting Schedule</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Posts per day</label>
+                            <select name="postsPerDay" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                                <option value="3">3 posts</option>
+                                <option value="5">5 posts</option>
+                                <option value="10">10 posts</option>
+                                <option value="15">15 posts</option>
+                                <option value="20">20 posts</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Active hours</label>
+                            <div class="grid grid-cols-2 gap-4">
+                                <input type="time" name="startTime" value="09:00" class="px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                                <input type="time" name="endTime" value="21:00" class="px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content Style -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-cyan-400">✨ Content Style</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Tone of voice</label>
+                            <select name="tone" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                                <option value="professional">🎩 Professional</option>
+                                <option value="casual">😎 Casual</option>
+                                <option value="humorous">😄 Humorous</option>
+                                <option value="educational">📚 Educational</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                                <input type="checkbox" name="includeHashtags" checked class="rounded bg-black/50 border-purple-500/30">
+                                <span>Include trending hashtags #️⃣</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Platform Settings -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🌐 Platform Settings</h3>
+                    <div class="space-y-4">
+                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #1DA1F2, #14171A);">
+                                    <span class="text-white font-bold">𝕏</span>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Twitter/X</p>
+                                    <p class="text-sm text-gray-400">Post trending content</p>
+                                </div>
+                            </div>
+                            <input type="checkbox" name="platforms" value="twitter" class="rounded bg-black/50 border-purple-500/30">
+                        </label>
+                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #0077B5, #00A0DC);">
+                                    <span class="text-white font-bold">in</span>
+                                </div>
+                                <div>
+                                    <p class="font-medium">LinkedIn</p>
+                                    <p class="text-sm text-gray-400">Professional content</p>
+                                </div>
+                            </div>
+                            <input type="checkbox" name="platforms" value="linkedin" class="rounded bg-black/50 border-purple-500/30">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div class="flex justify-end gap-4">
+                    <button type="button" onclick="window.location.href='/profile.html'" class="px-8 py-3 border border-purple-500/30 text-gray-400 rounded-full font-semibold hover:border-purple-500 hover:text-white transition-all duration-200">
+                        Cancel
+                    </button>
+                    <button type="submit" class="magic-button px-8 py-3 text-white rounded-full font-semibold">
+                        🚀 Activate Agent
+                    </button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <script src="js/settings.js"></script>
+</body>
+</html>

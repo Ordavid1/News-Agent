@@ -1,0 +1,1762 @@
+// index.mjs
+
+import path from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import helmet from 'helmet';
+import axios from 'axios';
+import OpenAI from 'openai';
+import winston from 'winston';
+import dotenv from 'dotenv';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import { Firestore, FieldValue } from '@google-cloud/firestore';
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { google } from 'googleapis';
+import cron from 'node-cron';
+
+// Import custom modules
+import './config/env.js';  // This ensures dotenv loads first
+import RedditPublisher from './publishers/RedditPublisher.js';
+import trendAnalyzer from './services/TrendAnalyzer.js';
+import DatabaseManager from './services/DatabaseManager.js';
+import AutomationManager from './services/AutomationManager.js';
+import PostingStrategy from './services/PostingStrategy.js';
+
+import { 
+  getDateRelevanceScore,
+  fetchFromGoogleCSE_HEBREW,
+  crawlHebrewSources,
+  normalizeText,
+  checkAndResetCseUsage,
+  calculateRelevanceScore,
+  areSimilarArticles,
+  isTagOrCategoryPage,
+  HEBREW_NEWS_SITES,
+} from './public/components/hebrewSearch.mjs';
+
+import { 
+  getSystemPrompt, 
+  getUserPrompt, 
+  getOpenAIConfig 
+} from './public/components/socialMediaPrompts.mjs';
+
+dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+console.log('=== SERVER STARTING ===');
+console.log('Node version:', process.version);
+console.log('Current directory:', process.cwd());
+console.log('Environment:', process.env.NODE_ENV);
+
+// Add error handling for the async initialization
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Promise Rejection:', error);
+  process.exit(1);
+});
+
+// Article usage tracking
+const userArticleUsage = new Map();
+
+function isArticleAlreadyUsed(article, userId) {
+  if (!userArticleUsage.has(userId)) {
+    userArticleUsage.set(userId, new Map());
+  }
+
+  const userArticles = userArticleUsage.get(userId);
+  const articleKey = `${article.title}|${article.url}`;
+  const timestamp = userArticles.get(articleKey);
+
+  if (timestamp && (Date.now() - timestamp) < 4 * 60 * 60 * 1000) {
+    logger.debug(`Article rejected for user ${userId} - Recently used: "${article.title}"`);
+    return true;
+  }
+
+  userArticles.set(articleKey, Date.now());
+
+  if (userArticles.size > 100) {
+    const now = Date.now();
+    for (const [key, timestamp] of userArticles.entries()) {
+      if (now - timestamp > 24 * 60 * 60 * 1000) {
+        userArticles.delete(key);
+      }
+    }
+  }
+
+  return false;
+}
+
+// Content policy error checking
+function isContentPolicyError(error) {
+  if (!error) return false;
+  
+  const errorMessage = error.message || '';
+  const errorDetail = error.response?.data?.detail || '';
+  const errorReason = error.failure_reason || '';
+  
+  const contentPolicyTerms = [
+    'blacklisted word',
+    'moderation failed',
+    'content policy',
+    'content guidelines',
+    'inappropriate content',
+    'prohibited content',
+    'not allowed',
+    'violates'
+  ];
+  
+  return contentPolicyTerms.some(term => 
+    errorMessage.includes(term) || 
+    errorDetail.includes(term) || 
+    errorReason.includes(term)
+  );
+}
+
+globalThis.isContentPolicyError = isContentPolicyError;
+
+// Logger setup
+const logger = winston.createLogger({
+  level: 'debug',
+  format: winston.format.combine(
+    winston.format.colorize(),
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => {
+      return `${timestamp} [${level}]: ${message}`;
+    })
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'app.log' }),
+  ],
+});
+
+logger.info('Application started - Enhanced Logging');
+
+// Environment variables check
+const requiredEnvVars = [
+  'OPENAI_API_KEY',
+  'NEWSAPI_KEY',
+  'GNEWS_API_KEY',
+  'GOOGLE_CSE_API_KEY',
+  'GOOGLE_CSE_ID',
+];
+
+let missingEnvVars = [];
+requiredEnvVars.forEach((varName) => {
+  if (!process.env[varName]) {
+    missingEnvVars.push(varName);
+    logger.error(`Environment Variable Missing: ${varName}`);
+  } else {
+    logger.debug(`Environment Variable Loaded: ${varName}`);
+  }
+});
+
+if (missingEnvVars.length > 0) {
+  logger.error(`Missing environment variables: ${missingEnvVars.join(', ')}`);
+  process.exit(1);
+}
+
+// Initialize OpenAI
+logger.debug('Initializing OpenAI client...');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const customsearch = google.customsearch('v1');
+
+// Initialize Express app
+const app = express();
+const server = createServer(app);
+
+// Initialize WebSocket
+const wss = new WebSocketServer({ server });
+const clients = new Set();
+
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  logger.debug('WebSocket client connected');
+  
+  ws.on('close', () => {
+    clients.delete(ws);
+    logger.debug('WebSocket client disconnected');
+  });
+  
+  ws.on('error', (error) => {
+    logger.error('WebSocket error:', error);
+    clients.delete(ws);
+  });
+});
+
+// Firestore initialization
+const secretClient = new SecretManagerServiceClient();
+
+async function fetchFirestoreCredentials() {
+  const [version] = await secretClient.accessSecretVersion({
+    name: 'projects/vaulted-bivouac-417511/secrets/firebase-key/versions/latest'
+  });
+  const serviceAccountJSON = version.payload.data.toString();
+  return JSON.parse(serviceAccountJSON);
+}
+
+const serviceAccount = await fetchFirestoreCredentials();
+
+const db = new Firestore({
+  projectId: 'vaulted-bivouac-417511',
+  credentials: {
+    client_email: serviceAccount.client_email,
+    private_key: serviceAccount.private_key
+  },
+  databaseId: 'postgendb'
+});
+
+logger.debug('Initializing Firestore with postgendb database');
+
+const statsRef = db.collection('stats');
+const globalStatsDoc = statsRef.doc('global');
+
+// Test Firestore connection
+try {
+  await db.listCollections();
+  logger.info('✅ Firestore connection successful');
+} catch (error) {
+  logger.error('Failed to initialize Firestore:', error);
+  process.exit(1);
+}
+
+// Initialize stats document
+// Initialize stats document
+(async () => {
+  try {
+    const doc = await globalStatsDoc.get();
+    if (!doc.exists) {
+      logger.debug('Creating stats/global document with initial structure');
+      await globalStatsDoc.set({
+        todayPosts: 0,
+        successRate: 100, // Default to 100 like in your data
+        totalVideos: 0,
+        totalGeneratedAllUsers: 0,
+        socialClicks: {
+          linkedin: 0,
+          tiktok: 0,
+          twitter: 0
+        },
+        lastActive: new Date().toISOString().split('T')[0],
+        lastStartup: FieldValue.serverTimestamp(),
+        lastUpdated: FieldValue.serverTimestamp()
+      });
+      logger.info('Initial Firestore structure created');
+    } else {
+      // Update lastStartup on every server start
+      await globalStatsDoc.update({
+        lastStartup: FieldValue.serverTimestamp(),
+        lastUpdated: FieldValue.serverTimestamp()
+      });
+    }
+  } catch (error) {
+    logger.error('Error setting up Firestore structure:', error);
+  }
+})();
+
+// Helper functions
+function broadcastStats(firestoreData) {
+  try {
+    if (!firestoreData) {
+      logger.error('No Firestore data to broadcast');
+      return;
+    }
+
+    // Helper function to convert Firestore Timestamp to ISO string
+    const convertTimestamp = (timestamp) => {
+      if (!timestamp) return new Date().toISOString();
+      
+      // If it has the toDate method (Firestore Timestamp object)
+      if (timestamp && typeof timestamp.toDate === 'function') {
+        return timestamp.toDate().toISOString();
+      }
+      
+      // If it's a serialized timestamp with _seconds
+      if (timestamp && timestamp._seconds) {
+        return new Date(timestamp._seconds * 1000).toISOString();
+      }
+      
+      // If it's already a string
+      if (typeof timestamp === 'string') {
+        return timestamp;
+      }
+      
+      // Default fallback
+      return new Date().toISOString();
+    };
+
+    const transformedStats = {
+      todayPosts: parseInt(firestoreData.todayPosts) || 0,
+      successRate: parseInt(firestoreData.successRate) || 100,
+      totalVideos: parseInt(firestoreData.totalVideos) || 0,
+      totalGeneratedAllUsers: parseInt(firestoreData.totalGeneratedAllUsers) || 0,
+      socialClicks: {
+        linkedin: parseInt(firestoreData.socialClicks?.linkedin || firestoreData['socialClicks.linkedin']) || 0,
+        tiktok: parseInt(firestoreData.socialClicks?.tiktok || firestoreData['socialClicks.tiktok']) || 0,
+        twitter: parseInt(firestoreData.socialClicks?.twitter || firestoreData['socialClicks.twitter']) || 0
+      },
+      lastStartup: convertTimestamp(firestoreData.lastStartup),
+      lastActive: firestoreData.lastActive || new Date().toISOString().split('T')[0]
+    };
+
+    logger.debug('Broadcasting stats to', clients.size, 'clients');
+    const data = JSON.stringify(transformedStats);
+
+    for (const client of clients) {
+      if (client.readyState === 1) {
+        try {
+          client.send(data);
+        } catch (error) {
+          logger.error('Error sending to client:', error);
+          clients.delete(client);
+        }
+      }
+    }
+  } catch (error) {
+    logger.error('Error in broadcastStats:', error);
+  }
+}
+
+async function updateStatistics(success = true, hasVideo = false) {
+  try {
+    logger.debug('Updating statistics...');
+    const today = new Date().toISOString().split('T')[0];
+
+    const statsDoc = await globalStatsDoc.get();
+    const currentStats = statsDoc.data() || {};
+
+    // Reset daily stats if it's a new day
+    if (currentStats.lastActive !== today) {
+      logger.debug('New day detected, resetting todayPosts');
+      await globalStatsDoc.set({
+        todayPosts: 0,
+        lastActive: today
+      }, { merge: true });
+    }
+
+    const updateData = {
+      todayPosts: FieldValue.increment(2),
+      totalGeneratedAllUsers: FieldValue.increment(2),
+      totalVideos: hasVideo ? FieldValue.increment(1) : FieldValue.increment(0),
+      successRate: 100, // Keeping it at 100 as in your data
+      lastUpdated: FieldValue.serverTimestamp(),
+      lastActive: today
+    };
+
+    logger.debug('Updating Firestore with:', updateData);
+    await globalStatsDoc.set(updateData, { merge: true });
+
+    const updatedDoc = await globalStatsDoc.get();
+    const updatedData = updatedDoc.data();
+    logger.debug('Broadcasting final updated stats:', updatedData);
+    broadcastStats(updatedData);
+
+  } catch (error) {
+    logger.error('Error updating statistics:', error);
+    throw error;
+  }
+}
+
+async function updateSocialClicks(platform) {
+  try {
+    logger.debug(`Updating social clicks for platform: ${platform}`);
+
+    await globalStatsDoc.set({
+      [`socialClicks.${platform.toLowerCase()}`]: FieldValue.increment(1),
+      lastUpdated: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    const updatedDoc = await globalStatsDoc.get();
+    const stats = updatedDoc.data();
+
+    logger.debug('Broadcasting updated stats after social click:', stats);
+    broadcastStats(stats);
+
+    return { success: true, stats };
+  } catch (error) {
+    logger.error('Error updating social clicks:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// MIDDLEWARE SETUP - PROPER ORDER IS CRITICAL
+// ============================================
+
+// 1. Basic middleware FIRST
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 2. Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:"]
+    }
+  }
+}));
+
+// 2.5.  Handle Chrome DevTools request (before API routes)
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+  res.status(204).send(); // No content
+});
+
+// 3. API ROUTES - MUST BE DEFINED BEFORE STATIC FILE SERVING
+app.get('/api/stats', async (req, res) => {
+  try {
+    logger.debug('GET /api/stats - Fetching stats');
+    const doc = await globalStatsDoc.get();
+    const data = doc.data() || {};
+
+    // Log the actual data to see what we're dealing with
+    logger.debug('Raw Firestore data:', JSON.stringify(data, null, 2));
+
+    // Helper function to convert Firestore Timestamp to ISO string with detailed logging
+    const convertTimestamp = (timestamp, fieldName) => {
+      logger.debug(`Converting timestamp for field ${fieldName}:`, timestamp);
+      
+      if (!timestamp) {
+        logger.debug(`${fieldName} is null/undefined, using current time`);
+        return new Date().toISOString();
+      }
+      
+      try {
+        // If it has the toDate method (Firestore Timestamp object)
+        if (timestamp && typeof timestamp.toDate === 'function') {
+          const date = timestamp.toDate();
+          logger.debug(`${fieldName} converted via toDate():`, date);
+          return date.toISOString();
+        }
+        
+        // If it's a serialized timestamp with _seconds
+        if (timestamp && timestamp._seconds) {
+          const date = new Date(timestamp._seconds * 1000);
+          logger.debug(`${fieldName} converted from _seconds:`, date);
+          return date.toISOString();
+        }
+        
+        // If it's already a string
+        if (typeof timestamp === 'string') {
+          logger.debug(`${fieldName} is already a string:`, timestamp);
+          // Validate it's a valid date string
+          const date = new Date(timestamp);
+          if (isNaN(date.getTime())) {
+            logger.error(`${fieldName} is invalid date string:`, timestamp);
+            return new Date().toISOString();
+          }
+          return timestamp;
+        }
+        
+        // Try to create a date from whatever it is
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) {
+          logger.error(`${fieldName} could not be converted to valid date:`, timestamp);
+          return new Date().toISOString();
+        }
+        return date.toISOString();
+        
+      } catch (error) {
+        logger.error(`Error converting ${fieldName}:`, error);
+        return new Date().toISOString();
+      }
+    };
+
+    const stats = {
+      todayPosts: parseInt(data.todayPosts) || 0,
+      successRate: parseInt(data.successRate) || 100,
+      totalVideos: parseInt(data.totalVideos) || 0,
+      totalGeneratedAllUsers: parseInt(data.totalGeneratedAllUsers) || 0,
+      socialClicks: {
+        linkedin: parseInt(data.socialClicks?.linkedin || data['socialClicks.linkedin']) || 0,
+        tiktok: parseInt(data.socialClicks?.tiktok || data['socialClicks.tiktok']) || 0,
+        twitter: parseInt(data.socialClicks?.twitter || data['socialClicks.twitter']) || 0
+      },
+      lastStartup: convertTimestamp(data.lastStartup, 'lastStartup'),
+      lastActive: data.lastActive || new Date().toISOString().split('T')[0]
+    };
+
+    logger.debug('Transformed stats:', JSON.stringify(stats, null, 2));
+    res.json(stats);
+  } catch (error) {
+    logger.error('Error in /api/stats:', error);
+    logger.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to fetch stats', details: error.message });
+  }
+});
+
+app.get('/api/debug/reddit', async (req, res) => {
+  try {
+    // Check if credentials exist
+    const hasCredentials = {
+      clientId: !!process.env.REDDIT_CLIENT_ID,
+      clientSecret: !!process.env.REDDIT_CLIENT_SECRET
+    };
+    
+    if (!hasCredentials.clientId || !hasCredentials.clientSecret) {
+      return res.json({ 
+        error: 'Reddit credentials not configured',
+        hasCredentials 
+      });
+    }
+    
+    // Try to get token
+    const token = await trendAnalyzer.getRedditToken();
+    if (!token) {
+      return res.json({ error: 'Failed to get Reddit token' });
+    }
+    
+    // Try to fetch from a known good subreddit
+    const testSubreddit = 'technology';
+    const posts = await trendAnalyzer.fetchRedditHot(testSubreddit, token);
+    
+    res.json({
+      success: true,
+      tokenReceived: !!token,
+      subreddit: testSubreddit,
+      postCount: posts.length,
+      samplePost: posts[0]?.title || 'No posts found'
+    });
+    
+  } catch (error) {
+    res.json({
+      error: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
+app.get('/api/trends', async (req, res) => {
+  try {
+    const { location = 'US', sources, category, limit = 10 } = req.query;
+    
+    const trends = await trendAnalyzer.getAggregatedTrends({
+      location,
+      sources: sources ? sources.split(',') : undefined,
+      category,
+      limit: parseInt(limit)
+    });
+    
+    const safeTrends = await trendAnalyzer.filterTrends(trends);
+    
+    res.json({
+      success: true,
+      count: safeTrends.length,
+      trends: safeTrends
+    });
+  } catch (error) {
+    logger.error('Error fetching trends:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/api/trends/debug', async (_req, res) => {
+  const sources = ['twitter', 'google', 'reddit'];
+  const results = {};
+  
+  for (const source of sources) {
+    try {
+      const trends = await trendAnalyzer.getTrendsFromSource(source, 'US');
+      results[source] = {
+        status: 'success',
+        count: trends.length,
+        sample: trends.slice(0, 3).map(t => t.topic)
+      };
+    } catch (error) {
+      results[source] = {
+        status: 'error',
+        message: error.message
+      };
+    }
+  }
+  
+  res.json(results);
+});
+
+app.get('/api/trends/source-status', async (req, res) => {
+  // Safely get the reset time
+  let twitterResetTime;
+  try {
+    const resetTimestamp = trendAnalyzer.twitterRateLimitReset || 0;
+    if (resetTimestamp && resetTimestamp > 0) {
+      twitterResetTime = new Date(resetTimestamp).toISOString();
+    } else {
+      // Default to current time if no valid reset time
+      twitterResetTime = new Date().toISOString();
+    }
+  } catch (error) {
+    logger.debug('Error converting Twitter reset time:', error);
+    twitterResetTime = new Date().toISOString();
+  }
+  
+  const status = {
+    twitter: {
+      available: !!process.env.TWITTER_BEARER_TOKEN,
+      rateLimited: trendAnalyzer.twitterRateLimitReset > Date.now(),
+      resetTime: twitterResetTime
+    },
+    reddit: {
+      available: !!process.env.REDDIT_CLIENT_ID,
+      working: true
+    },
+    google: {
+      available: true,
+      serpApi: !!process.env.SERPAPI_KEY,
+      method: process.env.SERPAPI_KEY ? 'SerpAPI' : 'News RSS'
+    }
+  };
+  
+  res.json(status);
+});
+
+app.get('/api/trends/categories', async (req, res) => {
+  try {
+    const { isTopicInEnabledCategory, getEnabledCategories, TOPIC_CATEGORIES } = await import('./config/topicConfig.js');
+    
+    const trends = await trendAnalyzer.getAggregatedTrends({
+      sources: ['twitter', 'google', 'reddit'],
+      limit: 100
+    });
+    
+    const categoryDistribution = {};
+    const uncategorized = [];
+    
+    trends.forEach(trend => {
+      const categoryCheck = isTopicInEnabledCategory(trend.topic);
+      if (categoryCheck.allowed) {
+        categoryDistribution[categoryCheck.category] = 
+          (categoryDistribution[categoryCheck.category] || 0) + 1;
+      } else {
+        uncategorized.push(trend.topic);
+      }
+    });
+    
+    res.json({
+      enabledCategories: getEnabledCategories(),
+      categoryConfig: TOPIC_CATEGORIES,
+      trendDistribution: categoryDistribution,
+      uncategorizedCount: uncategorized.length,
+      uncategorizedSample: uncategorized.slice(0, 10),
+      totalTrends: trends.length
+    });
+    
+  } catch (error) {
+    logger.error('Error analyzing category distribution:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tasks/publish-post', async (req, res) => {
+  try {
+    const taskName = req.headers['x-cloudtasks-taskname'];
+    if (!taskName) {
+      return res.status(403).json({ error: 'Invalid request source' });
+    }
+    
+    const { content, platforms, trend } = req.body;
+    
+    const results = await global.automationManager.publishScheduledPost({
+      content,
+      platforms,
+      trend
+    });
+    
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Task execution error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/debug/linkedin', (req, res) => {
+  const hasToken = !!process.env.LINKEDIN_ACCESS_TOKEN;
+  const hasAuthorId = !!process.env.LINKEDIN_AUTHOR_ID;
+  const tokenLength = process.env.LINKEDIN_ACCESS_TOKEN?.length || 0;
+  
+  res.json({
+    hasToken,
+    hasAuthorId,
+    tokenLength,
+    tokenPreview: hasToken ? `${process.env.LINKEDIN_ACCESS_TOKEN.substring(0, 20)}...` : 'NOT SET',
+    authorId: process.env.LINKEDIN_AUTHOR_ID || 'NOT SET'
+  });
+});
+
+app.post('/api/automation/trigger', async (req, res) => {
+  try {
+    if (!global.automationManager) {
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Automation system not initialized'
+      });
+    }
+    
+    // Accept options from request body
+    const options = req.body || {};
+    const result = await global.automationManager.executeAutomatedPost(options);
+    res.json({ success: true, message: 'Automation triggered', result });
+  } catch (error) {
+    console.error('Automation trigger error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/automation/trigger-linkedin-ai', async (req, res) => {
+  try {
+    logger.info('Manual trigger for LinkedIn Gen AI post');
+    
+    if (!global.automationManager) {
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Automation system not initialized'
+      });
+    }
+    
+    // Execute LinkedIn AI post specifically
+    const result = await global.automationManager.executeLinkedInAIPost();
+    
+    res.json({ 
+      success: true, 
+      message: 'LinkedIn Gen AI post triggered', 
+      result 
+    });
+    
+  } catch (error) {
+    logger.error('LinkedIn AI trigger error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.post('/api/automation/trigger-twitter', async (req, res) => {
+  try {
+    logger.info('Manual trigger for Twitter post');
+    
+    if (!global.automationManager) {
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Automation system not initialized'
+      });
+    }
+    
+    // Force Twitter post
+    const result = await global.automationManager.executeAutomatedPost({
+      preferredPlatforms: ['twitter'],
+      requireHighValue: false,
+      minTrendScore: 30  // Lower threshold for testing
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Twitter post triggered', 
+      result 
+    });
+    
+  } catch (error) {
+    logger.error('Twitter trigger error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.get('/api/test/genai-news', async (req, res) => {
+  try {
+    // Get the last 24 hours of Gen AI news
+    const news = await trendAnalyzer.getGenerativeAINews(24);
+    
+    res.json({
+      success: true,
+      count: news.length,
+      news: news.slice(0, 10), // Top 10 most recent
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logger.error('Error fetching Gen AI news:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+app.get('/api/rate-limits', async (req, res) => {
+  try {
+    const rateLimiter = global.automationManager?.rateLimiter;
+    
+    if (!rateLimiter) {
+      return res.status(503).json({ 
+        error: 'Rate limiter not initialized' 
+      });
+    }
+    
+    const stats = rateLimiter.getUsageStats();
+    
+    const recommendations = [];
+    
+    if (stats.twitter?.monthly?.remaining < 10) {
+      recommendations.push('⚠️ Twitter monthly limit nearly exhausted. Consider pausing Twitter posts.');
+    }
+    
+    if (stats.twitter?.daily?.remaining === 0) {
+      recommendations.push('Twitter daily limit reached. Next post tomorrow.');
+    }
+    
+    if (stats.reddit?.daily?.remaining > 40) {
+      recommendations.push('✅ Reddit has plenty of capacity. Prioritize Reddit posting.');
+    }
+    
+    res.json({
+      stats,
+      recommendations,
+      nextResets: {
+        daily: new Date(new Date().setHours(24, 0, 0, 0)).toISOString(),
+        monthly: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error fetching rate limits:', error);
+    res.status(500).json({ error: 'Failed to fetch rate limits' });
+  }
+});
+
+app.get('/api/automation/debug', (req, res) => {
+  res.json({
+    has_global_automation: !!global.automation,
+    has_global_automationManager: !!global.automationManager,
+    has_global_dbManager: !!global.dbManager,
+    global_keys: Object.keys(global).filter(k => k.includes('automation') || k.includes('Manager'))
+  });
+});
+
+app.post('/api/automation/test-direct', async (req, res) => {
+  try {
+    console.log('Creating new AutomationManager instance...');
+    const { default: AutomationManager } = await import('./services/AutomationManager.js');
+    const automation = new AutomationManager(db);
+    
+    console.log('Type of automation:', typeof automation);
+    console.log('Has executeAutomatedPost?', typeof automation.executeAutomatedPost);
+    
+    await automation.executeAutomatedPost();
+    res.json({ success: true, message: 'Direct automation triggered' });
+  } catch (error) {
+    console.error('Direct automation error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/automation/status', async (req, res) => {
+  try {
+    const recentPosts = await db
+      .collection('published_posts')
+      .orderBy('published_at', 'desc')
+      .limit(10)
+      .get();
+    
+    const posts = recentPosts.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    const nextRun = new Date();
+    nextRun.setHours(Math.ceil(nextRun.getHours() / 4) * 4, 0, 0, 0);
+    
+    res.json({
+      automation_enabled: process.env.AUTOMATION_ENABLED === 'true',
+      bot_mode: process.env.BOT_MODE === 'true', // Add this line
+      recent_posts: posts,
+      next_scheduled_run: nextRun.toISOString(),
+      publishers_configured: Object.keys(global.automationManager?.publishers || {})
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/automation/schedules', (req, res) => {
+  const nextRuns = {};
+  const now = new Date();
+  
+  // Calculate next run times
+  nextRuns.twitter = new Date(now);
+  nextRuns.twitter.setHours(Math.ceil(now.getHours() / 3) * 3, 0, 0, 0);
+  
+  nextRuns.linkedin = new Date(now);
+  const linkedInHours = [9, 13, 17];
+  const currentHour = now.getHours();
+  const nextLinkedInHour = linkedInHours.find(h => h > currentHour) || linkedInHours[0];
+  nextRuns.linkedin.setHours(nextLinkedInHour, 0, 0, 0);
+  if (nextLinkedInHour <= currentHour) {
+    nextRuns.linkedin.setDate(nextRuns.linkedin.getDate() + 1);
+  }
+  
+  nextRuns.general = new Date(now);
+  nextRuns.general.setHours(Math.ceil(now.getHours() / 8) * 8, 0, 0, 0);
+  
+  res.json({
+    currentTime: now.toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    nextRuns,
+    automationEnabled: process.env.AUTOMATION_ENABLED === 'true',
+    rateLimits: global.automationManager?.rateLimiter?.getUsageStats() || {}
+  });
+});
+
+app.get('/api/trends/available', async (req, res) => {
+  const raw = await trendAnalyzer.getAggregatedTrends({
+    sources: ['google', 'reddit', 'twitter'],
+    limit: 50
+  });
+  
+  const safe = await trendAnalyzer.filterTrends(raw);
+  
+  res.json({
+    total_found: raw.length,
+    safe_trends: safe.length,
+    sample_safe: safe.slice(0, 5).map(t => t.topic),
+    sample_filtered: raw.filter(t => !safe.includes(t)).slice(0, 5).map(t => t.topic)
+  });
+});
+
+// Add this new function before the main /generate endpoint
+function extractArticleHashtags(article, keywords) {
+  const hashtags = new Set();
+  
+  // Combine title and description for analysis
+  const fullText = `${article.title} ${article.description || ''}`.toLowerCase();
+  
+  // Extract company names (common tech/business companies)
+  const companies = [
+    'apple', 'google', 'microsoft', 'amazon', 'meta', 'facebook', 'twitter', 'tesla', 
+    'nvidia', 'amd', 'intel', 'samsung', 'sony', 'netflix', 'uber', 'airbnb',
+    'openai', 'anthropic', 'spacex', 'boeing', 'toyota', 'volkswagen', 'bmw',
+    'reddit', 'linkedin', 'tiktok', 'instagram', 'youtube', 'zoom', 'slack',
+    'salesforce', 'oracle', 'adobe', 'shopify', 'paypal', 'visa', 'mastercard'
+  ];
+  
+  companies.forEach(company => {
+    if (fullText.includes(company)) {
+      hashtags.add('#' + company.charAt(0).toUpperCase() + company.slice(1));
+    }
+  });
+  
+  // Extract technology terms
+  const techTerms = [
+    'ai', 'artificial intelligence', 'machine learning', 'blockchain', 'cryptocurrency',
+    'bitcoin', 'ethereum', 'quantum computing', 'robotics', 'automation', 'cloud computing',
+    'cybersecurity', 'data science', 'virtual reality', 'augmented reality', 'iot',
+    'internet of things', '5g', '6g', 'semiconductor', 'chip', 'processor', 'gpu',
+    'electric vehicle', 'ev', 'autonomous', 'self-driving', 'renewable energy',
+    'solar', 'wind power', 'battery', 'streaming', 'gaming', 'esports'
+  ];
+  
+  techTerms.forEach(term => {
+    if (fullText.includes(term)) {
+      const hashtagTerm = term.replace(/\s+/g, '');
+      if (hashtagTerm === 'ai') {
+        hashtags.add('#AI');
+      } else if (hashtagTerm === 'iot') {
+        hashtags.add('#IoT');
+      } else if (hashtagTerm === 'ev') {
+        hashtags.add('#EV');
+      } else {
+        hashtags.add('#' + hashtagTerm.charAt(0).toUpperCase() + hashtagTerm.slice(1));
+      }
+    }
+  });
+  
+  // Extract location names
+  const locations = [
+    'usa', 'america', 'china', 'japan', 'germany', 'france', 'uk', 'britain',
+    'india', 'brazil', 'canada', 'australia', 'south korea', 'israel', 'iran',
+    'russia', 'ukraine', 'europe', 'asia', 'silicon valley', 'wall street',
+    'california', 'texas', 'new york', 'london', 'tokyo', 'beijing', 'seoul'
+  ];
+  
+  locations.forEach(location => {
+    if (fullText.includes(location)) {
+      const hashtagLocation = location.replace(/\s+/g, '');
+      hashtags.add('#' + hashtagLocation.charAt(0).toUpperCase() + hashtagLocation.slice(1));
+    }
+  });
+  
+  // Extract business/finance terms
+  const businessTerms = [
+    'ipo', 'merger', 'acquisition', 'funding', 'investment', 'revenue', 'profit',
+    'earnings', 'stock', 'market', 'startup', 'venture capital', 'fintech',
+    'ecommerce', 'retail', 'supply chain', 'manufacturing', 'healthcare',
+    'biotech', 'pharmaceutical', 'clinical trial'
+  ];
+  
+  businessTerms.forEach(term => {
+    if (fullText.includes(term)) {
+      const hashtagTerm = term.replace(/\s+/g, '');
+      if (hashtagTerm === 'ipo') {
+        hashtags.add('#IPO');
+      } else {
+        hashtags.add('#' + hashtagTerm.charAt(0).toUpperCase() + hashtagTerm.slice(1));
+      }
+    }
+  });
+  
+  // Add category-based hashtags based on keywords
+  const keywordCategories = {
+    tech: '#TechNews',
+    science: '#Science',
+    business: '#Business',
+    news: '#News',
+    politics: '#Politics'
+  };
+  
+  // Always add at least one category hashtag
+  let categoryAdded = false;
+  keywords.forEach(keyword => {
+    const kw = keyword.toLowerCase();
+    if (kw.includes('tech') || kw.includes('ai') || kw.includes('software')) {
+      hashtags.add('#TechNews');
+      categoryAdded = true;
+    } else if (kw.includes('business') || kw.includes('finance') || kw.includes('economy')) {
+      hashtags.add('#Business');
+      categoryAdded = true;
+    } else if (kw.includes('science') || kw.includes('research') || kw.includes('space')) {
+      hashtags.add('#Science');
+      categoryAdded = true;
+    }
+  });
+  
+  // If no category was added, add generic news hashtag
+  if (!categoryAdded) {
+    hashtags.add('#News');
+  }
+  
+  // Convert to array and limit to 6 hashtags
+  const hashtagArray = Array.from(hashtags).slice(0, 6);
+  
+  logger.debug(`Generated hashtags for article "${article.title}": ${hashtagArray.join(', ')}`);
+  
+  return hashtagArray;
+}
+
+// Main generation endpoint
+app.post('/generate', async (req, res) => {
+  /*
+  if (process.env.BOT_MODE === 'true') {
+    return res.status(403).json({ error: 'Bot mode - manual generation disabled' });
+  }
+  */
+
+  logger.debug('POST /generate - Request received');
+  const errorMessages = [];
+  const REQUIRED_POST_COUNT = 1;
+
+  try {
+    logger.info('POST /generate - Started generating posts');
+    const { query, generateVideo, videoDuration, userId } = req.body;
+    logger.debug(`Request Body - Query: "${query}", Generate Video: ${generateVideo}, Video Duration: ${videoDuration}, userId: ${userId}`);
+
+    // Process query and keywords
+    const cleanedQuery = query ? normalizeText(query) : '';
+    const finalQuery = cleanedQuery.trim();
+    
+    const extractKeywordsFromQuery = (query) => {
+      const phrasePatterns = [
+        /aged like/i,
+        /sounds like/i,
+        /looks like/i,
+        /feels like/i,
+        /seems like/i
+      ];
+      
+      for (const pattern of phrasePatterns) {
+        if (pattern.test(query)) {
+          logger.debug(`Phrase pattern detected: "${query}" - keeping as single concept`);
+          return [query.trim()];
+        }
+      }
+      
+      const words = query
+        .split(/\s+/)
+        .map((kw) => kw.replace(/[^\p{L}\p{N}]+/gu, '').trim())
+        .filter(word => {
+          if (word.length <= 1) return false;
+          
+          const commonWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'];
+          return !commonWords.includes(word.toLowerCase());
+        });
+      
+      return words;
+    };
+
+    const keywords = extractKeywordsFromQuery(finalQuery);
+    logger.debug(`Keywords extracted: [${keywords.join(', ')}]`);
+
+    const searchQuery = keywords.join(' ').replace(/[^\p{L}\p{N}\s]/gu, '');
+    
+    // Date setup
+    function getDateRange() {
+      const now = new Date();
+      
+      const endDate = new Date(now);
+      endDate.setUTCHours(23, 59, 59, 999);
+      
+      const startDate = new Date(now);
+      startDate.setUTCDate(startDate.getUTCDate() - 2);
+      startDate.setUTCHours(0, 0, 0, 0);
+      
+      return {
+        fromDate: startDate.toISOString(),
+        toDate: endDate.toISOString()
+      };
+    }
+
+    const { fromDate, toDate } = getDateRange();
+    const queryIsHebrew = finalQuery && isHebrew(finalQuery);
+    const language = queryIsHebrew ? 'he' : 'en';
+    let allArticles = [];
+
+    // Fetch articles based on language
+    if (queryIsHebrew) {
+      logger.debug('Processing Hebrew query...');
+
+      // Try various sources for Hebrew content
+      try {
+        const newsapiArticles = await fetchFromNewsAPI(searchQuery, fromDate, toDate, language);
+        const validNewsapiArticles = newsapiArticles
+          .filter(a => a && a.title && a.description)
+          .map(article => ({
+            ...article,
+            source_api: 'NewsAPI',
+            score: getDateRelevanceScore(article)
+          }));
+        allArticles = allArticles.concat(validNewsapiArticles);
+      } catch (error) {
+        errorMessages.push(`NewsAPI: ${error.message}`);
+      }
+
+      try {
+        const gnewsArticles = await fetchFromGNews(searchQuery, fromDate, toDate, language);
+        const validGnewsArticles = gnewsArticles
+          .filter(a => a && a.title && a.description)
+          .map(article => ({
+            ...article,
+            source_api: 'GNews',
+            score: getDateRelevanceScore(article)
+          }));
+        allArticles = allArticles.concat(validGnewsArticles);
+      } catch (error) {
+        errorMessages.push(`GNews: ${error.message}`);
+      }
+
+      try {
+        const cseArticles = await fetchFromGoogleCSE_HEBREW(finalQuery);
+        const validCseArticles = cseArticles
+          .filter(a => a && a.title && a.description)
+          .map(article => ({
+            ...article,
+            source_api: 'CSE',
+            score: getDateRelevanceScore(article)
+          }));
+        allArticles = allArticles.concat(validCseArticles);
+      } catch (error) {
+        errorMessages.push(`CSE: ${error.message}`);
+      }
+
+      if (allArticles.length < 5) {
+        try {
+          const crawledArticles = await crawlHebrewSources(searchQuery, fromDate, toDate);
+          const validCrawledArticles = crawledArticles
+            .filter(a => a && a.title && a.description)
+            .map(article => ({
+              ...article,
+              source_api: 'Crawler',
+              score: getDateRelevanceScore(article)
+            }));
+          allArticles = allArticles.concat(validCrawledArticles);
+        } catch (error) {
+          errorMessages.push(`Crawler: ${error.message}`);
+        }
+      }
+    } else {
+      // English content processing
+      try {
+        const newsapiArticles = await fetchFromNewsAPI(searchQuery, fromDate, toDate, language);
+        const validNewsapiArticles = newsapiArticles
+          .filter(a => a && a.title && a.description)
+          .map(article => ({
+            ...article,
+            source_api: 'NewsAPI',
+            score: getDateRelevanceScore(article)
+          }));
+        allArticles = allArticles.concat(validNewsapiArticles);
+      } catch (error) {
+        errorMessages.push(`NewsAPI: ${error.message}`);
+      }
+
+      try {
+        const gnewsArticles = await fetchFromGNews(searchQuery, fromDate, toDate, language);
+        const validGnewsArticles = gnewsArticles
+          .filter(a => a && a.title && a.description)
+          .map(article => ({
+            ...article,
+            source_api: 'GNews',
+            score: getDateRelevanceScore(article)
+          }));
+        allArticles = allArticles.concat(validGnewsArticles);
+      } catch (error) {
+        errorMessages.push(`GNews: ${error.message}`);
+      }
+    }
+
+    // Process and filter articles
+    logger.debug(`Total articles collected: ${allArticles.length}`);
+
+    const startDate = new Date(fromDate);
+    const endDate = new Date(toDate);
+
+    const dateFilteredArticles = allArticles.filter(article => {
+      if (!article.publishedAt) return false;
+
+      const articleDate = new Date(article.publishedAt);
+      if (isNaN(articleDate.getTime())) return false;
+
+      return articleDate >= startDate && articleDate <= endDate;
+    });
+
+    // In the article filtering section, add stronger relevance checking:
+    const keywordFilteredArticles = dateFilteredArticles.filter(article => {
+      const normalizedTitle = normalizeText(article.title);
+      const normalizedDesc = normalizeText(article.description || '');
+      
+      // ADD: Language detection - filter out non-English articles
+      const containsNonEnglishChars = /[À-ÿĀ-žА-я\u0590-\u05FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/;
+      if (containsNonEnglishChars.test(article.title) || containsNonEnglishChars.test(article.description || '')) {
+        logger.debug(`Filtered out non-English article: "${article.title}"`);
+        return false;
+      }
+      
+      // Existing keyword filtering...
+      const hasRelevantContent = keywords.some(kw => {
+        const normalizedKw = normalizeText(kw);
+        if (['latest', 'news', 'new', 'update'].includes(normalizedKw)) return false;
+        
+        return normalizedTitle.includes(normalizedKw) || normalizedDesc.includes(normalizedKw);
+      });
+      
+      if (!hasRelevantContent) {
+        logger.debug(`Filtered out irrelevant article: "${article.title}" - no main keywords found`);
+        return false;
+      }
+      
+      return true;
+    });
+
+    const uniqueArticles = keywordFilteredArticles.reduce((acc, article) => {
+      const hasSimilar = acc.some(existing => areSimilarArticles(existing, article));
+      if (!hasSimilar) {
+        acc.push(article);
+      }
+      return acc;
+    }, []);
+
+    const selectedArticles = uniqueArticles
+      .map(article => {
+        try {
+          return {
+            ...article,
+            relevanceScore: calculateRelevanceScore(article, searchQuery, fromDate, toDate)
+          };
+        } catch (error) {
+          logger.error(`Error processing article: ${error.message}`);
+          return null;
+        }
+      })
+      .filter(article => {
+        if (!article || !article.title || !article.description) return false;
+
+        let isTagPage = false;
+        try {
+          isTagPage = isTagOrCategoryPage(article);
+        } catch (error) {
+          logger.error(`Error checking if article is tag/category page: ${error.message}`);
+          isTagPage = false;
+        }
+        
+        if (isTagPage) return false;
+        
+        if (isArticleAlreadyUsed(article, userId)) return false;
+
+        const relevanceScore = calculateRelevanceScore(article, searchQuery, fromDate, toDate);
+        if (relevanceScore < 0.15) return false;
+
+        return true;
+      })
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, REQUIRED_POST_COUNT);
+
+    if (selectedArticles.length === 0) {
+      logger.warn('No valid articles found after all attempts');
+      return res.status(200).json({
+        posts: [],
+        message: `No relevant articles found for "${query}". The trend may be too specific or news APIs returned unrelated content.`,
+        trendsAttempted: 1,
+        isHebrew: queryIsHebrew,
+        errors: errorMessages
+      });
+    }
+
+    // Generate posts
+    const posts = await Promise.all(
+      selectedArticles.map(async (article, index) => {
+        logger.debug(`Generating post ${index + 1} from article: "${article.title}"`);
+        const post = await generateValidPost(article, keywords, generateVideo, videoDuration);
+        
+        if (post.text && !post.text.includes('<a href=')) {
+          const readMoreText = queryIsHebrew ? 'קרא עוד' : 'Read more';
+          post.text = post.text.replace(
+            article.url,
+            `<a href="${article.url}" target="_blank" rel="noopener noreferrer">${readMoreText}</a>`
+          );
+        }
+
+        return {
+          ...post,
+          sourceInfo: {
+            name: article.source?.name,
+            api: article.source_api,
+            score: article.relevanceScore
+          }
+        };
+      })
+    );
+
+    await updateStatistics(true, generateVideo);
+
+    res.json({ 
+      posts,
+      isHebrew: queryIsHebrew,
+      source: selectedArticles.map(a => ({
+        name: a.source?.name,
+        api: a.source_api,
+        score: a.relevanceScore
+      }))
+    });
+
+  } catch (error) {
+    logger.error(`Error in /generate: ${error.message}`);
+    await updateStatistics(false, false);
+
+    const status = error.response?.status || 500;
+    const isRateLimit = error.message.includes('rate limit') || status === 429;
+
+    res.status(status).json({
+      error: isRateLimit ? 'API rate limit exceeded' : 'An unexpected error occurred',
+      details: error.message,
+      errors: errorMessages,
+      retry: isRateLimit
+    });
+  }
+});
+
+// 4. STATIC FILE SERVING - AFTER API ROUTES
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
+// 5. SPECIFIC FILE ROUTES
+app.get('/monitoring.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'monitoring.html'));
+});
+
+// 6. CATCH-ALL ROUTE - MUST BE LAST
+app.get('/', (req, res) => {
+  /*
+  if (process.env.BOT_MODE === 'true') {
+    return res.status(403).json({ error: 'Bot mode - UI disabled' });
+  }
+  */
+  logger.debug('Serving index.html');
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 7. 404 HANDLER - ABSOLUTE LAST
+app.use((req, res) => {
+  logger.warn(`404 - Route not found: ${req.method} ${req.path}`);
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// Helper functions for article processing
+function isHebrew(str) {
+  return /[\u0590-\u05FF]/.test(str);
+}
+
+function sanitizePromptCompletely(prompt) {
+  if (!prompt) return 'Visualization of technology innovation';
+  
+  let cleaned = prompt
+    .replace(/<[^>]*>.*?<\/[^>]*>/g, '')
+    .replace(/<[^>]*>/g, '') 
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/#\w+/g, '')
+    .replace(/@\w+/g, '')
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+    .replace(/\b(stock|stocks|rally|price|surged|investment|profit|earnings|dividend|financial|market cap)\b/gi, '')
+    .replace(/[^\p{L}\p{N}\s.,!?:;-]/gu, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/"[^"]*"/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  const techTerms = [
+    'technology', 'innovation', 'semiconductor', 'computing', 'digital', 
+    'processor', 'chip', 'manufacturing', 'development'
+  ];
+  
+  const foundTerms = techTerms.filter(term => 
+    cleaned.toLowerCase().includes(term)
+  );
+  
+  if (foundTerms.length > 0) {
+    return `Visualization of ${foundTerms.join(', ')} advancement in technology industry.`;
+  }
+  
+  const sentences = cleaned.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  
+  let result = sentences.slice(0, 2).join('. ');
+  if (result.length > 0) {
+    result += '.';
+  }
+  
+  if (result.length > 180) {
+    result = result.substring(0, 180);
+    result = result.replace(/\S*$/, '');
+    if (!result.match(/[.!?]$/)) {
+      result += '.';
+    }
+  }
+  
+  return result || 'Visualization of technological innovation and industry progress.';
+}
+
+async function fetchFromNewsAPI(searchQuery, fromDate, toDate, language) {
+  logger.debug(`Entering fetchFromNewsAPI with query: "${searchQuery}"`);
+  const newsapiParams = {
+    q: searchQuery,
+    from: fromDate,
+    to: toDate,
+    sortBy: 'relevancy',
+    apiKey: process.env.NEWSAPI_KEY,
+    language: 'en',
+    pageSize: 20,
+  };
+
+  try {
+    const response = await axios.get('https://newsapi.org/v2/everything', {
+      params: newsapiParams,
+    });
+    logger.info(`NewsAPI responded with status: ${response.status}`);
+    logger.debug(`NewsAPI fetched ${response.data.articles.length} articles`);
+    return response.data.articles;
+  } catch (error) {
+    if (error.response) {
+      logger.error(`NewsAPI Error - Status: ${error.response.status}, Message: ${error.response.data.message}`);
+      if (error.response.status === 429) {
+        throw { api: 'NewsAPI', status: 429, message: 'NewsAPI rate limit exceeded.' };
+      }
+    } else {
+      logger.error(`NewsAPI Error - ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+async function fetchFromGNews(searchQuery, fromDate, toDate, language) {
+  logger.debug(`Entering fetchFromGNews with query: "${searchQuery}"`);
+  const gnewsParams = {
+    q: searchQuery,
+    from: fromDate,
+    to: toDate,
+    sortby: 'relevance',
+    token: process.env.GNEWS_API_KEY,
+    lang: 'en', // FORCE ENGLISH
+    max: 20,
+  };
+
+  try {
+    const response = await axios.get('https://gnews.io/api/v4/search', {
+      params: gnewsParams,
+    });
+    logger.info(`GNews API responded with status: ${response.status}`);
+    logger.debug(`GNews API fetched ${response.data.articles.length} articles`);
+    return response.data.articles;
+  } catch (error) {
+    if (error.response) {
+      logger.error(`GNews API Error - Status: ${error.response.status}, Message: ${error.response.data.message}`);
+      if (error.response.status === 429) {
+        throw { api: 'GNewsAPI', status: 429, message: 'GNewsAPI rate limit exceeded.' };
+      }
+    } else {
+      logger.error(`GNews API Error - ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+function validatePostKeywords(postText, keywords) {
+  if (!postText || !keywords || !Array.isArray(keywords)) {
+    logger.debug('Invalid input to validatePostKeywords');
+    return false;
+  }
+
+  logger.debug(`Validating post with keywords: ${keywords.join(', ')}`);
+  
+  try {
+    const lowerPost = normalizeText(postText);
+    
+    // For generic news keywords, check for news-related content instead
+    const newsKeywords = ['breaking', 'latest', 'news', 'update', 'report'];
+    const isGenericNewsQuery = keywords.every(kw => newsKeywords.includes(kw.toLowerCase()));
+    
+    if (isGenericNewsQuery) {
+      // For generic news queries, just verify it's news content
+      const newsIndicators = [
+        'according to', 'reports', 'announced', 'revealed', 'stated',
+        'development', 'situation', 'event', 'incident', 'update',
+        '📰', '🚨', '📢', '🔍', 'follow for'
+      ];
+      
+      const hasNewsContent = newsIndicators.some(indicator => 
+        lowerPost.includes(indicator.toLowerCase())
+      );
+      
+      logger.debug(`Generic news query validation: ${hasNewsContent ? 'Valid' : 'Invalid'}`);
+      return hasNewsContent;
+    }
+    
+    const stopWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                       'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+                       'have', 'has', 'had', 'will', 'would', 'could', 'should', 'may', 'might',
+                       'right', 'left', 'up', 'down', 'just', 'only', 'very', 'well', 'like'];
+    
+    const originalQuery = keywords.join(' ');
+    const isPhraseTrend = keywords.length > 1 && 
+                          (originalQuery.includes('aged like') || 
+                           originalQuery.includes('sounds like') ||
+                           originalQuery.includes('looks like'));
+    
+    if (isPhraseTrend) {
+      logger.debug(`Phrase trend detected: "${originalQuery}"`);
+      
+      if (originalQuery.includes('aged like')) {
+        const ageRelatedTerms = ['aged', 'age', 'years old', 'young', 'old', 'debut', 'milestone'];
+        const hasAgeContext = ageRelatedTerms.some(term => lowerPost.includes(term));
+        
+        logger.debug(`Age-related context found: ${hasAgeContext}`);
+        return hasAgeContext;
+      }
+      
+      const hasComparison = lowerPost.includes('like') || 
+                           lowerPost.includes('similar') || 
+                           lowerPost.includes('as if') ||
+                           lowerPost.includes('resembles');
+      
+      return hasComparison;
+    }
+    
+    const requiredKeywords = keywords.filter(kw => {
+      const normalized = normalizeText(kw);
+      return normalized.length > 3 && !stopWords.includes(normalized);
+    });
+    
+    logger.debug(`Required keywords after filtering: ${requiredKeywords.join(', ')}`);
+    
+    if (requiredKeywords.length === 0) {
+      const anyKeywordFound = keywords.some(kw => {
+        const normalizedKw = normalizeText(kw);
+        return lowerPost.includes(normalizedKw) || 
+               lowerPost.includes(`#${normalizedKw}`);
+      });
+      
+      logger.debug(`No required keywords, any keyword found: ${anyKeywordFound}`);
+      return anyKeywordFound;
+    }
+    
+    let validCount = 0;
+    const totalRequired = requiredKeywords.length;
+    
+    requiredKeywords.forEach(kw => {
+      const normalizedKw = normalizeText(kw);
+      
+      const variations = [
+        normalizedKw,
+        `#${normalizedKw}`,
+        normalizedKw.replace(/[^\p{L}\p{N}]/gu, '')
+      ];
+      
+      const relatedTerms = {
+        'aged': ['age', 'years old', 'young', 'old'],
+        'like': ['similar', 'as if', 'resembles', 'such as']
+      };
+      
+      if (relatedTerms[normalizedKw]) {
+        variations.push(...relatedTerms[normalizedKw]);
+      }
+      
+      const found = variations.some(variant => lowerPost.includes(variant));
+      
+      if (found) {
+        validCount++;
+        logger.debug(`Keyword "${kw}" (or variation) found`);
+      } else {
+        logger.debug(`Keyword "${kw}" not found`);
+      }
+    });
+    
+    const requiredPercentage = requiredKeywords.length === 1 ? 1.0 : 0.5;
+    const isValid = validCount >= Math.ceil(totalRequired * requiredPercentage);
+    
+    logger.debug(`Post validation result: ${isValid ? 'Valid' : 'Invalid'} (${validCount}/${totalRequired} required keywords)`);
+    return isValid;
+    
+  } catch (error) {
+    logger.error(`Error in validatePostKeywords: ${error.message}`);
+    return false;
+  }
+}
+
+async function generateValidPost(article, keywords, generateVideo, videoDuration, maxRetries = 3) {
+  const isHebrew = keywords.some(kw => /[\u0590-\u05FF]/.test(kw));
+  let attempts = 0;
+  let lastGeneratedPost = null;
+
+  // ADDED: Extract article-specific hashtags
+  const suggestedHashtags = extractArticleHashtags(article, keywords);
+  logger.debug(`Suggested hashtags for "${article.title}": ${suggestedHashtags.join(', ')}`);
+
+  let customVideoPrompt = null;
+  if (generateVideo) {
+    if (article.title.toLowerCase().includes('stock') || 
+        article.title.toLowerCase().includes('price') || 
+        article.title.toLowerCase().includes('invest')) {
+      customVideoPrompt = "Focus on technology and innovation rather than stock prices or investment advice.";
+    }
+  }
+
+  while (attempts < maxRetries) {
+    try {
+      logger.debug(`Generating post attempt ${attempts + 1} for article: "${article.title}"`);
+      
+      const systemPrompt = getSystemPrompt(isHebrew);
+      // MODIFIED: Pass suggested hashtags to user prompt
+      const userPrompt = customVideoPrompt ? 
+          getUserPrompt(keywords, article, suggestedHashtags) + " " + customVideoPrompt : 
+          getUserPrompt(keywords, article, suggestedHashtags);  
+      const config = getOpenAIConfig(systemPrompt, userPrompt);
+      
+      const completion = await openai.chat.completions.create(config);
+
+      const postText = completion.choices[0].message.content;
+      logger.debug(`Generated post text: "${postText}"`);
+      lastGeneratedPost = postText;
+
+      if (validatePostKeywords(postText, keywords)) {
+        logger.info('Post validation successful.');
+        return {
+          text: postText,
+          video: null,
+          state: 'completed',
+          isHebrew
+        };
+      }
+
+      attempts++;
+      logger.warn(`Post validation failed on attempt ${attempts}. Regenerating...`);
+    } catch (error) {
+      attempts++;
+      logger.error(`Error during post generation attempt ${attempts}: ${error.message}`);
+      
+      if (lastGeneratedPost && attempts >= maxRetries) {
+        return {
+          text: lastGeneratedPost,
+          video: null,
+          state: 'failed',
+          isHebrew,
+          failure_reason: error.message
+        };
+      }
+    }
+  }
+
+  logger.error(`Failed to generate valid post after ${maxRetries} attempts for article: "${article.title}"`);
+  return {
+    text: lastGeneratedPost || article.title,
+    video: null,
+    state: 'failed',
+    isHebrew,
+    failure_reason: 'Failed to generate valid post after multiple attempts'
+  };
+}
+
+// Periodic cleanup
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, articles] of userArticleUsage.entries()) {
+    for (const [key, timestamp] of articles.entries()) {
+      if (now - timestamp > 24 * 60 * 60 * 1000) {
+        articles.delete(key);
+      }
+    }
+  }
+}, 60 * 60 * 1000);
+
+setInterval(checkAndResetCseUsage, 1000 * 60 * 60);
+
+// Initialize automation
+async function initializeAutomation() {
+  try {
+    console.log('🔄 Initializing automation system...');
+    const dbManager = new DatabaseManager(db);
+    global.dbManager = dbManager;
+    
+    const automation = new AutomationManager(db);
+    global.automationManager = automation;
+
+    if (process.env.NODE_ENV === 'production') {
+      console.log('⏱️ Waiting 30 seconds before first automation run...');
+      setTimeout(() => {
+        automation.executeAutomatedPost();
+      }, 30000);
+    }
+    
+    console.log('✅ Automation system initialized');
+  } catch (error) {
+    console.error('❌ Failed to initialize automation:', error);
+  }
+}
+
+// Start server
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, async () => {
+  console.log(`Server running with WebSocket support at http://localhost:${PORT}`);
+  
+  const shouldInitializeAutomation = 
+    process.env.AUTOMATION_ENABLED === 'true' || 
+    process.env.NODE_ENV === 'production';
+  
+  if (shouldInitializeAutomation) {
+    await initializeAutomation();
+  } else {
+    console.log('🔴 Automation disabled (set AUTOMATION_ENABLED=true to enable)');
+  }
+});
