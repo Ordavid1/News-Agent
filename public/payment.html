@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choose Your Plan - AI News Agent ✨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glow-purple: #a855f7;
+            --glow-pink: #ec4899;
+            --glow-blue: #3b82f6;
+            --glow-cyan: #06b6d4;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+        }
+        
+        .glow-text {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
+        }
+        
+        .neon-border {
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
+                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .neon-border:hover {
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
+                       0 0 50px rgba(236, 72, 153, 0.3);
+            transform: scale(1.02);
+        }
+        
+        .magic-button {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
+            transition: all 0.3s ease;
+        }
+        
+        .magic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
+        }
+        
+        .recommended-badge {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
+            animation: glow 2s ease-in-out infinite;
+        }
+        
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(236, 72, 153, 0.8); }
+        }
+    </style>
+</head>
+<body class="bg-black text-white min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg border-b border-purple-500/30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                </div>
+                <a href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
+                    ← Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pb-12">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl font-bold mb-4 glow-text">Choose Your Superpower 🚀</h2>
+                <p class="text-gray-400 text-lg">Select the perfect plan to unleash your AI News Agent</p>
+            </div>
+
+            <!-- Pricing Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                <!-- Basic Plan -->
+                <div class="neon-border p-6">
+                    <h3 class="text-2xl font-bold mb-2 text-purple-400">🌟 Starter</h3>
+                    <p class="text-gray-400 text-sm mb-4">Perfect for getting started</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold glow-text">$29</span>
+                        <span class="text-gray-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-6">
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>5 posts per day</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>1 social platform</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Basic analytics</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Email support</span>
+                        </li>
+                    </ul>
+                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold" 
+                            onclick="checkout('basic')">
+                        Launch Starter Plan
+                    </button>
+                </div>
+
+                <!-- Pro Plan (Recommended) -->
+                <div class="neon-border p-6 relative transform scale-105">
+                    <div class="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                        <span class="recommended-badge text-white text-xs font-bold px-4 py-2 rounded-full">
+                            🔥 MOST POPULAR
+                        </span>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-2 text-pink-400">⚡ Pro</h3>
+                    <p class="text-gray-400 text-sm mb-4">For serious content creators</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold glow-text">$79</span>
+                        <span class="text-gray-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-6">
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>20 posts per day</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>3 social platforms</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Advanced analytics</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Priority support</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Custom scheduling</span>
+                        </li>
+                    </ul>
+                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold"
+                            onclick="checkout('pro')">
+                        Launch Pro Plan
+                    </button>
+                </div>
+
+                <!-- Enterprise Plan -->
+                <div class="neon-border p-6">
+                    <h3 class="text-2xl font-bold mb-2 text-cyan-400">🏆 Enterprise</h3>
+                    <p class="text-gray-400 text-sm mb-4">For teams and agencies</p>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold glow-text">$199</span>
+                        <span class="text-gray-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-6">
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Unlimited posts</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>All platforms</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Custom integrations</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>Dedicated support</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-green-500">✓</span>
+                            <span>API access</span>
+                        </li>
+                    </ul>
+                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold"
+                            onclick="checkout('enterprise')">
+                        Launch Enterprise
+                    </button>
+                </div>
+            </div>
+
+            <!-- Trust Badges -->
+            <div class="text-center text-gray-400 text-sm">
+                <p class="mb-4">🔒 Secure payment powered by LemonSqueezy</p>
+                <div class="flex items-center justify-center gap-6">
+                    <span>🛡️ SSL Encrypted</span>
+                    <span>💳 Secure Checkout</span>
+                    <span>↩️ 30-Day Money Back</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/payment.js"></script>
+</body>
+</html>

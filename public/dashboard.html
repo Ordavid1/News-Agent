@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - AIPostGen</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glow-purple: #a855f7;
+            --glow-pink: #ec4899;
+            --glow-blue: #3b82f6;
+            --glow-cyan: #06b6d4;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+        }
+        
+        .glow-text {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.5));
+        }
+        
+        .neon-border {
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
+                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .neon-border:hover {
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
+                       0 0 50px rgba(236, 72, 153, 0.3);
+        }
+        
+        .platform-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .platform-twitter { background: #1DA1F2; }
+        .platform-linkedin { background: #0077B5; }
+        .platform-reddit { background: #FF4500; }
+        .platform-facebook { background: #1877F2; }
+        .platform-instagram { background: linear-gradient(45deg, #F58529, #DD2A7B, #8134AF); }
+    </style>
+</head>
+<body class="min-h-screen bg-black text-white">
+    <!-- Sidebar -->
+    <div class="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 p-6">
+        <div class="text-2xl font-bold glow-text mb-8">AIPostGen ✨</div>
+        <nav class="space-y-2">
+            <a href="#" onclick="showSection('generate')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
+                ✨ Generate Post
+            </a>
+            <a href="#" onclick="showSection('posts')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
+                📝 My Posts
+            </a>
+            <a href="#" onclick="showSection('analytics')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
+                📊 Analytics
+            </a>
+            <a href="#" onclick="showSection('settings')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
+                ⚙️ Settings
+            </a>
+            <a href="#" onclick="showSection('subscription')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
+                💎 Subscription
+            </a>
+        </nav>
+        
+        <div class="absolute bottom-6 left-6 right-6">
+            <div class="neon-border p-4 text-sm">
+                <div class="text-gray-400 mb-1">Posts Today</div>
+                <div class="text-2xl font-bold" id="postsRemaining">--</div>
+                <div class="text-xs text-gray-500 mt-1">Resets daily at midnight</div>
+            </div>
+            <button onclick="logout()" class="w-full mt-4 text-gray-400 hover:text-white transition">
+                Logout
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="ml-64 p-8">
+        <!-- Demo Configuration Display (only shown in demo mode) -->
+        <div id="demoConfigDisplay" class="hidden mb-8 neon-border p-6 bg-purple-500/10">
+            <h2 class="text-xl font-bold mb-4 text-purple-300">🎮 Demo Mode Configuration</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-400">Plan:</span>
+                    <span id="demoPlan" class="ml-2 font-semibold"></span>
+                </div>
+                <div>
+                    <span class="text-gray-400">Topics:</span>
+                    <span id="demoTopics" class="ml-2 font-semibold"></span>
+                </div>
+                <div>
+                    <span class="text-gray-400">Platforms:</span>
+                    <span id="demoPlatforms" class="ml-2 font-semibold"></span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Generate Section -->
+        <section id="generateSection" class="max-w-4xl">
+            <h1 class="text-4xl font-bold mb-8 glow-text">Create Magic ✨</h1>
+            
+            <div class="neon-border p-8 mb-8">
+                <form onsubmit="generatePost(event)">
+                    <div class="mb-6">
+                        <label class="block text-gray-400 mb-2">What's the topic?</label>
+                        <input 
+                            type="text" 
+                            name="topic" 
+                            placeholder="e.g., AI trends, startup tips, tech news..."
+                            required 
+                            class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:border-purple-500 focus:outline-none">
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-400 mb-2">Select Platforms</label>
+                        <div class="flex flex-wrap gap-3" id="platformOptions">
+                            <!-- Platform options will be populated dynamically -->
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 py-3 rounded-full font-semibold hover:scale-105 transition">
+                        Generate Post 🚀
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Generated Post Preview -->
+            <div id="generatedPost" class="hidden">
+                <h2 class="text-2xl font-bold mb-4">Your Generated Post</h2>
+                <div class="neon-border p-6 mb-4">
+                    <div id="postContent" class="text-lg mb-4"></div>
+                    <div id="postPlatforms" class="flex gap-2"></div>
+                </div>
+                <button onclick="publishPost()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                    Publish Now
+                </button>
+            </div>
+        </section>
+
+        <!-- Posts Section -->
+        <section id="postsSection" class="hidden">
+            <h1 class="text-4xl font-bold mb-8 glow-text">Your Posts 📝</h1>
+            <div id="postsList" class="space-y-4">
+                <!-- Posts will be loaded here -->
+            </div>
+        </section>
+
+        <!-- Analytics Section -->
+        <section id="analyticsSection" class="hidden">
+            <h1 class="text-4xl font-bold mb-8 glow-text">Analytics 📊</h1>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="neon-border p-6">
+                    <div class="text-gray-400 mb-2">Total Posts</div>
+                    <div class="text-3xl font-bold" id="totalPosts">0</div>
+                </div>
+                <div class="neon-border p-6">
+                    <div class="text-gray-400 mb-2">Success Rate</div>
+                    <div class="text-3xl font-bold" id="successRate">0%</div>
+                </div>
+                <div class="neon-border p-6">
+                    <div class="text-gray-400 mb-2">Most Used Platform</div>
+                    <div class="text-3xl font-bold" id="topPlatform">-</div>
+                </div>
+            </div>
+            
+            <div class="neon-border p-8">
+                <h2 class="text-2xl font-bold mb-4">Platform Breakdown</h2>
+                <div id="platformBreakdown"></div>
+            </div>
+        </section>
+
+        <!-- Settings Section -->
+        <section id="settingsSection" class="hidden max-w-2xl">
+            <h1 class="text-4xl font-bold mb-8 glow-text">Settings ⚙️</h1>
+            
+            <div class="neon-border p-8 mb-6">
+                <h2 class="text-2xl font-bold mb-4">Profile</h2>
+                <form onsubmit="updateProfile(event)">
+                    <div class="mb-4">
+                        <label class="block text-gray-400 mb-2">Name</label>
+                        <input type="text" name="name" id="userName" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:border-purple-500 focus:outline-none">
+                    </div>
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-full transition">
+                        Update Profile
+                    </button>
+                </form>
+            </div>
+            
+            <div class="neon-border p-8">
+                <h2 class="text-2xl font-bold mb-4">API Access</h2>
+                <p class="text-gray-400 mb-4">Use our API to integrate AIPostGen into your workflows</p>
+                <div class="flex items-center gap-4">
+                    <input type="text" id="apiKey" readonly class="flex-1 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg">
+                    <button onclick="copyApiKey()" class="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg transition">
+                        Copy
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Subscription Section -->
+        <section id="subscriptionSection" class="hidden max-w-4xl">
+            <h1 class="text-4xl font-bold mb-8 glow-text">Subscription 💎</h1>
+            
+            <div class="neon-border p-8 mb-8">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold">Current Plan</h2>
+                    <span id="currentTier" class="text-purple-400 font-semibold text-xl"></span>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-gray-400">
+                    <div>
+                        <span class="block">Posts Remaining Today</span>
+                        <span class="text-2xl font-bold text-white" id="subPostsRemaining">--</span>
+                    </div>
+                    <div>
+                        <span class="block">Resets In</span>
+                        <span class="text-2xl font-bold text-white" id="resetTime">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center">
+                <button onclick="window.location.href='/#pricing'" class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                    Upgrade Plan
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

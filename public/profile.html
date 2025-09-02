@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - AI News Agent ✨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --glow-purple: #a855f7;
+            --glow-pink: #ec4899;
+            --glow-blue: #3b82f6;
+            --glow-cyan: #06b6d4;
+        }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a0a;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+        }
+        
+        .glow-text {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
+        }
+        
+        .neon-border {
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 20px;
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
+                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .neon-border:hover {
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
+                       0 0 50px rgba(236, 72, 153, 0.3);
+        }
+        
+        .magic-button {
+            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
+            transition: all 0.3s ease;
+        }
+        
+        .magic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
+        }
+        
+        .pulse-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        
+        .floating {
+            animation: floating 3s ease-in-out infinite;
+        }
+        
+        @keyframes floating {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+</head>
+<body class="bg-black text-white min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg border-b border-purple-500/30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="userEmail" class="text-sm text-gray-400"></span>
+                    <button id="logoutBtn" class="text-gray-400 hover:text-purple-400 transition-colors">
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pb-12">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+            <!-- Welcome Section -->
+            <div class="text-center mb-12">
+                <h2 class="text-5xl font-bold mb-4 glow-text floating">Welcome back, <span id="userName">Agent</span>! 🚀</h2>
+                <p class="text-gray-400 text-lg">Your AI News Command Center</p>
+            </div>
+
+            <!-- Status Card -->
+            <div id="statusCard" class="neon-border p-8 mb-8">
+                <!-- Free User State -->
+                <div id="freeUserState" class="text-center">
+                    <div class="mb-6">
+                        <div class="inline-flex items-center justify-center w-24 h-24 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
+                            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-3xl font-bold mb-2 glow-text">Unleash Your News Agent</h3>
+                        <p class="text-gray-400 text-lg">Transform trending news into viral social media content with AI magic ✨</p>
+                    </div>
+                    <button id="startAgentBtn" class="magic-button text-white rounded-full px-10 py-4 font-semibold text-lg">
+                        🚀 Launch News Agent
+                    </button>
+                    <p class="text-sm text-gray-500 mt-4">Click to select your plan and activate your AI agent</p>
+                </div>
+
+                <!-- Active User State (hidden by default) -->
+                <div id="activeUserState" class="hidden">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 class="text-2xl font-bold mb-1 glow-text">Agent Status</h3>
+                            <p class="text-gray-400">Your news agent is spreading magic across the internet</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <div class="w-3 h-3 bg-green-500 rounded-full pulse-dot"></div>
+                            <span class="text-green-500 font-medium">Active</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="neon-border p-4">
+                            <p class="text-gray-400 text-sm mb-1">Posts Today</p>
+                            <p class="text-3xl font-bold glow-text">12</p>
+                        </div>
+                        <div class="neon-border p-4">
+                            <p class="text-gray-400 text-sm mb-1">Engagement</p>
+                            <p class="text-3xl font-bold glow-text">8.5%</p>
+                        </div>
+                        <div class="neon-border p-4">
+                            <p class="text-gray-400 text-sm mb-1">Next Post</p>
+                            <p class="text-3xl font-bold glow-text">2h</p>
+                        </div>
+                    </div>
+                    <button id="configureBtn" class="w-full magic-button text-white rounded-full px-6 py-3 font-semibold">
+                        ⚙️ Configure Settings
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <a href="/demo.html" class="neon-border p-6 block hover:scale-105 transition-transform">
+                    <h4 class="font-semibold mb-2 text-purple-400">🎮 Try Demo</h4>
+                    <p class="text-gray-400 text-sm">Test the AI News Agent with sample data</p>
+                </a>
+                <a href="#" class="neon-border p-6 block hover:scale-105 transition-transform">
+                    <h4 class="font-semibold mb-2 text-pink-400">📊 View Analytics</h4>
+                    <p class="text-gray-400 text-sm">Track your agent's performance metrics</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/profile.js"></script>
+</body>
+</html>

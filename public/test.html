@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Demo Functions</title>
+</head>
+<body>
+    <h1>Test Demo Functions</h1>
+    
+    <button onclick="console.log('Direct onclick works')">Test Direct onClick</button>
+    <button onclick="testFunction()">Test Function Call</button>
+    <button onclick="selectPlan('starter')">Test selectPlan</button>
+    
+    <div id="output"></div>
+    
+    <script>
+        console.log('Inline script loaded');
+        
+        function testFunction() {
+            console.log('testFunction called');
+            document.getElementById('output').innerHTML = 'Function called!';
+        }
+        
+        // Check if demo.js functions are available
+        setTimeout(() => {
+            console.log('Checking for demo.js functions...');
+            console.log('selectPlan:', typeof window.selectPlan);
+            console.log('toggleTopic:', typeof window.toggleTopic);
+            console.log('togglePlatform:', typeof window.togglePlatform);
+        }, 1000);
+    </script>
+    
+    <script src="/js/demo.js"></script>
+</body>
+</html>
