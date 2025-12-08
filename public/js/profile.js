@@ -410,6 +410,7 @@ async function openTelegramModal() {
 
     // Show modal
     modal.classList.remove('hidden');
+    modal.classList.add('flex');
 
     // Fetch bot info if not already loaded
     if (!telegramBotUsername) {
@@ -435,7 +436,10 @@ async function openTelegramModal() {
 
 function closeTelegramModal() {
     const modal = document.getElementById('telegramModal');
-    if (modal) modal.classList.add('hidden');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
 }
 
 function showTelegramError(message) {
@@ -672,11 +676,15 @@ function showTestResults(result, isSuccess) {
 
     content.innerHTML = html;
     modal.classList.remove('hidden');
+    modal.classList.add('flex');
 }
 
 function closeTestModal() {
     const modal = document.getElementById('testResultModal');
-    if (modal) modal.classList.add('hidden');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
 }
 
 // Make functions globally available

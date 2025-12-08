@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const indicator = document.getElementById('testModeIndicator');
                 if (indicator) {
                     indicator.classList.remove('hidden');
+                    indicator.classList.add('inline-block');
                 }
             }
         }
