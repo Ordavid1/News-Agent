@@ -3,25 +3,28 @@
 
 services:
   - type: web
-    name: aipostgen-saas
+    name: news-agent
     runtime: node
-    region: oregon  # or: ohio, frankfurt, singapore
-    plan: starter   # free, starter, standard, pro
+    region: oregon
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
+      # Core Settings
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      # Supabase
-      - key: SUPABASE_URL
+      - key: FRONTEND_URL
         sync: false
-      - key: SUPABASE_PUBLISHABLE_KEY
-        sync: false
-      - key: SUPABASE_SECRET_KEY
-        sync: false
+      - key: TEST_MODE
+        value: false
+      - key: USE_LOCAL_DB
+        value: false
+      - key: BACKGROUND_WORKERS_ENABLED
+        value: true
+
       # Authentication
       - key: JWT_SECRET
         generateValue: true
@@ -29,31 +32,131 @@ services:
         generateValue: true
       - key: TOKEN_ENCRYPTION_KEY
         sync: false
+
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_REDIRECT_URL
+        sync: false
+
       # Google OAuth
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+
       # OpenAI
       - key: OPENAI_API_KEY
         sync: false
-      # Frontend URL (set after first deploy)
-      - key: FRONTEND_URL
+
+      # Twitter/X API
+      - key: TWITTER_PREMIUM
+        value: true
+      - key: TWITTER_BEARER_TOKEN
         sync: false
-      # Social Platform OAuth (App Credentials)
       - key: TWITTER_CLIENT_ID
         sync: false
       - key: TWITTER_CLIENT_SECRET
         sync: false
+      - key: TWITTER_RATE_LIMIT_BUFFER
+        value: 100
+
+      # LinkedIn API
       - key: LINKEDIN_CLIENT_ID
         sync: false
       - key: LINKEDIN_CLIENT_SECRET
         sync: false
+
+      # Facebook API
       - key: FACEBOOK_APP_ID
         sync: false
       - key: FACEBOOK_APP_SECRET
         sync: false
+      - key: FACEBOOK_PAGE_ID
+        sync: false
+      - key: FACEBOOK_PAGE_ACCESS_TOKEN
+        sync: false
+
+      # Reddit API
       - key: REDDIT_CLIENT_ID
         sync: false
       - key: REDDIT_CLIENT_SECRET
         sync: false
+      - key: REDDIT_USERNAME
+        sync: false
+      - key: REDDIT_PASSWORD
+        sync: false
+      - key: REDDIT_SUBREDDIT
+        sync: false
+
+      # Telegram Bot API
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+
+      # News API Keys
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: GNEWS_API_KEY
+        sync: false
+      - key: GOOGLE_CSE_API_KEY
+        sync: false
+      - key: GOOGLE_CSE_ID
+        sync: false
+
+      # Additional APIs
+      - key: SERPAPI_KEY
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: INSTAGRAM_API_KEY
+        sync: false
+      - key: TIKTOK_API_KEY
+        sync: false
+
+      # Automation Settings
+      - key: AUTOMATION_ENABLED
+        value: true
+
+      # Enable/Disable Sources
+      - key: ENABLE_TWITTER_TRENDS
+        value: true
+      - key: ENABLE_REDDIT_TRENDS
+        value: true
+      - key: ENABLE_GOOGLE_TRENDS
+        value: true
+      - key: ENABLE_TIKTOK_SCRAPING
+        value: false
+
+      # Trend Reuse Configuration
+      - key: TREND_USAGE_WINDOW
+        value: 24
+      - key: TREND_UNUSED_WINDOW
+        value: 12
+      - key: TREND_MAX_USAGE
+        value: 2
+      - key: TREND_MAX_DAILY
+        value: 6
+      - key: TREND_PENALTY_MILD
+        value: 0.9
+      - key: TREND_PENALTY_MOD
+        value: 0.7
+      - key: TREND_PENALTY_SEVERE
+        value: 0.4
+      - key: TREND_VOLUME_BOOST
+        value: 1.2
+      - key: TREND_VOLUME_THRESHOLD
+        value: 10000
+      - key: TREND_VIRAL_HANDLING
+        value: true
+      - key: TREND_VIRAL_THRESHOLD
+        value: 50000
+
+      # Trend Configuration
+      - key: MIN_TREND_SOURCES
+        value: 1
+      - key: MIN_TREND_CONFIDENCE
+        value: 0.5
