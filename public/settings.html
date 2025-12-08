@@ -3,7 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configure Agent - AI News Agent ✨</title>
+    <title>Settings - News Agent</title>
+    <meta name="description" content="Configure your News Agent settings and automation preferences.">
+    <!-- Prevent indexing of authenticated pages -->
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex, nofollow">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#a855f7">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -164,6 +173,7 @@
                 <!-- Platform Settings -->
                 <div class="neon-border p-6">
                     <h3 class="text-xl font-semibold mb-4 text-purple-400">🌐 Platform Settings</h3>
+                    <p class="text-gray-400 text-sm mb-4">Select which connected platforms to post to</p>
                     <div class="space-y-4">
                         <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
                             <div class="flex items-center gap-3">
@@ -189,6 +199,48 @@
                             </div>
                             <input type="checkbox" name="platforms" value="linkedin" class="rounded bg-black/50 border-purple-500/30">
                         </label>
+                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #FF4500, #FF5700);">
+                                    <span class="text-white font-bold">r/</span>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Reddit</p>
+                                    <p class="text-sm text-gray-400">Post to subreddits</p>
+                                </div>
+                            </div>
+                            <input type="checkbox" name="platforms" value="reddit" class="rounded bg-black/50 border-purple-500/30">
+                        </label>
+                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #1877F2, #3b5998);">
+                                    <span class="text-white font-bold">f</span>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Facebook</p>
+                                    <p class="text-sm text-gray-400">Share to pages and groups</p>
+                                </div>
+                            </div>
+                            <input type="checkbox" name="platforms" value="facebook" class="rounded bg-black/50 border-purple-500/30">
+                        </label>
+                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: #0088cc;">
+                                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p class="font-medium">Telegram</p>
+                                    <p class="text-sm text-gray-400">Post to channels and groups</p>
+                                </div>
+                            </div>
+                            <input type="checkbox" name="platforms" value="telegram" class="rounded bg-black/50 border-purple-500/30">
+                        </label>
+                    </div>
+                    <!-- Connection status hint -->
+                    <div id="connectionHint" class="mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 hidden">
+                        <p class="text-yellow-400 text-sm" id="connectionHintText"></p>
                     </div>
                 </div>
 
@@ -198,7 +250,7 @@
                         Cancel
                     </button>
                     <button type="submit" class="magic-button px-8 py-3 text-white rounded-full font-semibold">
-                        🚀 Activate Agent
+                        💾 Save Settings
                     </button>
                 </div>
             </form>

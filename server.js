@@ -21,6 +21,7 @@ import analyticsRoutes from './routes/analytics.js';
 import userRoutes from './routes/users.js';
 import automationRoutes from './routes/automation.js';
 import testRoutes from './routes/test.js';
+import connectionsRoutes from './routes/connections.js';
 
 // Import middleware
 import { authenticateToken } from './middleware/auth.js';
@@ -28,8 +29,9 @@ import { rateLimiter } from './middleware/rateLimiter.js';
 import { checkSubscriptionLimits } from './middleware/subscription.js';
 
 // Import services
-import { initializeFirestore, getDb } from './services/database-wrapper.js';
+import { initializeDatabase, getDb } from './services/database.js';
 import AutomationManager from './services/AutomationManager.js';
+import { startAllWorkers, stopAllWorkers, getWorkersStatus } from './workers/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,8 +98,44 @@ app.use(passport.session());
 // Apply rate limiting to all API routes
 app.use('/api', rateLimiter);
 
-// Static files
-app.use(express.static(path.join(__dirname, 'public')));
+// SEO: Serve robots.txt with correct content type
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.sendFile(path.join(__dirname, 'public', 'robots.txt'));
+});
+
+// SEO: Serve sitemap.xml with correct content type
+app.get('/sitemap.xml', (req, res) => {
+  res.type('application/xml');
+  res.sendFile(path.join(__dirname, 'public', 'sitemap.xml'));
+});
+
+// SEO: Serve manifest.json with correct content type
+app.get('/manifest.json', (req, res) => {
+  res.type('application/manifest+json');
+  res.sendFile(path.join(__dirname, 'public', 'manifest.json'));
+});
+
+// SEO: Add caching headers for static assets
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1d', // Cache static files for 1 day
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    // Set longer cache for images and fonts
+    if (filePath.match(/\.(jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+    }
+    // Set shorter cache for HTML files
+    if (filePath.match(/\.html$/)) {
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+    }
+    // Set cache for CSS and JS
+    if (filePath.match(/\.(css|js)$/)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
+    }
+  }
+}));
 
 // Auth Routes (no /api prefix for OAuth)
 app.use('/auth', authRoutes);
@@ -109,6 +147,7 @@ app.use('/api/posts', authenticateToken, checkSubscriptionLimits, postsRoutes);
 app.use('/api/analytics', authenticateToken, analyticsRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/automation', authenticateToken, automationRoutes);
+app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route)
 app.use('/api/test', testRoutes); // Test routes (no auth for testing)
 
 // Demo endpoint (no auth required for testing)
@@ -254,29 +293,74 @@ app.use((err, req, res, next) => {
 // Initialize database and start server
 async function startServer() {
   try {
-    // Initialize database
-    await initializeFirestore();
-    logger.info('Database connection established');
-    
+    // Initialize database (Supabase)
+    await initializeDatabase();
+    logger.info('Supabase database connection established');
+
     // Initialize automation manager
     const db = getDb();
     const automationManager = new AutomationManager(db);
     logger.info('Automation system initialized');
-    
+
     // Make automation manager available globally
     app.locals.automationManager = automationManager;
 
+    // Start background workers if enabled
+    const workersEnabled = process.env.BACKGROUND_WORKERS_ENABLED === 'true';
+    if (workersEnabled) {
+      startAllWorkers();
+      logger.info('Background workers started');
+    } else {
+      logger.info('Background workers disabled (set BACKGROUND_WORKERS_ENABLED=true to enable)');
+    }
+
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       logger.info(`🚀 AIPostGen SaaS server running on port ${PORT}`);
       logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
       logger.info(`🤖 Automation enabled: ${process.env.AUTOMATION_ENABLED === 'true' ? 'YES' : 'NO'}`);
+      logger.info(`⚙️  Background workers: ${workersEnabled ? 'ENABLED' : 'DISABLED'}`);
     });
+
+    // Graceful shutdown handling
+    const gracefulShutdown = (signal) => {
+      logger.info(`${signal} received. Shutting down gracefully...`);
+
+      // Stop background workers
+      if (workersEnabled) {
+        stopAllWorkers();
+        logger.info('Background workers stopped');
+      }
+
+      server.close(() => {
+        logger.info('HTTP server closed');
+        process.exit(0);
+      });
+
+      // Force shutdown after 10 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
+
+// Health check endpoint for workers status
+app.get('/api/workers/status', authenticateToken, (req, res) => {
+  res.json({
+    success: true,
+    workers: getWorkersStatus(),
+    enabled: process.env.BACKGROUND_WORKERS_ENABLED === 'true'
+  });
+});
 
 startServer();
 

@@ -37,12 +37,15 @@ Writing style:
 - Thought-provoking and forward-thinking
 
 CRITICAL URL INSTRUCTION:
-- You MUST include a link section in your post
-- Use this EXACT format for the link: 🔗 Read full details: [URL_PLACEHOLDER]
-- Place the link after your main content but before the hashtags
-- The [URL_PLACEHOLDER] will be replaced with the actual URL
-- DO NOT create your own URLs or shorten them
-- LinkedIn will automatically convert the plain URL into a clickable link
+- You will receive an exact source URL in the prompt
+- Include that EXACT URL in your post - DO NOT modify, shorten, or create fake URLs
+- DO NOT use bit.ly, tinyurl, or any URL shortener
+- If no URL is provided, DO NOT include any URL at all
+
+HASHTAG FORMAT (CRITICAL):
+- Use standard hashtag format: #HashtagName (NOT "hashtag#HashtagName")
+- No spaces in hashtags
+- CamelCase for multi-word hashtags: #GenerativeAI #MachineLearning
 
 Format:
 🚀 [Attention-grabbing headline about the AI development]
@@ -57,26 +60,33 @@ Format:
 
 💡 What are your thoughts on this development? How do you see it impacting your work?
 
-🔥 🔗 Read full details: [URL_PLACEHOLDER]
+🔗 [Include the exact source URL here - or omit this line if no URL provided]
+
+#Hashtag1 #Hashtag2 #Hashtag3
 
 `;
 };
 
 const getLinkedInUserPrompt = (article) => {
-  return `
-BREAKING GENERATIVE AI NEWS:
-Headline: ${article.title}
-Source URL (USE THIS EXACT URL): ${article.url}
-Published: ${new Date(article.publishedAt || new Date()).toLocaleString()}
-Summary: ${article.description}
+  const hasValidUrl = article.url && article.url.startsWith('http');
 
-Create a LinkedIn post that provides professional analysis of this Generative AI development.
-Make it informative and insightful for AI professionals and business leaders.
-Focus on the technical innovation and business implications.
+  return `
+BREAKING NEWS TO SHARE:
+Headline: ${article.title}
+${hasValidUrl ? `Source URL: ${article.url}` : '(No source URL available - do NOT include any URL)'}
+Published: ${new Date(article.publishedAt || new Date()).toLocaleString()}
+Summary: ${article.description || article.summary || ''}
+
+Create a LinkedIn post that provides professional analysis of this development.
+Make it informative and insightful for professionals and business leaders.
+Focus on the innovation and business implications.
 The post should be 3-4 substantive paragraphs that add value beyond the headline.
 
-CRITICAL: You MUST use the exact URL provided above (${article.url}) in the link.
-DO NOT create a LinkedIn shortened URL or modify the URL in any way.
+CRITICAL RULES:
+${hasValidUrl ? `- Include this EXACT URL in your post: ${article.url}` : '- Do NOT include any URL since none was provided'}
+- NEVER create fake URLs (no bit.ly, no shortened links, no made-up URLs)
+- Use proper hashtag format: #HashtagName (NOT "hashtag#HashtagName")
+- Extract relevant hashtags from the article content
 `;
 };
 

@@ -1,5 +1,5 @@
 // services/DatabaseManager.js
-import { FieldValue } from '@google-cloud/firestore';
+// Converted from Firestore to Supabase API
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -16,20 +16,22 @@ const logger = winston.createLogger({
 
 class DatabaseManager {
   constructor(db) {
+    // db is now the Supabase client (supabaseAdmin)
     this.db = db;
-    this.collections = {
+    this.tables = {
       scheduled_posts: 'scheduled_posts',
       published_posts: 'published_posts',
       trend_history: 'trend_history',
-      automation_logs: 'automation_logs'
+      automation_logs: 'automation_logs',
+      analytics_reports: 'analytics_reports'
     };
-    
+
     this.initializeCollections();
   }
 
   async initializeCollections() {
     try {
-      // Just log that we're ready - Firestore creates collections automatically
+      // Supabase tables are created via migrations, just log readiness
       logger.info('Database collections ready');
       return true;
     } catch (error) {
@@ -40,14 +42,20 @@ class DatabaseManager {
 
   async saveScheduledPost(postData) {
     try {
-      const docRef = await this.db.collection(this.collections.scheduled_posts).add({
-        ...postData,
-        created_at: FieldValue.serverTimestamp(),
-        status: 'pending'
-      });
-      
-      logger.debug(`Scheduled post saved with ID: ${docRef.id}`);
-      return docRef.id;
+      const { data, error } = await this.db
+        .from(this.tables.scheduled_posts)
+        .insert({
+          ...postData,
+          created_at: new Date().toISOString(),
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      logger.debug(`Scheduled post saved with ID: ${data.id}`);
+      return data.id;
     } catch (error) {
       logger.error('Error saving scheduled post:', error);
       throw error;
@@ -56,13 +64,19 @@ class DatabaseManager {
 
   async savePublishedPost(postData) {
     try {
-      const docRef = await this.db.collection(this.collections.published_posts).add({
-        ...postData,
-        published_at: FieldValue.serverTimestamp()
-      });
-      
-      logger.debug(`Published post saved with ID: ${docRef.id}`);
-      return docRef.id;
+      const { data, error } = await this.db
+        .from(this.tables.published_posts)
+        .insert({
+          ...postData,
+          published_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      logger.debug(`Published post saved with ID: ${data.id}`);
+      return data.id;
     } catch (error) {
       logger.error('Error saving published post:', error);
       throw error;
@@ -71,12 +85,18 @@ class DatabaseManager {
 
   async saveTrendHistory(trendData) {
     try {
-      const docRef = await this.db.collection(this.collections.trend_history).add({
-        ...trendData,
-        detected_at: FieldValue.serverTimestamp()
-      });
-      
-      return docRef.id;
+      const { data, error } = await this.db
+        .from(this.tables.trend_history)
+        .insert({
+          ...trendData,
+          detected_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return data.id;
     } catch (error) {
       logger.error('Error saving trend history:', error);
       throw error;
@@ -87,17 +107,16 @@ class DatabaseManager {
     try {
       const since = new Date();
       since.setHours(since.getHours() - hours);
-      
-      const snapshot = await this.db
-        .collection(this.collections.trend_history)
-        .where('detected_at', '>', since)
-        .orderBy('detected_at', 'desc')
-        .get();
-      
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+
+      const { data, error } = await this.db
+        .from(this.tables.trend_history)
+        .select('*')
+        .gt('detected_at', since.toISOString())
+        .order('detected_at', { ascending: false });
+
+      if (error) throw error;
+
+      return data || [];
     } catch (error) {
       logger.error('Error fetching recent trends:', error);
       return [];
@@ -106,15 +125,30 @@ class DatabaseManager {
 
   async updatePostEngagement(postId, platform, metrics) {
     try {
-      const postRef = this.db
-        .collection(this.collections.published_posts)
-        .doc(postId);
-      
-      await postRef.update({
-        [`engagement.${platform}`]: metrics,
-        [`engagement.lastUpdated`]: FieldValue.serverTimestamp()
-      });
-      
+      // First get current engagement data
+      const { data: currentPost, error: fetchError } = await this.db
+        .from(this.tables.published_posts)
+        .select('engagement')
+        .eq('id', postId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+      // Merge with existing engagement data
+      const currentEngagement = currentPost?.engagement || {};
+      const updatedEngagement = {
+        ...currentEngagement,
+        [platform]: metrics,
+        lastUpdated: new Date().toISOString()
+      };
+
+      const { error } = await this.db
+        .from(this.tables.published_posts)
+        .update({ engagement: updatedEngagement })
+        .eq('id', postId);
+
+      if (error) throw error;
+
       logger.debug(`Updated engagement for post ${postId} on ${platform}`);
       return true;
     } catch (error) {
@@ -125,38 +159,39 @@ class DatabaseManager {
 
   async getScheduledPosts(status = 'pending') {
     try {
-      const snapshot = await this.db
-        .collection(this.collections.scheduled_posts)
-        .where('status', '==', status)
-        .orderBy('created_at', 'asc')
-        .get();
-      
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const { data, error } = await this.db
+        .from(this.tables.scheduled_posts)
+        .select('*')
+        .eq('status', status)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      return data || [];
     } catch (error) {
       logger.error('Error fetching scheduled posts:', error);
       return [];
     }
   }
 
-  async updateScheduledPostStatus(postId, status, error = null) {
+  async updateScheduledPostStatus(postId, status, errorMsg = null) {
     try {
       const updateData = {
         status,
-        updated_at: FieldValue.serverTimestamp()
+        updated_at: new Date().toISOString()
       };
-      
-      if (error) {
-        updateData.error = error;
+
+      if (errorMsg) {
+        updateData.error = errorMsg;
       }
-      
-      await this.db
-        .collection(this.collections.scheduled_posts)
-        .doc(postId)
-        .update(updateData);
-      
+
+      const { error } = await this.db
+        .from(this.tables.scheduled_posts)
+        .update(updateData)
+        .eq('id', postId);
+
+      if (error) throw error;
+
       logger.debug(`Updated scheduled post ${postId} status to ${status}`);
       return true;
     } catch (error) {
@@ -164,75 +199,107 @@ class DatabaseManager {
       return false;
     }
   }
-  // Add these methods to the DatabaseManager class
 
-async getPublishedPostsSince(date) {
-  try {
-    const snapshot = await this.db
-      .collection(this.collections.published_posts)
-      .where('published_at', '>=', date)
-      .get();
-    
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-  } catch (error) {
-    logger.error('Error fetching published posts:', error);
-    return [];
-  }
-}
+  async getPublishedPostsSince(date) {
+    try {
+      const { data, error } = await this.db
+        .from(this.tables.published_posts)
+        .select('*')
+        .gte('published_at', date instanceof Date ? date.toISOString() : date);
 
-async saveDailyReport(report) {
-  try {
-    await this.db.collection('analytics_reports').add({
-      ...report,
-      created_at: FieldValue.serverTimestamp()
-    });
-    logger.info('Daily report saved');
-  } catch (error) {
-    logger.error('Error saving daily report:', error);
-  }
-}
+      if (error) throw error;
 
-async cleanupOldPosts(beforeDate) {
-  try {
-    const snapshot = await this.db
-      .collection(this.collections.scheduled_posts)
-      .where('created_at', '<', beforeDate)
-      .where('status', 'in', ['completed', 'failed'])
-      .get();
-    
-    const batch = this.db.batch();
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    await batch.commit();
-    logger.info(`Cleaned up ${snapshot.size} old scheduled posts`);
-  } catch (error) {
-    logger.error('Error cleaning up old posts:', error);
+      return data || [];
+    } catch (error) {
+      logger.error('Error fetching published posts:', error);
+      return [];
+    }
   }
-}
 
-async cleanupOldTrends(beforeDate) {
-  try {
-    const snapshot = await this.db
-      .collection(this.collections.trend_history)
-      .where('detected_at', '<', beforeDate)
-      .get();
-    
-    const batch = this.db.batch();
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    await batch.commit();
-    logger.info(`Cleaned up ${snapshot.size} old trend records`);
-  } catch (error) {
-    logger.error('Error cleaning up old trends:', error);
+  async saveDailyReport(report) {
+    try {
+      const { error } = await this.db
+        .from(this.tables.analytics_reports)
+        .insert({
+          ...report,
+          created_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+
+      logger.info('Daily report saved');
+    } catch (error) {
+      logger.error('Error saving daily report:', error);
+    }
   }
-}
+
+  async cleanupOldPosts(beforeDate) {
+    try {
+      const dateStr = beforeDate instanceof Date ? beforeDate.toISOString() : beforeDate;
+
+      const { data, error } = await this.db
+        .from(this.tables.scheduled_posts)
+        .delete()
+        .lt('created_at', dateStr)
+        .in('status', ['completed', 'failed'])
+        .select();
+
+      if (error) throw error;
+
+      const count = data?.length || 0;
+      logger.info(`Cleaned up ${count} old scheduled posts`);
+    } catch (error) {
+      logger.error('Error cleaning up old posts:', error);
+    }
+  }
+
+  async cleanupOldTrends(beforeDate) {
+    try {
+      const dateStr = beforeDate instanceof Date ? beforeDate.toISOString() : beforeDate;
+
+      const { data, error } = await this.db
+        .from(this.tables.trend_history)
+        .delete()
+        .lt('detected_at', dateStr)
+        .select();
+
+      if (error) throw error;
+
+      const count = data?.length || 0;
+      logger.info(`Cleaned up ${count} old trend records`);
+    } catch (error) {
+      logger.error('Error cleaning up old trends:', error);
+    }
+  }
+
+  // Get recently used topics for duplicate prevention
+  async getRecentlyUsedTopics(hours = 24, platform = null) {
+    try {
+      const since = new Date();
+      since.setHours(since.getHours() - hours);
+
+      let query = this.db
+        .from(this.tables.published_posts)
+        .select('topic, trend_topic, platform, published_at')
+        .gt('published_at', since.toISOString());
+
+      if (platform) {
+        query = query.eq('platform', platform);
+      }
+
+      const { data, error } = await query.order('published_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Extract unique topics
+      const topics = (data || []).map(post => post.topic || post.trend_topic).filter(Boolean);
+      logger.debug(`Found ${topics.length} recently used topics`);
+      return topics;
+    } catch (error) {
+      logger.error('Error fetching recently used topics:', error);
+      return [];
+    }
+  }
 }
 
 export default DatabaseManager;

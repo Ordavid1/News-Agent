@@ -1,0 +1,84 @@
+# robots.txt for News Agent - aipostgenerator.dev
+# AI-Powered Social Media Content Generation Platform
+
+# Allow all search engines to crawl public pages
+User-agent: *
+Allow: /
+Allow: /index.html
+Allow: /demo.html
+Allow: /payment.html
+Allow: /blog/
+Allow: /sitemap.xml
+
+# Block private/authenticated pages
+Disallow: /auth.html
+Disallow: /dashboard.html
+Disallow: /profile.html
+Disallow: /settings.html
+Disallow: /test.html
+
+# Block API endpoints from crawling
+Disallow: /api/
+
+# Block JavaScript app files (not needed for SEO)
+Disallow: /js/app.js
+Disallow: /js/profile.js
+Disallow: /js/settings.js
+
+# Crawl delay for politeness (in seconds)
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://aipostgenerator.dev/sitemap.xml
+
+# Google-specific directives
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
+
+# Bing-specific directives
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# AI Crawlers (for AEO - AI Engine Optimization)
+User-agent: GPTBot
+Allow: /
+Allow: /blog/
+
+User-agent: ChatGPT-User
+Allow: /
+Allow: /blog/
+
+User-agent: Google-Extended
+Allow: /
+Allow: /blog/
+
+User-agent: anthropic-ai
+Allow: /
+Allow: /blog/
+
+User-agent: Claude-Web
+Allow: /
+Allow: /blog/
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /blog/
+
+User-agent: Bytespider
+Allow: /
+Allow: /blog/
+
+# Social media crawlers for rich previews
+User-agent: Twitterbot
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: Slackbot
+Allow: /

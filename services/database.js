@@ -1,6 +1,11 @@
-// services/database.js
-import { Firestore } from '@google-cloud/firestore';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+/**
+ * Database Service - Supabase Implementation
+ *
+ * Provides database operations using Supabase PostgreSQL
+ * Maintains backwards compatibility with previous Firestore API
+ */
+
+import { supabaseAdmin } from './supabase.js';
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -12,134 +17,239 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
-let db;
-
-export async function initializeFirestore() {
+/**
+ * Initialize database connection (Supabase)
+ * Unlike Firestore, Supabase doesn't require explicit initialization
+ * but we keep this for backwards compatibility and connection testing
+ */
+export async function initializeDatabase() {
   try {
-    const secretClient = new SecretManagerServiceClient();
-    
-    // Fetch credentials from Secret Manager
-    const [version] = await secretClient.accessSecretVersion({
-      name: 'projects/vaulted-bivouac-417511/secrets/firebase-key/versions/latest'
-    });
-    
-    const serviceAccountJSON = version.payload.data.toString();
-    const serviceAccount = JSON.parse(serviceAccountJSON);
-    
-    // Initialize Firestore with multi-tenant database
-    db = new Firestore({
-      projectId: 'vaulted-bivouac-417511',
-      credentials: {
-        client_email: serviceAccount.client_email,
-        private_key: serviceAccount.private_key
-      },
-      databaseId: 'postgendb' // Use the same database as parent bot
-    });
-    
-    // Test connection
-    await db.listCollections();
-    logger.info('✅ Firestore connection successful');
-    
-    // Initialize collections if they don't exist
-    await initializeCollections();
-    
-    return db;
+    // Test connection by querying a simple endpoint
+    const { data, error } = await supabaseAdmin.from('profiles').select('count').limit(1);
+
+    if (error && error.code !== 'PGRST116') {
+      // PGRST116 means table doesn't exist yet - that's OK for first run
+      logger.error('Supabase connection error:', error);
+      throw error;
+    }
+
+    logger.info('Supabase connection successful');
+    return true;
   } catch (error) {
-    logger.error('Failed to initialize Firestore:', error);
+    logger.error('Failed to initialize Supabase:', error);
     throw error;
   }
 }
 
-async function initializeCollections() {
-  const collections = [
-    'users',
-    'subscriptions',
-    'posts',
-    'usage_logs',
-    'analytics',
-    'payment_history',
-    'api_keys'
-  ];
-  
-  for (const collectionName of collections) {
-    const collection = db.collection(collectionName);
-    const snapshot = await collection.limit(1).get();
-    if (snapshot.empty) {
-      logger.info(`Initialized collection: ${collectionName}`);
-    }
-  }
-}
+// Alias for backwards compatibility
+export const initializeFirestore = initializeDatabase;
 
-// User management functions
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+/**
+ * Create a new user profile or get existing user
+ * Note: In Supabase, the user is first created in auth.users via signup,
+ * then we create the extended profile in public.profiles
+ *
+ * Handles cases where:
+ * - User doesn't exist at all (creates both auth user and profile)
+ * - Auth user exists but profile doesn't (creates profile only)
+ * - Both exist (updates profile and returns existing user)
+ */
 export async function createUser(userData) {
-  const user = {
-    ...userData,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    subscription: {
-      tier: 'free',
-      status: 'active',
-      postsRemaining: 5, // Free tier gets 5 posts per day
-      dailyLimit: 5,
-      resetDate: getDailyResetDate()
-    },
-    settings: {
-      defaultPlatforms: [],
-      preferredTopics: [],
-      autoSchedule: false
-    }
-  };
-  
-  const docRef = await db.collection('users').add(user);
-  return { id: docRef.id, ...user };
-}
+  const { email, password, name, apiKey, ...rest } = userData;
 
-export async function getUserById(userId) {
-  const doc = await db.collection('users').doc(userId).get();
-  if (!doc.exists) return null;
-  return { id: doc.id, ...doc.data() };
-}
+  let authUserId = null;
 
-export async function getUserByEmail(email) {
-  const snapshot = await db.collection('users')
-    .where('email', '==', email)
-    .limit(1)
-    .get();
-  
-  if (snapshot.empty) return null;
-  const doc = snapshot.docs[0];
-  return { id: doc.id, ...doc.data() };
-}
-
-export async function getUserByResetToken(token) {
-  const snapshot = await db.collection('users')
-    .where('passwordResetToken', '==', token)
-    .get();
-  
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-
-export async function updateUser(userId, updates) {
-  await db.collection('users').doc(userId).update({
-    ...updates,
-    updatedAt: new Date()
+  // Try to create auth user first
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true, // Auto-confirm for now
+    user_metadata: { name }
   });
+
+  if (authError) {
+    // Check if user already exists
+    if (authError.message?.includes('already been registered') || authError.code === 'email_exists') {
+      logger.info(`Auth user already exists for ${email}, fetching existing user`);
+
+      // Get existing auth user by email
+      const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (listError) {
+        logger.error('Error listing users:', listError);
+        throw listError;
+      }
+
+      const existingUser = existingUsers.users.find(u => u.email === email);
+      if (existingUser) {
+        authUserId = existingUser.id;
+      } else {
+        logger.error('Could not find existing auth user');
+        throw authError;
+      }
+    } else {
+      logger.error('Error creating auth user:', authError);
+      throw authError;
+    }
+  } else {
+    authUserId = authData.user.id;
+  }
+
+  // Prepare profile data
+  const profile = {
+    id: authUserId,
+    email,
+    name,
+    api_key: apiKey || null,
+    subscription_tier: rest.subscriptionTier || 'free',
+    subscription_status: rest.subscriptionStatus || 'active',
+    posts_remaining: rest.postsRemaining || 5,
+    daily_limit: rest.dailyLimit || 5,
+    reset_date: getDailyResetDate(),
+    default_platforms: rest.defaultPlatforms || [],
+    preferred_topics: rest.preferredTopics || [],
+    timezone: rest.timezone || 'UTC',
+    auto_schedule: rest.autoSchedule || false,
+    automation_enabled: rest.automationEnabled || false,
+    automation_platforms: rest.automationPlatforms || [],
+    automation_topics: rest.automationTopics || [],
+    automation_posts_per_day: rest.automationPostsPerDay || 1,
+    automation_schedule: rest.automationSchedule || { morning: false, lunch: false, evening: false, night: false },
+    automation_tone: rest.automationTone || 'professional'
+  };
+
+  // Try to upsert profile (insert or update if exists)
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .upsert(profile, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting profile:', error);
+    // Only rollback if we created a new auth user
+    if (authData?.user?.id) {
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+    }
+    throw error;
+  }
+
+  // Return in legacy format for backwards compatibility
+  return formatUserForLegacy(data);
 }
 
-// Subscription management
+/**
+ * Get user by ID
+ */
+export async function getUserById(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting user by ID:', error);
+    throw error;
+  }
+
+  return formatUserForLegacy(data);
+}
+
+/**
+ * Get user by email
+ */
+export async function getUserByEmail(email) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting user by email:', error);
+    throw error;
+  }
+
+  return formatUserForLegacy(data);
+}
+
+/**
+ * Get user by password reset token
+ */
+export async function getUserByResetToken(token) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('*')
+    .eq('password_reset_token', token);
+
+  if (error) {
+    logger.error('Error getting user by reset token:', error);
+    throw error;
+  }
+
+  return data.map(formatUserForLegacy);
+}
+
+/**
+ * Update user profile
+ */
+export async function updateUser(userId, updates) {
+  // Convert legacy format to Supabase format
+  const supabaseUpdates = convertUpdatesToSupabase(updates);
+  supabaseUpdates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .update(supabaseUpdates)
+    .eq('id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating user:', error);
+    throw error;
+  }
+
+  return formatUserForLegacy(data);
+}
+
+// ============================================
+// SUBSCRIPTION MANAGEMENT
+// ============================================
+
+/**
+ * Create a subscription
+ */
 export async function createSubscription(subscriptionData) {
   const subscription = {
-    ...subscriptionData,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    user_id: subscriptionData.userId,
+    tier: subscriptionData.tier,
+    stripe_subscription_id: subscriptionData.stripeSubscriptionId,
+    stripe_customer_id: subscriptionData.stripeCustomerId,
+    stripe_price_id: subscriptionData.stripePriceId,
     status: 'active',
-    currentPeriodStart: new Date(),
-    currentPeriodEnd: getMonthlyResetDate()
+    current_period_start: new Date().toISOString(),
+    current_period_end: getMonthlyResetDate().toISOString()
   };
-  
-  const docRef = await db.collection('subscriptions').add(subscription);
-  
-  // Update user's subscription info
+
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .insert(subscription)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating subscription:', error);
+    throw error;
+  }
+
+  // Update user's profile with subscription info
   await updateUser(subscriptionData.userId, {
     subscription: {
       tier: subscriptionData.tier,
@@ -149,129 +259,280 @@ export async function createSubscription(subscriptionData) {
       resetDate: getDailyResetDate()
     }
   });
-  
-  return { id: docRef.id, ...subscription };
+
+  return formatSubscriptionForLegacy(data);
 }
 
+/**
+ * Get active subscription for user
+ */
 export async function getSubscription(userId) {
-  const snapshot = await db.collection('subscriptions')
-    .where('userId', '==', userId)
-    .where('status', '==', 'active')
-    .orderBy('createdAt', 'desc')
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
     .limit(1)
-    .get();
-  
-  if (snapshot.empty) return null;
-  const doc = snapshot.docs[0];
-  return { id: doc.id, ...doc.data() };
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting subscription:', error);
+    throw error;
+  }
+
+  return formatSubscriptionForLegacy(data);
 }
 
-// Post management with multi-tenant support
+// ============================================
+// POST MANAGEMENT
+// ============================================
+
+/**
+ * Create a new post
+ */
 export async function createPost(userId, postData) {
   const post = {
-    userId,
-    ...postData,
-    createdAt: new Date(),
+    user_id: userId,
+    topic: postData.topic,
+    content: postData.content,
+    tone: postData.tone || 'professional',
+    target_platforms: postData.platforms || [],
+    published_platforms: [],
     status: 'pending',
-    platforms: postData.platforms || [],
-    publishedPlatforms: []
+    schedule_time: postData.scheduleTime || null,
+    source_article_title: postData.metadata?.articleTitle || null,
+    source_article_url: postData.metadata?.articleUrl || null,
+    platform_results: {}
   };
-  
-  const docRef = await db.collection('posts').add(post);
-  
-  // Update user's post count
-  const user = await getUserById(userId);
-  await updateUser(userId, {
-    'subscription.postsRemaining': Math.max(0, user.subscription.postsRemaining - 1)
-  });
-  
+
+  const { data, error } = await supabaseAdmin
+    .from('posts')
+    .insert(post)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating post:', error);
+    throw error;
+  }
+
+  // Decrement user's posts remaining
+  await supabaseAdmin.rpc('decrement_posts_remaining', { p_user_id: userId });
+
   // Log usage
-  await logUsage(userId, 'post_created', { postId: docRef.id });
-  
-  return { id: docRef.id, ...post };
+  await logUsage(userId, 'post_created', { postId: data.id });
+
+  return formatPostForLegacy(data);
 }
 
+/**
+ * Get user's posts with pagination
+ */
 export async function getUserPosts(userId, limit = 50, offset = 0) {
-  const snapshot = await db.collection('posts')
-    .where('userId', '==', userId)
-    .orderBy('createdAt', 'desc')
-    .limit(limit)
-    .offset(offset)
-    .get();
-  
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const { data, error } = await supabaseAdmin
+    .from('posts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    logger.error('Error getting user posts:', error);
+    throw error;
+  }
+
+  return data.map(formatPostForLegacy);
 }
 
-// Usage tracking
+/**
+ * Update a post
+ */
+export async function updatePost(postId, updates) {
+  const supabaseUpdates = convertPostUpdatesToSupabase(updates);
+  supabaseUpdates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('posts')
+    .update(supabaseUpdates)
+    .eq('id', postId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating post:', error);
+    throw error;
+  }
+
+  return formatPostForLegacy(data);
+}
+
+/**
+ * Get post by ID
+ */
+export async function getPostById(postId) {
+  const { data, error } = await supabaseAdmin
+    .from('posts')
+    .select('*')
+    .eq('id', postId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting post:', error);
+    throw error;
+  }
+
+  return formatPostForLegacy(data);
+}
+
+// ============================================
+// USAGE & ANALYTICS
+// ============================================
+
+/**
+ * Log a usage event
+ */
 export async function logUsage(userId, action, metadata = {}) {
-  await db.collection('usage_logs').add({
-    userId,
-    action,
-    metadata,
-    timestamp: new Date()
-  });
+  const { error } = await supabaseAdmin
+    .from('usage_logs')
+    .insert({
+      user_id: userId,
+      action,
+      metadata
+    });
+
+  if (error) {
+    logger.error('Error logging usage:', error);
+    // Don't throw - usage logging shouldn't break main flows
+  }
 }
 
+/**
+ * Get usage statistics for a period
+ */
 export async function getUsageStats(userId, startDate, endDate) {
-  const snapshot = await db.collection('usage_logs')
-    .where('userId', '==', userId)
-    .where('timestamp', '>=', startDate)
-    .where('timestamp', '<=', endDate)
-    .get();
-  
-  return snapshot.docs.map(doc => doc.data());
+  const { data, error } = await supabaseAdmin
+    .from('usage_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('created_at', startDate.toISOString())
+    .lte('created_at', endDate.toISOString());
+
+  if (error) {
+    logger.error('Error getting usage stats:', error);
+    throw error;
+  }
+
+  return data;
 }
 
-// Analytics functions
+/**
+ * Get analytics for user
+ */
 export async function getAnalytics(userId, period = '30d') {
   const user = await getUserById(userId);
-  const posts = await getUserPosts(userId, 1000); // Get more posts for analytics
-  
+  const posts = await getUserPosts(userId, 1000);
+
   const analytics = {
     totalPosts: posts.length,
     platformBreakdown: {},
     topicsUsed: {},
     engagementRate: 0,
     successRate: 0,
-    postsRemaining: user.subscription.postsRemaining,
-    subscriptionTier: user.subscription.tier
+    postsRemaining: user.subscription?.postsRemaining || 0,
+    subscriptionTier: user.subscription?.tier || 'free'
   };
-  
+
   // Calculate platform breakdown
   posts.forEach(post => {
-    post.platforms.forEach(platform => {
+    const platforms = post.platforms || post.target_platforms || [];
+    platforms.forEach(platform => {
       analytics.platformBreakdown[platform] = (analytics.platformBreakdown[platform] || 0) + 1;
     });
-    
-    // Track topics
+
     if (post.topic) {
       analytics.topicsUsed[post.topic] = (analytics.topicsUsed[post.topic] || 0) + 1;
     }
   });
-  
+
   // Calculate success rate
   const successfulPosts = posts.filter(p => p.status === 'published').length;
   analytics.successRate = posts.length > 0 ? (successfulPosts / posts.length) * 100 : 0;
-  
+
   return analytics;
 }
 
-// Helper functions
+// ============================================
+// SOCIAL CONNECTIONS (NEW)
+// ============================================
+
+/**
+ * Get user's social connections
+ */
+export async function getUserConnections(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('social_connections')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error getting user connections:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get specific connection
+ */
+export async function getConnection(userId, platform) {
+  const { data, error } = await supabaseAdmin
+    .from('social_connections')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform', platform)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting connection:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Check if user has active connection for platform
+ */
+export async function hasActiveConnection(userId, platform) {
+  const connection = await getConnection(userId, platform);
+  return connection && connection.status === 'active';
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function getTierPostLimit(tier) {
   const limits = {
-    starter: 10,      // 10 posts/day
-    growth: 20,       // 20 posts/day
-    professional: 30, // 30 posts/day
-    business: 45      // 45 posts/day
+    free: 5,
+    starter: 10,
+    growth: 20,
+    professional: 30,
+    business: 45
   };
-  return limits[tier] || 5; // Default to free tier limit (5 posts/day)
+  return limits[tier] || 5;
 }
 
 function getDailyResetDate() {
   const now = new Date();
   const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(0, 0, 0, 0);
   return tomorrow;
 }
 
@@ -282,9 +543,202 @@ function getMonthlyResetDate() {
   return nextMonth;
 }
 
-export function getDb() {
-  if (!db) {
-    throw new Error('Database not initialized. Call initializeFirestore first.');
-  }
-  return db;
+/**
+ * Convert Supabase profile to legacy format
+ * Maintains backwards compatibility with existing code
+ */
+function formatUserForLegacy(profile) {
+  if (!profile) return null;
+
+  return {
+    id: profile.id,
+    email: profile.email,
+    name: profile.name,
+    apiKey: profile.api_key, // Map api_key back to apiKey
+    avatar_url: profile.avatar_url,
+    createdAt: profile.created_at,
+    updatedAt: profile.updated_at,
+    subscription: {
+      tier: profile.subscription_tier,
+      status: profile.subscription_status,
+      postsRemaining: profile.posts_remaining,
+      dailyLimit: profile.daily_limit,
+      resetDate: profile.reset_date
+    },
+    settings: {
+      defaultPlatforms: profile.default_platforms || [],
+      preferredTopics: profile.preferred_topics || [],
+      autoSchedule: profile.auto_schedule || false,
+      timezone: profile.timezone
+    },
+    automation: {
+      enabled: profile.automation_enabled,
+      platforms: profile.automation_platforms || [],
+      topics: profile.automation_topics || [],
+      postsPerDay: profile.automation_posts_per_day,
+      schedule: profile.automation_schedule,
+      tone: profile.automation_tone
+    },
+    stripeCustomerId: profile.stripe_customer_id,
+    stripeSubscriptionId: profile.stripe_subscription_id,
+    passwordResetToken: profile.password_reset_token,
+    passwordResetExpiry: profile.password_reset_expiry
+  };
 }
+
+/**
+ * Convert legacy update format to Supabase column names
+ */
+function convertUpdatesToSupabase(updates) {
+  const converted = {};
+
+  // Handle nested subscription object
+  if (updates.subscription) {
+    if (updates.subscription.tier !== undefined) converted.subscription_tier = updates.subscription.tier;
+    if (updates.subscription.status !== undefined) converted.subscription_status = updates.subscription.status;
+    if (updates.subscription.postsRemaining !== undefined) converted.posts_remaining = updates.subscription.postsRemaining;
+    if (updates.subscription.dailyLimit !== undefined) converted.daily_limit = updates.subscription.dailyLimit;
+    if (updates.subscription.resetDate !== undefined) converted.reset_date = updates.subscription.resetDate;
+  }
+
+  // Handle nested settings object
+  if (updates.settings) {
+    if (updates.settings.defaultPlatforms !== undefined) converted.default_platforms = updates.settings.defaultPlatforms;
+    if (updates.settings.preferredTopics !== undefined) converted.preferred_topics = updates.settings.preferredTopics;
+    if (updates.settings.autoSchedule !== undefined) converted.auto_schedule = updates.settings.autoSchedule;
+    if (updates.settings.timezone !== undefined) converted.timezone = updates.settings.timezone;
+  }
+
+  // Handle nested automation object
+  if (updates.automation) {
+    if (updates.automation.enabled !== undefined) converted.automation_enabled = updates.automation.enabled;
+    if (updates.automation.platforms !== undefined) converted.automation_platforms = updates.automation.platforms;
+    if (updates.automation.topics !== undefined) converted.automation_topics = updates.automation.topics;
+    if (updates.automation.postsPerDay !== undefined) converted.automation_posts_per_day = updates.automation.postsPerDay;
+    if (updates.automation.schedule !== undefined) converted.automation_schedule = updates.automation.schedule;
+    if (updates.automation.tone !== undefined) converted.automation_tone = updates.automation.tone;
+  }
+
+  // Handle direct field updates
+  if (updates.name !== undefined) converted.name = updates.name;
+  if (updates.email !== undefined) converted.email = updates.email;
+  if (updates.password !== undefined) converted.password = updates.password;
+  if (updates.apiKey !== undefined) converted.api_key = updates.apiKey;
+  if (updates.passwordResetToken !== undefined) converted.password_reset_token = updates.passwordResetToken;
+  if (updates.passwordResetExpiry !== undefined) converted.password_reset_expiry = updates.passwordResetExpiry;
+  if (updates.stripeCustomerId !== undefined) converted.stripe_customer_id = updates.stripeCustomerId;
+  if (updates.stripeSubscriptionId !== undefined) converted.stripe_subscription_id = updates.stripeSubscriptionId;
+
+  // Handle dot-notation updates (e.g., 'subscription.postsRemaining')
+  for (const [key, value] of Object.entries(updates)) {
+    if (key.startsWith('subscription.')) {
+      const field = key.replace('subscription.', '');
+      const mapping = {
+        tier: 'subscription_tier',
+        status: 'subscription_status',
+        postsRemaining: 'posts_remaining',
+        dailyLimit: 'daily_limit',
+        resetDate: 'reset_date'
+      };
+      if (mapping[field]) converted[mapping[field]] = value;
+    }
+  }
+
+  return converted;
+}
+
+/**
+ * Format subscription for legacy API
+ */
+function formatSubscriptionForLegacy(subscription) {
+  if (!subscription) return null;
+
+  return {
+    id: subscription.id,
+    userId: subscription.user_id,
+    tier: subscription.tier,
+    stripeSubscriptionId: subscription.stripe_subscription_id,
+    stripeCustomerId: subscription.stripe_customer_id,
+    stripePriceId: subscription.stripe_price_id,
+    status: subscription.status,
+    currentPeriodStart: subscription.current_period_start,
+    currentPeriodEnd: subscription.current_period_end,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    createdAt: subscription.created_at,
+    updatedAt: subscription.updated_at
+  };
+}
+
+/**
+ * Format post for legacy API
+ */
+function formatPostForLegacy(post) {
+  if (!post) return null;
+
+  return {
+    id: post.id,
+    userId: post.user_id,
+    topic: post.topic,
+    content: post.content,
+    tone: post.tone,
+    platforms: post.target_platforms,
+    publishedPlatforms: post.published_platforms,
+    status: post.status,
+    scheduleTime: post.schedule_time,
+    publishedAt: post.published_at,
+    platformResults: post.platform_results,
+    metadata: {
+      articleTitle: post.source_article_title,
+      articleUrl: post.source_article_url,
+      articleImage: post.source_article_image
+    },
+    createdAt: post.created_at,
+    updatedAt: post.updated_at
+  };
+}
+
+/**
+ * Convert post updates to Supabase format
+ */
+function convertPostUpdatesToSupabase(updates) {
+  const converted = {};
+
+  if (updates.status !== undefined) converted.status = updates.status;
+  if (updates.publishedPlatforms !== undefined) converted.published_platforms = updates.publishedPlatforms;
+  if (updates.publishedAt !== undefined) converted.published_at = updates.publishedAt;
+  if (updates.platformResults !== undefined) converted.platform_results = updates.platformResults;
+  if (updates.content !== undefined) converted.content = updates.content;
+
+  return converted;
+}
+
+/**
+ * Get the database instance (for backwards compatibility)
+ * In Supabase, we just return the admin client
+ */
+export function getDb() {
+  return supabaseAdmin;
+}
+
+export default {
+  initializeDatabase,
+  initializeFirestore,
+  createUser,
+  getUserById,
+  getUserByEmail,
+  getUserByResetToken,
+  updateUser,
+  createSubscription,
+  getSubscription,
+  createPost,
+  getUserPosts,
+  updatePost,
+  getPostById,
+  logUsage,
+  getUsageStats,
+  getAnalytics,
+  getUserConnections,
+  getConnection,
+  hasActiveConnection,
+  getDb
+};

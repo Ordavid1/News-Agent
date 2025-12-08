@@ -1,0 +1,96 @@
+{
+  "name": "News Agent - AI Social Media Automation",
+  "short_name": "News Agent",
+  "description": "AI-powered platform to generate and publish news content across all your social media platforms automatically. Save 95% of your time with intelligent automation.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#a855f7",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["productivity", "social", "news", "business"],
+  "icons": [
+    {
+      "src": "/images/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/images/screenshot-dashboard.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "label": "News Agent Dashboard"
+    },
+    {
+      "src": "/images/screenshot-demo.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "label": "AI Content Generation Demo"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Go to your dashboard",
+      "url": "/dashboard.html",
+      "icons": [{ "src": "/images/icon-dashboard.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Try Demo",
+      "short_name": "Demo",
+      "description": "Try the AI content generator",
+      "url": "/demo.html",
+      "icons": [{ "src": "/images/icon-demo.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

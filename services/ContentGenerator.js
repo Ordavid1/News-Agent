@@ -31,7 +31,8 @@ class ContentGenerator {
       linkedin: this.getLinkedInPrompt,
       reddit: this.getRedditPrompt,
       facebook: this.getFacebookPrompt,
-      instagram: this.getInstagramPrompt
+      instagram: this.getInstagramPrompt,
+      telegram: this.getTelegramPrompt
     };
   }
 
@@ -64,6 +65,39 @@ Published: ${new Date(trend.publishedAt || new Date()).toLocaleString()}
 
 Focus on the actual news content. Extract hashtags from the article content - use actual names, companies, technologies mentioned.
 Remember: TOTAL length must be under 280 characters including everything.`;
+      } else if (platform === 'telegram') {
+        // Telegram channel format - news-focused, supports HTML formatting
+        systemPrompt = `You are a professional news correspondent for a Telegram channel. Create engaging news updates optimized for Telegram's format.
+
+Format your posts using Telegram's supported HTML:
+- <b>bold</b> for emphasis
+- <i>italic</i> for quotes or emphasis
+- Use line breaks for readability
+
+Your style should be:
+- Concise but informative (300-500 characters ideal)
+- News-focused with key facts
+- Include relevant emojis for visual appeal
+- End with hashtags for discoverability`;
+
+        userPrompt = `Create a Telegram channel post about this news:
+
+Title: ${trend.title}
+Summary: ${trend.description || trend.summary || ''}
+Source: ${trend.source || 'News'}
+URL: ${trend.url || ''}
+Published: ${new Date(trend.publishedAt || new Date()).toLocaleString()}
+
+Format:
+📰 <b>[Headline]</b>
+
+[Key points in 2-3 short paragraphs]
+
+🔗 Read more: [URL if available]
+
+#Hashtag1 #Hashtag2 #Hashtag3
+
+Keep it concise but informative. Use HTML formatting for emphasis.`;
       } else if (platform === 'facebook' || platform === 'instagram') {
         // Use the general news correspondent format from socialMediaPrompts
         systemPrompt = getSystemPrompt(false); // English version
@@ -127,7 +161,7 @@ Remember: TOTAL length must be under 280 characters including everything.`;
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.7, // Slightly lower for more consistent news reporting
-        max_tokens: platform === 'twitter' ? 300 : 1500,
+        max_tokens: platform === 'twitter' ? 300 : (platform === 'telegram' ? 800 : 1500),
         presence_penalty: 0.1,
         frequency_penalty: 0.1
       };
@@ -171,7 +205,8 @@ Remember: TOTAL length must be under 280 characters including everything.`;
       linkedin: 'professional, detailed, and business-focused',
       reddit: 'community-oriented, authentic, and discussion-provoking',
       facebook: 'friendly, shareable, and relatable',
-      instagram: 'visual-focused, trendy, and hashtag-rich'
+      instagram: 'visual-focused, trendy, and hashtag-rich',
+      telegram: 'news-focused, informative, and HTML-formatted for channels'
     };
     
     return `You are a ${toneDescriptions[tone]} social media content creator specializing in ${platform} posts.
@@ -187,36 +222,45 @@ Important guidelines:
 - For Reddit: Create engaging titles and thoughtful content
 - For Facebook: Make it shareable and conversation-starting
 - For Instagram: Focus on visual descriptions and trending hashtags
+- For Telegram: Use HTML formatting, be informative and news-focused
 
 Never include URLs in the post content - they will be added separately.`;
   }
 
   getTwitterPrompt(trend, tone) {
+    // Only include URL section if we have a real URL
+    const hasValidUrl = trend.url && trend.url.startsWith('http');
+    const urlSection = hasValidUrl ? `\n🔗 ${trend.url}\n` : '';
+    const urlInstruction = hasValidUrl
+      ? '4. Include the source URL exactly as provided (DO NOT shorten or modify it)'
+      : '4. DO NOT include any URLs - no bit.ly, no shortened links, no made-up URLs';
+
     return `You are a 24/7 digital news correspondent reporting breaking news on Twitter/X.
 
 BREAKING NEWS ARTICLE:
 Headline: ${trend.title}
 Time: ${new Date(trend.publishedAt || new Date()).toLocaleString()}
 Summary: ${trend.description || trend.summary || ''}
-Source URL: ${trend.url || ''}
+${hasValidUrl ? `Source URL: ${trend.url}` : '(No source URL available)'}
 
 Create a Twitter news update that:
 1. Starts with a news emoji (🚨 📰 🔴 ⚡ 📢) and the main news point
 2. Delivers key facts concisely (who, what, when, where)
 3. Uses active voice and present tense
-4. Ends with the source URL
+${urlInstruction}
 5. Includes 3-4 SPECIFIC hashtags based on the article content (companies, technologies, locations mentioned)
 
 Format:
 🚨 [Main news in active voice - 1-2 sentences max]
 
 📰 [Key detail or development]
-
-🔗 ${trend.url || 'Source URL'}
-
+${urlSection}
 #[SpecificTopic] #[CompanyOrTech] #[Location] #[KeyConcept]
 
-CRITICAL: Extract hashtags from the article content - use actual names, companies, technologies mentioned. Stay within 280 characters total.`;
+CRITICAL RULES:
+- Extract hashtags from the article content - use actual names, companies, technologies mentioned
+- Stay within 280 characters total
+- NEVER create fake URLs or shortened links (like bit.ly) - only use the exact URL provided above or omit URLs entirely`;
   }
 
   getLinkedInPrompt(trend, tone) {
@@ -288,13 +332,46 @@ Requirements:
 Format the caption with proper spacing and hashtags at the end.`;
   }
 
+  getTelegramPrompt(trend, tone) {
+    const hasValidUrl = trend.url && trend.url.startsWith('http');
+
+    return `Create a Telegram channel post about this news:
+
+Title: ${trend.title}
+Summary: ${trend.summary || trend.description || ''}
+${hasValidUrl ? `Source URL: ${trend.url}` : ''}
+
+Requirements:
+- Use Telegram HTML formatting: <b>bold</b>, <i>italic</i>
+- Start with a relevant emoji and bold headline
+- Write 2-3 informative paragraphs
+- ${hasValidUrl ? 'Include the source URL' : 'Do not include any URLs'}
+- End with 3-5 relevant hashtags
+- ${tone === 'professional' ? 'Maintain credibility and authority' : ''}
+- ${tone === 'casual' ? 'Keep it conversational but informative' : ''}
+- ${tone === 'educational' ? 'Explain concepts clearly for the audience' : ''}
+- ${tone === 'humorous' ? 'Add a light touch while staying informative' : ''}
+
+Format:
+📰 <b>[Headline]</b>
+
+[Paragraph 1 - key facts]
+
+[Paragraph 2 - analysis or implications]
+
+${hasValidUrl ? '🔗 Read more: [URL]' : ''}
+
+#Hashtag1 #Hashtag2 #Hashtag3`;
+  }
+
   generateMockContent(trend, platform, tone) {
     const mockTemplates = {
       twitter: `🚀 Breaking: ${trend.title}! This is huge for the industry. What are your thoughts? #TechNews #Innovation`,
       linkedin: `🎯 Exciting Development in Our Industry!\n\n${trend.title}\n\n${trend.summary || trend.description}\n\nThis represents a significant shift in how we approach technology and innovation. As professionals in this space, we must stay ahead of these trends.\n\nWhat implications do you see for your organization?\n\n#Technology #Innovation #ProfessionalDevelopment`,
       reddit: `Title: ${trend.title}\nContent: Just came across this interesting development. ${trend.summary || trend.description}. \n\nWhat does everyone think about this? I'm particularly interested in how this might affect our community.`,
       facebook: `Amazing news! 🎉\n\n${trend.title}\n\n${trend.summary || trend.description}\n\nThis is why I love technology - it never stops evolving! What do you think about this development?`,
-      instagram: `${trend.title} 🚀✨\n\n${trend.summary || trend.description}\n\n#Tech #Innovation #Future #Technology #Trending #News #Digital #AI #Startup #TechNews`
+      instagram: `${trend.title} 🚀✨\n\n${trend.summary || trend.description}\n\n#Tech #Innovation #Future #Technology #Trending #News #Digital #AI #Startup #TechNews`,
+      telegram: `📰 <b>${trend.title}</b>\n\n${trend.summary || trend.description}\n\nThis development marks an important moment in the industry. Stay tuned for more updates.\n\n${trend.url ? `🔗 Read more: ${trend.url}` : ''}\n\n#News #Technology #Update`
     };
     
     return mockTemplates[platform] || mockTemplates.twitter;

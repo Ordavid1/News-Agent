@@ -1,9 +1,128 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" prefix="og: https://ogp.me/ns#">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Try AIPostGen - Interactive Demo</title>
+
+    <!-- Primary Meta Tags -->
+    <title>Try News Agent Demo - Free AI Social Media Content Generator | aipostgenerator.dev</title>
+    <meta name="title" content="Try News Agent Demo - Free AI Social Media Content Generator">
+    <meta name="description" content="Try News Agent's AI content generator for free. Generate sample social media posts for Twitter, LinkedIn, and Reddit instantly. See how AI automation can transform your social media strategy.">
+    <meta name="keywords" content="AI content generator demo, free social media tool, AI post generator trial, automated content creation, social media automation demo">
+    <meta name="author" content="News Agent">
+    <meta name="robots" content="index, follow">
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://aipostgenerator.dev/demo.html">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://aipostgenerator.dev/demo.html">
+    <meta property="og:title" content="Try News Agent Demo - Free AI Content Generator">
+    <meta property="og:description" content="Generate sample social media posts for Twitter, LinkedIn, and Reddit instantly. See AI automation in action.">
+    <meta property="og:image" content="https://aipostgenerator.dev/images/demo-og-image.png">
+    <meta property="og:site_name" content="News Agent">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://aipostgenerator.dev/demo.html">
+    <meta name="twitter:title" content="Try News Agent Demo - Free AI Content Generator">
+    <meta name="twitter:description" content="Generate sample social media posts instantly. See AI automation in action.">
+    <meta name="twitter:image" content="https://aipostgenerator.dev/images/demo-twitter-card.png">
+
+    <!-- App Icons -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#a855f7">
+
+    <!-- Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XXXXXXXXXX');
+    </script>
+
+    <!-- Structured Data - HowTo for AEO -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "How to Use News Agent AI Content Generator",
+      "description": "Learn how to generate AI-powered social media content with News Agent in 5 simple steps.",
+      "totalTime": "PT5M",
+      "estimatedCost": {
+        "@type": "MonetaryAmount",
+        "currency": "USD",
+        "value": "0"
+      },
+      "step": [
+        {
+          "@type": "HowToStep",
+          "position": 1,
+          "name": "Choose Your Plan",
+          "text": "Select a subscription plan that fits your posting needs - from Starter to Business.",
+          "url": "https://aipostgenerator.dev/demo.html#step1"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 2,
+          "name": "Select Your Topic",
+          "text": "Choose from topics like AI, Technology, Crypto, Business, Marketing, and more.",
+          "url": "https://aipostgenerator.dev/demo.html#step2"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 3,
+          "name": "Choose Platforms",
+          "text": "Select which social media platforms to generate content for - Twitter, LinkedIn, Reddit.",
+          "url": "https://aipostgenerator.dev/demo.html#step3"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 4,
+          "name": "Set Posting Schedule",
+          "text": "Configure how many posts per day and what times work best for your audience.",
+          "url": "https://aipostgenerator.dev/demo.html#step4"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 5,
+          "name": "Generate Content",
+          "text": "Click generate to see AI create platform-optimized content in seconds.",
+          "url": "https://aipostgenerator.dev/demo.html#step5"
+        }
+      ]
+    }
+    </script>
+
+    <!-- Breadcrumb -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://aipostgenerator.dev/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Demo",
+          "item": "https://aipostgenerator.dev/demo.html"
+        }
+      ]
+    }
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -114,7 +233,7 @@
     <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
-                <div class="text-2xl font-bold glow-text">AIPostGen Demo ✨</div>
+                <div class="text-2xl font-bold glow-text">News Agent Demo ✨</div>
                 <div class="flex gap-4">
                     <a href="/" class="hover:text-purple-400 transition">Back to Home</a>
                     <button onclick="showSignup()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition">

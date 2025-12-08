@@ -3,7 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profile - AI News Agent ✨</title>
+    <title>Profile - News Agent</title>
+    <meta name="description" content="Manage your News Agent profile and social media connections.">
+    <!-- Prevent indexing of authenticated pages -->
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex, nofollow">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#a855f7">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -13,16 +22,16 @@
             --glow-blue: #3b82f6;
             --glow-cyan: #06b6d4;
         }
-        
+
         body {
             font-family: 'Space Grotesk', sans-serif;
             background: #0a0a0a;
         }
-        
+
         .gradient-bg {
             background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
         }
-        
+
         .glow-text {
             background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
             -webkit-background-clip: text;
@@ -30,52 +39,97 @@
             background-clip: text;
             filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
         }
-        
+
         .neon-border {
             position: relative;
             background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: box-shadow 0.3s ease;
+            border-radius: 16px;
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            transition: all 0.3s ease;
         }
-        
+
         .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
-                       0 0 50px rgba(236, 72, 153, 0.3);
+            border-color: rgba(168, 85, 247, 0.6);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
         }
-        
+
         .magic-button {
             background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
             transition: all 0.3s ease;
         }
-        
+
         .magic-button:hover {
-            transform: scale(1.05);
+            transform: scale(1.02);
             box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
         }
-        
+
+        .magic-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .tab-active {
+            background: linear-gradient(to right, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
+            border-color: var(--glow-purple) !important;
+            color: white !important;
+        }
+
+        .platform-card {
+            background: rgba(20, 20, 30, 0.8);
+            border: 1px solid rgba(100, 100, 120, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .platform-card:hover {
+            border-color: rgba(168, 85, 247, 0.5);
+        }
+
+        .platform-card.connected {
+            border-color: rgba(34, 197, 94, 0.5);
+            background: rgba(34, 197, 94, 0.05);
+        }
+
         .pulse-dot {
             animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
-        
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: .5; }
         }
-        
-        .floating {
-            animation: floating 3s ease-in-out infinite;
+
+        .connect-btn {
+            background: linear-gradient(to right, #3b82f6, #6366f1);
         }
-        
-        @keyframes floating {
-            0% { transform: translateY(0px); }
-            50% { transform: translateY(-20px); }
-            100% { transform: translateY(0px); }
+
+        .disconnect-btn {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            color: #ef4444;
+        }
+
+        .plan-card {
+            background: rgba(20, 20, 30, 0.8);
+            border: 1px solid rgba(100, 100, 120, 0.3);
+        }
+
+        .plan-card.current {
+            border-color: var(--glow-purple);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
+        }
+
+        .loading-spinner {
+            border: 2px solid rgba(168, 85, 247, 0.3);
+            border-top-color: var(--glow-purple);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -85,10 +139,11 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center">
-                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                    <a href="/" class="text-xl font-bold glow-text">AI News Agent</a>
                 </div>
                 <div class="flex items-center gap-4">
                     <span id="userEmail" class="text-sm text-gray-400"></span>
+                    <span id="subscriptionBadge" class="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 hidden">PRO</span>
                     <button id="logoutBtn" class="text-gray-400 hover:text-purple-400 transition-colors">
                         Sign Out
                     </button>
@@ -99,77 +154,458 @@
 
     <!-- Main Content -->
     <main class="pb-12">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
             <!-- Welcome Section -->
-            <div class="text-center mb-12">
-                <h2 class="text-5xl font-bold mb-4 glow-text floating">Welcome back, <span id="userName">Agent</span>! 🚀</h2>
-                <p class="text-gray-400 text-lg">Your AI News Command Center</p>
+            <div class="mb-8">
+                <h2 class="text-3xl font-bold mb-2">Welcome back, <span id="userName" class="glow-text">User</span>!</h2>
+                <p class="text-gray-400">Manage your AI News Agent and social connections</p>
             </div>
 
-            <!-- Status Card -->
-            <div id="statusCard" class="neon-border p-8 mb-8">
-                <!-- Free User State -->
-                <div id="freeUserState" class="text-center">
-                    <div class="mb-6">
-                        <div class="inline-flex items-center justify-center w-24 h-24 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
-                            <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                            </svg>
+            <!-- Tab Navigation -->
+            <div class="flex gap-2 mb-8 border-b border-gray-800 pb-4 overflow-x-auto">
+                <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all tab-active whitespace-nowrap">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+                        </svg>
+                        Dashboard
+                    </span>
+                </button>
+                <button onclick="showTab('connections')" id="tab-connections" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                        </svg>
+                        Connections
+                        <span id="connectionCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/5</span>
+                    </span>
+                </button>
+                <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                        </svg>
+                        Subscription
+                    </span>
+                </button>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div id="content-dashboard" class="tab-content">
+                <!-- Agent Status Card -->
+                <div class="neon-border p-8 mb-8">
+                    <div id="agentStatusSection">
+                        <!-- Free User State -->
+                        <div id="freeUserState" class="text-center">
+                            <div class="mb-6">
+                                <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
+                                    <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                </div>
+                                <h3 class="text-2xl font-bold mb-2 glow-text">Launch Your News Agent</h3>
+                                <p class="text-gray-400">Transform trending news into viral social media content</p>
+                            </div>
+                            <button id="launchAgentBtn" class="magic-button text-white rounded-full px-8 py-3 font-semibold text-lg">
+                                Launch News Agent
+                            </button>
+                            <p class="text-sm text-gray-500 mt-4" id="launchHint">Connect a social platform and upgrade to get started</p>
                         </div>
-                        <h3 class="text-3xl font-bold mb-2 glow-text">Unleash Your News Agent</h3>
-                        <p class="text-gray-400 text-lg">Transform trending news into viral social media content with AI magic ✨</p>
+
+                        <!-- Active User State (hidden by default) -->
+                        <div id="activeUserState" class="hidden">
+                            <div class="flex items-center justify-between mb-6">
+                                <div>
+                                    <h3 class="text-2xl font-bold mb-1 glow-text">Agent Status</h3>
+                                    <p class="text-gray-400">Your news agent is active and posting</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 bg-green-500 rounded-full pulse-dot"></div>
+                                    <span class="text-green-500 font-medium">Active</span>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-4 mb-6">
+                                <div class="bg-gray-900/50 rounded-xl p-4">
+                                    <p class="text-gray-400 text-sm mb-1">Posts Today</p>
+                                    <p class="text-2xl font-bold glow-text" id="postsToday">0</p>
+                                </div>
+                                <div class="bg-gray-900/50 rounded-xl p-4">
+                                    <p class="text-gray-400 text-sm mb-1">Connected</p>
+                                    <p class="text-2xl font-bold glow-text" id="connectedPlatforms">0</p>
+                                </div>
+                                <div class="bg-gray-900/50 rounded-xl p-4">
+                                    <p class="text-gray-400 text-sm mb-1">Posts Left</p>
+                                    <p class="text-2xl font-bold glow-text" id="postsLeftToday">5</p>
+                                </div>
+                            </div>
+                            <button onclick="window.location.href='/settings.html'" class="w-full magic-button text-white rounded-lg px-6 py-3 font-semibold">
+                                Configure Agent Settings
+                            </button>
+                        </div>
                     </div>
-                    <button id="startAgentBtn" class="magic-button text-white rounded-full px-10 py-4 font-semibold text-lg">
-                        🚀 Launch News Agent
-                    </button>
-                    <p class="text-sm text-gray-500 mt-4">Click to select your plan and activate your AI agent</p>
                 </div>
 
-                <!-- Active User State (hidden by default) -->
-                <div id="activeUserState" class="hidden">
-                    <div class="flex items-center justify-between mb-6">
+                <!-- Quick Actions -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <button onclick="testAgent()" id="tryOneBtn" class="neon-border p-6 block hover:scale-105 transition-transform text-left w-full">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center">
+                                <span class="text-2xl" id="tryOneIcon">🧪</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-cyan-400">Try One Post</h4>
+                                <p class="text-gray-400 text-sm">Generate & post to your platforms</p>
+                            </div>
+                        </div>
+                    </button>
+                    <a href="/analytics.html" class="neon-border p-6 block hover:scale-105 transition-transform">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-pink-500/20 flex items-center justify-center">
+                                <span class="text-2xl">📊</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-pink-400">Analytics</h4>
+                                <p class="text-gray-400 text-sm">View performance metrics</p>
+                            </div>
+                        </div>
+                    </a>
+                    <a href="/settings.html" class="neon-border p-6 block hover:scale-105 transition-transform">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                                <span class="text-2xl">⚙️</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-blue-400">Settings</h4>
+                                <p class="text-gray-400 text-sm">Configure your agent</p>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Connections Tab -->
+            <div id="content-connections" class="tab-content hidden">
+                <div class="mb-6">
+                    <h3 class="text-xl font-semibold mb-2">Social Media Connections</h3>
+                    <p class="text-gray-400">Connect your social media accounts to enable automatic posting</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="platformsGrid">
+                    <!-- Twitter -->
+                    <div class="platform-card rounded-xl p-6" id="platform-twitter">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-[#1DA1F2]/20 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-[#1DA1F2]" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold">Twitter / X</h4>
+                                    <p class="text-sm text-gray-400" id="twitter-status">Not connected</p>
+                                </div>
+                            </div>
+                            <button onclick="connectPlatform('twitter')" id="twitter-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Post tweets and threads automatically</p>
+                    </div>
+
+                    <!-- LinkedIn -->
+                    <div class="platform-card rounded-xl p-6" id="platform-linkedin">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-[#0A66C2]/20 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold">LinkedIn</h4>
+                                    <p class="text-sm text-gray-400" id="linkedin-status">Not connected</p>
+                                </div>
+                            </div>
+                            <button onclick="connectPlatform('linkedin')" id="linkedin-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Share professional content to your network</p>
+                    </div>
+
+                    <!-- Reddit -->
+                    <div class="platform-card rounded-xl p-6" id="platform-reddit">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-[#FF4500]/20 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-[#FF4500]" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold">Reddit</h4>
+                                    <p class="text-sm text-gray-400" id="reddit-status">Not connected</p>
+                                </div>
+                            </div>
+                            <button onclick="connectPlatform('reddit')" id="reddit-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Post to relevant subreddits</p>
+                    </div>
+
+                    <!-- Facebook -->
+                    <div class="platform-card rounded-xl p-6" id="platform-facebook">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-[#1877F2]/20 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold">Facebook</h4>
+                                    <p class="text-sm text-gray-400" id="facebook-status">Not connected</p>
+                                </div>
+                            </div>
+                            <button onclick="connectPlatform('facebook')" id="facebook-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Share to pages and groups</p>
+                    </div>
+
+                    <!-- Telegram -->
+                    <div class="platform-card rounded-xl p-6" id="platform-telegram">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 rounded-xl bg-[#0088cc]/20 flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold">Telegram</h4>
+                                    <p class="text-sm text-gray-400" id="telegram-status">Not connected</p>
+                                </div>
+                            </div>
+                            <button onclick="openTelegramModal()" id="telegram-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                                Connect
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Post to channels and groups</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30" id="connectionsHint">
+                    <p class="text-blue-400 text-sm flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Connect at least one platform to start using the AI News Agent
+                    </p>
+                </div>
+            </div>
+
+            <!-- Subscription Tab -->
+            <div id="content-subscription" class="tab-content hidden">
+                <div class="mb-6">
+                    <h3 class="text-xl font-semibold mb-2">Subscription & Billing</h3>
+                    <p class="text-gray-400">Manage your plan and payment settings</p>
+                </div>
+
+                <!-- Current Plan -->
+                <div class="neon-border p-6 mb-8">
+                    <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="text-2xl font-bold mb-1 glow-text">Agent Status</h3>
-                            <p class="text-gray-400">Your news agent is spreading magic across the internet</p>
+                            <p class="text-gray-400 text-sm mb-1">Current Plan</p>
+                            <h4 class="text-2xl font-bold glow-text" id="currentPlanName">Free</h4>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <div class="w-3 h-3 bg-green-500 rounded-full pulse-dot"></div>
-                            <span class="text-green-500 font-medium">Active</span>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 mb-6">
-                        <div class="neon-border p-4">
-                            <p class="text-gray-400 text-sm mb-1">Posts Today</p>
-                            <p class="text-3xl font-bold glow-text">12</p>
-                        </div>
-                        <div class="neon-border p-4">
-                            <p class="text-gray-400 text-sm mb-1">Engagement</p>
-                            <p class="text-3xl font-bold glow-text">8.5%</p>
-                        </div>
-                        <div class="neon-border p-4">
-                            <p class="text-gray-400 text-sm mb-1">Next Post</p>
-                            <p class="text-3xl font-bold glow-text">2h</p>
+                        <div class="text-right">
+                            <p class="text-gray-400 text-sm mb-1">Posts Remaining</p>
+                            <p class="text-2xl font-bold" id="postsRemaining">5/5</p>
                         </div>
                     </div>
-                    <button id="configureBtn" class="w-full magic-button text-white rounded-full px-6 py-3 font-semibold">
-                        ⚙️ Configure Settings
-                    </button>
+                    <div class="mt-4 pt-4 border-t border-gray-800">
+                        <p class="text-sm text-gray-400" id="subscriptionStatus">Upgrade to unlock unlimited posts and advanced features</p>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Quick Actions -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <a href="/demo.html" class="neon-border p-6 block hover:scale-105 transition-transform">
-                    <h4 class="font-semibold mb-2 text-purple-400">🎮 Try Demo</h4>
-                    <p class="text-gray-400 text-sm">Test the AI News Agent with sample data</p>
-                </a>
-                <a href="#" class="neon-border p-6 block hover:scale-105 transition-transform">
-                    <h4 class="font-semibold mb-2 text-pink-400">📊 View Analytics</h4>
-                    <p class="text-gray-400 text-sm">Track your agent's performance metrics</p>
-                </a>
+                <!-- Available Plans -->
+                <h4 class="text-lg font-semibold mb-4">Available Plans</h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Starter Plan -->
+                    <div class="plan-card rounded-xl p-6" id="plan-card-starter">
+                        <h5 class="font-semibold text-lg mb-2">Starter</h5>
+                        <p class="text-3xl font-bold mb-4">$9<span class="text-sm text-gray-400">/mo</span></p>
+                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                10 posts/day
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                2 platforms
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Basic analytics
+                            </li>
+                        </ul>
+                        <button onclick="selectPlan('starter')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
+                            Select Plan
+                        </button>
+                    </div>
+
+                    <!-- Growth Plan -->
+                    <div class="plan-card rounded-xl p-6 border-purple-500" id="plan-card-growth">
+                        <div class="flex items-center justify-between mb-2">
+                            <h5 class="font-semibold text-lg">Growth</h5>
+                            <span class="text-xs bg-purple-500 px-2 py-1 rounded-full">Popular</span>
+                        </div>
+                        <p class="text-3xl font-bold mb-4">$29<span class="text-sm text-gray-400">/mo</span></p>
+                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                30 posts/day
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                All platforms
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Advanced analytics
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Priority support
+                            </li>
+                        </ul>
+                        <button onclick="selectPlan('growth')" class="w-full magic-button py-2 rounded-lg text-white font-medium">
+                            Select Plan
+                        </button>
+                    </div>
+
+                    <!-- Professional Plan -->
+                    <div class="plan-card rounded-xl p-6" id="plan-card-professional">
+                        <h5 class="font-semibold text-lg mb-2">Professional</h5>
+                        <p class="text-3xl font-bold mb-4">$79<span class="text-sm text-gray-400">/mo</span></p>
+                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Unlimited posts
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                All platforms
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                White-label reports
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                API access
+                            </li>
+                        </ul>
+                        <button onclick="selectPlan('professional')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
+                            Select Plan
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
+
+    <!-- Test Result Modal -->
+    <div id="testResultModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="neon-border p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold glow-text" id="testModalTitle">Test Results</h3>
+                <button onclick="closeTestModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div id="testResultContent">
+                <!-- Results will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Telegram Connection Modal -->
+    <div id="telegramModal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden">
+        <div class="neon-border p-8 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold">Connect Telegram Channel</h3>
+                <button onclick="closeTelegramModal()" class="text-gray-400 hover:text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Step 1: Instructions -->
+            <div id="telegramStep1" class="mb-6">
+                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
+                    <h4 class="font-semibold text-blue-400 mb-2">Step 1: Add our bot to your channel</h4>
+                    <ol class="text-sm text-gray-300 space-y-2 list-decimal list-inside">
+                        <li>Open your Telegram channel settings</li>
+                        <li>Go to Administrators</li>
+                        <li>Add <span id="botUsernameDisplay" class="text-blue-400 font-mono">@loading...</span> as admin</li>
+                        <li>Grant permission to "Post Messages"</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Step 2: Enter channel -->
+            <div id="telegramStep2">
+                <label class="block text-sm text-gray-400 mb-2">Channel Username or Chat ID</label>
+                <input type="text"
+                       id="telegramChannelInput"
+                       placeholder="@yourchannel or -1001234567890"
+                       class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none mb-4">
+                <p class="text-xs text-gray-500 mb-6">
+                    For public channels, use @username. For private channels/groups, use the chat ID.
+                </p>
+            </div>
+
+            <!-- Error display -->
+            <div id="telegramError" class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 hidden">
+                <p class="text-red-400 text-sm" id="telegramErrorText"></p>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex gap-3">
+                <button onclick="closeTelegramModal()" class="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all">
+                    Cancel
+                </button>
+                <button onclick="connectTelegram()" id="telegramConnectBtn" class="flex-1 magic-button py-3 rounded-lg text-white font-medium">
+                    Connect Channel
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script src="js/profile.js"></script>
 </body>

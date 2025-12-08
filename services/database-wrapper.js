@@ -1,14 +1,16 @@
-// services/database-wrapper.js
-// Wrapper that selects the appropriate database implementation based on environment
+/**
+ * Database Wrapper
+ *
+ * Re-exports from the Supabase database implementation.
+ * Maintained for backwards compatibility with existing imports.
+ *
+ * Note: The app has migrated from Firestore to Supabase.
+ * This wrapper ensures existing code continues to work without changes.
+ */
 
-import * as firebaseDb from './database.js';
-import * as localDb from './database-local.js';
-
-const useLocalDb = process.env.USE_LOCAL_DB === 'true' || !process.env.GOOGLE_APPLICATION_CREDENTIALS;
-
-// Export all functions from the appropriate database implementation
-export const {
-  initializeFirestore,
+export {
+  initializeDatabase,
+  initializeDatabase as initializeFirestore, // Alias for backwards compatibility
   createUser,
   getUserById,
   getUserByEmail,
@@ -18,8 +20,13 @@ export const {
   getSubscription,
   createPost,
   getUserPosts,
+  updatePost,
+  getPostById,
   logUsage,
   getUsageStats,
   getAnalytics,
+  getUserConnections,
+  getConnection,
+  hasActiveConnection,
   getDb
-} = useLocalDb ? localDb : firebaseDb;
+} from './database.js';

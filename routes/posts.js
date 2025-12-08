@@ -1,10 +1,13 @@
 // routes/posts.js
 import express from 'express';
-import { createPost, getUserPosts, logUsage } from '../services/database-wrapper.js';
+import { createPost, getUserPosts, logUsage, getUserById } from '../services/database-wrapper.js';
 import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
+import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
+import ConnectionManager from '../services/ConnectionManager.js';
+// AutomationManager instance is accessed via req.app.locals.automationManager
 
 const router = express.Router();
 
@@ -214,12 +217,275 @@ function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['twitter'],
     starter: ['twitter', 'linkedin'],
-    growth: ['twitter', 'linkedin', 'reddit'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube']
+    growth: ['twitter', 'linkedin', 'reddit', 'telegram'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'instagram', 'tiktok', 'youtube']
   };
-  
+
   return platformsByTier[tier] || ['twitter'];
 }
+
+/**
+ * POST /api/posts/test
+ * Test the agent by generating and publishing one post to connected platforms
+ * Uses user's saved settings (topics, tone, platforms)
+ */
+router.post('/test', async (req, res) => {
+  const userId = req.user.id;
+  console.log(`[Test Post] Starting test for user ${userId}`);
+
+  try {
+    // Step 1: Get user's settings and preferences
+    const user = await getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const topics = user.settings?.preferredTopics || user.automation?.topics || ['technology'];
+    const tone = user.automation?.tone || 'professional';
+    const userPlatforms = user.settings?.defaultPlatforms || user.automation?.platforms || [];
+
+    console.log(`[Test Post] User settings:`, { topics, tone, userPlatforms });
+
+    // Step 2: Check user's connected platforms
+    const connections = await ConnectionManager.getUserConnections(userId);
+    const activeConnections = connections.filter(c => c.status === 'active');
+    const connectedPlatforms = activeConnections.map(c => c.platform);
+
+    // Log which accounts will be used (for verification)
+    console.log(`[Test Post] Connected platforms:`);
+    activeConnections.forEach(c => {
+      console.log(`  → ${c.platform}: @${c.platform_username || c.platform_display_name || 'unknown'}`);
+    });
+
+    // Build map of platform -> username for response
+    const platformAccounts = {};
+    activeConnections.forEach(c => {
+      platformAccounts[c.platform] = c.platform_username || c.platform_display_name || 'connected';
+    });
+
+    if (connectedPlatforms.length === 0) {
+      return res.status(400).json({
+        error: 'No connected platforms',
+        message: 'Please connect at least one social platform in your dashboard before testing.',
+        step: 'connections'
+      });
+    }
+
+    // Determine which platforms to post to (intersection of user settings and connected)
+    let targetPlatforms = userPlatforms.length > 0
+      ? userPlatforms.filter(p => connectedPlatforms.includes(p))
+      : connectedPlatforms;
+
+    // If no overlap, use all connected platforms
+    if (targetPlatforms.length === 0) {
+      targetPlatforms = connectedPlatforms;
+    }
+
+    console.log(`[Test Post] Target platforms:`, targetPlatforms);
+
+    // Step 3: Use FULL PIPELINE - fetch trends with scoring and filtering
+    let trendData;
+    let postContent;
+    const selectedTopic = topics[Math.floor(Math.random() * topics.length)] || 'technology';
+
+    console.log(`[Test Post] Using FULL PIPELINE for topic: ${selectedTopic}`);
+    console.log(`[Test Post] Step 3a: Fetching and scoring articles...`);
+
+    try {
+      // Use TrendAnalyzer to get multiple articles
+      const allTrends = await trendAnalyzer.getTrendsForTopics([selectedTopic]);
+
+      if (allTrends && allTrends.length > 0) {
+        console.log(`[Test Post] Found ${allTrends.length} articles for topic "${selectedTopic}"`);
+
+        // Use AutomationManager's scoring system to select the BEST article
+        console.log(`[Test Post] Step 3b: Scoring articles with full pipeline...`);
+        const automationManager = req.app.locals.automationManager;
+        const bestTrend = automationManager
+          ? await automationManager.selectBestAINews(allTrends)
+          : allTrends[0]; // Fallback if automation manager not available
+
+        if (bestTrend) {
+          trendData = bestTrend;
+          console.log(`[Test Post] ✓ Selected best article: "${trendData.title}"`);
+          console.log(`[Test Post]   → Score: ${trendData.calculatedScore?.toFixed(2) || 'N/A'}`);
+          console.log(`[Test Post]   → Source: ${trendData.source || trendData.sources?.join(', ') || 'unknown'}`);
+          console.log(`[Test Post]   → URL: ${trendData.url || 'none'}`);
+          console.log(`[Test Post]   → Recently used: ${trendData.wasRecentlyUsed ? 'YES (penalized)' : 'NO'}`);
+        } else {
+          // Fallback to first trend if scoring fails
+          trendData = allTrends[0];
+          console.log(`[Test Post] Using first article (scoring returned null): ${trendData.title}`);
+        }
+      } else {
+        console.log(`[Test Post] ⚠️ No articles found for topic "${selectedTopic}"`);
+        return res.status(400).json({
+          error: 'No news found',
+          message: `No trending news found for topic "${selectedTopic}". Try a different topic.`,
+          step: 'trends'
+        });
+      }
+    } catch (trendError) {
+      console.error('[Test Post] Trend fetch/scoring error:', trendError);
+      return res.status(500).json({
+        error: 'Trend analysis failed',
+        message: trendError.message,
+        step: 'trends'
+      });
+    }
+
+    // Step 4: Generate content using the scored/selected article
+    console.log(`[Test Post] Step 4: Generating content with tone: ${tone}`);
+    console.log(`[Test Post]   → Article: ${trendData.title}`);
+    console.log(`[Test Post]   → Platform: ${targetPlatforms[0]}`);
+
+    const generatedContent = await contentGenerator.generateContent(
+      trendData,
+      targetPlatforms[0], // Primary platform for formatting
+      tone,
+      userId
+    );
+
+    if (!generatedContent || !generatedContent.text) {
+      return res.status(500).json({
+        error: 'Content generation failed',
+        message: 'Failed to generate content. Please try again.',
+        step: 'generation'
+      });
+    }
+
+    console.log(`[Test Post] Generated content: ${generatedContent.text.substring(0, 100)}...`);
+
+    // Step 5: Publish to each connected platform
+    const results = {
+      success: [],
+      failed: []
+    };
+
+    for (const platform of targetPlatforms) {
+      try {
+        console.log(`[Test Post] Publishing to ${platform}...`);
+
+        let result;
+        const content = {
+          text: generatedContent.text,
+          trend: trendData.title,
+          topic: selectedTopic,
+          source: trendData,
+          generatedAt: new Date().toISOString()
+        };
+
+        switch (platform) {
+          case 'twitter':
+            result = await publishToTwitter(content, userId);
+            break;
+          case 'linkedin':
+            result = await publishToLinkedIn(content, userId);
+            break;
+          case 'reddit':
+            result = await publishToReddit(content, 'news', userId);
+            break;
+          case 'facebook':
+            result = await publishToFacebook(content, userId);
+            break;
+          case 'telegram':
+            result = await publishToTelegram(content, userId);
+            break;
+          default:
+            console.log(`[Test Post] Platform ${platform} not yet supported for publishing`);
+            results.failed.push({
+              platform,
+              error: 'Platform not yet supported for publishing'
+            });
+            continue;
+        }
+
+        if (result && result.success) {
+          console.log(`[Test Post] Successfully published to ${platform}`);
+          results.success.push({
+            platform,
+            postId: result.postId,
+            url: result.url
+          });
+        } else {
+          results.failed.push({
+            platform,
+            error: result?.error || 'Unknown error'
+          });
+        }
+      } catch (publishError) {
+        console.error(`[Test Post] Error publishing to ${platform}:`, publishError);
+        results.failed.push({
+          platform,
+          error: publishError.message
+        });
+      }
+    }
+
+    // Step 6: Save post record
+    const post = await createPost(userId, {
+      topic: selectedTopic,
+      content: generatedContent.text,
+      platforms: targetPlatforms,
+      status: results.success.length > 0 ? 'published' : 'failed',
+      metadata: {
+        tone,
+        sourceUrl: trendData.url,
+        trend: trendData.title,
+        generatedAt: new Date().toISOString(),
+        testPost: true,
+        results
+      }
+    });
+
+    // Log usage
+    await logUsage(userId, 'test_post', {
+      topic: selectedTopic,
+      platforms: targetPlatforms,
+      successCount: results.success.length,
+      failedCount: results.failed.length
+    });
+
+    // Return comprehensive results
+    res.json({
+      success: results.success.length > 0,
+      message: results.success.length > 0
+        ? `Successfully posted to ${results.success.length} platform(s)!`
+        : 'Failed to post to any platform',
+      post: {
+        id: post.id,
+        topic: selectedTopic,
+        content: generatedContent.text,
+        tone,
+        trend: trendData.title
+      },
+      results,
+      debug: {
+        userTopics: topics,
+        selectedTopic,
+        connectedPlatforms,
+        targetPlatforms,
+        platformAccounts,  // Shows which user accounts were used
+        articleScoring: {
+          title: trendData.title,
+          score: trendData.calculatedScore?.toFixed(2) || 'N/A',
+          source: trendData.source || trendData.sources?.join(', ') || 'unknown',
+          url: trendData.url || 'none',
+          wasRecentlyUsed: trendData.wasRecentlyUsed || false,
+          publishedAt: trendData.publishedAt || 'unknown'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('[Test Post] Error:', error);
+    res.status(500).json({
+      error: 'Test post failed',
+      message: error.message,
+      step: 'unknown'
+    });
+  }
+});
 
 export default router;

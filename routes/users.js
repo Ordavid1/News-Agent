@@ -109,6 +109,72 @@ router.post('/api-key/regenerate', async (req, res) => {
   }
 });
 
+// Get user settings (for settings page)
+router.get('/settings', async (req, res) => {
+  try {
+    const user = await getUserById(req.user.id);
+
+    // Return settings in format expected by frontend
+    const settings = {
+      topics: user.settings?.preferredTopics || user.automation?.topics || [],
+      schedule: {
+        postsPerDay: user.automation?.postsPerDay || 1,
+        startTime: '09:00',
+        endTime: '21:00'
+      },
+      contentStyle: {
+        tone: user.automation?.tone || 'professional',
+        includeHashtags: true
+      },
+      platforms: user.settings?.defaultPlatforms || user.automation?.platforms || []
+    };
+
+    res.json(settings);
+  } catch (error) {
+    console.error('Settings fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// Update user settings (for settings page)
+router.put('/settings', async (req, res) => {
+  try {
+    const { topics, schedule, contentStyle, platforms } = req.body;
+
+    // Map frontend settings to database structure
+    const updates = {
+      settings: {
+        preferredTopics: topics || [],
+        defaultPlatforms: platforms || [],
+        autoSchedule: true
+      },
+      automation: {
+        enabled: true,
+        topics: topics || [],
+        platforms: platforms || [],
+        postsPerDay: parseInt(schedule?.postsPerDay) || 1,
+        tone: contentStyle?.tone || 'professional',
+        schedule: {
+          morning: true,
+          lunch: true,
+          evening: true,
+          night: false
+        }
+      }
+    };
+
+    await updateUser(req.user.id, updates);
+
+    res.json({
+      message: 'Settings saved successfully',
+      settings: req.body
+    });
+  } catch (error) {
+    console.error('Settings update error:', error);
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
+});
+
 // Update user preferences
 router.put('/preferences', async (req, res) => {
   try {

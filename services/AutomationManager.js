@@ -8,7 +8,7 @@ import LinkedInPublisher from '../publishers/LinkedInPublisher.js';
 import DatabaseManager from './DatabaseManager.js';
 import PostingStrategy from './PostingStrategy.js';
 import CloudTasksQueue from './CloudTasksQueue.js';
-import MockPublisher from '../publishers/MockPublisher.js';
+// MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import RateLimiter from './RateLimiter.js';
 import trendAnalyzer from './TrendAnalyzer.js';
 import '../config/env.js';  // This ensures dotenv loads first
@@ -39,86 +39,50 @@ class AutomationManager {
     this.taskQueue = new CloudTasksQueue();
     this.rateLimiter = new RateLimiter();
     
-    // Initialize publishers - FIXED: removed duplicate initialization
+    // Initialize publishers - SaaS mode: only initialize when user has credentials
     this.publishers = {};
-    // Debug: Log which publishers were initialized
-      logger.info('Publisher initialization debug:');
-      logger.info(`- Reddit credentials present: ${!!process.env.REDDIT_CLIENT_ID && !!process.env.REDDIT_CLIENT_SECRET}`);
-      logger.info(`- Reddit username/password present: ${!!process.env.REDDIT_USERNAME && !!process.env.REDDIT_PASSWORD}`);
-      logger.info(`- Reddit subreddit configured: ${process.env.REDDIT_SUBREDDIT }`);
-      logger.info(`- Publishers initialized: ${Object.keys(this.publishers).join(', ')}`);
-   
-    // Use mock publishers if no real credentials
-    const hasAnyRealCredentials = process.env.TWITTER_ACCESS_TOKEN || 
-                                  process.env.LINKEDIN_ACCESS_TOKEN ||
-                                  (process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
 
-    if (!hasAnyRealCredentials) {
-      this.publishers.twitter = new MockPublisher('twitter');
-      this.publishers.linkedin = new MockPublisher('linkedin');
-      this.publishers.reddit = new MockPublisher('reddit');
-      logger.info('Using mock publishers for testing');
+    logger.info('Publisher initialization (SaaS mode - no mock fallbacks):');
+
+    // Initialize Twitter if credentials present
+    if (process.env.TWITTER_ACCESS_TOKEN) {
+      this.publishers.twitter = new TwitterPublisher();
+      logger.info('✅ Twitter publisher initialized');
     } else {
-      // Initialize Twitter
-      if (process.env.TWITTER_ACCESS_TOKEN) {
-        this.publishers.twitter = new TwitterPublisher();
-        logger.info('✅ Twitter publisher initialized');
-      } else {
-        this.publishers.twitter = new MockPublisher('twitter');
-        logger.info('⚠️ Twitter using mock publisher (no credentials)');
-      }
-      
-      // Initialize LinkedIn
-      if (process.env.LINKEDIN_ACCESS_TOKEN) {
-        this.publishers.linkedin = new LinkedInPublisher();
-        logger.info('✅ LinkedIn publisher initialized');
-      } else {
-        this.publishers.linkedin = new MockPublisher('linkedin');
-        logger.info('⚠️ LinkedIn using mock publisher (no credentials)');
-      }
-      
-      // Initialize Reddit
-      if (process.env.REDDIT_CLIENT_ID && 
-          process.env.REDDIT_CLIENT_SECRET &&
-          process.env.REDDIT_USERNAME && 
-          process.env.REDDIT_PASSWORD) {
-        this.publishers.reddit = new RedditPublisher();
-        logger.info('✅ Reddit publisher initialized');
-        logger.info(`   Target subreddit: r/${process.env.REDDIT_SUBREDDIT }`);
-      } else {
-        this.publishers.reddit = new MockPublisher('reddit');
-        logger.info('⚠️ Reddit using mock publisher (missing credentials)');
-        
-        // Log what's missing
-        const missing = [];
-        if (!process.env.REDDIT_CLIENT_ID) missing.push('REDDIT_CLIENT_ID');
-        if (!process.env.REDDIT_CLIENT_SECRET) missing.push('REDDIT_CLIENT_SECRET');
-        if (!process.env.REDDIT_USERNAME) missing.push('REDDIT_USERNAME');
-        if (!process.env.REDDIT_PASSWORD) missing.push('REDDIT_PASSWORD');
-        if (missing.length > 0) {
-          logger.info(`   Missing: ${missing.join(', ')}`);
-        }
-      }
+      logger.info('⚠️ Twitter: No credentials configured');
     }
 
-    logger.info(`✅ Initialized publishers: ${Object.keys(this.publishers).join(', ')}`);
-
-      // Use mock publishers if no real credentials
-    if (!process.env.TWITTER_ACCESS_TOKEN && !process.env.LINKEDIN_ACCESS_TOKEN) {
-      this.publishers.twitter = new MockPublisher('twitter');
-      this.publishers.linkedin = new MockPublisher('linkedin');
-      logger.info('Using mock publishers for testing');
+    // Initialize LinkedIn if credentials present
+    if (process.env.LINKEDIN_ACCESS_TOKEN) {
+      this.publishers.linkedin = new LinkedInPublisher();
+      logger.info('✅ LinkedIn publisher initialized');
     } else {
-      if (process.env.TWITTER_ACCESS_TOKEN) {
-        this.publishers.twitter = new TwitterPublisher();
-      }
-      
-      if (process.env.LINKEDIN_ACCESS_TOKEN) {
-        this.publishers.linkedin = new LinkedInPublisher();
-      }
+      logger.info('⚠️ LinkedIn: No credentials configured');
     }
-    
-    logger.info(`✅ Initialized publishers: ${Object.keys(this.publishers).join(', ')}`);
+
+    // Initialize Reddit if all credentials present
+    if (process.env.REDDIT_CLIENT_ID &&
+        process.env.REDDIT_CLIENT_SECRET &&
+        process.env.REDDIT_USERNAME &&
+        process.env.REDDIT_PASSWORD) {
+      this.publishers.reddit = new RedditPublisher();
+      logger.info('✅ Reddit publisher initialized');
+      logger.info(`   Target subreddit: r/${process.env.REDDIT_SUBREDDIT}`);
+    } else {
+      const missing = [];
+      if (!process.env.REDDIT_CLIENT_ID) missing.push('REDDIT_CLIENT_ID');
+      if (!process.env.REDDIT_CLIENT_SECRET) missing.push('REDDIT_CLIENT_SECRET');
+      if (!process.env.REDDIT_USERNAME) missing.push('REDDIT_USERNAME');
+      if (!process.env.REDDIT_PASSWORD) missing.push('REDDIT_PASSWORD');
+      logger.info(`⚠️ Reddit: Missing credentials (${missing.join(', ')})`);
+    }
+
+    const initializedPlatforms = Object.keys(this.publishers);
+    if (initializedPlatforms.length > 0) {
+      logger.info(`✅ Active publishers: ${initializedPlatforms.join(', ')}`);
+    } else {
+      logger.warn('⚠️ No publishers initialized - configure platform credentials to enable posting');
+    }
     
     // Add after this.isEnabled check
     if (this.isEnabled) {
@@ -566,168 +530,194 @@ async executeLinkedInAIPost() {
   }
 }
 
-// Add this smart selection method
+// Smart selection method - handles both getTrendsForTopics and getGenerativeAINews formats
 async selectBestAINews(newsItems) {
   if (!newsItems || newsItems.length === 0) return null;
-  
+
   // Check recently used topics from the database
   const recentlyUsed = await this.getRecentlyUsedAITopics(24); // Last 24 hours
-  
+
   // Score each news item based on multiple factors
   const scoredItems = newsItems.map(item => {
     let score = 0;
-    
-    // Ensure item.topic exists
-    if (!item.topic) {
-      logger.warn('News item missing topic:', item);
+
+    // IMPORTANT: Handle different field names from different sources
+    // getTrendsForTopics uses: title, source (string), topic (search term)
+    // getGenerativeAINews uses: topic (title), sources (array)
+    const itemTitle = item.title || item.topic || '';
+    const itemTopic = item.title || item.topic || ''; // Use title as the key identifier
+    const itemSources = Array.isArray(item.sources) ? item.sources : (item.source ? [item.source] : []);
+    const itemConfidence = item.confidence || item.score / 100 || 0.5;
+    const itemEngagement = item.engagement || {};
+
+    // Skip items without a title/topic
+    if (!itemTitle) {
+      logger.warn('News item missing title/topic:', item);
       return { ...item, calculatedScore: 0, wasRecentlyUsed: false };
     }
-    
+
     // PENALTY for recently used topics
-    const topicKey = item.topic.toLowerCase().slice(0, 50); // First 50 chars as key
+    const topicKey = itemTitle.toLowerCase().slice(0, 50);
     const wasRecentlyUsed = recentlyUsed.some(used => {
-      // Add null/undefined check HERE - THIS IS THE FIX
       if (!used || typeof used !== 'string') return false;
-      
+
       const usedLower = used.toLowerCase();
-      const topicLower = item.topic.toLowerCase();
-      
+      const topicLower = itemTitle.toLowerCase();
+
+      // Check for similar content patterns
       return (usedLower.includes('gemini') && topicLower.includes('gemini')) ||
              (usedLower.includes('gpt') && topicLower.includes('gpt')) ||
+             (usedLower.includes('openai') && topicLower.includes('openai')) ||
              (usedLower.slice(0, 50) === topicKey);
     });
-    
+
     if (wasRecentlyUsed) {
       score -= 100; // Heavy penalty for recently used topics
-      logger.debug(`Penalizing recently used topic: "${item.topic}"`);
+      logger.debug(`Penalizing recently used topic: "${itemTitle.slice(0, 80)}..."`);
     }
-    
+
     // Recency score (more recent = higher score)
-    const ageInHours = (Date.now() - new Date(item.publishedAt).getTime()) / (1000 * 60 * 60);
-    score += Math.max(0, 100 - (ageInHours * 4)); // Lose 4 points per hour
-    
-    // Source diversity score
-    const sourceCount = Array.isArray(item.sources) ? item.sources.length : 1;
-    score += sourceCount * 10;
-    
-    // Confidence score
-    score += (item.confidence || 0.5) * 50;
-    
-    // Volume/engagement score
-    if (item.volume) {
-      score += Math.log10(item.volume + 1) * 10;
+    let ageInHours = 24; // Default to 24 hours old if no date
+    if (item.publishedAt) {
+      const publishedTime = new Date(item.publishedAt).getTime();
+      if (!isNaN(publishedTime)) {
+        ageInHours = (Date.now() - publishedTime) / (1000 * 60 * 60);
+      }
     }
-    
+    // Recency bonus: 0-1 hour = 100pts, 6 hours = 76pts, 12 hours = 52pts, 24 hours = 4pts
+    score += Math.max(0, 100 - (ageInHours * 4));
+
+    // Source credibility score
+    const trustedSources = ['reuters', 'associated press', 'bbc', 'financial times', 'techcrunch',
+                            'the verge', 'wired', 'ars technica', 'bloomberg', 'new york times',
+                            'business insider', 'cbs news', 'cnbc'];
+    const sourceStr = itemSources.join(' ').toLowerCase();
+    const sourceName = (item.source || '').toLowerCase();
+
+    if (trustedSources.some(s => sourceStr.includes(s) || sourceName.includes(s))) {
+      score += 30; // Bonus for trusted sources
+    } else if (itemSources.length > 0) {
+      score += 15; // Base score for having a source
+    }
+
+    // Source diversity score
+    score += Math.min(itemSources.length * 10, 50); // Up to 50 points for multiple sources
+
+    // Confidence score (0-50 points)
+    score += itemConfidence * 50;
+
+    // Engagement score (if available)
+    const totalEngagement = (itemEngagement.likes || 0) + (itemEngagement.shares || 0) * 2 + (itemEngagement.comments || 0);
+    if (totalEngagement > 0) {
+      score += Math.min(Math.log10(totalEngagement + 1) * 15, 30); // Up to 30 points
+    }
+
     // Keyword relevance for major AI companies
-    const majorAICompanies = ['openai', 'anthropic', 'google', 'gemini', 'claude', 'gpt', 'meta', 'llama'];
-    const topicLower = item.topic.toLowerCase();
-    const majorCompanyBonus = majorAICompanies.filter(company => 
-      topicLower.includes(company)
+    const majorAICompanies = ['openai', 'anthropic', 'google', 'gemini', 'claude', 'gpt', 'meta', 'llama', 'microsoft', 'nvidia'];
+    const titleLower = itemTitle.toLowerCase();
+    const majorCompanyBonus = majorAICompanies.filter(company =>
+      titleLower.includes(company)
     ).length * 20;
     score += majorCompanyBonus;
-    
+
+    // Title quality bonus - prefer descriptive titles over generic ones
+    if (itemTitle.length > 50 && itemTitle.length < 200) {
+      score += 15; // Good title length
+    }
+    if (itemTitle.includes(':') || itemTitle.includes('—')) {
+      score += 10; // Headline format bonus
+    }
+
     // Diversity bonus - prefer different companies if recently posted about one
-    if (recentlyUsed.some(used => used && typeof used === 'string' && used.toLowerCase().includes('gemini')) && 
-        !item.topic.toLowerCase().includes('gemini')) {
+    if (recentlyUsed.some(used => used && typeof used === 'string' && used.toLowerCase().includes('gemini')) &&
+        !titleLower.includes('gemini')) {
       score += 50; // Bonus for non-Gemini content
     }
-    
+
     // Breaking news bonus
-    if (item.metadata?.isBreaking) {
+    if (item.metadata?.isBreaking || titleLower.includes('breaking') || titleLower.includes('just in')) {
       score += 30;
     }
-    
+
     // Category diversity scoring
-    const itemCategory = this.postingStrategy.categorizeTrend({ topic: item.topic });
+    const itemCategory = this.postingStrategy.categorizeTrend({ topic: itemTitle });
 
     // Get last 5 posts categories
-    const recentCategories = recentlyUsed.slice(0, 5).map(topic => 
+    const recentCategories = recentlyUsed.slice(0, 5).map(topic =>
       topic ? this.postingStrategy.categorizeTrend({ topic }) : null
     ).filter(Boolean);
-    
+
     // Diversity bonus - prefer different categories
     if (!recentCategories.includes(itemCategory)) {
       score += 40; // Significant bonus for category diversity
       logger.debug(`Category diversity bonus for "${itemCategory}" category`);
     }
-    
+
     return {
       ...item,
+      // Normalize fields for downstream consumption
+      topic: itemTitle, // Use title as topic for consistency
+      sources: itemSources,
+      confidence: itemConfidence,
       calculatedScore: score,
       wasRecentlyUsed
     };
   });
-  
+
   // Filter out items with invalid scores
-  const validItems = scoredItems.filter(item => 
-    item.calculatedScore !== undefined && 
-    item.topic !== undefined
+  const validItems = scoredItems.filter(item =>
+    item.calculatedScore !== undefined &&
+    (item.topic || item.title)
   );
-  
+
   // Sort by score and return the best one
   validItems.sort((a, b) => b.calculatedScore - a.calculatedScore);
-  
+
   logger.debug(`Top 5 AI news candidates after scoring:`);
   validItems.slice(0, 5).forEach((item, i) => {
-    logger.debug(`${i + 1}. "${item.topic}" (score: ${item.calculatedScore.toFixed(2)}, used: ${item.wasRecentlyUsed}, sources: ${item.sources?.join(', ') || 'unknown'})`);
+    const displayTitle = (item.title || item.topic || '').slice(0, 80);
+    const displaySources = item.sources?.join(', ') || item.source || 'unknown';
+    logger.debug(`${i + 1}. "${displayTitle}" (score: ${item.calculatedScore.toFixed(2)}, used: ${item.wasRecentlyUsed}, sources: ${displaySources})`);
   });
-  
+
   return validItems[0] || null;
 }
 
-// Add this helper method to check recently used AI topics
+// Helper method to check recently used AI topics - FIXED for Supabase
 async getRecentlyUsedAITopics(hours = 24) {
   try {
     const since = new Date();
     since.setHours(since.getHours() - hours);
-    
-    // First try the optimized query
-    try {
-      const snapshot = await this.db
-        .collection('published_posts')
-        .where('platform', '==', 'linkedin')
-        .where('published_at', '>', since)
-        .orderBy('published_at', 'desc')
-        .limit(20)
-        .get();
-      
-      const topics = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const topic = data.trend?.topic || data.content?.topic || '';
-        return topic;
-      }).filter(topic => topic && typeof topic === 'string' && topic.length > 0);
-      
-      logger.debug(`Found ${topics.length} recently used LinkedIn topics`);
-      return topics;
-      
-    } catch (indexError) {
-      if (indexError.code === 9) {
-        logger.warn('Index missing, using fallback query method');
-        
-        // Fallback: Get all recent posts and filter in memory
-        const snapshot = await this.db
-          .collection('published_posts')
-          .orderBy('published_at', 'desc')
-          .limit(100)
-          .get();
-        
-        const recentPosts = snapshot.docs.filter(doc => {
-          const data = doc.data();
-          const postDate = data.published_at?.toDate() || new Date(0);
-          return data.platform === 'linkedin' && postDate > since;
-        });
-        
-        const topics = recentPosts.map(doc => {
-          const data = doc.data();
-          return data.trend?.topic || data.content?.topic || '';
-        }).filter(topic => topic && typeof topic === 'string' && topic.length > 0);
-        
-        logger.debug(`Found ${topics.length} recently used LinkedIn topics (fallback method)`);
-        return topics;
+
+    // Use Supabase query syntax
+    const { data, error } = await this.db
+      .from('published_posts')
+      .select('trend, content, platform, published_at')
+      .eq('platform', 'linkedin')
+      .gt('published_at', since.toISOString())
+      .order('published_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      // If the table doesn't exist yet, return empty array
+      if (error.code === 'PGRST116' || error.code === '42P01') {
+        logger.debug('Published posts table not found or empty, returning empty array');
+        return [];
       }
-      throw indexError;
+      throw error;
     }
-    
+
+    const topics = (data || []).map(post => {
+      // Handle both JSONB trend object and string content
+      const topic = post.trend?.topic ||
+                    (typeof post.content === 'object' ? post.content?.topic : null) ||
+                    '';
+      return topic;
+    }).filter(topic => topic && typeof topic === 'string' && topic.length > 0);
+
+    logger.debug(`Found ${topics.length} recently used LinkedIn topics`);
+    return topics;
+
   } catch (error) {
     logger.error('Error fetching recently used topics:', error);
     return [];
@@ -1188,16 +1178,22 @@ async logPublication(scheduledPost, result) {
 
   async logError(error) {
     try {
-      await this.db.collection('automation_logs').add({
-        type: 'error',
-        error: {
-          message: error.message,
-          stack: error.stack,
-          name: error.name
-        },
-        timestamp: new Date(),
-        context: 'automated_posting'
-      });
+      // Use Supabase syntax instead of Firestore
+      const { error: dbError } = await this.db
+        .from('automation_logs')
+        .insert({
+          type: 'error',
+          error_message: error.message,
+          error_stack: error.stack,
+          error_name: error.name,
+          timestamp: new Date().toISOString(),
+          context: 'automated_posting'
+        });
+
+      if (dbError) {
+        // Don't throw - just log locally if db logging fails
+        logger.error('Failed to log error to database:', dbError);
+      }
     } catch (logError) {
       logger.error('Failed to log error to database:', logError);
     }

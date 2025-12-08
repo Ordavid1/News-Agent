@@ -5,7 +5,8 @@ node_modules/
 .env
 .env.local
 .env.production
-.env.*
+.env.development
+!.env.example
 
 # Logs
 *.log
@@ -13,6 +14,9 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*logs.txt
+linkedinlogs.txt
+twitterlogs.txt
 
 # IDE and editor files
 .vscode/
@@ -22,8 +26,9 @@ yarn-error.log*
 *~
 .DS_Store
 
-# Claude-specific files
+# AI/Agent specific files
 .claude/
+.agent/
 CLAUDE.md
 claude_help.md
 
@@ -61,3 +66,7 @@ Thumbs.db
 
 # Models folder (if contains local data)
 models/
+
+# Python virtual environment (if any)
+venv/
+__pycache__/

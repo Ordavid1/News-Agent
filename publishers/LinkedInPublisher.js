@@ -15,18 +15,83 @@ const logger = winston.createLogger({
 });
 
 class LinkedInPublisher {
-  constructor() {
-    if (!process.env.LINKEDIN_ACCESS_TOKEN) {
-      logger.warn('LinkedIn credentials not configured');
-      return;
+  /**
+   * Create a LinkedInPublisher instance
+   * @param {Object} credentials - Optional credentials object for per-user publishing
+   * @param {string} credentials.accessToken - OAuth 2.0 access token
+   * @param {string} credentials.authorId - LinkedIn author URN ID (e.g., person ID from urn:li:person:XXX)
+   * @param {Object} credentials.metadata - Platform metadata (may contain authorUrn)
+   */
+  constructor(credentials = null) {
+    if (credentials) {
+      // Per-user credentials mode
+      if (!credentials.accessToken) {
+        logger.warn('LinkedIn credentials provided but accessToken missing');
+        return;
+      }
+
+      this.accessToken = credentials.accessToken;
+      // Author ID can come from credentials directly or from metadata
+      this.authorId = credentials.authorId || credentials.metadata?.authorUrn?.replace('urn:li:person:', '');
+
+      if (!this.authorId) {
+        logger.warn('LinkedIn credentials missing authorId - will need to fetch from API');
+      }
+
+      logger.debug('LinkedIn publisher initialized with user credentials');
+    } else {
+      // Legacy mode: use environment variables
+      if (!process.env.LINKEDIN_ACCESS_TOKEN) {
+        logger.warn('LinkedIn credentials not configured');
+        return;
+      }
+
+      this.accessToken = process.env.LINKEDIN_ACCESS_TOKEN;
+      this.authorId = process.env.LINKEDIN_AUTHOR_ID;
+      logger.debug('LinkedIn publisher initialized with environment credentials');
     }
-    
-    this.accessToken = process.env.LINKEDIN_ACCESS_TOKEN;
-    this.authorId = process.env.LINKEDIN_AUTHOR_ID;
+  }
+
+  /**
+   * Create a new LinkedInPublisher instance with user-specific credentials
+   * @param {Object} credentials - User's OAuth credentials
+   * @returns {LinkedInPublisher} New publisher instance
+   */
+  static withCredentials(credentials) {
+    return new LinkedInPublisher(credentials);
+  }
+
+  /**
+   * Fetch the user's LinkedIn profile ID if not already set
+   */
+  async ensureAuthorId() {
+    if (this.authorId) return this.authorId;
+
+    try {
+      const response = await axios.get('https://api.linkedin.com/v2/userinfo', {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`
+        }
+      });
+
+      this.authorId = response.data.sub;
+      logger.info(`Fetched LinkedIn author ID: ${this.authorId}`);
+      return this.authorId;
+    } catch (error) {
+      logger.error('Failed to fetch LinkedIn user info:', error.message);
+      throw new Error('Could not determine LinkedIn author ID');
+    }
   }
 
 async publishPost(content, mediaUrl = null) {
   try {
+    if (!this.accessToken) {
+      throw new Error('LinkedIn access token not configured');
+    }
+
+    // Ensure we have the author ID
+    await this.ensureAuthorId();
+
     // Add debug logging
     logger.debug(`LinkedIn publish attempt - Token exists: ${!!this.accessToken}`);
     logger.debug(`LinkedIn author ID: ${this.authorId}`);

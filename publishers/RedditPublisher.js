@@ -15,20 +15,15 @@ const logger = winston.createLogger({
 });
 
 class RedditPublisher {
-  constructor() {
-    if (!process.env.REDDIT_CLIENT_ID || !process.env.REDDIT_CLIENT_SECRET) {
-      logger.warn('Reddit credentials not configured');
-      return;
-    }
-    
-    this.clientId = process.env.REDDIT_CLIENT_ID;
-    this.clientSecret = process.env.REDDIT_CLIENT_SECRET;
-    this.username = process.env.REDDIT_USERNAME;
-    this.password = process.env.REDDIT_PASSWORD;
-    this.subreddit = process.env.REDDIT_SUBREDDIT;
-    this.accessToken = null;
-    this.tokenExpiry = 0;
-
+  /**
+   * Create a RedditPublisher instance
+   * @param {Object} credentials - Optional credentials object for per-user publishing
+   * @param {string} credentials.accessToken - OAuth 2.0 access token (from OAuth flow)
+   * @param {string} credentials.refreshToken - OAuth 2.0 refresh token
+   * @param {string} credentials.username - Reddit username
+   * @param {Object} credentials.metadata - Platform metadata (may contain subreddit preferences)
+   */
+  constructor(credentials = null) {
     // News-focused subreddit configuration
     this.newsSubreddits = {
       general: ['worldnews', 'news', 'UpliftingNews'],
@@ -41,20 +36,74 @@ class RedditPublisher {
         IL: ['Israel', 'Israel_News']
       }
     };
-    
-    // Default to worldnews if no specific subreddit set
-    this.subreddit = process.env.REDDIT_SUBREDDIT;
+
+    if (credentials) {
+      // Per-user credentials mode (OAuth 2.0 token from user authorization)
+      if (!credentials.accessToken) {
+        logger.warn('Reddit credentials provided but accessToken missing');
+        return;
+      }
+
+      this.accessToken = credentials.accessToken;
+      this.refreshToken = credentials.refreshToken;
+      this.username = credentials.username;
+      this.subreddit = credentials.metadata?.defaultSubreddit || null;
+      // Token expiry should be tracked externally by TokenManager
+      this.tokenExpiry = Infinity; // Assume valid, TokenManager handles refresh
+
+      // For OAuth 2.0 flow, we don't use client credentials directly
+      // The token was obtained through the OAuth flow
+      this.useOAuthToken = true;
+
+      logger.debug('Reddit publisher initialized with user OAuth credentials');
+    } else {
+      // Legacy mode: use environment variables (password grant - deprecated by Reddit)
+      if (!process.env.REDDIT_CLIENT_ID || !process.env.REDDIT_CLIENT_SECRET) {
+        logger.warn('Reddit credentials not configured');
+        return;
+      }
+
+      this.clientId = process.env.REDDIT_CLIENT_ID;
+      this.clientSecret = process.env.REDDIT_CLIENT_SECRET;
+      this.username = process.env.REDDIT_USERNAME;
+      this.password = process.env.REDDIT_PASSWORD;
+      this.subreddit = process.env.REDDIT_SUBREDDIT;
+      this.accessToken = null;
+      this.tokenExpiry = 0;
+      this.useOAuthToken = false;
+
+      logger.debug('Reddit publisher initialized with environment credentials');
+    }
+  }
+
+  /**
+   * Create a new RedditPublisher instance with user-specific credentials
+   * @param {Object} credentials - User's OAuth credentials
+   * @returns {RedditPublisher} New publisher instance
+   */
+  static withCredentials(credentials) {
+    return new RedditPublisher(credentials);
   }
 
   async getAccessToken() {
+    // For OAuth 2.0 user tokens, just return the existing token
+    // Token refresh is handled externally by TokenManager
+    if (this.useOAuthToken) {
+      if (!this.accessToken) {
+        throw new Error('Reddit OAuth token not available');
+      }
+      return this.accessToken;
+    }
+
+    // Legacy password grant flow (deprecated by Reddit but kept for backwards compatibility)
     // Check if we have a valid token
     if (this.accessToken && Date.now() < this.tokenExpiry) {
       return this.accessToken;
     }
-    
+
     try {
       const auth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-      
+
       const response = await axios.post(
         'https://www.reddit.com/api/v1/access_token',
         `grant_type=password&username=${this.username}&password=${this.password}`,
@@ -62,18 +111,18 @@ class RedditPublisher {
           headers: {
             'Authorization': `Basic ${auth}`,
             'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'SocialMediaBot/1.0'
+            'User-Agent': 'NewsAgentSaaS/1.0'
           }
         }
       );
-      
+
       this.accessToken = response.data.access_token;
       // Token expires in 1 hour, refresh 5 minutes early
       this.tokenExpiry = Date.now() + ((response.data.expires_in - 300) * 1000);
-      
+
       logger.info('Reddit access token obtained successfully');
       return this.accessToken;
-      
+
     } catch (error) {
       logger.error('Failed to get Reddit access token:', error.message);
       throw error;

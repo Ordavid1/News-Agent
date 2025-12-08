@@ -17,18 +17,53 @@ const logger = winston.createLogger({
 });
 
 class TwitterPublisher {
-  constructor() {
-    if (!process.env.TWITTER_ACCESS_TOKEN) {
-      logger.warn('Twitter credentials not configured');
-      return;
+  /**
+   * Create a TwitterPublisher instance
+   * @param {Object} credentials - Optional credentials object for per-user publishing
+   * @param {string} credentials.accessToken - OAuth 2.0 access token
+   * @param {string} credentials.appKey - Twitter API Key (optional, uses env if not provided)
+   * @param {string} credentials.appSecret - Twitter API Secret (optional, uses env if not provided)
+   * @param {boolean} credentials.isPremium - Whether user has Twitter Premium/Blue
+   */
+  constructor(credentials = null) {
+    this.isPremium = false;
+
+    if (credentials) {
+      // Per-user credentials mode (OAuth 2.0 Bearer token)
+      if (!credentials.accessToken) {
+        logger.warn('Twitter credentials provided but accessToken missing');
+        return;
+      }
+
+      // Twitter OAuth 2.0 uses Bearer token for user context
+      this.client = new TwitterApi(credentials.accessToken);
+      this.isPremium = credentials.isPremium || false;
+      logger.debug('Twitter publisher initialized with user credentials');
+    } else {
+      // Legacy mode: use environment variables (OAuth 1.0a)
+      if (!process.env.TWITTER_ACCESS_TOKEN) {
+        logger.warn('Twitter credentials not configured');
+        return;
+      }
+
+      this.client = new TwitterApi({
+        appKey: process.env.TWITTER_API_KEY,
+        appSecret: process.env.TWITTER_API_SECRET,
+        accessToken: process.env.TWITTER_ACCESS_TOKEN,
+        accessSecret: process.env.TWITTER_ACCESS_SECRET,
+      });
+      this.isPremium = process.env.TWITTER_PREMIUM === 'true';
+      logger.debug('Twitter publisher initialized with environment credentials');
     }
-    
-    this.client = new TwitterApi({
-      appKey: process.env.TWITTER_API_KEY,
-      appSecret: process.env.TWITTER_API_SECRET,
-      accessToken: process.env.TWITTER_ACCESS_TOKEN,
-      accessSecret: process.env.TWITTER_ACCESS_SECRET,
-    });
+  }
+
+  /**
+   * Create a new TwitterPublisher instance with user-specific credentials
+   * @param {Object} credentials - User's OAuth credentials
+   * @returns {TwitterPublisher} New publisher instance
+   */
+  static withCredentials(credentials) {
+    return new TwitterPublisher(credentials);
   }
 
 async publishPost(content, mediaUrl = null) {
@@ -134,17 +169,12 @@ formatForTwitter(content) {
 
   // Debug logging
   logger.debug(`Formatting for Twitter - Original length: ${plainText.length}`);
-  logger.debug(`TWITTER_PREMIUM env var: "${process.env.TWITTER_PREMIUM}"`);
+  logger.debug(`isPremium: ${this.isPremium}`);
   logger.debug(`Number of line breaks: ${(plainText.match(/\n/g) || []).length}`);
 
   // Check if user has Twitter Blue/Premium for longer posts
-  const isPremium = process.env.TWITTER_PREMIUM === 'true';
-  const maxLength = isPremium ? 4000 : 280;
-  // Add warning if TWITTER_PREMIUM is not explicitly set
-  if (process.env.TWITTER_PREMIUM === undefined) {
-    logger.warn('TWITTER_PREMIUM environment variable not set - defaulting to standard 280 character limit');
-  }
-  logger.debug(`Using ${isPremium ? 'Premium' : 'Standard'} mode with max length: ${maxLength}`);
+  const maxLength = this.isPremium ? 4000 : 280;
+  logger.debug(`Using ${this.isPremium ? 'Premium' : 'Standard'} mode with max length: ${maxLength}`);
 
   // If content fits within limit, return as-is
   if (plainText.length <= maxLength) {
@@ -153,7 +183,7 @@ formatForTwitter(content) {
   }
 
   // For premium users with long content, return full text
-  if (isPremium) {
+  if (this.isPremium) {
     logger.debug(`Premium user - returning full text (${plainText.length} chars)`);
     return plainText;
   }
