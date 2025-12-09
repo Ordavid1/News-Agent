@@ -22,6 +22,7 @@ import userRoutes from './routes/users.js';
 import automationRoutes from './routes/automation.js';
 import testRoutes from './routes/test.js';
 import connectionsRoutes from './routes/connections.js';
+import agentsRoutes from './routes/agents.js';
 
 // Import middleware
 import { authenticateToken } from './middleware/auth.js';
@@ -147,6 +148,7 @@ app.use('/api/posts', authenticateToken, checkSubscriptionLimits, postsRoutes);
 app.use('/api/analytics', authenticateToken, analyticsRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/automation', authenticateToken, automationRoutes);
+app.use('/api/agents', authenticateToken, agentsRoutes); // Agent management (each agent = platform + settings)
 app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route)
 app.use('/api/test', testRoutes); // Test routes (no auth for testing)
 

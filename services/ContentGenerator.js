@@ -155,13 +155,11 @@ Keep it concise but informative. Use HTML formatting for emphasis.`;
       }
       
       const config = {
-        model: 'gpt-4',
+        model: 'gpt-5-nano',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7, // Slightly lower for more consistent news reporting
-        max_tokens: platform === 'twitter' ? 300 : (platform === 'telegram' ? 800 : 1500),
         presence_penalty: 0.1,
         frequency_penalty: 0.1
       };

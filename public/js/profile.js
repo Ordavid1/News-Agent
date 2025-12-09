@@ -3,6 +3,9 @@
 // Global state
 let currentUser = null;
 let connections = [];
+let agents = [];
+let agentLimit = 1;
+let availableConnections = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Check if user is authenticated
@@ -12,10 +15,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // Load user data and connections
+    // Load user data, connections, and agents
     await Promise.all([
         loadUserProfile(),
-        loadConnections()
+        loadConnections(),
+        loadAgents()
     ]);
 
     // Setup event handlers
@@ -687,6 +691,524 @@ function closeTestModal() {
     }
 }
 
+// ============================================
+// Agent Management Functions
+// ============================================
+
+async function loadAgents() {
+    const token = localStorage.getItem('token');
+
+    try {
+        const response = await fetch('/api/agents', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            agents = data.agents || [];
+            agentLimit = data.limit === 'unlimited' ? -1 : data.limit;
+            updateAgentsUI();
+        }
+    } catch (error) {
+        console.error('Error loading agents:', error);
+    }
+}
+
+async function loadAvailableConnections() {
+    const token = localStorage.getItem('token');
+
+    try {
+        const response = await fetch('/api/agents/available-connections', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            availableConnections = data.connections || [];
+            return availableConnections;
+        }
+    } catch (error) {
+        console.error('Error loading available connections:', error);
+    }
+    return [];
+}
+
+function updateAgentsUI() {
+    // Update agent count badge
+    const agentCountEl = document.getElementById('agentCount');
+    if (agentCountEl) {
+        const limitText = agentLimit === -1 ? '∞' : agentLimit;
+        agentCountEl.textContent = `${agents.length}/${limitText}`;
+
+        if (agents.length > 0) {
+            agentCountEl.classList.remove('bg-gray-700');
+            agentCountEl.classList.add('bg-purple-500/20', 'text-purple-400');
+        } else {
+            agentCountEl.classList.add('bg-gray-700');
+            agentCountEl.classList.remove('bg-purple-500/20', 'text-purple-400');
+        }
+    }
+
+    // Show/hide empty state
+    const emptyState = document.getElementById('agentsEmptyState');
+    const agentsGrid = document.getElementById('agentsGrid');
+
+    if (agents.length === 0) {
+        if (emptyState) emptyState.classList.remove('hidden');
+        if (agentsGrid) agentsGrid.innerHTML = '';
+
+        // Update empty message based on connections
+        const emptyMsg = document.getElementById('agentsEmptyMessage');
+        if (emptyMsg) {
+            if (connections.filter(c => c.status === 'active').length === 0) {
+                emptyMsg.textContent = 'Connect a social platform first, then create an agent to start posting';
+            } else {
+                emptyMsg.textContent = 'Create an agent to start posting to your connected platforms';
+            }
+        }
+    } else {
+        if (emptyState) emptyState.classList.add('hidden');
+        renderAgentsGrid();
+    }
+
+    // Show/hide limit hint
+    const limitHint = document.getElementById('agentLimitHint');
+    const limitMsg = document.getElementById('agentLimitMessage');
+    if (limitHint && agentLimit !== -1) {
+        if (agents.length >= agentLimit) {
+            limitHint.classList.remove('hidden');
+            if (limitMsg) {
+                limitMsg.textContent = `You've reached your agent limit (${agentLimit}). Upgrade your plan to create more agents.`;
+            }
+        } else {
+            limitHint.classList.add('hidden');
+        }
+    }
+
+    // Enable/disable create button based on limit
+    const createBtn = document.getElementById('createAgentBtn');
+    const createFirstBtn = document.getElementById('createFirstAgentBtn');
+    const canCreate = agentLimit === -1 || agents.length < agentLimit;
+
+    if (createBtn) {
+        createBtn.disabled = !canCreate;
+        if (!canCreate) {
+            createBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            createBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+    if (createFirstBtn) {
+        createFirstBtn.disabled = !canCreate;
+    }
+}
+
+function renderAgentsGrid() {
+    const grid = document.getElementById('agentsGrid');
+    if (!grid) return;
+
+    const platformIcons = {
+        twitter: `<svg class="w-6 h-6 text-[#1DA1F2]" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`,
+        linkedin: `<svg class="w-6 h-6 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>`,
+        reddit: `<svg class="w-6 h-6 text-[#FF4500]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701z"/></svg>`,
+        facebook: `<svg class="w-6 h-6 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>`,
+        telegram: `<svg class="w-6 h-6 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>`
+    };
+
+    const platformColors = {
+        twitter: 'bg-[#1DA1F2]/20',
+        linkedin: 'bg-[#0A66C2]/20',
+        reddit: 'bg-[#FF4500]/20',
+        facebook: 'bg-[#1877F2]/20',
+        telegram: 'bg-[#0088cc]/20'
+    };
+
+    grid.innerHTML = agents.map(agent => {
+        const icon = platformIcons[agent.platform] || '';
+        const bgColor = platformColors[agent.platform] || 'bg-gray-700';
+        const statusColor = agent.status === 'active' ? 'text-green-400' : 'text-yellow-400';
+        const statusBg = agent.status === 'active' ? 'bg-green-500/20' : 'bg-yellow-500/20';
+        const lastPosted = agent.last_posted_at
+            ? new Date(agent.last_posted_at).toLocaleDateString()
+            : 'Never';
+
+        return `
+            <div class="platform-card rounded-xl p-6" id="agent-${agent.id}">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-xl ${bgColor} flex items-center justify-center">
+                            ${icon}
+                        </div>
+                        <div>
+                            <h4 class="font-semibold">${escapeHtml(agent.name)}</h4>
+                            <p class="text-sm text-gray-400 capitalize">${agent.platform}</p>
+                        </div>
+                    </div>
+                    <span class="${statusBg} ${statusColor} px-3 py-1 rounded-full text-xs font-medium capitalize">
+                        ${agent.status}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-4 text-sm">
+                    <div>
+                        <p class="text-gray-500">Posts Today</p>
+                        <p class="font-medium">${agent.posts_today || 0}</p>
+                    </div>
+                    <div>
+                        <p class="text-gray-500">Last Posted</p>
+                        <p class="font-medium">${lastPosted}</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button onclick="testAgentPost('${agent.id}')"
+                            class="flex-1 py-2 rounded-lg bg-cyan-500/20 text-cyan-400 text-sm font-medium hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
+                            ${agent.status !== 'active' ? 'disabled' : ''}>
+                        <span>Test</span>
+                    </button>
+                    <button onclick="window.location.href='/settings.html?agent=${agent.id}'"
+                            class="flex-1 py-2 rounded-lg bg-purple-500/20 text-purple-400 text-sm font-medium hover:bg-purple-500/30 transition-all">
+                        Configure
+                    </button>
+                    <button onclick="toggleAgentStatus('${agent.id}', '${agent.status}')"
+                            class="px-3 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm hover:text-white transition-all"
+                            title="${agent.status === 'active' ? 'Pause' : 'Resume'}">
+                        ${agent.status === 'active'
+                            ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                            : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+                        }
+                    </button>
+                    <button onclick="deleteAgent('${agent.id}', '${escapeHtml(agent.name)}')"
+                            class="px-3 py-2 rounded-lg border border-red-500/50 text-red-400 text-sm hover:bg-red-500/20 transition-all"
+                            title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function openCreateAgentModal() {
+    const modal = document.getElementById('createAgentModal');
+    const select = document.getElementById('agentPlatformSelect');
+    const nameInput = document.getElementById('agentNameInput');
+    const errorDiv = document.getElementById('createAgentError');
+    const noPlatformsWarning = document.getElementById('noPlatformsWarning');
+    const submitBtn = document.getElementById('createAgentSubmitBtn');
+
+    // Reset state
+    if (errorDiv) errorDiv.classList.add('hidden');
+    if (nameInput) nameInput.value = '';
+
+    // Load available connections
+    await loadAvailableConnections();
+
+    // Populate select
+    if (select) {
+        select.innerHTML = '<option value="">Select a connected platform...</option>';
+
+        if (availableConnections.length === 0) {
+            if (noPlatformsWarning) noPlatformsWarning.classList.remove('hidden');
+            if (submitBtn) submitBtn.disabled = true;
+        } else {
+            if (noPlatformsWarning) noPlatformsWarning.classList.add('hidden');
+            if (submitBtn) submitBtn.disabled = false;
+
+            availableConnections.forEach(conn => {
+                const option = document.createElement('option');
+                option.value = conn.id;
+                option.textContent = `${conn.platform.charAt(0).toUpperCase() + conn.platform.slice(1)} - @${conn.username || conn.displayName || 'connected'}`;
+                option.dataset.platform = conn.platform;
+                select.appendChild(option);
+            });
+        }
+    }
+
+    // Show modal
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+
+function closeCreateAgentModal() {
+    const modal = document.getElementById('createAgentModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+async function createAgent() {
+    const token = localStorage.getItem('token');
+    const select = document.getElementById('agentPlatformSelect');
+    const nameInput = document.getElementById('agentNameInput');
+    const errorDiv = document.getElementById('createAgentError');
+    const errorText = document.getElementById('createAgentErrorText');
+    const submitBtn = document.getElementById('createAgentSubmitBtn');
+
+    const connectionId = select?.value;
+    const name = nameInput?.value?.trim();
+
+    // Validate
+    if (!connectionId) {
+        showCreateAgentError('Please select a platform');
+        return;
+    }
+    if (!name) {
+        showCreateAgentError('Please enter an agent name');
+        return;
+    }
+
+    // Hide error
+    if (errorDiv) errorDiv.classList.add('hidden');
+
+    // Show loading
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Creating...';
+    submitBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/agents', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ connectionId, name })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            closeCreateAgentModal();
+            await loadAgents();
+            // Redirect to settings for the new agent
+            window.location.href = `/settings.html?agent=${data.agent.id}`;
+        } else {
+            showCreateAgentError(data.error || 'Failed to create agent');
+        }
+    } catch (error) {
+        console.error('Error creating agent:', error);
+        showCreateAgentError('Network error. Please try again.');
+    } finally {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+function showCreateAgentError(message) {
+    const errorDiv = document.getElementById('createAgentError');
+    const errorText = document.getElementById('createAgentErrorText');
+    if (errorDiv && errorText) {
+        errorText.textContent = message;
+        errorDiv.classList.remove('hidden');
+    }
+}
+
+async function toggleAgentStatus(agentId, currentStatus) {
+    const token = localStorage.getItem('token');
+    const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+
+    try {
+        const response = await fetch(`/api/agents/${agentId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status: newStatus })
+        });
+
+        if (response.ok) {
+            await loadAgents();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Failed to update agent status');
+        }
+    } catch (error) {
+        console.error('Error toggling agent status:', error);
+        alert('Failed to update agent status');
+    }
+}
+
+async function deleteAgent(agentId, agentName) {
+    if (!confirm(`Are you sure you want to delete "${agentName}"? This cannot be undone.`)) {
+        return;
+    }
+
+    const token = localStorage.getItem('token');
+
+    try {
+        const response = await fetch(`/api/agents/${agentId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            await loadAgents();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Failed to delete agent');
+        }
+    } catch (error) {
+        console.error('Error deleting agent:', error);
+        alert('Failed to delete agent');
+    }
+}
+
+async function testAgentPost(agentId) {
+    const token = localStorage.getItem('token');
+    const agentCard = document.getElementById(`agent-${agentId}`);
+    const testBtn = agentCard?.querySelector('button');
+
+    // Show loading state
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.innerHTML = '<span class="loading-spinner"></span>';
+    }
+
+    try {
+        const response = await fetch(`/api/agents/${agentId}/test`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const result = await response.json();
+        showAgentTestResults(result, response.ok);
+
+    } catch (error) {
+        console.error('Agent test error:', error);
+        showAgentTestResults({
+            success: false,
+            error: 'Network error',
+            message: error.message
+        }, false);
+    } finally {
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.innerHTML = '<span>Test</span>';
+        }
+        // Refresh agents to update post counts
+        await loadAgents();
+    }
+}
+
+function showAgentTestResults(result, isSuccess) {
+    const modal = document.getElementById('agentTestResultModal');
+    const content = document.getElementById('agentTestResultContent');
+    const title = document.getElementById('agentTestModalTitle');
+
+    if (title) {
+        title.textContent = isSuccess && result.success ? 'Post Published!' : 'Test Results';
+    }
+
+    let html = '';
+
+    if (result.success) {
+        html += `
+            <div class="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                <p class="text-green-400 font-medium">${result.message}</p>
+            </div>
+        `;
+
+        if (result.agent) {
+            html += `
+                <div class="mb-4 p-3 rounded-lg bg-gray-900/50">
+                    <p class="text-sm text-gray-400">Agent: <span class="text-white">${escapeHtml(result.agent.name)}</span></p>
+                    <p class="text-sm text-gray-400">Platform: <span class="text-white capitalize">${result.agent.platform}</span></p>
+                </div>
+            `;
+        }
+
+        if (result.post) {
+            html += `
+                <div class="mb-6">
+                    <h4 class="text-lg font-semibold text-purple-400 mb-2">Generated Content</h4>
+                    <div class="p-4 rounded-lg bg-gray-900/50 border border-gray-700">
+                        <p class="text-sm text-gray-400 mb-2">Topic: <span class="text-white">${escapeHtml(result.post.topic)}</span></p>
+                        <p class="text-sm text-gray-400 mb-2">Trend: <span class="text-white">${escapeHtml(result.post.trend)}</span></p>
+                        <div class="mt-4 p-3 bg-black/50 rounded-lg">
+                            <p class="text-white whitespace-pre-wrap">${escapeHtml(result.post.content)}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (result.result?.url) {
+            html += `
+                <a href="${result.result.url}" target="_blank" class="inline-block px-4 py-2 bg-purple-500/20 border border-purple-500 rounded-lg text-purple-400 hover:bg-purple-500/30 transition-colors">
+                    View Post →
+                </a>
+            `;
+        }
+    } else {
+        html += `
+            <div class="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                <p class="text-red-400 font-medium">${result.message || result.error || 'Test failed'}</p>
+            </div>
+        `;
+
+        if (result.step === 'status') {
+            html += `
+                <p class="text-gray-400">Activate the agent first to test posting.</p>
+            `;
+        }
+    }
+
+    if (content) content.innerHTML = html;
+
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+
+function closeAgentTestModal() {
+    const modal = document.getElementById('agentTestResultModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+// Close modals on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeCreateAgentModal();
+        closeAgentTestModal();
+    }
+});
+
+// Close modals on background click
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'createAgentModal') {
+        closeCreateAgentModal();
+    }
+    if (e.target.id === 'agentTestResultModal') {
+        closeAgentTestModal();
+    }
+});
+
 // Make functions globally available
 window.showTab = showTab;
 window.connectPlatform = connectPlatform;
@@ -697,3 +1219,11 @@ window.closeTelegramModal = closeTelegramModal;
 window.connectTelegram = connectTelegram;
 window.testAgent = testAgent;
 window.closeTestModal = closeTestModal;
+// Agent functions
+window.openCreateAgentModal = openCreateAgentModal;
+window.closeCreateAgentModal = closeCreateAgentModal;
+window.createAgent = createAgent;
+window.toggleAgentStatus = toggleAgentStatus;
+window.deleteAgent = deleteAgent;
+window.testAgentPost = testAgentPost;
+window.closeAgentTestModal = closeAgentTestModal;

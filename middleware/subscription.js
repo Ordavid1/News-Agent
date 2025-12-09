@@ -85,3 +85,32 @@ function getNextResetDate() {
   tomorrow.setHours(0, 0, 0, 0);
   return tomorrow;
 }
+
+// Agent limits per subscription tier
+export const AGENT_LIMITS = {
+  free: 1,
+  starter: 2,
+  growth: 5,
+  professional: 10,
+  business: -1 // unlimited
+};
+
+/**
+ * Get agent limit for a subscription tier
+ * @param {string} tier - Subscription tier name
+ * @returns {number} Agent limit (-1 for unlimited)
+ */
+export function getAgentLimit(tier) {
+  return AGENT_LIMITS[tier] ?? 1;
+}
+
+/**
+ * Check if user can create more agents
+ * @param {string} tier - User's subscription tier
+ * @param {number} currentCount - Current number of agents
+ * @returns {boolean} True if can create more agents
+ */
+export function canCreateAgent(tier, currentCount) {
+  const limit = getAgentLimit(tier);
+  return limit === -1 || currentCount < limit;
+}

@@ -28,5 +28,14 @@ export {
   getUserConnections,
   getConnection,
   hasActiveConnection,
-  getDb
+  getDb,
+  // Agent functions
+  getUserAgents,
+  getAgentById,
+  getAgentByConnectionId,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  countUserAgents,
+  incrementAgentPost
 } from './database.js';

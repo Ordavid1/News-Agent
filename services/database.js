@@ -712,6 +712,181 @@ function convertPostUpdatesToSupabase(updates) {
   return converted;
 }
 
+// ============================================
+// AGENT MANAGEMENT
+// ============================================
+
+/**
+ * Get all agents for a user
+ */
+export async function getUserAgents(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user agents:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get agent by ID
+ */
+export async function getAgentById(agentId) {
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .select('*')
+    .eq('id', agentId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting agent by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get agent by connection ID
+ */
+export async function getAgentByConnectionId(connectionId) {
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .select('*')
+    .eq('connection_id', connectionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting agent by connection:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a new agent
+ */
+export async function createAgent(agentData) {
+  const { userId, connectionId, name, platform, settings } = agentData;
+
+  const defaultSettings = {
+    topics: [],
+    keywords: [],
+    geoFilter: { region: '', includeGlobal: true },
+    schedule: { postsPerDay: 3, startTime: '09:00', endTime: '21:00' },
+    contentStyle: { tone: 'professional', includeHashtags: true }
+  };
+
+  const agent = {
+    user_id: userId,
+    connection_id: connectionId,
+    name,
+    platform,
+    status: 'active',
+    settings: settings || defaultSettings,
+    posts_today: 0,
+    total_posts: 0
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .insert(agent)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating agent:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update an agent
+ */
+export async function updateAgent(agentId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .update(updateData)
+    .eq('id', agentId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating agent:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete an agent
+ */
+export async function deleteAgent(agentId) {
+  const { error } = await supabaseAdmin
+    .from('agents')
+    .delete()
+    .eq('id', agentId);
+
+  if (error) {
+    logger.error('Error deleting agent:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count user's agents
+ */
+export async function countUserAgents(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('agents')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error counting user agents:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+/**
+ * Increment agent post count after successful post
+ */
+export async function incrementAgentPost(agentId) {
+  const { error } = await supabaseAdmin.rpc('increment_agent_post', { p_agent_id: agentId });
+
+  if (error) {
+    // Fallback to direct update if function doesn't exist
+    logger.warn('increment_agent_post RPC failed, using direct update:', error);
+    await supabaseAdmin
+      .from('agents')
+      .update({
+        posts_today: supabaseAdmin.sql`posts_today + 1`,
+        total_posts: supabaseAdmin.sql`total_posts + 1`,
+        last_posted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', agentId);
+  }
+}
+
 /**
  * Get the database instance (for backwards compatibility)
  * In Supabase, we just return the admin client
@@ -740,5 +915,14 @@ export default {
   getUserConnections,
   getConnection,
   hasActiveConnection,
-  getDb
+  getDb,
+  // Agent functions
+  getUserAgents,
+  getAgentById,
+  getAgentByConnectionId,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  countUserAgents,
+  incrementAgentPost
 };

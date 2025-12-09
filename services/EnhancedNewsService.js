@@ -28,43 +28,51 @@ class EnhancedNewsService extends NewsService {
       language = 'en',
       sortBy = 'relevance',
       sources = ['newsapi', 'gnews'],
-      userId = 'demo-user'
+      userId = 'demo-user',
+      keywords = [],
+      geoFilter = {}
     } = options;
-    
-    logger.info(`Enhanced: Fetching news for topics: ${topics.join(', ')}`);
-    
+
+    const { region = '', includeGlobal = true } = geoFilter;
+
+    logger.info(`Enhanced: Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}`);
+
     // Date setup - similar to main app
     const now = new Date();
     const toDate = new Date(now);
     toDate.setUTCHours(23, 59, 59, 999);
-    
+
     const fromDate = new Date(now);
     fromDate.setUTCDate(fromDate.getUTCDate() - 7);
     fromDate.setUTCHours(0, 0, 0, 0);
-    
+
     const allNews = [];
-    
-    // Call parent method to get raw news
-    const rawNews = await super.getNewsForTopics(topics, options);
-    
+
+    // Call parent method to get raw news - pass through keywords and geoFilter
+    const rawNews = await super.getNewsForTopics(topics, {
+      ...options,
+      keywords,
+      geoFilter
+    });
+
     // Enhanced filtering and scoring
     const processedNews = rawNews
       .filter(article => this.validateArticle(article, fromDate, toDate))
       .filter(article => !this.isArticleAlreadyUsed(article, userId))
       .map(article => ({
         ...article,
-        relevanceScore: this.calculateEnhancedRelevance(article, topics[0], fromDate, toDate)
+        relevanceScore: this.calculateEnhancedRelevance(article, topics[0], fromDate, toDate, keywords)
       }))
       .filter(article => article.relevanceScore >= 0.3)
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
-    
+
     logger.info(`Enhanced: Found ${processedNews.length} relevant articles after filtering`);
-    
+
     // Mark articles as used
     processedNews.slice(0, limit).forEach(article => {
       this.markArticleAsUsed(article, userId);
     });
-    
+
     return processedNews.slice(0, limit);
   }
 
@@ -181,36 +189,38 @@ class EnhancedNewsService extends NewsService {
     }
   }
 
-  calculateEnhancedRelevance(article, topic, fromDate, toDate) {
+  calculateEnhancedRelevance(article, topic, fromDate, toDate, userKeywords = []) {
     const weights = {
-      titleMatch: 0.35,
-      descMatch: 0.25,
-      dateRecency: 0.25,
-      keywordDensity: 0.15
+      titleMatch: 0.30,
+      descMatch: 0.20,
+      dateRecency: 0.20,
+      keywordDensity: 0.15,
+      userKeywordMatch: 0.15  // New weight for user-defined keywords
     };
-    
+
     let scores = {
       titleMatch: 0,
       descMatch: 0,
       dateRecency: 0,
-      keywordDensity: 0
+      keywordDensity: 0,
+      userKeywordMatch: 0
     };
-    
+
     const titleLower = (article.title || '').toLowerCase();
     const descLower = (article.description || '').toLowerCase();
     const topicLower = topic.toLowerCase();
-    
+
     // Extract topic keywords
     const topicKeywords = this.getTopicKeywords(topic);
     const allKeywords = [topicLower, ...topicKeywords.map(k => k.toLowerCase())];
-    
+
     // Title match score
     const titleWords = titleLower.split(/\s+/);
     const titleMatches = allKeywords.filter(keyword => {
       return titleWords.some(word => word.includes(keyword) || keyword.includes(word));
     }).length;
     scores.titleMatch = Math.min(titleMatches / allKeywords.length, 1.0);
-    
+
     // Description match score
     if (descLower) {
       const descWords = descLower.split(/\s+/);
@@ -219,7 +229,7 @@ class EnhancedNewsService extends NewsService {
       }).length;
       scores.descMatch = Math.min(descMatches / allKeywords.length, 1.0);
     }
-    
+
     // Date recency score (exponential decay)
     if (article.publishedAt) {
       const ageInHours = (Date.now() - new Date(article.publishedAt).getTime()) / (1000 * 60 * 60);
@@ -227,7 +237,7 @@ class EnhancedNewsService extends NewsService {
     } else {
       scores.dateRecency = 0.5;
     }
-    
+
     // Keyword density score
     const fullText = `${titleLower} ${descLower}`;
     const wordCount = fullText.split(/\s+/).length;
@@ -237,14 +247,31 @@ class EnhancedNewsService extends NewsService {
       return count + (matches ? matches.length : 0);
     }, 0);
     scores.keywordDensity = Math.min(keywordCount / wordCount * 10, 1.0);
-    
+
+    // User-defined keyword match score
+    if (userKeywords && userKeywords.length > 0) {
+      const cleanUserKeywords = userKeywords.map(k => k.replace(/^#/, '').toLowerCase());
+      const userKeywordMatches = cleanUserKeywords.filter(keyword => {
+        return fullText.includes(keyword);
+      }).length;
+      scores.userKeywordMatch = Math.min(userKeywordMatches / cleanUserKeywords.length, 1.0);
+
+      // Boost score if user keywords are found (they are more intentional)
+      if (userKeywordMatches > 0) {
+        scores.userKeywordMatch = Math.min(scores.userKeywordMatch * 1.5, 1.0);
+      }
+    } else {
+      // If no user keywords, redistribute the weight to other factors
+      scores.userKeywordMatch = (scores.titleMatch + scores.descMatch) / 2;
+    }
+
     // Calculate weighted total
     const totalScore = Object.entries(weights).reduce((sum, [key, weight]) => {
       return sum + (scores[key] * weight);
     }, 0);
-    
-    logger.debug(`Enhanced relevance for "${article.title}": ${totalScore.toFixed(3)} (title: ${scores.titleMatch.toFixed(2)}, desc: ${scores.descMatch.toFixed(2)}, date: ${scores.dateRecency.toFixed(2)}, density: ${scores.keywordDensity.toFixed(2)})`);
-    
+
+    logger.debug(`Enhanced relevance for "${article.title}": ${totalScore.toFixed(3)} (title: ${scores.titleMatch.toFixed(2)}, desc: ${scores.descMatch.toFixed(2)}, date: ${scores.dateRecency.toFixed(2)}, density: ${scores.keywordDensity.toFixed(2)}, userKw: ${scores.userKeywordMatch.toFixed(2)})`);
+
     return totalScore;
   }
 

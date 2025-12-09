@@ -106,7 +106,7 @@ Length: 2-3 short paragraphs with clear spacing.`;
   
   const getOpenAIConfig = (systemPrompt, userPrompt) => {
     return {
-      model: 'gpt-4.1-mini',
+      model: 'gpt-5-nano',
       messages: [
         {
           role: 'system',
@@ -117,8 +117,6 @@ Length: 2-3 short paragraphs with clear spacing.`;
           content: userPrompt
         }
       ],
-      temperature: 0.7,
-      max_tokens: 500
     };
   };
   

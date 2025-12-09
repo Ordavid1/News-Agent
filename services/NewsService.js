@@ -35,77 +35,120 @@ class NewsService {
       limit = 10,
       language = 'en',
       sortBy = 'relevance',
-      sources = ['newsapi', 'gnews']
+      sources = ['newsapi', 'gnews'],
+      keywords = [],
+      geoFilter = {}
     } = options;
-    
-    logger.info(`Fetching news for topics: ${topics.join(', ')}`);
-    
+
+    const { region = '', includeGlobal = true } = geoFilter;
+
+    logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}`);
+
     const allNews = [];
-    
+
+    // Build search queries from topics and keywords
+    const searchTerms = [...topics];
+    if (keywords.length > 0) {
+      // Add keywords to search (strip # from hashtags for search)
+      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
+      searchTerms.push(...cleanKeywords);
+    }
+
     // Fetch news for each topic
     for (const topic of topics) {
-      const cacheKey = `${topic}_${language}_${sortBy}`;
+      const cacheKey = `${topic}_${language}_${sortBy}_${region}_${keywords.join(',')}`;
       const cached = this.getFromCache(cacheKey);
-      
+
       if (cached) {
         logger.debug(`Using cached news for topic: ${topic}`);
         allNews.push(...cached);
         continue;
       }
-      
+
       const topicNews = [];
-      
+
       // Try different news sources
       if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
         try {
-          const newsApiResults = await this.fetchFromNewsAPI(topic, language, sortBy);
+          const newsApiResults = await this.fetchFromNewsAPI(topic, language, sortBy, { keywords, region });
           topicNews.push(...newsApiResults);
         } catch (error) {
           logger.error(`NewsAPI error for topic ${topic}:`, error.message);
         }
       }
-      
+
       if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
         try {
-          const gnewsResults = await this.fetchFromGNews(topic, language, sortBy);
+          const gnewsResults = await this.fetchFromGNews(topic, language, sortBy, { keywords, region });
           topicNews.push(...gnewsResults);
         } catch (error) {
           logger.error(`GNews error for topic ${topic}:`, error.message);
         }
       }
-      
+
       // If no real APIs available or no results, use Google Custom Search
       if (topicNews.length === 0 && this.googleApiKey && this.googleApiKey !== 'mock-key') {
         try {
-          const googleResults = await this.fetchFromGoogleCSE(topic, language);
+          const googleResults = await this.fetchFromGoogleCSE(topic, language, { keywords, region });
           topicNews.push(...googleResults);
         } catch (error) {
           logger.error(`Google CSE error for topic ${topic}:`, error.message);
         }
       }
-      
+
       // Cache the results
       if (topicNews.length > 0) {
         this.saveToCache(cacheKey, topicNews);
       }
-      
+
       allNews.push(...topicNews);
     }
-    
+
+    // Apply keyword filtering to results if keywords were specified
+    let filteredNews = allNews;
+    if (keywords.length > 0) {
+      filteredNews = this.filterByKeywords(allNews, keywords);
+      logger.info(`Filtered ${allNews.length} articles down to ${filteredNews.length} using keywords`);
+    }
+
     // Deduplicate and sort by relevance/date
-    const uniqueNews = this.deduplicateNews(allNews);
+    const uniqueNews = this.deduplicateNews(filteredNews);
     const sortedNews = this.sortNews(uniqueNews, sortBy);
-    
+
     return sortedNews.slice(0, limit);
   }
 
-  async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance') {
+  /**
+   * Filter articles by keywords - article must contain at least one keyword
+   */
+  filterByKeywords(articles, keywords) {
+    if (!keywords || keywords.length === 0) return articles;
+
+    const cleanKeywords = keywords.map(k => k.replace(/^#/, '').toLowerCase());
+
+    return articles.filter(article => {
+      const text = `${article.title || ''} ${article.description || ''} ${article.content || ''}`.toLowerCase();
+      return cleanKeywords.some(keyword => text.includes(keyword));
+    });
+  }
+
+  async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance', filters = {}) {
+    const { keywords = [], region = '' } = filters;
+
     // Use dynamic topic queries from config
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
+
+    // Build query with keywords if provided
+    let queryParts = [...searchQueries];
+    if (keywords.length > 0) {
+      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
+      queryParts.push(...cleanKeywords);
+    }
+    const query = queryParts.join(' OR ') || topic;
+
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
-    
+
     const params = {
       q: query,
       apiKey: this.newsApiKey,
@@ -114,12 +157,15 @@ class NewsService {
       from: fromDate.toISOString().split('T')[0],
       pageSize: 20
     };
-    
+
+    // NewsAPI doesn't support country for 'everything' endpoint, but we can use 'top-headlines' for country-specific
+    // For now, we'll filter by region in post-processing if needed
+
     try {
       const response = await axios.get('https://newsapi.org/v2/everything', { params });
-      
+
       logger.info(`NewsAPI returned ${response.data.articles.length} articles for topic: ${topic}`);
-      
+
       return response.data.articles.map(article => ({
         title: article.title,
         description: article.description,
@@ -134,7 +180,7 @@ class NewsService {
         topic,
         relevanceScore: this.calculateRelevanceScore(article, topic)
       }));
-      
+
     } catch (error) {
       if (error.response?.status === 429) {
         logger.warn('NewsAPI rate limit reached');
@@ -144,14 +190,24 @@ class NewsService {
     }
   }
 
-  async fetchFromGNews(topic, language = 'en', sortBy = 'relevance') {
+  async fetchFromGNews(topic, language = 'en', sortBy = 'relevance', filters = {}) {
+    const { keywords = [], region = '' } = filters;
+
     // Use dynamic topic queries from config
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
+
+    // Build query with keywords if provided
+    let queryParts = [...searchQueries];
+    if (keywords.length > 0) {
+      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
+      queryParts.push(...cleanKeywords);
+    }
+    const query = queryParts.join(' OR ') || topic;
+
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
     const toDate = new Date();
-    
+
     const params = {
       q: query,
       token: this.gnewsApiKey,
@@ -161,12 +217,20 @@ class NewsService {
       to: toDate.toISOString(),
       max: 20
     };
-    
+
+    // GNews supports country filtering - add if region is specified
+    // Note: 'eu' is not a valid GNews country code, so we skip it
+    const gnewsCountries = ['us', 'gb', 'ca', 'au', 'in', 'de', 'fr', 'jp', 'br', 'mx', 'za', 'sg', 'ae', 'il'];
+    if (region && gnewsCountries.includes(region.toLowerCase())) {
+      params.country = region.toLowerCase();
+      logger.info(`GNews: Filtering by country: ${region}`);
+    }
+
     try {
       const response = await axios.get('https://gnews.io/api/v4/search', { params });
-      
+
       logger.info(`GNews returned ${response.data.articles.length} articles for topic: ${topic}`);
-      
+
       return response.data.articles.map(article => ({
         title: article.title,
         description: article.description,
@@ -181,7 +245,7 @@ class NewsService {
         topic,
         relevanceScore: this.calculateRelevanceScore(article, topic)
       }));
-      
+
     } catch (error) {
       if (error.response?.status === 429) {
         logger.warn('GNews rate limit reached');
@@ -191,11 +255,20 @@ class NewsService {
     }
   }
 
-  async fetchFromGoogleCSE(topic, language = 'en') {
+  async fetchFromGoogleCSE(topic, language = 'en', filters = {}) {
+    const { keywords = [], region = '' } = filters;
+
     // Use dynamic topic queries from config
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
-    
+
+    // Build query with keywords if provided
+    let queryParts = [...searchQueries];
+    if (keywords.length > 0) {
+      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
+      queryParts.push(...cleanKeywords);
+    }
+    const query = queryParts.join(' OR ') || topic;
+
     const params = {
       key: this.googleApiKey,
       cx: this.googleCseId,
@@ -205,12 +278,36 @@ class NewsService {
       dateRestrict: 'w1', // Last week
       sort: 'date'
     };
-    
+
+    // Google CSE supports country restriction via 'cr' parameter
+    // Format: countryXX where XX is the ISO 3166-1 alpha-2 country code
+    const googleCountryMap = {
+      'us': 'countryUS',
+      'gb': 'countryGB',
+      'ca': 'countryCA',
+      'au': 'countryAU',
+      'in': 'countryIN',
+      'de': 'countryDE',
+      'fr': 'countryFR',
+      'jp': 'countryJP',
+      'br': 'countryBR',
+      'mx': 'countryMX',
+      'za': 'countryZA',
+      'sg': 'countrySG',
+      'ae': 'countryAE',
+      'il': 'countryIL'
+    };
+
+    if (region && googleCountryMap[region.toLowerCase()]) {
+      params.cr = googleCountryMap[region.toLowerCase()];
+      logger.info(`Google CSE: Filtering by country: ${region}`);
+    }
+
     try {
       const response = await axios.get('https://www.googleapis.com/customsearch/v1', { params });
-      
+
       logger.info(`Google CSE returned ${response.data.items?.length || 0} results for topic: ${topic}`);
-      
+
       return (response.data.items || []).map(item => ({
         title: item.title,
         description: item.snippet,
@@ -225,7 +322,7 @@ class NewsService {
         topic,
         relevanceScore: this.calculateRelevanceScore(item, topic)
       }));
-      
+
     } catch (error) {
       logger.error('Google CSE error:', error.message);
       throw error;

@@ -244,8 +244,10 @@ router.post('/test', async (req, res) => {
     const topics = user.settings?.preferredTopics || user.automation?.topics || ['technology'];
     const tone = user.automation?.tone || 'professional';
     const userPlatforms = user.settings?.defaultPlatforms || user.automation?.platforms || [];
+    const keywords = user.settings?.keywords || user.automation?.keywords || [];
+    const geoFilter = user.settings?.geoFilter || user.automation?.geoFilter || {};
 
-    console.log(`[Test Post] User settings:`, { topics, tone, userPlatforms });
+    console.log(`[Test Post] User settings:`, { topics, tone, userPlatforms, keywords, geoFilter });
 
     // Step 2: Check user's connected platforms
     const connections = await ConnectionManager.getUserConnections(userId);
@@ -293,8 +295,11 @@ router.post('/test', async (req, res) => {
     console.log(`[Test Post] Step 3a: Fetching and scoring articles...`);
 
     try {
-      // Use TrendAnalyzer to get multiple articles
-      const allTrends = await trendAnalyzer.getTrendsForTopics([selectedTopic]);
+      // Use TrendAnalyzer to get multiple articles - pass user's keywords and geoFilter
+      const allTrends = await trendAnalyzer.getTrendsForTopics([selectedTopic], {
+        keywords,
+        geoFilter
+      });
 
       if (allTrends && allTrends.length > 0) {
         console.log(`[Test Post] Found ${allTrends.length} articles for topic "${selectedTopic}"`);

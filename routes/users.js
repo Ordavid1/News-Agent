@@ -117,14 +117,19 @@ router.get('/settings', async (req, res) => {
     // Return settings in format expected by frontend
     const settings = {
       topics: user.settings?.preferredTopics || user.automation?.topics || [],
+      keywords: user.settings?.keywords || [],
+      geoFilter: {
+        region: user.settings?.geoFilter?.region || '',
+        includeGlobal: user.settings?.geoFilter?.includeGlobal !== false // Default to true
+      },
       schedule: {
         postsPerDay: user.automation?.postsPerDay || 1,
-        startTime: '09:00',
-        endTime: '21:00'
+        startTime: user.settings?.schedule?.startTime || '09:00',
+        endTime: user.settings?.schedule?.endTime || '21:00'
       },
       contentStyle: {
         tone: user.automation?.tone || 'professional',
-        includeHashtags: true
+        includeHashtags: user.settings?.contentStyle?.includeHashtags !== false
       },
       platforms: user.settings?.defaultPlatforms || user.automation?.platforms || []
     };
@@ -139,18 +144,41 @@ router.get('/settings', async (req, res) => {
 // Update user settings (for settings page)
 router.put('/settings', async (req, res) => {
   try {
-    const { topics, schedule, contentStyle, platforms } = req.body;
+    const { topics, keywords, geoFilter, schedule, contentStyle, platforms } = req.body;
+
+    // Validate keywords (must be array of strings, max 10)
+    const validatedKeywords = Array.isArray(keywords)
+      ? keywords.filter(k => typeof k === 'string' && k.trim().length > 0).slice(0, 10) // Max 10 keywords
+      : [];
+
+    // Validate geoFilter
+    const validatedGeoFilter = {
+      region: typeof geoFilter?.region === 'string' ? geoFilter.region : '',
+      includeGlobal: geoFilter?.includeGlobal !== false
+    };
 
     // Map frontend settings to database structure
     const updates = {
       settings: {
         preferredTopics: topics || [],
+        keywords: validatedKeywords,
+        geoFilter: validatedGeoFilter,
         defaultPlatforms: platforms || [],
-        autoSchedule: true
+        autoSchedule: true,
+        schedule: {
+          startTime: schedule?.startTime || '09:00',
+          endTime: schedule?.endTime || '21:00'
+        },
+        contentStyle: {
+          tone: contentStyle?.tone || 'professional',
+          includeHashtags: contentStyle?.includeHashtags !== false
+        }
       },
       automation: {
         enabled: true,
         topics: topics || [],
+        keywords: validatedKeywords,
+        geoFilter: validatedGeoFilter,
         platforms: platforms || [],
         postsPerDay: parseInt(schedule?.postsPerDay) || 1,
         tone: contentStyle?.tone || 'professional',

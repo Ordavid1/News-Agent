@@ -171,6 +171,15 @@
                         Dashboard
                     </span>
                 </button>
+                <button onclick="showTab('agents')" id="tab-agents" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                        Agents
+                        <span id="agentCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/1</span>
+                    </span>
+                </button>
                 <button onclick="showTab('connections')" id="tab-connections" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
                     <span class="flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -280,6 +289,51 @@
                             </div>
                         </div>
                     </a>
+                </div>
+            </div>
+
+            <!-- Agents Tab -->
+            <div id="content-agents" class="tab-content hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">Your News Agents</h3>
+                        <p class="text-gray-400">Each agent posts to a specific platform with its own settings</p>
+                    </div>
+                    <button onclick="openCreateAgentModal()" id="createAgentBtn" class="magic-button px-6 py-2 rounded-lg text-white font-medium flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        Create Agent
+                    </button>
+                </div>
+
+                <!-- Agents Grid -->
+                <div id="agentsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Agent cards will be dynamically inserted here -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="agentsEmptyState" class="text-center py-12">
+                    <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
+                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <h4 class="text-xl font-semibold mb-2 glow-text">No Agents Yet</h4>
+                    <p class="text-gray-400 mb-6" id="agentsEmptyMessage">Connect a social platform first, then create an agent to start posting</p>
+                    <button onclick="openCreateAgentModal()" id="createFirstAgentBtn" class="magic-button px-8 py-3 rounded-lg text-white font-medium">
+                        Create Your First Agent
+                    </button>
+                </div>
+
+                <!-- Upgrade Hint -->
+                <div id="agentLimitHint" class="mt-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30 hidden">
+                    <p class="text-purple-400 text-sm flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                        <span id="agentLimitMessage">Upgrade your plan to create more agents</span>
+                    </p>
                 </div>
             </div>
 
@@ -449,6 +503,12 @@
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
+                                <strong>2 agents</strong>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
                                 2 platforms
                             </li>
                             <li class="flex items-center gap-2">
@@ -476,6 +536,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                                 30 posts/day
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                <strong>5 agents</strong>
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -511,6 +577,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                                 Unlimited posts
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                <strong>10 agents</strong>
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -603,6 +675,76 @@
                 <button onclick="connectTelegram()" id="telegramConnectBtn" class="flex-1 magic-button py-3 rounded-lg text-white font-medium">
                     Connect Channel
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Agent Modal -->
+    <div id="createAgentModal" class="fixed inset-0 bg-black/80 items-center justify-center z-50 hidden">
+        <div class="neon-border p-8 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold">Create News Agent</h3>
+                <button onclick="closeCreateAgentModal()" class="text-gray-400 hover:text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Platform Selection -->
+            <div class="mb-4">
+                <label class="block text-sm text-gray-400 mb-2">Select Platform</label>
+                <select id="agentPlatformSelect" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-purple-500 focus:outline-none">
+                    <option value="">Select a connected platform...</option>
+                    <!-- Options will be dynamically added -->
+                </select>
+                <p class="text-xs text-gray-500 mt-2" id="platformSelectHint">Only platforms without existing agents are shown</p>
+            </div>
+
+            <!-- Agent Name -->
+            <div class="mb-6">
+                <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
+                <input type="text"
+                       id="agentNameInput"
+                       placeholder="e.g., Tech News Bot"
+                       class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none">
+                <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
+            </div>
+
+            <!-- Error display -->
+            <div id="createAgentError" class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 hidden">
+                <p class="text-red-400 text-sm" id="createAgentErrorText"></p>
+            </div>
+
+            <!-- No platforms warning -->
+            <div id="noPlatformsWarning" class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-4 hidden">
+                <p class="text-yellow-400 text-sm">No available platforms. Either connect a platform first, or all your platforms already have agents.</p>
+                <button onclick="closeCreateAgentModal(); showTab('connections');" class="mt-2 text-purple-400 text-sm hover:underline">
+                    Go to Connections →
+                </button>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex gap-3">
+                <button onclick="closeCreateAgentModal()" class="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all">
+                    Cancel
+                </button>
+                <button onclick="createAgent()" id="createAgentSubmitBtn" class="flex-1 magic-button py-3 rounded-lg text-white font-medium">
+                    Create Agent
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Test Result Modal -->
+    <div id="agentTestResultModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
+        <div class="neon-border p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold glow-text" id="agentTestModalTitle">Test Results</h3>
+                <button onclick="closeAgentTestModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div id="agentTestResultContent">
+                <!-- Results will be inserted here -->
             </div>
         </div>
     </div>

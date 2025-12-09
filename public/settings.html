@@ -74,9 +74,9 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center">
-                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                    <h1 class="text-xl font-bold glow-text">AI News Agent</h1>
                 </div>
-                <a href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
+                <a id="backLink" href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
                     ← Back to Dashboard
                 </a>
             </div>
@@ -86,12 +86,62 @@
     <!-- Main Content -->
     <main class="pb-12">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+            <!-- Agent Mode Header (shown when editing an agent) -->
+            <div id="agentModeHeader" class="hidden mb-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
+                <div class="flex items-center gap-4">
+                    <div id="agentPlatformIcon" class="w-12 h-12 rounded-xl flex items-center justify-center">
+                        <!-- Platform icon will be inserted here -->
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-400">Configuring Agent</p>
+                        <h3 id="agentNameDisplay" class="text-xl font-bold text-white">Agent Name</h3>
+                        <p id="agentPlatformDisplay" class="text-sm text-purple-400 capitalize">Platform</p>
+                    </div>
+                </div>
+            </div>
+
             <div class="mb-8">
-                <h2 class="text-4xl font-bold mb-2 glow-text">Configure Your News Agent 🎮</h2>
-                <p class="text-gray-400">Customize how your AI agent discovers and posts trending content</p>
+                <h2 id="settingsTitle" class="text-4xl font-bold mb-2 glow-text">Configure Your News Agent</h2>
+                <p id="settingsSubtitle" class="text-gray-400">Customize how your AI agent discovers and posts trending content</p>
             </div>
 
             <form id="settingsForm" class="space-y-8">
+                <!-- Agent Identity Section -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🤖 Agent Identity</h3>
+                    <p class="text-gray-400 text-sm mb-4">Name your agent and select which platform it will post to</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Agent Name -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
+                            <input type="text"
+                                   id="agentName"
+                                   name="agentName"
+                                   placeholder="e.g., Tech News Bot"
+                                   class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
+                            <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
+                        </div>
+
+                        <!-- Platform Selection -->
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Target Platform</label>
+                            <select id="agentPlatform"
+                                    name="agentPlatform"
+                                    class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white">
+                                <option value="">Select a connected platform...</option>
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                            <p class="text-xs text-gray-500 mt-2" id="platformHint">Connect platforms in your <a href="/profile.html?tab=connections" class="text-purple-400 hover:underline">profile</a></p>
+                        </div>
+                    </div>
+
+                    <!-- Validation message -->
+                    <div id="agentIdentityError" class="hidden mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                        <p class="text-red-400 text-sm" id="agentIdentityErrorText"></p>
+                    </div>
+                </div>
+
                 <!-- Topic Categories -->
                 <div class="neon-border p-6">
                     <h3 class="text-xl font-semibold mb-4 text-purple-400">📰 Topic Categories</h3>
@@ -121,6 +171,63 @@
                             <input type="checkbox" name="topics" value="science" class="rounded bg-black/50 border-purple-500/30">
                             <span>🔬 Science</span>
                         </label>
+                    </div>
+                </div>
+
+                <!-- Keyword Filter -->
+                <div class="neon-border p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-semibold text-purple-400">#️⃣ Keyword Filter</h3>
+                        <span id="keywordCounter" class="text-gray-500 text-sm">0/10</span>
+                    </div>
+                    <p class="text-gray-400 text-sm mb-4">Add keywords to filter news articles. Separate multiple keywords with commas. These work alongside topic categories for more precise content discovery.</p>
+                    <div class="space-y-4">
+                        <div class="flex gap-2">
+                            <input type="text" id="keywordInput" placeholder="e.g., AI, crypto, startup, innovation"
+                                class="flex-1 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
+                            <button type="button" id="addKeywordBtn" class="px-4 py-3 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors">
+                                Add
+                            </button>
+                        </div>
+                        <div id="keywordTags" class="flex flex-wrap gap-2">
+                            <!-- Keywords will be rendered here as tags -->
+                        </div>
+                        <p class="text-gray-500 text-xs">Type keywords separated by commas, or press Enter to add. Click the X on a tag to remove it.</p>
+                    </div>
+                </div>
+
+                <!-- Geographic Filter -->
+                <div class="neon-border p-6">
+                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🌍 Geographic Filter</h3>
+                    <p class="text-gray-400 text-sm mb-4">Filter news articles by geographic region. Select a region to focus on news from specific areas.</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Primary Region</label>
+                            <select name="geoRegion" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                                <option value="">🌐 Global (No Filter)</option>
+                                <option value="us">🇺🇸 United States</option>
+                                <option value="gb">🇬🇧 United Kingdom</option>
+                                <option value="eu">🇪🇺 Europe</option>
+                                <option value="ca">🇨🇦 Canada</option>
+                                <option value="au">🇦🇺 Australia</option>
+                                <option value="in">🇮🇳 India</option>
+                                <option value="de">🇩🇪 Germany</option>
+                                <option value="fr">🇫🇷 France</option>
+                                <option value="jp">🇯🇵 Japan</option>
+                                <option value="br">🇧🇷 Brazil</option>
+                                <option value="mx">🇲🇽 Mexico</option>
+                                <option value="za">🇿🇦 South Africa</option>
+                                <option value="sg">🇸🇬 Singapore</option>
+                                <option value="ae">🇦🇪 United Arab Emirates</option>
+                                <option value="il">🇮🇱 Israel</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
+                                <input type="checkbox" name="includeGlobalNews" checked class="rounded bg-black/50 border-purple-500/30">
+                                <span>Include global/international news alongside regional news</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -170,8 +277,8 @@
                     </div>
                 </div>
 
-                <!-- Platform Settings -->
-                <div class="neon-border p-6">
+                <!-- Platform Settings (hidden in agent mode) -->
+                <div class="neon-border p-6" data-section="platforms">
                     <h3 class="text-xl font-semibold mb-4 text-purple-400">🌐 Platform Settings</h3>
                     <p class="text-gray-400 text-sm mb-4">Select which connected platforms to post to</p>
                     <div class="space-y-4">

@@ -1372,13 +1372,16 @@ async fetchRedditHot(subreddit, token) {
   // New method for fetching news based on user topics
   async getTrendsForTopics(topics, options = {}) {
     try {
-      logger.info(`Fetching trends for topics: ${topics.join(', ')}`);
-      
-      // Get news from news APIs
+      const { keywords = [], geoFilter = {} } = options;
+      logger.info(`Fetching trends for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${geoFilter.region || 'global'}`);
+
+      // Get news from news APIs - pass keywords and geoFilter
       const newsArticles = await this.newsService.getNewsForTopics(topics, {
         limit: options.limit || 20,
         language: options.language || 'en',
-        sortBy: options.sortBy || 'relevance'
+        sortBy: options.sortBy || 'relevance',
+        keywords,
+        geoFilter
       });
       
       // Transform news articles to trend format

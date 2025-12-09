@@ -1,6 +1,5 @@
-// services/PostingStrategy.js - FIXED VERSION
+// services/PostingStrategy.js - SUPABASE VERSION
 import trendAnalyzer from './TrendAnalyzer.js';
-import { FieldValue } from '@google-cloud/firestore';
 import winston from 'winston';
 import '../config/env.js';
 import { TOPIC_CATEGORIES, getEnabledCategories, isTopicInEnabledCategory } from '../config/topicConfig.js';
@@ -462,14 +461,19 @@ async getTopicUsageCount(normalizedTopic, hours = 24) {
   try {
     const since = new Date();
     since.setHours(since.getHours() - hours);
-    
-    const snapshot = await this.db
-      .collection('trend_history')
-      .where('normalized_topic', '==', normalizedTopic)
-      .where('used_at', '>', since)
-      .get();
-    
-    return snapshot.size;
+
+    const { data, error } = await this.db
+      .from('trend_history')
+      .select('id', { count: 'exact' })
+      .eq('topic', normalizedTopic)
+      .gt('detected_at', since.toISOString());
+
+    if (error) {
+      logger.error('Error counting topic usage:', error.message);
+      return 0;
+    }
+
+    return data?.length || 0;
   } catch (error) {
     logger.error('Error counting topic usage:', error);
     return 0;
@@ -481,44 +485,48 @@ async checkExactDuplicatePosted(trend, hours = 8) {
   try {
     const since = new Date();
     since.setHours(since.getHours() - hours);
-    
+
     // Check published posts for exact title/topic match
-    const snapshot = await this.db
-      .collection('published_posts')
-      .where('published_at', '>', since)
-      .limit(100) // Limit to last 100 posts for performance
-      .get();
-    
+    const { data: posts, error } = await this.db
+      .from('published_posts')
+      .select('trend, topic, content')
+      .gt('published_at', since.toISOString())
+      .limit(100);
+
+    if (error) {
+      logger.error('Error checking exact duplicates:', error.message);
+      return false;
+    }
+
     // Early return if no posts
-    if (snapshot.empty) return false;
-    
+    if (!posts || posts.length === 0) return false;
+
     // Normalize the trend topic once
     const trendTopicLower = trend.topic ? trend.topic.toLowerCase() : '';
     const trendTitleLower = trend.title ? trend.title.toLowerCase() : '';
-    
+
     // Check for exact matches in recent posts
-    for (const doc of snapshot.docs) {
-      const data = doc.data();
-      const postedTopic = data.trend?.topic || data.content?.topic || '';
-      const postedTitle = data.trend?.title || data.content?.title || '';
-      
+    for (const post of posts) {
+      const postedTopic = post.trend?.topic || post.topic || '';
+      const postedTitle = post.trend?.title || '';
+
       // Skip empty posts
       if (!postedTopic && !postedTitle) continue;
-      
+
       // Check exact topic match
-      if (postedTopic && trendTopicLower && 
+      if (postedTopic && trendTopicLower &&
           postedTopic.toLowerCase() === trendTopicLower) {
         logger.warn(`DUPLICATE: Exact topic match found: "${trend.topic}"`);
         return true;
       }
-      
+
       // Check title match (for news articles)
-      if (trendTitleLower && postedTitle && 
+      if (trendTitleLower && postedTitle &&
           postedTitle.toLowerCase() === trendTitleLower) {
         logger.warn(`DUPLICATE: Exact title match found: "${trend.title}"`);
         return true;
       }
-      
+
       // Check for very similar topics (80% similarity) - only for longer topics
       if (postedTopic && trend.topic && trend.topic.length > 10) {
         const similarity = this.calculateSimilarity(postedTopic, trend.topic);
@@ -528,7 +536,7 @@ async checkExactDuplicatePosted(trend, hours = 8) {
         }
       }
     }
-    
+
     return false;
   } catch (error) {
     logger.error('Error checking exact duplicates:', error);
@@ -645,24 +653,27 @@ async getRecentlyUsedTrends(hours = 24) {
   try {
     const since = new Date();
     since.setHours(since.getHours() - hours);
-    
-    const snapshot = await this.db
-      .collection('trend_history')
-      .where('used', '==', true)
-      .where('used_at', '>', since)
-      .orderBy('used_at', 'desc')
-      .limit(100) // Increased from 50
-      .get();
-    
+
+    const { data: trends, error } = await this.db
+      .from('trend_history')
+      .select('topic')
+      .gt('detected_at', since.toISOString())
+      .order('detected_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      logger.error('Error fetching recent trends:', error.message);
+      return [];
+    }
+
     // Return topics with usage count
     const topicCounts = new Map();
-    
-    snapshot.docs.forEach(doc => {
-      const data = doc.data();
-      const topic = data.topic;
+
+    (trends || []).forEach(trend => {
+      const topic = trend.topic;
       topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
     });
-    
+
     return Array.from(topicCounts.keys());
   } catch (error) {
     logger.error('Error fetching recent trends:', error);
@@ -809,38 +820,26 @@ getFallbackTrend(category = null) {
 async markTrendAsUsed(trend) {
   try {
     // Clean up the trend object to remove undefined values
-    const cleanTrend = {
+    const trendRecord = {
       topic: trend.topic,
-      normalized_topic: this.normalizeTopic(trend.topic),
+      title: trend.title || trend.topic,
       sources: trend.sources || [],
-      confidence: trend.confidence || 0.5,
+      source_api: trend.source || 'unknown',
       score: trend.score || 0,
-      used: true,
-      used_at: FieldValue.serverTimestamp(),
-      metadata: {}
+      category: trend.matchedCategory || this.categorizeTrend(trend),
+      url: trend.url || null,
+      detected_at: new Date().toISOString()
     };
-    
-    // Only add metadata fields that are defined
-    if (trend.metadata) {
-      Object.entries(trend.metadata).forEach(([key, value]) => {
-        if (value !== undefined) {
-          cleanTrend.metadata[key] = value;
-        }
-      });
-      
-      // Handle scoreBreakdown separately
-      if (trend.metadata.scoreBreakdown) {
-        cleanTrend.metadata.scoreBreakdown = {};
-        Object.entries(trend.metadata.scoreBreakdown).forEach(([key, value]) => {
-          if (value !== undefined) {
-            cleanTrend.metadata.scoreBreakdown[key] = value;
-          }
-        });
-      }
+
+    const { error } = await this.db
+      .from('trend_history')
+      .insert(trendRecord);
+
+    if (error) {
+      logger.error('Error marking trend as used:', error.message);
+      return;
     }
-    
-    await this.db.collection('trend_history').add(cleanTrend);
-    
+
     logger.debug(`Marked trend as used: ${trend.topic}`);
   } catch (error) {
     logger.error('Error marking trend as used:', error);
@@ -981,45 +980,52 @@ isGenerativeAITrend(trend) {
 async getLastPlatformPost(platform) {
   try {
     const oneHourAgo = new Date(Date.now() - (60 * 60 * 1000)); // 1 hour cooldown instead of 12
-    
-    const snapshot = await this.db
-      .collection('published_posts')
-      .where('platform', '==', platform)
-      .where('published_at', '>', oneHourAgo)
-      .orderBy('published_at', 'desc')
-      .limit(1)
-      .get();
-    
-    if (!snapshot.empty) {
-      const lastPost = snapshot.docs[0].data();
-      return lastPost.published_at.toDate();
+
+    const { data: posts, error } = await this.db
+      .from('published_posts')
+      .select('published_at')
+      .eq('platform', platform)
+      .gt('published_at', oneHourAgo.toISOString())
+      .order('published_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      logger.debug(`Error checking last ${platform} post:`, error.message);
+      return Date.now() - (2 * 60 * 60 * 1000); // 2 hours ago
+    }
+
+    if (posts && posts.length > 0) {
+      return new Date(posts[0].published_at);
     }
   } catch (error) {
     logger.debug(`Error checking last ${platform} post:`, error.message);
   }
-  
+
   // Return time that allows posting
   return Date.now() - (2 * 60 * 60 * 1000); // 2 hours ago
 }
 
 async getLastPlatformPostFromDB(platform) {
   try {
-    const snapshot = await this.db
-      .collection('published_posts')
-      .where('platform', '==', platform)
-      .orderBy('published_at', 'desc')
-      .limit(1)
-      .get();
-    
-    if (!snapshot.empty) {
-      const lastPost = snapshot.docs[0].data();
-      const timestamp = lastPost.published_at?.toDate?.() || lastPost.published_at;
-      return new Date(timestamp).getTime();
+    const { data: posts, error } = await this.db
+      .from('published_posts')
+      .select('published_at')
+      .eq('platform', platform)
+      .order('published_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      logger.error(`Error fetching last ${platform} post:`, error.message);
+      return Date.now() - (24 * 60 * 60 * 1000);
+    }
+
+    if (posts && posts.length > 0) {
+      return new Date(posts[0].published_at).getTime();
     }
   } catch (error) {
     logger.error(`Error fetching last ${platform} post:`, error);
   }
-  
+
   // Default to 24 hours ago if no posts found
   return Date.now() - (24 * 60 * 60 * 1000);
 }// Update the platform priority weights
