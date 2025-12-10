@@ -12,6 +12,18 @@ let agentId = null;
 let currentAgent = null;
 let existingAgents = []; // To track which platforms already have agents
 
+// User subscription state
+let currentUser = null;
+
+// Plan limits configuration (must match server-side PRICING_TIERS)
+const PLAN_POST_LIMITS = {
+    free: 5,
+    starter: 10,
+    growth: 20,
+    professional: 30,
+    business: 45
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
     // Check if user is authenticated
     const token = localStorage.getItem('token');
@@ -23,6 +35,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check for agent ID in URL
     const urlParams = new URLSearchParams(window.location.search);
     agentId = urlParams.get('agent');
+
+    // Load user profile first to get subscription tier for plan limits
+    await loadUserProfile();
 
     // Always load connections first for the platform dropdown
     await loadAllConnections();
@@ -190,6 +205,114 @@ function renderKeywordTags() {
             </button>
         </span>
     `).join('');
+}
+
+/**
+ * Load user profile to get subscription tier for plan limits
+ */
+async function loadUserProfile() {
+    const token = localStorage.getItem('token');
+
+    try {
+        const response = await fetch('/api/users/profile', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            currentUser = data.user || data;
+            // Populate the posts per day dropdown based on user's plan
+            populatePostsPerDayDropdown();
+        } else if (response.status === 401) {
+            localStorage.removeItem('token');
+            window.location.href = '/auth.html';
+        }
+    } catch (error) {
+        console.error('Error loading user profile:', error);
+    }
+}
+
+/**
+ * Get the maximum posts per day limit for the user's current plan
+ */
+function getUserPostLimit() {
+    const tier = currentUser?.subscription?.tier || 'free';
+    return PLAN_POST_LIMITS[tier] || PLAN_POST_LIMITS.free;
+}
+
+/**
+ * Populate the posts per day dropdown based on user's subscription plan
+ * Only shows options up to their plan's maximum limit
+ */
+function populatePostsPerDayDropdown() {
+    const postsPerDaySelect = document.querySelector('select[name="postsPerDay"]');
+    if (!postsPerDaySelect) return;
+
+    const maxPosts = getUserPostLimit();
+    const currentValue = postsPerDaySelect.value;
+
+    // Define all possible post options
+    const allOptions = [
+        { value: 3, label: '3 posts' },
+        { value: 5, label: '5 posts' },
+        { value: 10, label: '10 posts' },
+        { value: 15, label: '15 posts' },
+        { value: 20, label: '20 posts' },
+        { value: 30, label: '30 posts' },
+        { value: 45, label: '45 posts' }
+    ];
+
+    // Filter options to only show those within the user's plan limit
+    const availableOptions = allOptions.filter(opt => opt.value <= maxPosts);
+
+    // Clear existing options
+    postsPerDaySelect.innerHTML = '';
+
+    // Add filtered options
+    availableOptions.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        postsPerDaySelect.appendChild(option);
+    });
+
+    // Restore the previous value if it's still valid, otherwise use the first option
+    const previousValueStillValid = availableOptions.some(opt => opt.value === parseInt(currentValue));
+    if (previousValueStillValid) {
+        postsPerDaySelect.value = currentValue;
+    } else if (availableOptions.length > 0) {
+        // If previous value exceeds new limit, set to the maximum available
+        postsPerDaySelect.value = availableOptions[availableOptions.length - 1].value;
+    }
+
+    // Add a hint showing the plan limit
+    updatePostsPerDayHint(maxPosts);
+}
+
+/**
+ * Update or create a hint below the posts per day dropdown showing plan limit
+ */
+function updatePostsPerDayHint(maxPosts) {
+    const postsPerDaySelect = document.querySelector('select[name="postsPerDay"]');
+    if (!postsPerDaySelect) return;
+
+    const parentDiv = postsPerDaySelect.closest('div');
+    if (!parentDiv) return;
+
+    // Remove existing hint if present
+    const existingHint = parentDiv.querySelector('.posts-limit-hint');
+    if (existingHint) {
+        existingHint.remove();
+    }
+
+    // Add hint showing plan limit
+    const tier = currentUser?.subscription?.tier || 'free';
+    const hint = document.createElement('p');
+    hint.className = 'posts-limit-hint text-xs text-gray-500 mt-2';
+    hint.textContent = `Your ${tier.charAt(0).toUpperCase() + tier.slice(1)} plan allows up to ${maxPosts} posts per day`;
+    parentDiv.appendChild(hint);
 }
 
 /**
@@ -399,7 +522,22 @@ function populateForm(settings) {
         const endTime = document.querySelector('input[name="endTime"]');
 
         if (postsPerDay && settings.schedule.postsPerDay) {
-            postsPerDay.value = settings.schedule.postsPerDay;
+            // Ensure the value doesn't exceed the user's plan limit
+            const maxPosts = getUserPostLimit();
+            const savedValue = parseInt(settings.schedule.postsPerDay);
+            const valueToSet = Math.min(savedValue, maxPosts);
+
+            // Check if the value exists as an option, otherwise use the closest available
+            const optionExists = Array.from(postsPerDay.options).some(opt => parseInt(opt.value) === valueToSet);
+            if (optionExists) {
+                postsPerDay.value = valueToSet;
+            } else {
+                // Find the closest available option that doesn't exceed the limit
+                const availableValues = Array.from(postsPerDay.options).map(opt => parseInt(opt.value));
+                const closestValue = availableValues.reduce((prev, curr) =>
+                    (curr <= valueToSet && curr > prev) ? curr : prev, availableValues[0]);
+                postsPerDay.value = closestValue;
+            }
         }
         if (startTime && settings.schedule.startTime) {
             startTime.value = settings.schedule.startTime;
@@ -785,7 +923,22 @@ function populateFormWithAgentSettings(settings) {
         const endTime = document.querySelector('input[name="endTime"]');
 
         if (postsPerDay && settings.schedule.postsPerDay) {
-            postsPerDay.value = settings.schedule.postsPerDay;
+            // Ensure the value doesn't exceed the user's plan limit
+            const maxPosts = getUserPostLimit();
+            const savedValue = parseInt(settings.schedule.postsPerDay);
+            const valueToSet = Math.min(savedValue, maxPosts);
+
+            // Check if the value exists as an option, otherwise use the closest available
+            const optionExists = Array.from(postsPerDay.options).some(opt => parseInt(opt.value) === valueToSet);
+            if (optionExists) {
+                postsPerDay.value = valueToSet;
+            } else {
+                // Find the closest available option that doesn't exceed the limit
+                const availableValues = Array.from(postsPerDay.options).map(opt => parseInt(opt.value));
+                const closestValue = availableValues.reduce((prev, curr) =>
+                    (curr <= valueToSet && curr > prev) ? curr : prev, availableValues[0]);
+                postsPerDay.value = closestValue;
+            }
         }
         if (startTime && settings.schedule.startTime) {
             startTime.value = settings.schedule.startTime;

@@ -14,6 +14,7 @@ const PLATFORMS = {
     telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     facebook: { name: 'Facebook', icon: '📘', available: [], disabled: true, disabledReason: 'Coming Soon' },
     threads: { name: 'Threads', icon: '@', available: [], disabled: true, disabledReason: 'Coming Soon' },
+    whatsapp: { name: 'WhatsApp', icon: '💬', available: [], disabled: true, disabledReason: 'Coming Soon' },
     instagram: { name: 'Instagram', icon: '📸', available: ['professional', 'business'] },
     tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] },
     youtube: { name: 'YouTube', icon: '▶️', available: ['business'] }

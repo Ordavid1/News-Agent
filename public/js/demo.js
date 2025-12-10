@@ -37,6 +37,7 @@ const platformTiers = {
     telegram: ['free', 'starter', 'growth', 'professional', 'business'],
     facebook: [], // Disabled - Coming Soon
     threads: [], // Disabled - Coming Soon
+    whatsapp: [], // Disabled - Coming Soon
     instagram: ['professional', 'business'],
     tiktok: ['business'],
     youtube: ['business']
@@ -45,7 +46,8 @@ const platformTiers = {
 // Platforms that are globally disabled (integration not yet set up)
 const disabledPlatforms = {
     facebook: 'Coming Soon',
-    threads: 'Coming Soon'
+    threads: 'Coming Soon',
+    whatsapp: 'Coming Soon'
 };
 
 // Daily limits by plan
