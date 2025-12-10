@@ -171,7 +171,7 @@ router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter
     for (const topic of topics) {
       try {
         // Generate content for each topic
-        const generationResponse = await fetch(`http://localhost:${process.env.PARENT_BOT_PORT || 8080}/generate`, {
+        const generationResponse = await fetch(`http://localhost:${process.env.PORT || 3000}/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

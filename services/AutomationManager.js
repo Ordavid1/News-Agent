@@ -808,7 +808,7 @@ async generatePostForTrend(trend) {
     }
     
     // Make request to generate endpoint
-    const response = await fetch(`http://localhost:${process.env.PORT || 8080}/generate`, {
+    const response = await fetch(`http://localhost:${process.env.PORT || 3000}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

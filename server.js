@@ -38,6 +38,18 @@ import { startAllWorkers, stopAllWorkers, getWorkersStatus } from './workers/ind
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Server startup state tracking for health checks
+const serverState = {
+  status: 'starting', // 'starting' | 'ready' | 'error'
+  startTime: Date.now(),
+  error: null,
+  services: {
+    database: false,
+    automation: false,
+    workers: false
+  }
+};
+
 // Initialize logger
 const logger = winston.createLogger({
   level: 'info',
@@ -468,8 +480,20 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Health check endpoint - MUST be before rate limiter for Render health checks
+// Returns 200 even during startup so Render doesn't kill the container prematurely
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
+
+  // Always return 200 for the health check to prevent Render from killing the container
+  // The status field indicates actual readiness for monitoring purposes
+  res.json({
+    status: serverState.status === 'ready' ? 'healthy' : serverState.status,
+    ready: serverState.status === 'ready',
+    uptime,
+    services: serverState.services,
+    timestamp: new Date().toISOString(),
+    ...(serverState.error && { error: serverState.error })
+  });
 });
 
 // Apply rate limiting to all API routes (except health check defined above)
@@ -635,6 +659,114 @@ app.post('/api/demo/generate', demoLimiter, async (req, res) => {
   }
 });
 
+// Internal generate endpoint for AutomationManager
+// This endpoint is called internally by the automation system to generate content
+// No auth required as it's internal-only (localhost calls)
+app.post('/generate', async (req, res) => {
+  try {
+    const { query, generateVideo, videoDuration, userId } = req.body;
+
+    // Only allow localhost calls for security
+    const clientIP = req.ip || req.connection.remoteAddress;
+    const isLocalhost = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
+
+    if (!isLocalhost && process.env.NODE_ENV === 'production') {
+      logger.warn(`[GENERATE] Blocked non-localhost request from: ${clientIP}`);
+      return res.status(403).json({ error: 'Internal endpoint only' });
+    }
+
+    logger.info(`[GENERATE] Internal request for query: ${query}, userId: ${userId}`);
+
+    // Import necessary services
+    const EnhancedNewsService = (await import('./services/EnhancedNewsService.js')).default;
+    const ContentGenerator = (await import('./services/ContentGenerator.js')).default;
+    const newsService = new EnhancedNewsService();
+    const contentGenerator = new ContentGenerator();
+
+    if (!query) {
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    // Fetch news for the query
+    const news = await newsService.getNewsForTopics([query], {
+      limit: 5,
+      language: 'en',
+      sortBy: 'relevance',
+      userId: userId || 'automation-bot'
+    });
+
+    if (!news || news.length === 0) {
+      logger.warn(`[GENERATE] No news found for query: ${query}`);
+      return res.json({
+        success: false,
+        posts: [],
+        message: 'Could not find relevant articles for the topic'
+      });
+    }
+
+    // Use the best article for content generation
+    const article = news[0];
+    const trend = {
+      title: article.title,
+      description: article.description,
+      summary: article.content || article.description,
+      url: article.url,
+      source: article.source?.name || article.source || 'News',
+      publishedAt: article.publishedAt
+    };
+
+    // Generate content for multiple platforms
+    const platforms = ['twitter', 'reddit', 'linkedin'];
+    const posts = [];
+
+    for (const platform of platforms) {
+      try {
+        const generatedContent = await contentGenerator.generateContent(
+          trend,
+          platform,
+          'professional',
+          userId || 'automation-bot'
+        );
+
+        posts.push({
+          platform,
+          text: generatedContent.text,  // AutomationManager expects 'text' not 'content'
+          content: generatedContent.text, // Keep for backward compatibility
+          trend: trend.title,
+          source: trend.url,
+          generatedAt: generatedContent.generatedAt
+        });
+      } catch (error) {
+        logger.error(`[GENERATE] Failed to generate ${platform} content:`, error.message);
+      }
+    }
+
+    if (posts.length === 0) {
+      return res.json({
+        success: false,
+        posts: [],
+        message: 'Failed to generate content for any platform'
+      });
+    }
+
+    logger.info(`[GENERATE] Successfully generated ${posts.length} posts for query: ${query}`);
+
+    res.json({
+      success: true,
+      posts,
+      article: {
+        title: article.title,
+        url: article.url,
+        source: article.source?.name || article.source
+      }
+    });
+
+  } catch (error) {
+    logger.error('[GENERATE] Error:', error);
+    res.status(500).json({ error: 'Failed to generate content', message: error.message });
+  }
+});
+
 // Test news fetching endpoint (rate limited)
 app.get('/api/test/news/:topic', demoLimiter, async (req, res) => {
   try {
@@ -690,67 +822,90 @@ app.use((err, req, res, _next) => {
   res.status(statusCode).json(response);
 });
 
-// Initialize database and start server
-async function startServer() {
+// Initialize services after server is listening
+async function initializeServices() {
+  const workersEnabled = process.env.BACKGROUND_WORKERS_ENABLED === 'true';
+
   try {
     // Initialize database (Supabase)
+    logger.info('Initializing database connection...');
     await initializeDatabase();
+    serverState.services.database = true;
     logger.info('Supabase database connection established');
 
     // Initialize automation manager
     const db = getDb();
     const automationManager = new AutomationManager(db);
+    serverState.services.automation = true;
     logger.info('Automation system initialized');
 
     // Make automation manager available globally
     app.locals.automationManager = automationManager;
 
     // Start background workers if enabled
-    const workersEnabled = process.env.BACKGROUND_WORKERS_ENABLED === 'true';
     if (workersEnabled) {
       startAllWorkers();
+      serverState.services.workers = true;
       logger.info('Background workers started');
     } else {
+      serverState.services.workers = true; // Mark as "done" even if disabled
       logger.info('Background workers disabled (set BACKGROUND_WORKERS_ENABLED=true to enable)');
     }
 
-    const PORT = process.env.PORT || 3000;
-    const server = app.listen(PORT, () => {
-      logger.info(`🚀 AIPostGen SaaS server running on port ${PORT}`);
-      logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+    // All services initialized successfully
+    serverState.status = 'ready';
+    logger.info('All services initialized - server is ready');
+
+  } catch (error) {
+    serverState.status = 'error';
+    serverState.error = error.message;
+    logger.error('Failed to initialize services:', error);
+    // Don't exit - let health check report the error state
+    // This allows for debugging and potential recovery
+  }
+}
+
+// Start server immediately, then initialize services
+function startServer() {
+  const PORT = process.env.PORT || 3000;
+  const workersEnabled = process.env.BACKGROUND_WORKERS_ENABLED === 'true';
+
+  // Start listening IMMEDIATELY so health checks pass
+  const server = app.listen(PORT, () => {
+    logger.info(`🚀 Server listening on port ${PORT} (initializing services...)`);
+    logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+
+    // Initialize services AFTER server is listening
+    initializeServices().then(() => {
       logger.info(`🤖 Automation enabled: ${process.env.AUTOMATION_ENABLED === 'true' ? 'YES' : 'NO'}`);
       logger.info(`⚙️  Background workers: ${workersEnabled ? 'ENABLED' : 'DISABLED'}`);
     });
+  });
 
-    // Graceful shutdown handling
-    const gracefulShutdown = (signal) => {
-      logger.info(`${signal} received. Shutting down gracefully...`);
+  // Graceful shutdown handling
+  const gracefulShutdown = (signal) => {
+    logger.info(`${signal} received. Shutting down gracefully...`);
 
-      // Stop background workers
-      if (workersEnabled) {
-        stopAllWorkers();
-        logger.info('Background workers stopped');
-      }
+    // Stop background workers
+    if (workersEnabled && serverState.services.workers) {
+      stopAllWorkers();
+      logger.info('Background workers stopped');
+    }
 
-      server.close(() => {
-        logger.info('HTTP server closed');
-        process.exit(0);
-      });
+    server.close(() => {
+      logger.info('HTTP server closed');
+      process.exit(0);
+    });
 
-      // Force shutdown after 10 seconds
-      setTimeout(() => {
-        logger.error('Forced shutdown after timeout');
-        process.exit(1);
-      }, 10000);
-    };
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
 
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  }
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 // Health check endpoint for workers status
