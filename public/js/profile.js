@@ -1,5 +1,42 @@
 // profile.js - Dashboard page handling
 
+// CSRF token management
+let csrfToken = null;
+
+async function initCsrf() {
+    try {
+        // First check if we already have a token in the cookie
+        const existingToken = getCsrfTokenFromCookie();
+        if (existingToken) {
+            csrfToken = existingToken;
+            return csrfToken;
+        }
+        // Fetch a fresh token from the server
+        const response = await fetch('/api/csrf-token', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            csrfToken = data.csrfToken;
+            return csrfToken;
+        }
+    } catch (error) {
+        console.error('Error initializing CSRF:', error);
+    }
+    return null;
+}
+
+function getCsrfTokenFromCookie() {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrfToken') return value;
+    }
+    return null;
+}
+
+function getCsrfToken() {
+    return csrfToken || getCsrfTokenFromCookie();
+}
+
 // Global state
 let currentUser = null;
 let connections = [];
@@ -29,6 +66,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/auth.html';
         return;
     }
+
+    // Initialize CSRF token first
+    await initCsrf();
 
     // Load user data, connections, and agents
     await Promise.all([
@@ -279,7 +319,8 @@ function setupEventHandlers() {
                 await fetch('/auth/logout', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${token}`,
+                        'X-CSRF-Token': getCsrfToken()
                     }
                 });
             } catch (error) {
@@ -402,7 +443,8 @@ async function disconnectPlatform(platform, connectionId) {
         const response = await fetch(`/api/connections/${platform}`, {
             method: 'DELETE',
             headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 
@@ -466,7 +508,8 @@ async function selectPlan(plan) {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
+                            'Authorization': `Bearer ${token}`,
+                            'X-CSRF-Token': getCsrfToken()
                         },
                         body: JSON.stringify({ tier: tier })
                     });
@@ -517,7 +560,8 @@ async function selectPlan(plan) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'X-CSRF-Token': getCsrfToken()
                 },
                 body: JSON.stringify({ tier: tier })
             });
@@ -556,7 +600,8 @@ async function selectPlan(plan) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
             },
             body: JSON.stringify({ tier: tier })
         });
@@ -670,7 +715,8 @@ async function connectTelegram() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             },
             body: JSON.stringify({ channelIdentifier })
         });
@@ -736,7 +782,8 @@ async function testAgent() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 
@@ -1175,7 +1222,8 @@ async function createAgent() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             },
             body: JSON.stringify({ connectionId, name })
         });
@@ -1217,7 +1265,8 @@ async function toggleAgentStatus(agentId, currentStatus) {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             },
             body: JSON.stringify({ status: newStatus })
         });
@@ -1245,7 +1294,8 @@ async function deleteAgent(agentId, agentName) {
         const response = await fetch(`/api/agents/${agentId}`, {
             method: 'DELETE',
             headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 
@@ -1277,7 +1327,8 @@ async function testAgentPost(agentId) {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 
@@ -1655,7 +1706,8 @@ async function cancelSubscription() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 
@@ -1693,7 +1745,8 @@ async function resumeSubscription() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
             }
         });
 

@@ -7,6 +7,8 @@ import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
 import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
+// SECURITY: Input validation
+import { postGenerateValidation, bulkGenerateValidation, paginationQuery } from '../utils/validators.js';
 // AutomationManager instance is accessed via req.app.locals.automationManager
 
 const router = express.Router();
@@ -15,7 +17,7 @@ const router = express.Router();
 const contentGenerator = new ContentGenerator();
 
 // Generate a new post
-router.post('/generate', postGenerationLimiter, async (req, res) => {
+router.post('/generate', postGenerationLimiter, postGenerateValidation, async (req, res) => {
   try {
     const { topic, platforms, scheduleTime, tone = 'professional' } = req.body;
     const userId = req.user.id;
@@ -104,18 +106,23 @@ router.post('/generate', postGenerationLimiter, async (req, res) => {
 });
 
 // Get user's posts
-router.get('/', async (req, res) => {
+router.get('/', paginationQuery, async (req, res) => {
   try {
-    const { limit = 50, offset = 0 } = req.query;
+    // SECURITY: Enforce pagination bounds to prevent memory exhaustion
+    const MAX_LIMIT = 100;
+    const requestedLimit = parseInt(req.query.limit) || 50;
+    const limit = Math.min(Math.max(1, requestedLimit), MAX_LIMIT);
+    const offset = Math.max(0, parseInt(req.query.offset) || 0);
+
     const userId = req.user.id;
-    
-    const posts = await getUserPosts(userId, parseInt(limit), parseInt(offset));
-    
+
+    const posts = await getUserPosts(userId, limit, offset);
+
     res.json({
       posts,
       total: posts.length,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit,
+      offset
     });
     
   } catch (error) {
@@ -146,7 +153,7 @@ router.post('/:postId/schedule', requireTier('growth'), async (req, res) => {
 });
 
 // Bulk generate posts (Professional tier and above)
-router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter, async (req, res) => {
+router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter, bulkGenerateValidation, async (req, res) => {
   try {
     const { topics, platforms } = req.body;
     const userId = req.user.id;

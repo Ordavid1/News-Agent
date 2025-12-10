@@ -1,5 +1,42 @@
 // settings.js - Settings page handling
 
+// CSRF token management
+let csrfToken = null;
+
+async function initCsrf() {
+    try {
+        // First check if we already have a token in the cookie
+        const existingToken = getCsrfTokenFromCookie();
+        if (existingToken) {
+            csrfToken = existingToken;
+            return csrfToken;
+        }
+        // Fetch a fresh token from the server
+        const response = await fetch('/api/csrf-token', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            csrfToken = data.csrfToken;
+            return csrfToken;
+        }
+    } catch (error) {
+        console.error('Error initializing CSRF:', error);
+    }
+    return null;
+}
+
+function getCsrfTokenFromCookie() {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrfToken') return value;
+    }
+    return null;
+}
+
+function getCsrfToken() {
+    return csrfToken || getCsrfTokenFromCookie();
+}
+
 // Global state for connected platforms
 let connectedPlatforms = [];
 let allConnections = []; // Full connection objects
@@ -31,6 +68,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/auth.html';
         return;
     }
+
+    // Initialize CSRF token first
+    await initCsrf();
 
     // Check for agent ID in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -639,7 +679,8 @@ async function saveAgentWithSettings() {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'X-CSRF-Token': getCsrfToken()
                 },
                 body: JSON.stringify({ name: agentName, settings })
             });
@@ -674,7 +715,8 @@ async function saveAgentWithSettings() {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${token}`,
+                        'X-CSRF-Token': getCsrfToken()
                     },
                     body: JSON.stringify({ name: `${agentName} (${capitalize(platform)})`, settings })
                 });
@@ -690,7 +732,8 @@ async function saveAgentWithSettings() {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
+                        'Authorization': `Bearer ${token}`,
+                        'X-CSRF-Token': getCsrfToken()
                     },
                     body: JSON.stringify({
                         connectionId: connection.id,
@@ -999,7 +1042,8 @@ async function saveAgentSettings() {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
             },
             body: JSON.stringify({ settings })
         });

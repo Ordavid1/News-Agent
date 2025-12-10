@@ -24,6 +24,8 @@ import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
 import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
 import winston from 'winston';
+// SECURITY: Input validation
+import { agentCreateValidation, agentUpdateValidation, agentStatusValidation, idParam } from '../utils/validators.js';
 
 const router = express.Router();
 
@@ -153,7 +155,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
  * POST /api/agents
  * Create a new agent with optional settings
  */
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
   try {
     const { connectionId, name, settings } = req.body;
 
@@ -256,7 +258,7 @@ router.post('/', authenticateToken, async (req, res) => {
  * PUT /api/agents/:id
  * Update agent settings
  */
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) => {
   try {
     const agent = await getAgentById(req.params.id);
 
@@ -324,7 +326,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
  * PUT /api/agents/:id/status
  * Toggle agent status (active/paused)
  */
-router.put('/:id/status', authenticateToken, async (req, res) => {
+router.put('/:id/status', authenticateToken, agentStatusValidation, async (req, res) => {
   try {
     const agent = await getAgentById(req.params.id);
 

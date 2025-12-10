@@ -2,6 +2,8 @@
 import express from 'express';
 import crypto from 'crypto';
 import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId } from '../services/database-wrapper.js';
+// SECURITY: Input validation
+import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
 
 const router = express.Router();
 
@@ -55,7 +57,7 @@ router.get('/current', async (req, res) => {
   console.log('[SUBSCRIPTION] GET /current - User:', req.user?.id);
   try {
     const subscription = await getSubscription(req.user.id);
-    console.log('[SUBSCRIPTION] Current subscription:', JSON.stringify(subscription));
+    console.log('[SUBSCRIPTION] Subscription tier:', subscription?.tier || 'none');
 
     res.json({
       subscription: req.user.subscription,
@@ -69,7 +71,7 @@ router.get('/current', async (req, res) => {
 });
 
 // Create Lemon Squeezy checkout session
-router.post('/create-checkout', async (req, res) => {
+router.post('/create-checkout', checkoutValidation, async (req, res) => {
   console.log('[CHECKOUT] POST /create-checkout - User:', req.user?.id, 'Tier:', req.body?.tier);
   try {
     const { tier } = req.body;
@@ -128,9 +130,9 @@ router.post('/create-checkout', async (req, res) => {
       }
     };
 
-    console.log('[CHECKOUT] Creating LS checkout with payload:', JSON.stringify(checkoutPayload, null, 2));
-    console.log('[CHECKOUT] Store ID:', process.env.LEMON_SQUEEZY_STORE_ID);
-    console.log('[CHECKOUT] API Key present:', !!process.env.LEMON_SQUEEZY_API_KEY);
+    console.log('[CHECKOUT] Creating LS checkout for tier:', tier);
+    console.log('[CHECKOUT] Store ID configured:', !!process.env.LEMON_SQUEEZY_STORE_ID);
+    console.log('[CHECKOUT] API Key configured:', !!process.env.LEMON_SQUEEZY_API_KEY);
 
     // Create Lemon Squeezy checkout
     const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
@@ -145,7 +147,7 @@ router.post('/create-checkout', async (req, res) => {
 
     const data = await response.json();
     console.log('[CHECKOUT] LS API Response status:', response.status);
-    console.log('[CHECKOUT] LS API Response:', JSON.stringify(data, null, 2));
+    console.log('[CHECKOUT] LS API Response received, checkout URL:', data?.data?.attributes?.url ? 'present' : 'missing');
 
     if (!response.ok) {
       console.error('[CHECKOUT] Lemon Squeezy checkout error:', data);
@@ -171,7 +173,7 @@ router.get('/portal', async (req, res) => {
   console.log('[PORTAL] GET /portal - User:', req.user?.id);
   try {
     const subscription = await getSubscription(req.user.id);
-    console.log('[PORTAL] Subscription:', JSON.stringify(subscription));
+    console.log('[PORTAL] Subscription found:', !!subscription?.lsSubscriptionId);
 
     if (!subscription?.lsSubscriptionId) {
       console.log('[PORTAL] No lsSubscriptionId found');
@@ -213,7 +215,7 @@ router.post('/cancel', async (req, res) => {
   console.log('[CANCEL] POST /cancel - User:', req.user?.id);
   try {
     const subscription = await getSubscription(req.user.id);
-    console.log('[CANCEL] Current subscription:', JSON.stringify(subscription));
+    console.log('[CANCEL] Subscription found:', !!subscription?.lsSubscriptionId);
 
     if (!subscription || !subscription.lsSubscriptionId) {
       console.log('[CANCEL] No subscription found');
@@ -267,7 +269,7 @@ router.post('/cancel', async (req, res) => {
 });
 
 // Change subscription plan (upgrade/downgrade)
-router.post('/change-plan', async (req, res) => {
+router.post('/change-plan', changePlanValidation, async (req, res) => {
   console.log('[CHANGE-PLAN] POST /change-plan - User:', req.user?.id, 'New Tier:', req.body?.tier);
   try {
     const { tier: newTier } = req.body;
@@ -278,7 +280,7 @@ router.post('/change-plan', async (req, res) => {
     }
 
     const subscription = await getSubscription(req.user.id);
-    console.log('[CHANGE-PLAN] Current subscription:', JSON.stringify(subscription));
+    console.log('[CHANGE-PLAN] Current tier:', subscription?.tier || 'none');
 
     if (!subscription || !subscription.lsSubscriptionId) {
       console.log('[CHANGE-PLAN] No active subscription found');
@@ -325,7 +327,6 @@ router.post('/change-plan', async (req, res) => {
 
     const data = await response.json();
     console.log('[CHANGE-PLAN] LS API Response status:', response.status);
-    console.log('[CHANGE-PLAN] LS API Response:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
       console.error('[CHANGE-PLAN] Lemon Squeezy error:', data);
@@ -413,55 +414,6 @@ router.post('/resume', async (req, res) => {
   } catch (error) {
     console.error('Subscription resume error:', error);
     res.status(500).json({ error: 'Failed to resume subscription' });
-  }
-});
-
-// Test mode: activate subscription (for development)
-router.post('/test-activate', async (req, res) => {
-  console.log('Test activation endpoint hit');
-  console.log('Test mode:', process.env.TEST_MODE);
-  console.log('User:', req.user ? req.user.id : 'No user');
-
-  if (process.env.TEST_MODE !== 'true') {
-    return res.status(403).json({ error: 'Test mode is not enabled' });
-  }
-
-  try {
-    const { tier } = req.body;
-    console.log('Tier requested:', tier);
-
-    // Check if tier is valid
-    const validTiers = ['starter', 'growth', 'professional', 'business'];
-    if (!validTiers.includes(tier)) {
-      console.log('Invalid tier:', tier);
-      return res.status(400).json({ error: 'Invalid tier: ' + tier });
-    }
-
-    if (!req.user || !req.user.id) {
-      console.error('No user in request');
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
-
-    // Create test subscription
-    const subscriptionData = {
-      userId: req.user.id,
-      tier: tier,
-      lsSubscriptionId: `test_sub_${Date.now()}`,
-      lsCustomerId: `test_cust_${Date.now()}`,
-      lsVariantId: PRICING_TIERS[tier]?.variantId || `test_variant_${tier}`,
-      status: 'active'
-    };
-
-    console.log('Creating subscription:', subscriptionData);
-    await createSubscription(subscriptionData);
-
-    res.json({
-      message: 'Test subscription activated',
-      subscription: subscriptionData
-    });
-  } catch (error) {
-    console.error('Test subscription error:', error);
-    res.status(500).json({ error: 'Failed to activate test subscription: ' + error.message });
   }
 });
 

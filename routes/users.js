@@ -1,7 +1,8 @@
 // routes/users.js
 import express from 'express';
-import bcrypt from 'bcryptjs';
 import { updateUser, getUserById } from '../services/database-wrapper.js';
+// SECURITY: Input validation
+import { profileUpdateValidation, settingsUpdateValidation, accountDeleteValidation } from '../utils/validators.js';
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ router.get('/profile', async (req, res) => {
 });
 
 // Update user profile
-router.put('/profile', async (req, res) => {
+router.put('/profile', profileUpdateValidation, async (req, res) => {
   try {
     const { name, settings } = req.body;
     const updates = {};
@@ -48,42 +49,21 @@ router.put('/profile', async (req, res) => {
   }
 });
 
-// Update password
-router.put('/password', async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ 
-        error: 'Current password and new password are required' 
-      });
-    }
-    
-    // Verify current password
-    const user = await getUserById(req.user.id);
-    const validPassword = await bcrypt.compare(currentPassword, user.password);
-    
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
-    }
-    
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await updateUser(req.user.id, { password: hashedPassword });
-    
-    res.json({ message: 'Password updated successfully' });
-  } catch (error) {
-    console.error('Password update error:', error);
-    res.status(500).json({ error: 'Failed to update password' });
-  }
-});
+// SECURITY: Password change removed - using Google OAuth only
 
-// Get API key
+// Get API key (masked for security - full key only shown on regeneration)
 router.get('/api-key', async (req, res) => {
   try {
-    res.json({ 
-      apiKey: req.user.apiKey,
-      usage: 'Add to request headers as: X-API-Key' 
+    const apiKey = req.user.apiKey;
+    // SECURITY: Mask API key - show only first 8 and last 4 characters
+    const maskedKey = apiKey
+      ? `${apiKey.substring(0, 8)}...${apiKey.slice(-4)}`
+      : null;
+
+    res.json({
+      apiKey: maskedKey,
+      hint: 'Full key shown only on regeneration. Regenerate if you need the full key.',
+      usage: 'Add to request headers as: X-API-Key'
     });
   } catch (error) {
     console.error('API key fetch error:', error);
@@ -142,7 +122,7 @@ router.get('/settings', async (req, res) => {
 });
 
 // Update user settings (for settings page)
-router.put('/settings', async (req, res) => {
+router.put('/settings', settingsUpdateValidation, async (req, res) => {
   try {
     const { topics, keywords, geoFilter, schedule, contentStyle, platforms } = req.body;
 
@@ -235,7 +215,7 @@ router.put('/preferences', async (req, res) => {
 });
 
 // Delete account (soft delete)
-router.delete('/account', async (req, res) => {
+router.delete('/account', accountDeleteValidation, async (req, res) => {
   try {
     const { confirmEmail } = req.body;
     

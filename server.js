@@ -7,6 +7,7 @@ import winston from 'winston';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import session from 'express-session';
+import cookieParser from 'cookie-parser';
 import passport from './config/passport.js';
 import { initializePassport } from './config/passport-init.js';
 
@@ -26,8 +27,9 @@ import agentsRoutes from './routes/agents.js';
 
 // Import middleware
 import { authenticateToken } from './middleware/auth.js';
-import { rateLimiter } from './middleware/rateLimiter.js';
+import { rateLimiter, demoLimiter } from './middleware/rateLimiter.js';
 import { checkSubscriptionLimits } from './middleware/subscription.js';
+import { csrfTokenSetter, csrfProtection, getCsrfToken } from './middleware/csrf.js';
 
 // Import services
 import { initializeDatabase, getDb } from './services/database.js';
@@ -55,46 +57,96 @@ const logger = winston.createLogger({
 // Initialize Express app
 const app = express();
 
-// Middleware
+// SECURITY: Hardened security headers with Helmet
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com"],
-      scriptSrcAttr: ["'unsafe-inline'"], // Allow inline event handlers
+      // SECURITY: Removed 'unsafe-eval', kept 'unsafe-inline' for now (requires frontend refactor to fully remove)
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com"],
+      scriptSrcAttr: ["'unsafe-inline'"], // TODO: Remove after refactoring inline event handlers
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:", "blob:", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com"],
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"]
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
+      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
     }
-  }
+  },
+  // Additional security headers
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
 
+// SECURITY: Tightened CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [process.env.FRONTEND_URL || 'http://localhost:3000'];
+
+if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS && !process.env.FRONTEND_URL) {
+  logger.warn('[SECURITY] No ALLOWED_ORIGINS or FRONTEND_URL configured. Using restrictive CORS.');
+}
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.) in development only
+    if (!origin) {
+      if (process.env.NODE_ENV === 'production') {
+        return callback(new Error('Origin required'), false);
+      }
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token']
 }));
+
+// Cookie parser for httpOnly cookie authentication
+app.use(cookieParser());
+
+// SECURITY: CSRF token setter - sets token cookie for all requests
+app.use(csrfTokenSetter);
 
 // Lemon Squeezy webhook endpoint - MUST be before express.json() to access raw body
 // This route is mounted separately to handle raw body for signature verification
 app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), async (req, res) => {
-  console.log('═══════════════════════════════════════════════════════════════');
-  console.log('[WEBHOOK] 🔔 Lemon Squeezy webhook received!');
-  console.log('[WEBHOOK] Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('[WEBHOOK] Body length:', req.body?.length || 0, 'bytes');
-  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('[WEBHOOK] Lemon Squeezy webhook received');
 
   const crypto = await import('crypto');
   const signature = req.headers['x-signature'];
 
+  // SECURITY: Validate webhook secret is configured and strong enough
+  const webhookSecret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
+  if (!webhookSecret || webhookSecret.length < 32) {
+    console.error('[WEBHOOK] Webhook secret not configured or too weak');
+    return res.status(503).json({ error: 'Webhook not configured' });
+  }
+
   if (!signature) {
-    console.error('[WEBHOOK] ❌ Missing webhook signature');
+    console.error('[WEBHOOK] Missing webhook signature');
     return res.status(401).json({ error: 'Missing signature' });
   }
 
   // Verify signature
-  const hmac = crypto.createHmac('sha256', process.env.LEMON_SQUEEZY_WEBHOOK_SECRET || '');
+  const hmac = crypto.createHmac('sha256', webhookSecret);
   const digest = hmac.update(req.body).digest('hex');
 
   try {
@@ -120,7 +172,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   const customData = payload.meta?.custom_data || {};
 
   console.log(`[WEBHOOK] Received Lemon Squeezy event: ${eventName}`);
-  console.log('[WEBHOOK] Custom data:', JSON.stringify(customData));
+  console.log('[WEBHOOK] Custom data user_id:', customData?.user_id ? 'present' : 'missing');
 
   // Import database functions dynamically
   const { createSubscription, getSubscriptionByLsId, updateUser } = await import('./services/database-wrapper.js');
@@ -386,18 +438,26 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request logging middleware - log all API requests for debugging
 app.use('/api', (req, res, next) => {
+  // Log API requests (auth status only, not token values)
   console.log(`[API] ${req.method} ${req.originalUrl} - Auth: ${req.headers.authorization ? 'present' : 'missing'}`);
   next();
 });
 
+// SECURITY: SESSION_SECRET must be set in production - no weak fallback
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: SESSION_SECRET environment variable must be set in production');
+}
+
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
+  secret: SESSION_SECRET || 'dev-only-secret-not-for-production',
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
+    sameSite: 'strict',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
@@ -457,19 +517,31 @@ app.use(express.static(path.join(__dirname, 'public'), {
 // Auth Routes (no /api prefix for OAuth)
 app.use('/auth', authRoutes);
 
+// SECURITY: CSRF token endpoint - frontend calls this to get a fresh token
+app.get('/api/csrf-token', getCsrfToken);
+
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/subscriptions', authenticateToken, subscriptionRoutes);
-app.use('/api/posts', authenticateToken, checkSubscriptionLimits, postsRoutes);
-app.use('/api/analytics', authenticateToken, analyticsRoutes);
-app.use('/api/users', authenticateToken, userRoutes);
-app.use('/api/automation', authenticateToken, automationRoutes);
-app.use('/api/agents', authenticateToken, agentsRoutes); // Agent management (each agent = platform + settings)
-app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route)
-app.use('/api/test', testRoutes); // Test routes (no auth for testing)
+// SECURITY: Apply CSRF protection to state-changing authenticated routes
+app.use('/api/subscriptions', authenticateToken, csrfProtection, subscriptionRoutes);
+app.use('/api/posts', authenticateToken, csrfProtection, checkSubscriptionLimits, postsRoutes);
+app.use('/api/analytics', authenticateToken, analyticsRoutes); // Read-only, no CSRF needed
+app.use('/api/users', authenticateToken, csrfProtection, userRoutes);
+app.use('/api/automation', authenticateToken, csrfProtection, automationRoutes);
+app.use('/api/agents', authenticateToken, csrfProtection, agentsRoutes); // Agent management (each agent = platform + settings)
+app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route, OAuth callbacks exempt)
 
-// Demo endpoint (no auth required for testing)
-app.post('/api/demo/generate', async (req, res) => {
+// SECURITY: Disable test routes in production
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/test', (req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+} else {
+  app.use('/api/test', testRoutes); // Test routes only in development
+}
+
+// Demo endpoint (no auth required but rate limited to prevent abuse)
+app.post('/api/demo/generate', demoLimiter, async (req, res) => {
   try {
     const { topics, platforms, plan } = req.body;
     
@@ -563,8 +635,8 @@ app.post('/api/demo/generate', async (req, res) => {
   }
 });
 
-// Test news fetching endpoint
-app.get('/api/test/news/:topic', async (req, res) => {
+// Test news fetching endpoint (rate limited)
+app.get('/api/test/news/:topic', demoLimiter, async (req, res) => {
   try {
     const { topic } = req.params;
     const newsService = new (await import('./services/NewsService.js')).default();
@@ -597,10 +669,25 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  logger.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+// SECURITY: Secure error handling middleware - never expose stack traces in production
+app.use((err, req, res, _next) => {
+  // Log full error for debugging
+  logger.error(`[ERROR] ${req.method} ${req.path}: ${err.message}`);
+
+  // In development, log stack trace
+  if (process.env.NODE_ENV !== 'production') {
+    logger.error(err.stack);
+  }
+
+  // SECURITY: Never expose internal error details to clients in production
+  const statusCode = err.status || err.statusCode || 500;
+  const response = {
+    error: process.env.NODE_ENV === 'production'
+      ? 'An error occurred. Please try again later.'
+      : err.message
+  };
+
+  res.status(statusCode).json(response);
 });
 
 // Initialize database and start server
