@@ -13,7 +13,7 @@
     <meta name="theme-color" content="#a855f7">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/styles/output.css">
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -487,23 +487,17 @@
 
                 <!-- Available Plans -->
                 <h4 class="text-lg font-semibold mb-4">Available Plans</h4>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <!-- Starter Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-starter">
                         <h5 class="font-semibold text-lg mb-2">Starter</h5>
-                        <p class="text-3xl font-bold mb-4">$9<span class="text-sm text-gray-400">/mo</span></p>
+                        <p class="text-3xl font-bold mb-4">$49<span class="text-sm text-gray-400">/mo</span></p>
                         <ul class="space-y-2 mb-6 text-sm text-gray-400">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                10 posts/day
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
-                                <strong>2 agents</strong>
+                                10 posts/day (300/mo)
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -511,11 +505,24 @@
                                 </svg>
                                 2 platforms
                             </li>
+                            <li class="text-xs text-gray-500 ml-6">LinkedIn, Reddit</li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                                 Basic analytics
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Email support
+                            </li>
+                            <li class="flex items-center gap-2 text-gray-500">
+                                <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                Scheduling
                             </li>
                         </ul>
                         <button onclick="selectPlan('starter')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
@@ -529,31 +536,32 @@
                             <h5 class="font-semibold text-lg">Growth</h5>
                             <span class="text-xs bg-purple-500 px-2 py-1 rounded-full">Popular</span>
                         </div>
-                        <p class="text-3xl font-bold mb-4">$29<span class="text-sm text-gray-400">/mo</span></p>
+                        <p class="text-3xl font-bold mb-4">$149<span class="text-sm text-gray-400">/mo</span></p>
                         <ul class="space-y-2 mb-6 text-sm text-gray-400">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                30 posts/day
+                                20 posts/day (600/mo)
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                <strong>5 agents</strong>
+                                3 platforms
                             </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
-                                All platforms
-                            </li>
+                            <li class="text-xs text-gray-500 ml-6">+ Twitter</li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
                                 Advanced analytics
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Scheduling
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -570,31 +578,38 @@
                     <!-- Professional Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-professional">
                         <h5 class="font-semibold text-lg mb-2">Professional</h5>
-                        <p class="text-3xl font-bold mb-4">$79<span class="text-sm text-gray-400">/mo</span></p>
+                        <p class="text-3xl font-bold mb-4">$399<span class="text-sm text-gray-400">/mo</span></p>
                         <ul class="space-y-2 mb-6 text-sm text-gray-400">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                Unlimited posts
+                                30 posts/day (900/mo)
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                <strong>10 agents</strong>
+                                5 platforms
+                            </li>
+                            <li class="text-xs text-gray-500 ml-6">+ Facebook, Instagram</li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Advanced analytics
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                All platforms
+                                Scheduling
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                 </svg>
-                                White-label reports
+                                Bulk generation
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -602,8 +617,74 @@
                                 </svg>
                                 API access
                             </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Dedicated support
+                            </li>
                         </ul>
                         <button onclick="selectPlan('professional')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
+                            Select Plan
+                        </button>
+                    </div>
+
+                    <!-- Business Plan -->
+                    <div class="plan-card rounded-xl p-6" id="plan-card-business">
+                        <h5 class="font-semibold text-lg mb-2">Business</h5>
+                        <p class="text-3xl font-bold mb-4">$799<span class="text-sm text-gray-400">/mo</span></p>
+                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                45 posts/day (1,350/mo)
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                All platforms
+                            </li>
+                            <li class="text-xs text-gray-500 ml-6">+ Telegram, TikTok, YouTube</li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Custom analytics
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Scheduling
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Bulk generation
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                API access
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                White-label
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                24/7 Phone support
+                            </li>
+                        </ul>
+                        <button onclick="selectPlan('business')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
                             Select Plan
                         </button>
                     </div>

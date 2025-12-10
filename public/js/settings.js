@@ -193,7 +193,7 @@ function renderKeywordTags() {
 }
 
 /**
- * Load all connections and populate the platform dropdown
+ * Load all connections and update platform checkboxes
  */
 async function loadAllConnections() {
     const token = localStorage.getItem('token');
@@ -210,8 +210,8 @@ async function loadAllConnections() {
             allConnections = (data.connections || []).filter(c => c.status === 'active');
             connectedPlatforms = allConnections.map(c => c.platform);
 
-            // Populate the platform dropdown
-            populatePlatformDropdown();
+            // Update the platform checkboxes
+            updatePlatformCheckboxes();
         }
     } catch (error) {
         console.error('Error loading connections:', error);
@@ -235,8 +235,8 @@ async function loadExistingAgents() {
             const data = await response.json();
             existingAgents = data.agents || [];
 
-            // Update dropdown to show which platforms have agents
-            populatePlatformDropdown();
+            // Update checkboxes to show which platforms have agents
+            updatePlatformCheckboxes();
         }
     } catch (error) {
         console.error('Error loading agents:', error);
@@ -244,80 +244,58 @@ async function loadExistingAgents() {
 }
 
 /**
- * Populate the platform dropdown with available connections
+ * Update platform checkboxes to show connection status
  */
-function populatePlatformDropdown() {
-    const select = document.getElementById('agentPlatform');
-    const hint = document.getElementById('platformHint');
+function updatePlatformCheckboxes() {
+    const platformCheckboxes = document.querySelectorAll('input[name="platforms"]');
 
-    if (!select) return;
+    platformCheckboxes.forEach(checkbox => {
+        const platform = checkbox.value;
+        const connection = allConnections.find(c => c.platform === platform);
+        const label = checkbox.closest('label');
 
-    // Clear existing options
-    select.innerHTML = '<option value="">Select a connected platform...</option>';
-
-    if (allConnections.length === 0) {
-        // No connections - show hint
-        if (hint) {
-            hint.innerHTML = 'No platforms connected. <a href="/profile.html?tab=connections" class="text-purple-400 hover:underline">Connect a platform first</a>';
-        }
-        return;
-    }
-
-    // Add options for each connection
-    allConnections.forEach(conn => {
-        const option = document.createElement('option');
-        option.value = conn.id;
-        option.dataset.platform = conn.platform;
-
-        // Check if this platform already has an agent
-        const existingAgent = existingAgents.find(a => a.connection_id === conn.id);
-
-        if (existingAgent) {
-            option.textContent = `${capitalize(conn.platform)} - ${conn.platform_username || 'connected'} (Agent: ${existingAgent.name})`;
-            option.dataset.agentId = existingAgent.id;
-            option.dataset.agentName = existingAgent.name;
-        } else {
-            option.textContent = `${capitalize(conn.platform)} - @${conn.platform_username || 'connected'}`;
-        }
-
-        select.appendChild(option);
-    });
-
-    // Update hint
-    if (hint) {
-        hint.textContent = 'Select a platform to create or update an agent';
-    }
-
-    // Add change handler to load existing agent settings when selecting a platform with an agent
-    select.addEventListener('change', async (e) => {
-        const selectedOption = e.target.selectedOptions[0];
-        if (selectedOption && selectedOption.dataset.agentId) {
-            // Load existing agent's settings
-            const existingAgent = existingAgents.find(a => a.id === selectedOption.dataset.agentId);
-            if (existingAgent) {
-                currentAgent = existingAgent;
-                agentId = existingAgent.id;
-
-                // Populate name field
-                const nameInput = document.getElementById('agentName');
-                if (nameInput) {
-                    nameInput.value = existingAgent.name;
+        if (connection) {
+            // Platform is connected - enable checkbox
+            checkbox.disabled = false;
+            if (label) {
+                label.classList.remove('opacity-50', 'cursor-not-allowed');
+                label.classList.add('cursor-pointer');
+                // Show username if available
+                const platformName = label.querySelector('p.font-medium');
+                const platformDesc = label.querySelector('p.text-sm.text-gray-400');
+                if (platformDesc && connection.platform_username) {
+                    platformDesc.textContent = `@${connection.platform_username}`;
                 }
-
-                // Populate form with existing settings
-                populateFormWithAgentSettings(existingAgent.settings);
             }
         } else {
-            // New agent - clear form
-            currentAgent = null;
-            agentId = null;
-            const nameInput = document.getElementById('agentName');
-            if (nameInput) nameInput.value = '';
+            // Platform not connected - disable checkbox
+            checkbox.disabled = true;
+            checkbox.checked = false;
+            if (label) {
+                label.classList.add('opacity-50', 'cursor-not-allowed');
+                label.classList.remove('cursor-pointer');
+            }
+        }
 
-            // Reset form to defaults
-            resetFormToDefaults();
+        // Check if platform already has an agent
+        const existingAgent = existingAgents.find(a => a.platform === platform);
+        if (existingAgent && label) {
+            const platformDesc = label.querySelector('p.text-sm.text-gray-400');
+            if (platformDesc) {
+                platformDesc.textContent = `Agent: ${existingAgent.name}`;
+            }
         }
     });
+
+    // Show connection hint if no platforms connected
+    const connectionHint = document.getElementById('connectionHint');
+    const connectionHintText = document.getElementById('connectionHintText');
+    if (allConnections.length === 0 && connectionHint && connectionHintText) {
+        connectionHint.classList.remove('hidden');
+        connectionHintText.innerHTML = 'No platforms connected. <a href="/profile.html?tab=connections" class="text-purple-400 hover:underline">Connect a platform first</a>.';
+    } else if (connectionHint) {
+        connectionHint.classList.add('hidden');
+    }
 }
 
 /**
@@ -358,18 +336,6 @@ function resetFormToDefaults() {
  */
 function capitalize(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-/**
- * Legacy: Update the platform checkboxes to show connection status
- * (Kept for backwards compatibility but hidden in new agent-first flow)
- */
-function updatePlatformUI() {
-    // Hide the platform checkboxes section - we now use the dropdown
-    const platformSection = document.querySelector('[data-section="platforms"]');
-    if (platformSection) {
-        platformSection.classList.add('hidden');
-    }
 }
 
 async function loadSettings() {
@@ -469,28 +435,26 @@ function populateForm(settings) {
 }
 
 /**
- * Save agent with settings - creates new agent or updates existing one
+ * Save agent with settings - creates new agents for selected platforms or updates existing one
  */
 async function saveAgentWithSettings() {
     const token = localStorage.getItem('token');
 
-    // Get agent identity fields
+    // Get agent name
     const agentNameInput = document.getElementById('agentName');
-    const platformSelect = document.getElementById('agentPlatform');
-
     const agentName = agentNameInput?.value?.trim();
-    const connectionId = platformSelect?.value;
-    const selectedOption = platformSelect?.selectedOptions[0];
-    const platform = selectedOption?.dataset?.platform;
-    const existingAgentId = selectedOption?.dataset?.agentId;
+
+    // Get selected platforms from checkboxes
+    const selectedPlatforms = Array.from(document.querySelectorAll('input[name="platforms"]:checked'))
+        .map(cb => cb.value);
 
     // Validation
     if (!agentName) {
         showAgentIdentityError('Please enter an agent name');
         return;
     }
-    if (!connectionId) {
-        showAgentIdentityError('Please select a platform');
+    if (selectedPlatforms.length === 0) {
+        showAgentIdentityError('Please select at least one platform in the Platform Settings section below');
         return;
     }
 
@@ -531,12 +495,9 @@ async function saveAgentWithSettings() {
     }
 
     try {
-        let response;
-
-        if (existingAgentId || agentId) {
-            // Update existing agent
-            const updateId = existingAgentId || agentId;
-            response = await fetch(`/api/agents/${updateId}`, {
+        // If editing an existing agent (via URL param), just update it
+        if (agentId) {
+            const response = await fetch(`/api/agents/${agentId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -544,30 +505,82 @@ async function saveAgentWithSettings() {
                 },
                 body: JSON.stringify({ name: agentName, settings })
             });
-        } else {
-            // Create new agent
-            response = await fetch('/api/agents', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    connectionId,
-                    name: agentName,
-                    settings
-                })
-            });
+
+            const result = await response.json();
+            if (result.success) {
+                alert(`Agent "${agentName}" updated successfully!`);
+                window.location.href = '/profile.html?tab=agents';
+            } else {
+                showAgentIdentityError(result.error || 'Failed to update agent');
+            }
+            return;
         }
 
-        const result = await response.json();
+        // For new agents, create one for each selected platform
+        const results = [];
+        const errors = [];
 
-        if (result.success) {
-            const action = existingAgentId || agentId ? 'updated' : 'created';
-            alert(`Agent "${agentName}" ${action} successfully!`);
+        for (const platform of selectedPlatforms) {
+            // Find the connection for this platform
+            const connection = allConnections.find(c => c.platform === platform);
+            if (!connection) {
+                errors.push(`No connection found for ${platform}`);
+                continue;
+            }
+
+            // Check if agent already exists for this connection
+            const existingAgent = existingAgents.find(a => a.connection_id === connection.id);
+            if (existingAgent) {
+                // Update existing agent
+                const response = await fetch(`/api/agents/${existingAgent.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ name: `${agentName} (${capitalize(platform)})`, settings })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    results.push({ platform, action: 'updated', agent: result.agent });
+                } else {
+                    errors.push(`${platform}: ${result.error}`);
+                }
+            } else {
+                // Create new agent
+                const response = await fetch('/api/agents', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        connectionId: connection.id,
+                        name: selectedPlatforms.length > 1 ? `${agentName} (${capitalize(platform)})` : agentName,
+                        settings
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    results.push({ platform, action: 'created', agent: result.agent });
+                } else {
+                    errors.push(`${platform}: ${result.error}`);
+                }
+            }
+        }
+
+        // Show results
+        if (results.length > 0 && errors.length === 0) {
+            const message = results.length === 1
+                ? `Agent "${results[0].agent.name}" ${results[0].action} successfully!`
+                : `${results.length} agents saved successfully!`;
+            alert(message);
+            window.location.href = '/profile.html?tab=agents';
+        } else if (results.length > 0 && errors.length > 0) {
+            alert(`Saved ${results.length} agent(s), but some failed:\n${errors.join('\n')}`);
             window.location.href = '/profile.html?tab=agents';
         } else {
-            showAgentIdentityError(result.error || 'Failed to save agent');
+            showAgentIdentityError(errors.join('\n') || 'Failed to save agents');
         }
     } catch (error) {
         console.error('Error saving agent:', error);
@@ -637,17 +650,10 @@ async function loadAgentSettings() {
                 agentNameInput.value = currentAgent.name;
             }
 
-            // Set the platform dropdown to the agent's connection
-            const platformSelect = document.getElementById('agentPlatform');
-            if (platformSelect && currentAgent.connection_id) {
-                // Find and select the correct option
-                for (let option of platformSelect.options) {
-                    if (option.value === currentAgent.connection_id) {
-                        option.selected = true;
-                        option.dataset.agentId = currentAgent.id;
-                        break;
-                    }
-                }
+            // Select the platform checkbox for this agent's platform
+            const platformCheckbox = document.querySelector(`input[name="platforms"][value="${currentAgent.platform}"]`);
+            if (platformCheckbox) {
+                platformCheckbox.checked = true;
             }
 
             // Set up agent mode UI (header display)

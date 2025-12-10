@@ -202,42 +202,49 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 });
 
 // Google OAuth routes
-router.get('/google', async (req, res) => {
+router.get('/google', (req, res, next) => {
   console.log('Google OAuth route hit, test mode:', process.env.TEST_MODE);
-  
+  console.log('Google Client ID configured:', !!process.env.GOOGLE_CLIENT_ID);
+
   // Test mode: skip OAuth and create/login test user
   if (process.env.TEST_MODE === 'true') {
-    try {
-      const testEmail = 'test@example.com';
-      console.log('Test mode Google login, creating/fetching user:', testEmail);
-      let user = await getUserByEmail(testEmail);
-      
-      if (!user) {
-        console.log('Creating new Google test user');
-        // Create test user
-        user = await createUser({
-          email: testEmail,
-          name: 'Test User',
-          googleId: 'test-google-id',
-          apiKey: uuidv4(),
-          role: 'user',
-          authProvider: 'google'
-        });
+    (async () => {
+      try {
+        const testEmail = 'test@example.com';
+        console.log('Test mode Google login, creating/fetching user:', testEmail);
+        let user = await getUserByEmail(testEmail);
+
+        if (!user) {
+          console.log('Creating new Google test user');
+          // Create test user
+          user = await createUser({
+            email: testEmail,
+            name: 'Test User',
+            googleId: 'test-google-id',
+            apiKey: uuidv4(),
+            role: 'user',
+            authProvider: 'google'
+          });
+        }
+
+        // Generate token
+        const token = generateToken(user.id);
+        console.log('Token generated, redirecting with token');
+
+        // Redirect with token
+        res.redirect(`/auth.html?token=${token}`);
+      } catch (error) {
+        console.error('Test auth error:', error);
+        res.redirect('/auth.html?error=auth_failed');
       }
-      
-      // Generate token
-      const token = generateToken(user.id);
-      console.log('Token generated, redirecting with token');
-      
-      // Redirect with token
-      res.redirect(`/auth.html?token=${token}`);
-    } catch (error) {
-      console.error('Test auth error:', error);
-      res.redirect('/auth.html?error=auth_failed');
-    }
+    })();
   } else {
     // Normal OAuth flow
-    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res);
+    console.log('Initiating Google OAuth redirect...');
+    passport.authenticate('google', {
+      scope: ['profile', 'email'],
+      prompt: 'select_account'  // Always show account selector
+    })(req, res, next);
   }
 });
 

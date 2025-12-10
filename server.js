@@ -60,12 +60,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com", "https://js.stripe.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
       scriptSrcAttr: ["'unsafe-inline'"], // Allow inline event handlers
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://api.stripe.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com"],
       frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"]
     }
   }

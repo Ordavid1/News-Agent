@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles/output.css --watch"
+    "build:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles/output.css --minify",
+    "watch:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles/output.css --watch"
   },
   "keywords": [
     "saas",

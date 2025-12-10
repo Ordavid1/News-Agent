@@ -4,12 +4,23 @@ import { createUser, getUserByEmail, getUserById, updateUser } from '../services
 import { v4 as uuidv4 } from 'uuid';
 
 export function initializePassport() {
+  console.log('Initializing Passport...');
+  console.log('TEST_MODE:', process.env.TEST_MODE);
+  console.log('GOOGLE_CLIENT_ID exists:', !!process.env.GOOGLE_CLIENT_ID);
+  console.log('GOOGLE_CLIENT_SECRET exists:', !!process.env.GOOGLE_CLIENT_SECRET);
+
   // Only configure Google OAuth strategy if not in test mode or if credentials are provided
   if (process.env.TEST_MODE !== 'true' || (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your-google-client-id')) {
+    console.log('Registering Google OAuth strategy...');
+    const callbackURL = process.env.FRONTEND_URL
+      ? `${process.env.FRONTEND_URL}/auth/google/callback`
+      : '/auth/google/callback';
+    console.log('Callback URL:', callbackURL);
+
     passport.use(new GoogleStrategy({
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: "/auth/google/callback"
+        callbackURL: callbackURL
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -43,6 +54,9 @@ export function initializePassport() {
         }
       }
     ));
+    console.log('Google OAuth strategy registered successfully');
+  } else {
+    console.log('Skipping Google OAuth strategy registration (test mode or no credentials)');
   }
 
   // Serialize user for session

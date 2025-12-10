@@ -8,6 +8,20 @@ let agentLimit = 1;
 let availableConnections = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Parse URL params once at the start
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    const tab = urlParams.get('tab');
+
+    if (urlToken) {
+        // Store token from OAuth callback
+        localStorage.setItem('token', urlToken);
+        // Remove token from URL for security (preserve other params like tab)
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('token');
+        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
+    }
+
     // Check if user is authenticated
     const token = localStorage.getItem('token');
     if (!token) {
@@ -26,8 +40,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventHandlers();
 
     // Check URL params for tab navigation
-    const urlParams = new URLSearchParams(window.location.search);
-    const tab = urlParams.get('tab');
     if (tab) {
         showTab(tab);
     }
@@ -287,7 +299,7 @@ function setupEventHandlers() {
 }
 
 function highlightCurrentPlan(tier) {
-    const plans = ['starter', 'growth', 'professional'];
+    const plans = ['starter', 'growth', 'professional', 'business'];
     plans.forEach(plan => {
         const card = document.getElementById(`plan-card-${plan}`);
         if (card) {

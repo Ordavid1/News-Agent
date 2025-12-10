@@ -54,16 +54,16 @@
     <!-- Preconnect for Performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="stylesheet" href="/styles/output.css">
     <link rel="dns-prefetch" href="https://www.googletagmanager.com">
 
-    <!-- Google Analytics (GA4) - Replace G-XXXXXXXXXX with your ID -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <!-- Google Analytics (GA4) - Replace G-XNHM5CHXEB with your ID -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-      gtag('config', 'G-XXXXXXXXXX');
+      gtag('config', 'G-XNHM5CHXEB');
     </script>
 
     <!-- Structured Data - Organization -->
@@ -216,7 +216,6 @@
     }
     </script>
 
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -402,13 +401,15 @@
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
                 <!-- Starter -->
                 <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">🚀 Starter</h3>
+                    <h3 class="text-2xl font-bold mb-4">Starter</h3>
                     <div class="text-4xl font-bold mb-6">$49<span class="text-lg text-gray-400">/mo</span></div>
                     <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 10 posts/day</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 10 posts/day (300/mo)</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 2 platforms</li>
+                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> LinkedIn, Reddit</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Basic analytics</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Email support</li>
+                        <li class="flex items-center text-gray-500"><span class="text-red-400 mr-2">✗</span> Scheduling</li>
                     </ul>
                     <button onclick="subscribe('starter')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
                         Get Started
@@ -420,12 +421,14 @@
                     <div class="bg-gradient-to-r from-purple-500 to-pink-500 text-xs font-bold px-3 py-1 rounded-full inline-block mb-4">
                         MOST POPULAR
                     </div>
-                    <h3 class="text-2xl font-bold mb-4">📈 Growth</h3>
+                    <h3 class="text-2xl font-bold mb-4">Growth</h3>
                     <div class="text-4xl font-bold mb-6">$149<span class="text-lg text-gray-400">/mo</span></div>
                     <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 20 posts/day</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 20 posts/day (600/mo)</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 3 platforms</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Post scheduling</li>
+                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + Twitter</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Advanced analytics</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Priority support</li>
                     </ul>
                     <button onclick="subscribe('growth')" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 py-3 rounded-full transition hover:scale-105">
@@ -435,13 +438,17 @@
 
                 <!-- Professional -->
                 <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">💼 Professional</h3>
+                    <h3 class="text-2xl font-bold mb-4">Professional</h3>
                     <div class="text-4xl font-bold mb-6">$399<span class="text-lg text-gray-400">/mo</span></div>
                     <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 30 posts/day</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 30 posts/day (900/mo)</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 5 platforms</li>
+                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + Facebook, Instagram</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Advanced analytics</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Bulk generation</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> API access</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Dedicated support</li>
                     </ul>
                     <button onclick="subscribe('professional')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
                         Get Started
@@ -450,13 +457,18 @@
 
                 <!-- Business -->
                 <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">🏢 Business</h3>
+                    <h3 class="text-2xl font-bold mb-4">Business</h3>
                     <div class="text-4xl font-bold mb-6">$799<span class="text-lg text-gray-400">/mo</span></div>
                     <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 45 posts/day</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 45 posts/day (1,350/mo)</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> All platforms</li>
+                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + Telegram, TikTok, YouTube</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Custom analytics</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Bulk generation</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> API access</li>
                         <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> White-label</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 24/7 support</li>
+                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 24/7 Phone support</li>
                     </ul>
                     <button onclick="subscribe('business')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
                         Get Started

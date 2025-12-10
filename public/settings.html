@@ -13,7 +13,7 @@
     <meta name="theme-color" content="#a855f7">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/styles/output.css">
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -109,31 +109,16 @@
                 <!-- Agent Identity Section -->
                 <div class="neon-border p-6">
                     <h3 class="text-xl font-semibold mb-4 text-purple-400">🤖 Agent Identity</h3>
-                    <p class="text-gray-400 text-sm mb-4">Name your agent and select which platform it will post to</p>
+                    <p class="text-gray-400 text-sm mb-4">Name your agent - select target platforms in the Platform Settings section below</p>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- Agent Name -->
-                        <div>
-                            <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
-                            <input type="text"
-                                   id="agentName"
-                                   name="agentName"
-                                   placeholder="e.g., Tech News Bot"
-                                   class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
-                            <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
-                        </div>
-
-                        <!-- Platform Selection -->
-                        <div>
-                            <label class="block text-sm text-gray-400 mb-2">Target Platform</label>
-                            <select id="agentPlatform"
-                                    name="agentPlatform"
-                                    class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white">
-                                <option value="">Select a connected platform...</option>
-                                <!-- Options will be populated dynamically -->
-                            </select>
-                            <p class="text-xs text-gray-500 mt-2" id="platformHint">Connect platforms in your <a href="/profile.html?tab=connections" class="text-purple-400 hover:underline">profile</a></p>
-                        </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
+                        <input type="text"
+                               id="agentName"
+                               name="agentName"
+                               placeholder="e.g., Tech News Bot"
+                               class="w-full md:w-1/2 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
+                        <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
                     </div>
 
                     <!-- Validation message -->
