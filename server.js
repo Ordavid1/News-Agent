@@ -455,10 +455,10 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// SECURITY: SESSION_SECRET must be set in production - no weak fallback
+// SECURITY: SESSION_SECRET must be set in production - log error but don't crash
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('FATAL: SESSION_SECRET environment variable must be set in production');
+  logger.error('FATAL: SESSION_SECRET environment variable must be set in production');
 }
 
 // Session configuration

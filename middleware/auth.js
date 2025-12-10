@@ -9,10 +9,15 @@ import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../services/supabase.js';
 import { getUserById } from '../services/database.js';
 
-// SECURITY: JWT_SECRET must be set - no fallback allowed
+// SECURITY: JWT_SECRET must be set - validated at runtime, not module load
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable must be set');
+  console.error('[AUTH] FATAL: JWT_SECRET environment variable must be set');
+}
+
+// Helper to check if auth is configured
+function isAuthConfigured() {
+  return !!JWT_SECRET;
 }
 
 /**
@@ -20,6 +25,11 @@ if (!JWT_SECRET) {
  * Supports: httpOnly cookies (preferred), Authorization header, and Supabase JWT tokens
  */
 export async function authenticateToken(req, res, next) {
+  // Check if auth is configured (JWT_SECRET required for legacy tokens)
+  if (!isAuthConfigured()) {
+    return res.status(503).json({ error: 'Authentication service not configured' });
+  }
+
   // SECURITY: Check httpOnly cookie first (most secure), then Authorization header
   const cookieToken = req.cookies?.authToken;
   const authHeader = req.headers['authorization'];
