@@ -131,16 +131,17 @@ router.post('/resume', async (req, res) => {
 });
 
 // Helper function to get allowed platforms by tier
+// Note: Facebook is disabled until integration is set up
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
-    free: ['twitter'],
-    starter: ['twitter', 'linkedin'],
-    growth: ['twitter', 'linkedin', 'reddit'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube']
+    free: ['linkedin', 'reddit', 'telegram'],
+    starter: ['linkedin', 'reddit', 'telegram'],
+    growth: ['twitter', 'linkedin', 'reddit', 'telegram'],
+    professional: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram'],
+    business: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram', 'tiktok', 'youtube']
   };
-  
-  return platformsByTier[tier] || ['twitter'];
+
+  return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
 }
 
 export default router;

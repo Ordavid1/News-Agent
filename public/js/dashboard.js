@@ -6,13 +6,17 @@ let currentUser = null;
 let currentPost = null;
 
 // Platform configurations
+// Note: 'disabled' platforms are shown faded with "Coming Soon" - integration not yet set up
 const PLATFORMS = {
-    twitter: { name: 'Twitter', icon: '🐦', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    linkedin: { name: 'LinkedIn', icon: '💼', available: ['starter', 'growth', 'professional', 'business'] },
-    reddit: { name: 'Reddit', icon: '🔴', available: ['growth', 'professional', 'business'] },
-    facebook: { name: 'Facebook', icon: '📘', available: ['professional', 'business'] },
+    twitter: { name: 'Twitter', icon: '🐦', available: ['growth', 'professional', 'business'] },
+    linkedin: { name: 'LinkedIn', icon: '💼', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    reddit: { name: 'Reddit', icon: '🔴', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    facebook: { name: 'Facebook', icon: '📘', available: [], disabled: true, disabledReason: 'Coming Soon' },
+    threads: { name: 'Threads', icon: '@', available: [], disabled: true, disabledReason: 'Coming Soon' },
     instagram: { name: 'Instagram', icon: '📸', available: ['professional', 'business'] },
-    tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] }
+    tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] },
+    youtube: { name: 'YouTube', icon: '▶️', available: ['business'] }
 };
 
 // Initialize dashboard
@@ -116,37 +120,45 @@ function updateResetCountdown() {
 function setupPlatformOptions() {
     const container = document.getElementById('platformOptions');
     container.innerHTML = '';
-    
+
     const userTier = currentUser?.subscription?.tier || 'free';
-    
+
     Object.entries(PLATFORMS).forEach(([platform, config]) => {
-        const isAvailable = config.available.includes(userTier);
-        
+        const isDisabled = config.disabled === true;
+        const isAvailable = !isDisabled && config.available.includes(userTier);
+
         const label = document.createElement('label');
         label.className = `flex items-center gap-2 px-4 py-2 rounded-lg border ${
-            isAvailable 
-                ? 'border-purple-500/50 hover:bg-purple-500/20 cursor-pointer' 
+            isAvailable
+                ? 'border-purple-500/50 hover:bg-purple-500/20 cursor-pointer'
                 : 'border-gray-700 opacity-50 cursor-not-allowed'
         }`;
-        
+
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.name = 'platforms';
         checkbox.value = platform;
         checkbox.disabled = !isAvailable;
         checkbox.className = 'rounded text-purple-500';
-        
+
         label.appendChild(checkbox);
         label.appendChild(document.createTextNode(`${config.icon} ${config.name}`));
-        
-        if (!isAvailable) {
+
+        if (isDisabled) {
+            // Platform is globally disabled (e.g., integration not set up)
+            const disabledText = document.createElement('span');
+            disabledText.className = 'text-xs text-gray-500 ml-2';
+            disabledText.textContent = `(${config.disabledReason || 'Unavailable'})`;
+            label.appendChild(disabledText);
+        } else if (!isAvailable) {
+            // Platform requires higher tier
             const tier = config.available[0];
             const tierText = document.createElement('span');
             tierText.className = 'text-xs text-gray-500 ml-2';
             tierText.textContent = `(${tier}+)`;
             label.appendChild(tierText);
         }
-        
+
         container.appendChild(label);
     });
 }

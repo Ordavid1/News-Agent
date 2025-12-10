@@ -7,7 +7,7 @@
 
   <!-- Homepage - Highest Priority -->
   <url>
-    <loc>https://aipostgenerator.dev/</loc>
+    <loc>https://configure.news/</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
@@ -15,7 +15,7 @@
 
   <!-- Demo Page - High Priority for Conversions -->
   <url>
-    <loc>https://aipostgenerator.dev/demo.html</loc>
+    <loc>https://configure.news/demo.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
@@ -23,7 +23,7 @@
 
   <!-- Pricing/Payment Page -->
   <url>
-    <loc>https://aipostgenerator.dev/payment.html</loc>
+    <loc>https://configure.news/payment.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -31,7 +31,7 @@
 
   <!-- Blog Section -->
   <url>
-    <loc>https://aipostgenerator.dev/blog/</loc>
+    <loc>https://configure.news/blog/</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -39,42 +39,42 @@
 
   <!-- Blog Articles -->
   <url>
-    <loc>https://aipostgenerator.dev/blog/ai-social-media-automation-guide.html</loc>
+    <loc>https://configure.news/blog/ai-social-media-automation-guide.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://aipostgenerator.dev/blog/how-to-automate-social-media-posting.html</loc>
+    <loc>https://configure.news/blog/how-to-automate-social-media-posting.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://aipostgenerator.dev/blog/best-ai-content-generators-2024.html</loc>
+    <loc>https://configure.news/blog/best-ai-content-generators-2024.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://aipostgenerator.dev/blog/multi-platform-social-media-strategy.html</loc>
+    <loc>https://configure.news/blog/multi-platform-social-media-strategy.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://aipostgenerator.dev/blog/news-aggregation-content-creation.html</loc>
+    <loc>https://configure.news/blog/news-aggregation-content-creation.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
 
   <url>
-    <loc>https://aipostgenerator.dev/blog/viral-content-strategies-ai.html</loc>
+    <loc>https://configure.news/blog/viral-content-strategies-ai.html</loc>
     <lastmod>2024-12-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>

@@ -6,34 +6,35 @@ import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId 
 const router = express.Router();
 
 // Pricing configuration with Lemon Squeezy variant IDs
+// Note: Facebook is disabled (Coming Soon) - not included in platform counts
 const PRICING_TIERS = {
   starter: {
     name: 'Starter Package',
     monthlyPrice: 4900, // $49 in cents
     postsPerDay: 10,
     variantId: process.env.LEMON_SQUEEZY_49_VARIANT_ID,
-    features: ['10 posts/day (300/mo)', '2 platforms (LinkedIn, Reddit)', 'Basic analytics', 'Email support']
+    features: ['10 posts/day (300/mo)', '3 platforms (LinkedIn, Reddit, Telegram)', 'Basic analytics', 'Email support']
   },
   growth: {
     name: 'Growth Package',
     monthlyPrice: 14900, // $149
     postsPerDay: 20,
     variantId: process.env.LEMON_SQUEEZY_149_VARIANT_ID,
-    features: ['20 posts/day (600/mo)', '3 platforms (+ Twitter)', 'Advanced analytics', 'Post scheduling', 'Priority support']
+    features: ['20 posts/day (600/mo)', '4 platforms (+ Twitter)', 'Advanced analytics', 'Post scheduling', 'Priority support']
   },
   professional: {
     name: 'Professional Package',
     monthlyPrice: 39900, // $399
     postsPerDay: 30,
     variantId: process.env.LEMON_SQUEEZY_399_VARIANT_ID,
-    features: ['30 posts/day (900/mo)', '5 platforms (+ Facebook, Instagram)', 'Bulk generation', 'API access', 'Custom posting schedules', 'Dedicated support']
+    features: ['30 posts/day (900/mo)', '5 platforms (+ Instagram)', 'Bulk generation', 'API access', 'Custom posting schedules', 'Dedicated support']
   },
   business: {
     name: 'Business Package',
     monthlyPrice: 79900, // $799
     postsPerDay: 45,
     variantId: process.env.LEMON_SQUEEZY_799_VARIANT_ID,
-    features: ['45 posts/day (1,350/mo)', 'All platforms (+ Telegram, TikTok, YouTube)', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
+    features: ['45 posts/day (1,350/mo)', '7 platforms (+ TikTok, YouTube)', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
   }
 };
 

@@ -29,7 +29,7 @@ Disallow: /js/settings.js
 Crawl-delay: 1
 
 # Sitemap location
-Sitemap: https://aipostgenerator.dev/sitemap.xml
+Sitemap: https://configure.news/sitemap.xml
 
 # Google-specific directives
 User-agent: Googlebot

@@ -213,16 +213,17 @@ router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter
 });
 
 // Helper function to get allowed platforms by tier
+// Note: Facebook is disabled until integration is set up
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
-    free: ['twitter'],
-    starter: ['twitter', 'linkedin'],
+    free: ['linkedin', 'reddit', 'telegram'],
+    starter: ['linkedin', 'reddit', 'telegram'],
     growth: ['twitter', 'linkedin', 'reddit', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'instagram', 'tiktok', 'youtube']
+    professional: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram'],
+    business: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram', 'tiktok', 'youtube']
   };
 
-  return platformsByTier[tier] || ['twitter'];
+  return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
 }
 
 /**

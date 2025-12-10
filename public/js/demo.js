@@ -29,13 +29,23 @@ function showSuccess(message) {
 }
 
 // Platform availability by tier
+// Note: platforms with empty array and disabled:true are globally disabled (integration not set up)
 const platformTiers = {
-    twitter: ['free', 'starter', 'growth', 'professional', 'business'],
-    linkedin: ['starter', 'growth', 'professional', 'business'],
-    reddit: ['growth', 'professional', 'business'],
-    facebook: ['professional', 'business'],
+    twitter: ['growth', 'professional', 'business'],
+    linkedin: ['free', 'starter', 'growth', 'professional', 'business'],
+    reddit: ['free', 'starter', 'growth', 'professional', 'business'],
+    telegram: ['free', 'starter', 'growth', 'professional', 'business'],
+    facebook: [], // Disabled - Coming Soon
+    threads: [], // Disabled - Coming Soon
     instagram: ['professional', 'business'],
-    tiktok: ['business']
+    tiktok: ['business'],
+    youtube: ['business']
+};
+
+// Platforms that are globally disabled (integration not yet set up)
+const disabledPlatforms = {
+    facebook: 'Coming Soon',
+    threads: 'Coming Soon'
 };
 
 // Daily limits by plan
@@ -193,10 +203,13 @@ function selectPlan(plan) {
 function updatePlatformAvailability() {
     Object.keys(platformTiers).forEach(platform => {
         const element = document.getElementById(`platform-${platform}`);
-        const availableInPlan = platformTiers[platform].includes(selectedPlan);
-        
+        if (!element) return; // Skip if element doesn't exist in DOM
+
+        const isDisabled = disabledPlatforms.hasOwnProperty(platform);
+        const availableInPlan = !isDisabled && platformTiers[platform].includes(selectedPlan);
+
         element.classList.remove('available', 'unavailable', 'selected');
-        
+
         if (availableInPlan) {
             element.classList.add('available');
         } else {
@@ -236,19 +249,26 @@ function toggleTopic(topic) {
 function togglePlatform(platform) {
     console.log('togglePlatform called with:', platform);
     const element = document.getElementById(`platform-${platform}`);
-    
+
     if (!element) {
         console.error('Platform element not found:', `platform-${platform}`);
         return;
     }
-    
+
+    // Check if platform is globally disabled
+    if (disabledPlatforms.hasOwnProperty(platform)) {
+        console.log('Platform is disabled:', platform, disabledPlatforms[platform]);
+        showError(`${platform.charAt(0).toUpperCase() + platform.slice(1)} is ${disabledPlatforms[platform]}`);
+        return;
+    }
+
     // Check if platform is available in current plan
     if (!platformTiers[platform].includes(selectedPlan)) {
         console.log('Platform not available in plan, showing upgrade prompt');
         showUpgradePrompt(platform);
         return;
     }
-    
+
     if (selectedPlatforms.includes(platform)) {
         selectedPlatforms = selectedPlatforms.filter(p => p !== platform);
         element.classList.remove('selected');
