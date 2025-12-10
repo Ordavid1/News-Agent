@@ -480,12 +480,9 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Health check endpoint - MUST be before rate limiter for Render health checks
-// Returns 200 even during startup so Render doesn't kill the container prematurely
+// Returns 200 even during startup so Render doesn't kill the container
 app.get('/api/health', (req, res) => {
   const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
-
-  // Always return 200 for the health check to prevent Render from killing the container
-  // The status field indicates actual readiness for monitoring purposes
   res.json({
     status: serverState.status === 'ready' ? 'healthy' : serverState.status,
     ready: serverState.status === 'ready',
@@ -659,114 +656,6 @@ app.post('/api/demo/generate', demoLimiter, async (req, res) => {
   }
 });
 
-// Internal generate endpoint for AutomationManager
-// This endpoint is called internally by the automation system to generate content
-// No auth required as it's internal-only (localhost calls)
-app.post('/generate', async (req, res) => {
-  try {
-    const { query, generateVideo, videoDuration, userId } = req.body;
-
-    // Only allow localhost calls for security
-    const clientIP = req.ip || req.connection.remoteAddress;
-    const isLocalhost = clientIP === '127.0.0.1' || clientIP === '::1' || clientIP === '::ffff:127.0.0.1';
-
-    if (!isLocalhost && process.env.NODE_ENV === 'production') {
-      logger.warn(`[GENERATE] Blocked non-localhost request from: ${clientIP}`);
-      return res.status(403).json({ error: 'Internal endpoint only' });
-    }
-
-    logger.info(`[GENERATE] Internal request for query: ${query}, userId: ${userId}`);
-
-    // Import necessary services
-    const EnhancedNewsService = (await import('./services/EnhancedNewsService.js')).default;
-    const ContentGenerator = (await import('./services/ContentGenerator.js')).default;
-    const newsService = new EnhancedNewsService();
-    const contentGenerator = new ContentGenerator();
-
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
-    }
-
-    // Fetch news for the query
-    const news = await newsService.getNewsForTopics([query], {
-      limit: 5,
-      language: 'en',
-      sortBy: 'relevance',
-      userId: userId || 'automation-bot'
-    });
-
-    if (!news || news.length === 0) {
-      logger.warn(`[GENERATE] No news found for query: ${query}`);
-      return res.json({
-        success: false,
-        posts: [],
-        message: 'Could not find relevant articles for the topic'
-      });
-    }
-
-    // Use the best article for content generation
-    const article = news[0];
-    const trend = {
-      title: article.title,
-      description: article.description,
-      summary: article.content || article.description,
-      url: article.url,
-      source: article.source?.name || article.source || 'News',
-      publishedAt: article.publishedAt
-    };
-
-    // Generate content for multiple platforms
-    const platforms = ['twitter', 'reddit', 'linkedin'];
-    const posts = [];
-
-    for (const platform of platforms) {
-      try {
-        const generatedContent = await contentGenerator.generateContent(
-          trend,
-          platform,
-          'professional',
-          userId || 'automation-bot'
-        );
-
-        posts.push({
-          platform,
-          text: generatedContent.text,  // AutomationManager expects 'text' not 'content'
-          content: generatedContent.text, // Keep for backward compatibility
-          trend: trend.title,
-          source: trend.url,
-          generatedAt: generatedContent.generatedAt
-        });
-      } catch (error) {
-        logger.error(`[GENERATE] Failed to generate ${platform} content:`, error.message);
-      }
-    }
-
-    if (posts.length === 0) {
-      return res.json({
-        success: false,
-        posts: [],
-        message: 'Failed to generate content for any platform'
-      });
-    }
-
-    logger.info(`[GENERATE] Successfully generated ${posts.length} posts for query: ${query}`);
-
-    res.json({
-      success: true,
-      posts,
-      article: {
-        title: article.title,
-        url: article.url,
-        source: article.source?.name || article.source
-      }
-    });
-
-  } catch (error) {
-    logger.error('[GENERATE] Error:', error);
-    res.status(500).json({ error: 'Failed to generate content', message: error.message });
-  }
-});
-
 // Test news fetching endpoint (rate limited)
 app.get('/api/test/news/:topic', demoLimiter, async (req, res) => {
   try {
@@ -848,24 +737,25 @@ async function initializeServices() {
       serverState.services.workers = true;
       logger.info('Background workers started');
     } else {
-      serverState.services.workers = true; // Mark as "done" even if disabled
+      serverState.services.workers = true; // Mark as done even if disabled
       logger.info('Background workers disabled (set BACKGROUND_WORKERS_ENABLED=true to enable)');
     }
 
     // All services initialized successfully
     serverState.status = 'ready';
     logger.info('All services initialized - server is ready');
+    logger.info(`🤖 Automation enabled: ${process.env.AUTOMATION_ENABLED === 'true' ? 'YES' : 'NO'}`);
+    logger.info(`⚙️  Background workers: ${workersEnabled ? 'ENABLED' : 'DISABLED'}`);
 
   } catch (error) {
     serverState.status = 'error';
     serverState.error = error.message;
     logger.error('Failed to initialize services:', error);
-    // Don't exit - let health check report the error state
-    // This allows for debugging and potential recovery
+    // Don't exit - let health check report the error state for debugging
   }
 }
 
-// Start server immediately, then initialize services
+// Start server - listen FIRST, then initialize services
 function startServer() {
   const PORT = process.env.PORT || 3000;
   const workersEnabled = process.env.BACKGROUND_WORKERS_ENABLED === 'true';
@@ -876,17 +766,14 @@ function startServer() {
     logger.info(`🌐 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
 
     // Initialize services AFTER server is listening
-    initializeServices().then(() => {
-      logger.info(`🤖 Automation enabled: ${process.env.AUTOMATION_ENABLED === 'true' ? 'YES' : 'NO'}`);
-      logger.info(`⚙️  Background workers: ${workersEnabled ? 'ENABLED' : 'DISABLED'}`);
-    });
+    initializeServices();
   });
 
   // Graceful shutdown handling
   const gracefulShutdown = (signal) => {
     logger.info(`${signal} received. Shutting down gracefully...`);
 
-    // Stop background workers
+    // Stop background workers if they were started
     if (workersEnabled && serverState.services.workers) {
       stopAllWorkers();
       logger.info('Background workers stopped');

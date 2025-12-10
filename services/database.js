@@ -5,7 +5,7 @@
  * Maintains backwards compatibility with previous Firestore API
  */
 
-import { supabaseAdmin } from './supabase.js';
+import { supabaseAdmin, isConfigured, getConfigurationError } from './supabase.js';
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -23,6 +23,13 @@ const logger = winston.createLogger({
  * but we keep this for backwards compatibility and connection testing
  */
 export async function initializeDatabase() {
+  // Check if Supabase is configured
+  if (!isConfigured()) {
+    const error = getConfigurationError();
+    logger.error('Supabase not configured:', error);
+    throw new Error(`Database not configured: ${error}`);
+  }
+
   try {
     // Test connection by querying a simple endpoint
     const { data, error } = await supabaseAdmin.from('profiles').select('count').limit(1);
