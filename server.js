@@ -60,13 +60,13 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://unpkg.com", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com"],
       scriptSrcAttr: ["'unsafe-inline'"], // Allow inline event handlers
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:", "https://www.googletagmanager.com", "https://www.google-analytics.com"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com"],
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"]
+      connectSrc: ["'self'", "https://api.stripe.com", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com"],
+      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"]
     }
   }
 }));
@@ -75,6 +75,302 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
+
+// Lemon Squeezy webhook endpoint - MUST be before express.json() to access raw body
+// This route is mounted separately to handle raw body for signature verification
+app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), async (req, res) => {
+  const crypto = await import('crypto');
+  const signature = req.headers['x-signature'];
+
+  if (!signature) {
+    console.error('Missing webhook signature');
+    return res.status(401).json({ error: 'Missing signature' });
+  }
+
+  // Verify signature
+  const hmac = crypto.createHmac('sha256', process.env.LEMON_SQUEEZY_WEBHOOK_SECRET || '');
+  const digest = hmac.update(req.body).digest('hex');
+
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest))) {
+      console.error('Invalid webhook signature');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+  } catch (e) {
+    console.error('Signature verification error:', e);
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // Parse the webhook payload
+  let payload;
+  try {
+    payload = JSON.parse(req.body.toString());
+  } catch (e) {
+    console.error('Failed to parse webhook payload:', e);
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+
+  const eventName = payload.meta?.event_name;
+  const customData = payload.meta?.custom_data || {};
+
+  console.log(`[WEBHOOK] Received Lemon Squeezy event: ${eventName}`);
+  console.log('[WEBHOOK] Custom data:', JSON.stringify(customData));
+
+  // Import database functions dynamically
+  const { createSubscription, getSubscriptionByLsId, updateUser } = await import('./services/database-wrapper.js');
+
+  // Helper to get post limit by tier
+  const getTierPostLimit = (tier) => {
+    const limits = { free: 5, starter: 10, growth: 20, professional: 30, business: 45 };
+    return limits[tier] || 5;
+  };
+
+  // Variant ID to tier mapping
+  const VARIANT_TIERS = {
+    [process.env.LEMON_SQUEEZY_49_VARIANT_ID]: 'starter',
+    [process.env.LEMON_SQUEEZY_149_VARIANT_ID]: 'growth',
+    [process.env.LEMON_SQUEEZY_399_VARIANT_ID]: 'professional',
+    [process.env.LEMON_SQUEEZY_799_VARIANT_ID]: 'business'
+  };
+
+  try {
+    switch (eventName) {
+      case 'subscription_created': {
+        const { user_id, tier } = customData;
+        const subscriptionData = payload.data.attributes;
+        const subscriptionId = payload.data.id;
+
+        if (!user_id) {
+          console.error('[WEBHOOK] No user_id in custom_data for subscription_created');
+          return res.status(200).json({ received: true, error: 'Missing user_id' });
+        }
+
+        console.log(`[WEBHOOK] Creating subscription for user ${user_id}, tier: ${tier}`);
+
+        await createSubscription({
+          userId: user_id,
+          tier: tier,
+          lsSubscriptionId: subscriptionId,
+          lsCustomerId: String(subscriptionData.customer_id),
+          lsVariantId: String(subscriptionData.variant_id),
+          lsOrderId: String(subscriptionData.order_id),
+          status: 'active',
+          currentPeriodStart: subscriptionData.created_at,
+          currentPeriodEnd: subscriptionData.renews_at
+        });
+
+        await updateUser(user_id, {
+          subscription: {
+            tier: tier,
+            status: 'active',
+            postsRemaining: getTierPostLimit(tier),
+            dailyLimit: getTierPostLimit(tier),
+            cancelAtPeriodEnd: false
+          },
+          lsCustomerId: String(subscriptionData.customer_id),
+          lsSubscriptionId: subscriptionId
+        });
+
+        console.log(`[WEBHOOK] Subscription created successfully for user ${user_id}`);
+        break;
+      }
+
+      case 'subscription_updated': {
+        const subscriptionId = payload.data.id;
+        const subscriptionData = payload.data.attributes;
+
+        console.log(`[WEBHOOK] Subscription updated: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(subscriptionId);
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        const variantId = String(subscriptionData.variant_id);
+        const newTier = VARIANT_TIERS[variantId] || subscription.tier;
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: newTier,
+            status: subscriptionData.status === 'active' ? 'active' : subscriptionData.status,
+            postsRemaining: getTierPostLimit(newTier),
+            dailyLimit: getTierPostLimit(newTier),
+            cancelAtPeriodEnd: subscriptionData.cancelled || false
+          }
+        });
+
+        console.log(`[WEBHOOK] Subscription updated for user ${subscription.userId}, tier: ${newTier}`);
+        break;
+      }
+
+      case 'subscription_cancelled': {
+        const subscriptionId = payload.data.id;
+        const subscriptionData = payload.data.attributes;
+
+        console.log(`[WEBHOOK] Subscription cancelled: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(subscriptionId);
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: subscription.tier,
+            status: 'cancelled',
+            cancelAtPeriodEnd: true,
+            endsAt: subscriptionData.ends_at
+          }
+        });
+
+        console.log(`[WEBHOOK] Subscription cancelled for user ${subscription.userId}`);
+        break;
+      }
+
+      case 'subscription_resumed': {
+        const subscriptionId = payload.data.id;
+
+        console.log(`[WEBHOOK] Subscription resumed: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(subscriptionId);
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: subscription.tier,
+            status: 'active',
+            cancelAtPeriodEnd: false,
+            endsAt: null
+          }
+        });
+
+        console.log(`[WEBHOOK] Subscription resumed for user ${subscription.userId}`);
+        break;
+      }
+
+      case 'subscription_expired': {
+        const subscriptionId = payload.data.id;
+
+        console.log(`[WEBHOOK] Subscription expired: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(subscriptionId);
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: 'free',
+            status: 'expired',
+            postsRemaining: 5,
+            dailyLimit: 5,
+            cancelAtPeriodEnd: false
+          },
+          lsSubscriptionId: null
+        });
+
+        console.log(`[WEBHOOK] Subscription expired, user ${subscription.userId} downgraded to free`);
+        break;
+      }
+
+      case 'subscription_payment_success': {
+        const subscriptionId = payload.data.attributes.subscription_id;
+
+        console.log(`[WEBHOOK] Payment successful for subscription: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(String(subscriptionId));
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: subscription.tier,
+            status: 'active',
+            postsRemaining: getTierPostLimit(subscription.tier),
+            dailyLimit: getTierPostLimit(subscription.tier)
+          }
+        });
+
+        console.log(`[WEBHOOK] Payment success - limits reset for user ${subscription.userId}`);
+        break;
+      }
+
+      case 'subscription_payment_failed': {
+        const subscriptionId = payload.data.attributes.subscription_id;
+
+        console.log(`[WEBHOOK] Payment failed for subscription: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(String(subscriptionId));
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: subscription.tier,
+            status: 'past_due'
+          }
+        });
+
+        console.log(`[WEBHOOK] Payment failed - marked past_due for user ${subscription.userId}`);
+        break;
+      }
+
+      case 'subscription_plan_changed': {
+        const subscriptionId = payload.data.id;
+        const subscriptionData = payload.data.attributes;
+
+        console.log(`[WEBHOOK] Subscription plan changed: ${subscriptionId}`);
+
+        const subscription = await getSubscriptionByLsId(subscriptionId);
+        if (!subscription) {
+          console.error(`[WEBHOOK] Subscription not found for LS ID: ${subscriptionId}`);
+          return res.status(200).json({ received: true, error: 'Subscription not found' });
+        }
+
+        // Determine new tier from variant ID
+        const variantId = String(subscriptionData.variant_id);
+        const newTier = VARIANT_TIERS[variantId] || subscription.tier;
+
+        console.log(`[WEBHOOK] Plan changed from ${subscription.tier} to ${newTier}`);
+
+        await updateUser(subscription.userId, {
+          subscription: {
+            tier: newTier,
+            status: 'active',
+            postsRemaining: getTierPostLimit(newTier),
+            dailyLimit: getTierPostLimit(newTier),
+            cancelAtPeriodEnd: false
+          }
+        });
+
+        console.log(`[WEBHOOK] Plan changed for user ${subscription.userId}, new tier: ${newTier}`);
+        break;
+      }
+
+      case 'order_created':
+        console.log(`[WEBHOOK] Order created: ${payload.data.id}`);
+        break;
+
+      default:
+        console.log(`[WEBHOOK] Unhandled event: ${eventName}`);
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    console.error(`[WEBHOOK] Error handling ${eventName}:`, error);
+    res.status(200).json({ received: true, error: error.message });
+  }
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -96,7 +392,12 @@ initializePassport();
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Apply rate limiting to all API routes
+// Health check endpoint - MUST be before rate limiter for Render health checks
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Apply rate limiting to all API routes (except health check defined above)
 app.use('/api', rateLimiter);
 
 // SEO: Serve robots.txt with correct content type
@@ -245,11 +546,6 @@ app.post('/api/demo/generate', async (req, res) => {
     console.error('Demo generation error:', error);
     res.status(500).json({ error: 'Failed to generate demo post' });
   }
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 // Test news fetching endpoint
