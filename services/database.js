@@ -225,17 +225,24 @@ export async function updateUser(userId, updates) {
 
 /**
  * Create a subscription
+ * Supports both Stripe (legacy) and Lemon Squeezy fields
  */
 export async function createSubscription(subscriptionData) {
   const subscription = {
     user_id: subscriptionData.userId,
     tier: subscriptionData.tier,
-    stripe_subscription_id: subscriptionData.stripeSubscriptionId,
-    stripe_customer_id: subscriptionData.stripeCustomerId,
-    stripe_price_id: subscriptionData.stripePriceId,
-    status: 'active',
-    current_period_start: new Date().toISOString(),
-    current_period_end: getMonthlyResetDate().toISOString()
+    // Stripe fields (legacy)
+    stripe_subscription_id: subscriptionData.stripeSubscriptionId || null,
+    stripe_customer_id: subscriptionData.stripeCustomerId || null,
+    stripe_price_id: subscriptionData.stripePriceId || null,
+    // Lemon Squeezy fields
+    ls_subscription_id: subscriptionData.lsSubscriptionId || null,
+    ls_customer_id: subscriptionData.lsCustomerId || null,
+    ls_variant_id: subscriptionData.lsVariantId || null,
+    ls_order_id: subscriptionData.lsOrderId || null,
+    status: subscriptionData.status || 'active',
+    current_period_start: subscriptionData.currentPeriodStart || new Date().toISOString(),
+    current_period_end: subscriptionData.currentPeriodEnd || getMonthlyResetDate().toISOString()
   };
 
   const { data, error } = await supabaseAdmin
@@ -279,6 +286,28 @@ export async function getSubscription(userId) {
   if (error) {
     if (error.code === 'PGRST116') return null; // Not found
     logger.error('Error getting subscription:', error);
+    throw error;
+  }
+
+  return formatSubscriptionForLegacy(data);
+}
+
+/**
+ * Get subscription by Lemon Squeezy subscription ID
+ * Used for webhook processing
+ */
+export async function getSubscriptionByLsId(lsSubscriptionId) {
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .select('*')
+    .eq('ls_subscription_id', lsSubscriptionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting subscription by LS ID:', error);
     throw error;
   }
 
@@ -657,9 +686,16 @@ function formatSubscriptionForLegacy(subscription) {
     id: subscription.id,
     userId: subscription.user_id,
     tier: subscription.tier,
+    // Stripe fields (legacy)
     stripeSubscriptionId: subscription.stripe_subscription_id,
     stripeCustomerId: subscription.stripe_customer_id,
     stripePriceId: subscription.stripe_price_id,
+    // Lemon Squeezy fields
+    lsSubscriptionId: subscription.ls_subscription_id,
+    lsCustomerId: subscription.ls_customer_id,
+    lsVariantId: subscription.ls_variant_id,
+    lsOrderId: subscription.ls_order_id,
+    // Status fields
     status: subscription.status,
     currentPeriodStart: subscription.current_period_start,
     currentPeriodEnd: subscription.current_period_end,

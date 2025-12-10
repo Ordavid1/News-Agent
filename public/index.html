@@ -55,16 +55,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="/styles/output.css">
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
     <link rel="dns-prefetch" href="https://www.googletagmanager.com">
 
-    <!-- Google Analytics (GA4) - Replace G-XNHM5CHXEB with your ID -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
+    <!-- Google Analytics (GA4) with Consent Mode -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
+      gtag('consent', 'default', {
+        'analytics_storage': 'denied',
+        'ad_storage': 'denied',
+        'wait_for_update': 500
+      });
       gtag('js', new Date());
       gtag('config', 'G-XNHM5CHXEB');
     </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
 
     <!-- Structured Data - Organization -->
     <script type="application/ld+json">
@@ -573,16 +579,17 @@
                 </div>
                 <!-- Company -->
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Company</h4>
+                    <h4 class="font-semibold mb-4 text-purple-400">Legal</h4>
                     <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="mailto:support@aipostgenerator.dev" class="hover:text-white transition">Contact Support</a></li>
+                        <li><a href="mailto:or@ailead.work" class="hover:text-white transition">Contact Support</a></li>
                         <li><a href="/privacy.html" class="hover:text-white transition">Privacy Policy</a></li>
                         <li><a href="/terms.html" class="hover:text-white transition">Terms of Service</a></li>
+                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-white transition">Cookie Settings</a></li>
                     </ul>
                 </div>
             </div>
             <div class="border-t border-purple-500/20 pt-8 text-center text-sm text-gray-500">
-                <p>&copy; 2024 News Agent. All rights reserved. | AI-Powered Social Media Automation</p>
+                <p>&copy; 2024-2025 News Agent. All rights reserved. | AI-Powered Social Media Automation</p>
                 <p class="mt-2">Made with AI for creators who want to work smarter, not harder.</p>
             </div>
         </div>
@@ -592,5 +599,6 @@
     <div id="modalContainer"></div>
 
     <script src="/js/app.js"></script>
+    <script src="/js/cookieConsent.js"></script>
 </body>
 </html>

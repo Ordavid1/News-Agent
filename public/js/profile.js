@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('token');
     const tab = urlParams.get('tab');
+    const payment = urlParams.get('payment');
 
     if (urlToken) {
         // Store token from OAuth callback
@@ -42,6 +43,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check URL params for tab navigation
     if (tab) {
         showTab(tab);
+    }
+
+    // Handle payment success/cancel
+    if (payment === 'success') {
+        showPaymentSuccessMessage();
+        // Clean up URL
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('payment');
+        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
+    } else if (payment === 'cancelled') {
+        showPaymentCancelledMessage();
+        // Clean up URL
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('payment');
+        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
     }
 });
 
@@ -403,10 +419,171 @@ async function disconnectPlatform(platform, connectionId) {
     }
 }
 
-// Select plan
-function selectPlan(plan) {
-    // Redirect to payment page with selected plan
-    window.location.href = `/payment.html?plan=${plan}`;
+// Select plan - initiates Lemon Squeezy checkout or plan change
+async function selectPlan(plan) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        window.location.href = '/auth.html';
+        return;
+    }
+
+    // Map frontend plan names to backend tier names
+    const tierMap = {
+        'basic': 'starter',
+        'starter': 'starter',
+        'pro': 'growth',
+        'growth': 'growth',
+        'professional': 'professional',
+        'enterprise': 'business',
+        'business': 'business'
+    };
+
+    const tier = tierMap[plan.toLowerCase()] || plan.toLowerCase();
+    const currentTier = currentUser?.subscription?.tier || 'free';
+
+    // Check if user already has a paid subscription (not free)
+    const hasActiveSubscription = currentTier !== 'free' &&
+                                   currentUser?.subscription?.status === 'active';
+
+    // Show loading state on the clicked button
+    const planCard = document.getElementById(`plan-card-${plan}`);
+    const button = planCard?.querySelector('button');
+    const originalText = button?.innerHTML;
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="animate-pulse">Processing...</span>';
+    }
+
+    // Check if test mode is enabled
+    try {
+        const testResponse = await fetch('/api/test/mode');
+        if (testResponse.ok) {
+            const testData = await testResponse.json();
+            if (testData.testMode) {
+                // Test mode: simulate successful payment
+                if (confirm(`Test Mode: Simulate payment for ${tier} plan?`)) {
+                    const subResponse = await fetch('/api/subscriptions/test-activate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ tier: tier })
+                    });
+
+                    if (subResponse.ok) {
+                        alert('Test payment successful!');
+                        await loadUserProfile();
+                        showPaymentSuccessMessage();
+                    } else {
+                        const error = await subResponse.json();
+                        alert('Failed to activate subscription: ' + (error.error || 'Unknown error'));
+                    }
+                }
+                // Reset button
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+                return;
+            }
+        }
+    } catch (error) {
+        console.log('Could not check test mode, proceeding with live checkout');
+    }
+
+    // If user has an active subscription, use the change-plan endpoint
+    if (hasActiveSubscription) {
+        try {
+            // Confirm the change with the user
+            const tierNames = {
+                'starter': 'Starter ($49/mo)',
+                'growth': 'Growth ($149/mo)',
+                'professional': 'Professional ($399/mo)',
+                'business': 'Business ($799/mo)'
+            };
+            const isUpgrade = getPlanIndex(tier) > getPlanIndex(currentTier);
+            const actionText = isUpgrade ? 'upgrade' : 'change';
+
+            if (!confirm(`Are you sure you want to ${actionText} to ${tierNames[tier]}?\n\nThe change will take effect at the start of your next billing cycle.`)) {
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+                return;
+            }
+
+            const response = await fetch('/api/subscriptions/change-plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ tier: tier })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                // Show success notification with effective date
+                showPlanChangeNotification(data.message, data.isUpgrade);
+                // Reload profile to show pending change
+                await loadUserProfile();
+            } else {
+                alert(data.error || 'Failed to change plan. Please try again.');
+            }
+
+            // Reset button
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+            return;
+        } catch (error) {
+            console.error('Plan change error:', error);
+            alert('An error occurred while changing your plan. Please try again.');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+            return;
+        }
+    }
+
+    // New subscription - Production checkout flow via Lemon Squeezy
+    try {
+        const response = await fetch('/api/subscriptions/create-checkout', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ tier: tier })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.checkoutUrl) {
+            // Redirect to Lemon Squeezy hosted checkout
+            window.location.href = data.checkoutUrl;
+        } else {
+            console.error('Checkout error:', data);
+            alert(data.error || 'Failed to create checkout session. Please try again.');
+            // Reset button
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+    } catch (error) {
+        console.error('Checkout error:', error);
+        alert('An error occurred during checkout. Please try again.');
+        // Reset button
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    }
 }
 
 // ============================================
@@ -1221,6 +1398,325 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// ============================================
+// Plan Helper Functions
+// ============================================
+
+// Get plan index for comparison (higher = more expensive)
+function getPlanIndex(tier) {
+    const planOrder = ['free', 'starter', 'growth', 'professional', 'business'];
+    return planOrder.indexOf(tier);
+}
+
+// Show plan change notification
+function showPlanChangeNotification(message, isUpgrade) {
+    const notification = document.createElement('div');
+    notification.id = 'planChangeNotification';
+    const colorClass = isUpgrade ? 'from-blue-500/20 to-purple-500/20 border-blue-500/50' : 'from-orange-500/20 to-yellow-500/20 border-orange-500/50';
+    const iconColor = isUpgrade ? 'text-blue-400' : 'text-orange-400';
+    const titleColor = isUpgrade ? 'text-blue-400' : 'text-orange-400';
+    const title = isUpgrade ? 'Plan Upgrade Scheduled' : 'Plan Change Scheduled';
+
+    notification.className = `fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r ${colorClass} border shadow-2xl animate-slide-in`;
+    notification.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-${isUpgrade ? 'blue' : 'orange'}-500/20 flex items-center justify-center">
+                <svg class="w-6 h-6 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-semibold ${titleColor} mb-1">${title}</h3>
+                <p class="text-gray-300 text-sm mb-3">${message}</p>
+                <button onclick="closePlanChangeNotification()" class="text-sm ${titleColor} hover:opacity-80 transition-colors">
+                    Got it
+                </button>
+            </div>
+            <button onclick="closePlanChangeNotification()" class="text-gray-500 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+        closePlanChangeNotification();
+    }, 10000);
+}
+
+function closePlanChangeNotification() {
+    const notification = document.getElementById('planChangeNotification');
+    if (notification) {
+        notification.classList.add('animate-slide-out');
+        setTimeout(() => notification.remove(), 300);
+    }
+}
+
+// ============================================
+// Payment Success/Cancel Handling
+// ============================================
+
+function showPaymentSuccessMessage() {
+    // Create and show success notification
+    const notification = document.createElement('div');
+    notification.id = 'paymentSuccessNotification';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/50 shadow-2xl animate-slide-in';
+    notification.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-semibold text-green-400 mb-1">Payment Successful!</h3>
+                <p class="text-gray-300 text-sm mb-3" id="paymentSuccessText">Your subscription has been activated. Enjoy your new features!</p>
+                <button onclick="closePaymentNotification()" class="text-sm text-green-400 hover:text-green-300 transition-colors">
+                    Dismiss
+                </button>
+            </div>
+            <button onclick="closePaymentNotification()" class="text-gray-500 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+
+    // Auto-dismiss after 15 seconds
+    setTimeout(() => {
+        closePaymentNotification();
+    }, 15000);
+
+    // Poll for subscription update (webhook may take a few seconds)
+    pollForSubscriptionUpdate();
+}
+
+// Poll for subscription update after payment
+async function pollForSubscriptionUpdate() {
+    const maxAttempts = 10;
+    const pollInterval = 2000; // 2 seconds between attempts
+    let attempts = 0;
+    const initialTier = currentUser?.subscription?.tier || 'free';
+
+    const poll = async () => {
+        attempts++;
+        const token = localStorage.getItem('token');
+
+        try {
+            const response = await fetch('/api/users/profile', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const newTier = data.user?.subscription?.tier || 'free';
+
+                // Check if subscription has been updated
+                if (newTier !== 'free' && newTier !== initialTier) {
+                    // Subscription updated! Refresh the UI
+                    currentUser = data.user;
+                    updateUI();
+
+                    // Update the success message
+                    const successText = document.getElementById('paymentSuccessText');
+                    if (successText) {
+                        successText.textContent = `Your ${newTier.charAt(0).toUpperCase() + newTier.slice(1)} plan is now active!`;
+                    }
+                    return; // Stop polling
+                }
+            }
+        } catch (error) {
+            console.error('Poll error:', error);
+        }
+
+        // Continue polling if not yet updated and haven't exceeded attempts
+        if (attempts < maxAttempts) {
+            setTimeout(poll, pollInterval);
+        } else {
+            // Final attempt - just reload the profile
+            await loadUserProfile();
+        }
+    };
+
+    // Start polling after initial delay (give webhook time to arrive)
+    setTimeout(poll, 2000);
+}
+
+function showPaymentCancelledMessage() {
+    // Create and show cancelled notification
+    const notification = document.createElement('div');
+    notification.id = 'paymentCancelledNotification';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/50 shadow-2xl animate-slide-in';
+    notification.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-semibold text-yellow-400 mb-1">Payment Cancelled</h3>
+                <p class="text-gray-300 text-sm mb-3">No worries! You can upgrade anytime when you're ready.</p>
+                <button onclick="closePaymentCancelledNotification()" class="text-sm text-yellow-400 hover:text-yellow-300 transition-colors">
+                    Dismiss
+                </button>
+            </div>
+            <button onclick="closePaymentCancelledNotification()" class="text-gray-500 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+
+    // Auto-dismiss after 8 seconds
+    setTimeout(() => {
+        closePaymentCancelledNotification();
+    }, 8000);
+}
+
+function closePaymentNotification() {
+    const notification = document.getElementById('paymentSuccessNotification');
+    if (notification) {
+        notification.classList.add('animate-slide-out');
+        setTimeout(() => notification.remove(), 300);
+    }
+}
+
+function closePaymentCancelledNotification() {
+    const notification = document.getElementById('paymentCancelledNotification');
+    if (notification) {
+        notification.classList.add('animate-slide-out');
+        setTimeout(() => notification.remove(), 300);
+    }
+}
+
+// ============================================
+// Customer Portal (Lemon Squeezy)
+// ============================================
+
+async function openCustomerPortal() {
+    const token = localStorage.getItem('token');
+
+    // Show loading state
+    const portalBtn = document.getElementById('manageBillingBtn');
+    if (portalBtn) {
+        portalBtn.disabled = true;
+        portalBtn.innerHTML = '<span class="animate-pulse">Loading...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/subscriptions/portal', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.portalUrl) {
+            // Open customer portal in new tab
+            window.open(data.portalUrl, '_blank');
+        } else {
+            alert(data.error || 'Unable to access billing portal. Please try again.');
+        }
+    } catch (error) {
+        console.error('Portal error:', error);
+        alert('Failed to open billing portal. Please try again.');
+    } finally {
+        if (portalBtn) {
+            portalBtn.disabled = false;
+            portalBtn.innerHTML = 'Manage Billing';
+        }
+    }
+}
+
+async function cancelSubscription() {
+    if (!confirm('Are you sure you want to cancel your subscription? You will retain access until the end of your current billing period.')) {
+        return;
+    }
+
+    const token = localStorage.getItem('token');
+    const cancelBtn = document.getElementById('cancelSubscriptionBtn');
+
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.innerHTML = '<span class="animate-pulse">Cancelling...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/subscriptions/cancel', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            alert(data.message || 'Your subscription has been cancelled. You will retain access until the end of your billing period.');
+            // Reload profile to update UI
+            await loadUserProfile();
+        } else {
+            alert(data.error || 'Failed to cancel subscription. Please try again.');
+        }
+    } catch (error) {
+        console.error('Cancel error:', error);
+        alert('Failed to cancel subscription. Please try again.');
+    } finally {
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = 'Cancel Subscription';
+        }
+    }
+}
+
+async function resumeSubscription() {
+    const token = localStorage.getItem('token');
+    const resumeBtn = document.getElementById('resumeSubscriptionBtn');
+
+    if (resumeBtn) {
+        resumeBtn.disabled = true;
+        resumeBtn.innerHTML = '<span class="animate-pulse">Resuming...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/subscriptions/resume', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            alert(data.message || 'Your subscription has been resumed!');
+            // Reload profile to update UI
+            await loadUserProfile();
+        } else {
+            alert(data.error || 'Failed to resume subscription. Please try again.');
+        }
+    } catch (error) {
+        console.error('Resume error:', error);
+        alert('Failed to resume subscription. Please try again.');
+    } finally {
+        if (resumeBtn) {
+            resumeBtn.disabled = false;
+            resumeBtn.innerHTML = 'Resume Subscription';
+        }
+    }
+}
+
 // Make functions globally available
 window.showTab = showTab;
 window.connectPlatform = connectPlatform;
@@ -1239,3 +1735,10 @@ window.toggleAgentStatus = toggleAgentStatus;
 window.deleteAgent = deleteAgent;
 window.testAgentPost = testAgentPost;
 window.closeAgentTestModal = closeAgentTestModal;
+// Payment/billing functions
+window.closePaymentNotification = closePaymentNotification;
+window.closePaymentCancelledNotification = closePaymentCancelledNotification;
+window.closePlanChangeNotification = closePlanChangeNotification;
+window.openCustomerPortal = openCustomerPortal;
+window.cancelSubscription = cancelSubscription;
+window.resumeSubscription = resumeSubscription;

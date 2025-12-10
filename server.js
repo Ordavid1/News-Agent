@@ -79,11 +79,17 @@ app.use(cors({
 // Lemon Squeezy webhook endpoint - MUST be before express.json() to access raw body
 // This route is mounted separately to handle raw body for signature verification
 app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), async (req, res) => {
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log('[WEBHOOK] 🔔 Lemon Squeezy webhook received!');
+  console.log('[WEBHOOK] Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('[WEBHOOK] Body length:', req.body?.length || 0, 'bytes');
+  console.log('═══════════════════════════════════════════════════════════════');
+
   const crypto = await import('crypto');
   const signature = req.headers['x-signature'];
 
   if (!signature) {
-    console.error('Missing webhook signature');
+    console.error('[WEBHOOK] ❌ Missing webhook signature');
     return res.status(401).json({ error: 'Missing signature' });
   }
 
@@ -343,13 +349,16 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
 
         console.log(`[WEBHOOK] Plan changed from ${subscription.tier} to ${newTier}`);
 
+        // Update subscription with new tier and clear any pending change
         await updateUser(subscription.userId, {
           subscription: {
             tier: newTier,
             status: 'active',
             postsRemaining: getTierPostLimit(newTier),
             dailyLimit: getTierPostLimit(newTier),
-            cancelAtPeriodEnd: false
+            cancelAtPeriodEnd: false,
+            pendingTier: null,
+            pendingChangeAt: null
           }
         });
 
@@ -374,6 +383,12 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Request logging middleware - log all API requests for debugging
+app.use('/api', (req, res, next) => {
+  console.log(`[API] ${req.method} ${req.originalUrl} - Auth: ${req.headers.authorization ? 'present' : 'missing'}`);
+  next();
+});
 
 // Session configuration
 app.use(session({
