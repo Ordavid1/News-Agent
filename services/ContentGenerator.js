@@ -160,8 +160,6 @@ Keep it concise but informative. Use HTML formatting for emphasis.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        presence_penalty: 0.1,
-        frequency_penalty: 0.1
       };
       
       let content;

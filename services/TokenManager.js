@@ -49,9 +49,21 @@ export function encryptToken(token) {
 }
 
 /**
+ * Custom error class for token decryption failures
+ */
+export class TokenDecryptionError extends Error {
+  constructor(message = 'Token decryption failed - encryption key may have changed') {
+    super(message);
+    this.name = 'TokenDecryptionError';
+    this.requiresReconnection = true;
+  }
+}
+
+/**
  * Decrypt a stored token
  * @param {string} encryptedToken - Encrypted token string
  * @returns {string} Decrypted plain text token
+ * @throws {TokenDecryptionError} When decryption fails (key mismatch, corrupted token)
  */
 export function decryptToken(encryptedToken) {
   if (!encryptedToken) return null;
@@ -60,8 +72,15 @@ export function decryptToken(encryptedToken) {
     const [ivHex, authTagHex, encrypted] = encryptedToken.split(':');
 
     if (!ivHex || !authTagHex || !encrypted) {
-      // Token might be stored unencrypted (legacy)
-      return encryptedToken;
+      // Token might be stored unencrypted (legacy) - check if it looks like a valid OAuth token
+      // OAuth tokens are typically long alphanumeric strings
+      if (encryptedToken.length > 20 && !encryptedToken.includes(':')) {
+        logger.debug('Token appears to be unencrypted (legacy format)');
+        return encryptedToken;
+      }
+      // Otherwise it's likely a corrupted encrypted token
+      logger.error('Token format invalid - missing encryption components');
+      throw new TokenDecryptionError('Invalid token format - please reconnect your account');
     }
 
     const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
@@ -76,9 +95,16 @@ export function decryptToken(encryptedToken) {
 
     return decrypted;
   } catch (error) {
-    logger.error('Error decrypting token:', error);
-    // Return original if decryption fails (might be unencrypted)
-    return encryptedToken;
+    // Check if this is already our custom error
+    if (error instanceof TokenDecryptionError) {
+      throw error;
+    }
+
+    // AES-GCM authentication failure indicates key mismatch or corrupted data
+    logger.error('Error decrypting token:', error.message);
+    throw new TokenDecryptionError(
+      'Unable to decrypt token - your connection credentials are invalid. Please reconnect your account.'
+    );
   }
 }
 
@@ -143,6 +169,7 @@ export async function storeTokens({
 
 /**
  * Get decrypted tokens for a connection
+ * @throws {TokenDecryptionError} When token decryption fails - connection needs reconnection
  */
 export async function getTokens(userId, platform) {
   const { data, error } = await supabaseAdmin
@@ -160,16 +187,36 @@ export async function getTokens(userId, platform) {
 
   if (!data) return null;
 
-  // Decrypt tokens
-  return {
-    ...data,
-    access_token: decryptToken(data.access_token),
-    refresh_token: decryptToken(data.refresh_token)
-  };
+  // Decrypt tokens - may throw TokenDecryptionError if decryption fails
+  try {
+    const decryptedAccessToken = decryptToken(data.access_token);
+    const decryptedRefreshToken = decryptToken(data.refresh_token);
+
+    return {
+      ...data,
+      access_token: decryptedAccessToken,
+      refresh_token: decryptedRefreshToken
+    };
+  } catch (decryptError) {
+    if (decryptError instanceof TokenDecryptionError) {
+      // Mark the connection as needing reconnection
+      logger.error(`Token decryption failed for ${platform} connection (user: ${userId}) - marking as error`);
+      await markConnectionError(
+        data.id,
+        'Token decryption failed - encryption key may have changed. Please reconnect your account.'
+      );
+
+      // Re-throw with connection context
+      decryptError.platform = platform;
+      decryptError.connectionId = data.id;
+    }
+    throw decryptError;
+  }
 }
 
 /**
  * Get tokens by connection ID
+ * @throws {TokenDecryptionError} When token decryption fails - connection needs reconnection
  */
 export async function getTokensByConnectionId(connectionId) {
   const { data, error } = await supabaseAdmin
@@ -185,11 +232,31 @@ export async function getTokensByConnectionId(connectionId) {
 
   if (!data) return null;
 
-  return {
-    ...data,
-    access_token: decryptToken(data.access_token),
-    refresh_token: decryptToken(data.refresh_token)
-  };
+  // Decrypt tokens - may throw TokenDecryptionError if decryption fails
+  try {
+    const decryptedAccessToken = decryptToken(data.access_token);
+    const decryptedRefreshToken = decryptToken(data.refresh_token);
+
+    return {
+      ...data,
+      access_token: decryptedAccessToken,
+      refresh_token: decryptedRefreshToken
+    };
+  } catch (decryptError) {
+    if (decryptError instanceof TokenDecryptionError) {
+      // Mark the connection as needing reconnection
+      logger.error(`Token decryption failed for connection ${connectionId} - marking as error`);
+      await markConnectionError(
+        connectionId,
+        'Token decryption failed - encryption key may have changed. Please reconnect your account.'
+      );
+
+      // Re-throw with connection context
+      decryptError.connectionId = connectionId;
+      decryptError.platform = data.platform;
+    }
+    throw decryptError;
+  }
 }
 
 /**
@@ -347,6 +414,7 @@ export async function revokeConnection(userId, platform) {
 }
 
 export default {
+  TokenDecryptionError,
   encryptToken,
   decryptToken,
   storeTokens,

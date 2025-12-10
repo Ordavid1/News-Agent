@@ -247,9 +247,11 @@ function updateConnectionsUI() {
     });
 
     // Update connection count badge
+    // Total connectable platforms: Twitter, LinkedIn, Reddit, Telegram, Instagram, TikTok, YouTube = 7
+    // (Facebook, Threads, WhatsApp are disabled/Coming Soon and not counted)
     const connectionCount = document.getElementById('connectionCount');
     if (connectionCount) {
-        connectionCount.textContent = `${connectedCount}/5`;
+        connectionCount.textContent = `${connectedCount}/7`;
         if (connectedCount > 0) {
             connectionCount.classList.remove('bg-gray-700');
             connectionCount.classList.add('bg-green-500/20', 'text-green-400');

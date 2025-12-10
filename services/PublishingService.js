@@ -7,7 +7,7 @@ import FacebookPublisher from '../publishers/FacebookPublisher.js';
 import TelegramPublisher from '../publishers/TelegramPublisher.js';
 // MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import { createPost } from './database-wrapper.js';
-import TokenManager from './TokenManager.js';
+import TokenManager, { TokenDecryptionError } from './TokenManager.js';
 import ConnectionManager from './ConnectionManager.js';
 
 const logger = winston.createLogger({
@@ -39,10 +39,12 @@ class PublishingService {
    * @param {string} userId - User ID
    * @param {string} platform - Platform name (twitter, linkedin, reddit, etc.)
    * @returns {Promise<Object>} Publisher instance
+   * @throws {Error} When connection is missing, expired, or token decryption fails
    */
   async getPublisherForUser(userId, platform) {
     try {
       // Try to get user's connection for this platform
+      // This may throw TokenDecryptionError if tokens cannot be decrypted
       const connection = await TokenManager.getTokens(userId, platform);
 
       if (connection && connection.status === 'active') {
@@ -59,12 +61,24 @@ class PublishingService {
             const refreshedConnection = await TokenManager.getTokens(userId, platform);
             return this.createPublisherWithCredentials(platform, refreshedConnection);
           } catch (refreshError) {
+            // Handle token decryption errors during refresh
+            if (refreshError instanceof TokenDecryptionError) {
+              logger.error(`Token decryption failed during refresh for ${platform}:`, refreshError.message);
+              throw new Error(`Your ${platform} connection credentials are invalid. Please disconnect and reconnect your ${platform} account in Settings.`);
+            }
             logger.error(`Failed to refresh ${platform} token:`, refreshError);
             throw new Error(`${platform} token expired and refresh failed. Please reconnect your account.`);
           }
         }
 
         return this.createPublisherWithCredentials(platform, connection);
+      }
+
+      // Check if connection exists but is in error/expired state
+      if (connection && (connection.status === 'error' || connection.status === 'expired')) {
+        logger.error(`✗ ${platform} connection for user ${userId} is ${connection.status}`);
+        logger.error(`  → Last error: ${connection.last_error || 'none'}`);
+        throw new Error(`Your ${platform} connection has ${connection.status === 'expired' ? 'expired' : 'an error'}. Please disconnect and reconnect your ${platform} account in Settings.`);
       }
 
       // No user connection - DO NOT fall back to legacy for SaaS
@@ -74,6 +88,12 @@ class PublishingService {
       throw new Error(`No ${platform} connection. Please connect your ${platform} account in Settings.`);
 
     } catch (error) {
+      // Handle token decryption errors with a clear user message
+      if (error instanceof TokenDecryptionError) {
+        logger.error(`Token decryption failed for ${platform} (user: ${userId}): ${error.message}`);
+        throw new Error(`Your ${platform} connection credentials are invalid. Please disconnect and reconnect your ${platform} account in Settings.`);
+      }
+
       logger.error(`Error getting publisher for ${platform}:`, error.message);
       // Re-throw - don't silently fall back to legacy credentials
       throw error;
