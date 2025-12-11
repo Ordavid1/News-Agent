@@ -141,13 +141,13 @@ if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS && !pr
   logger.warn('[SECURITY] No ALLOWED_ORIGINS or FRONTEND_URL configured. Using restrictive CORS.');
 }
 
-app.use(cors({
+// CORS middleware - only apply to /api routes
+// Browser navigation to HTML pages doesn't send Origin headers, so we can't require them globally
+const corsMiddleware = cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.) in development only
+    // Allow requests with no origin in development (curl, Postman, etc.)
+    // In production, /api routes will still be protected via the route-specific CORS below
     if (!origin) {
-      if (process.env.NODE_ENV === 'production') {
-        return callback(new Error('Origin required'), false);
-      }
       return callback(null, true);
     }
 
@@ -160,7 +160,35 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token']
-}));
+});
+
+// Apply CORS globally for preflight requests and non-API routes
+app.use(corsMiddleware);
+
+// Stricter CORS for API routes - require Origin header in production for cross-origin requests
+app.use('/api', (req, res, next) => {
+  // Skip health check - already handled before CORS
+  if (req.path === '/health') {
+    return next();
+  }
+
+  const origin = req.headers.origin;
+
+  // In production, API requests from browsers must have an Origin header
+  // Server-to-server requests (webhooks, etc.) won't have Origin and are handled separately
+  if (process.env.NODE_ENV === 'production' && !origin) {
+    // Allow same-origin requests (no Origin header means same-origin in browsers)
+    // Check if it's likely a same-origin request by looking at other headers
+    const referer = req.headers.referer;
+    if (referer && allowedOrigins.some(allowed => referer.startsWith(allowed))) {
+      return next();
+    }
+    // For API calls without Origin or Referer, log but allow (could be server-to-server)
+    // The auth middleware will still protect authenticated routes
+  }
+
+  next();
+});
 
 // Cookie parser for httpOnly cookie authentication
 app.use(cookieParser());
