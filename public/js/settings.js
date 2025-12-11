@@ -102,8 +102,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize keyword input handlers
     initializeKeywordHandlers();
 
-    // Initialize Reddit subreddit toggle
+    // Initialize platform-specific toggles
     initializeRedditSubredditToggle();
+    initializeTwitterPremiumToggle();
 });
 
 /**
@@ -141,6 +142,25 @@ function initializeRedditSubredditToggle() {
         subredditInput.addEventListener('blur', (e) => {
             let value = e.target.value.replace(/^r\//, '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 21);
             e.target.value = value;
+        });
+    }
+}
+
+/**
+ * Initialize Twitter Premium configuration toggle
+ * Shows/hides the Premium checkbox when Twitter checkbox is toggled
+ */
+function initializeTwitterPremiumToggle() {
+    const twitterCheckbox = document.querySelector('input[name="platforms"][value="twitter"]');
+    const premiumConfig = document.getElementById('twitterPremiumConfig');
+
+    if (twitterCheckbox && premiumConfig) {
+        // Initial state
+        premiumConfig.classList.toggle('hidden', !twitterCheckbox.checked);
+
+        // Toggle on change
+        twitterCheckbox.addEventListener('change', (e) => {
+            premiumConfig.classList.toggle('hidden', !e.target.checked);
         });
     }
 }
@@ -668,6 +688,20 @@ function populateForm(settings) {
                 subredditConfig.classList.remove('hidden');
             }
         }
+
+        // Twitter Premium
+        if (settings.platformSettings.twitter?.isPremium !== undefined) {
+            const twitterPremiumCheckbox = document.getElementById('twitterPremium');
+            if (twitterPremiumCheckbox) {
+                twitterPremiumCheckbox.checked = settings.platformSettings.twitter.isPremium;
+            }
+            // Show the premium config if Twitter is checked
+            const twitterCheckbox = document.querySelector('input[name="platforms"][value="twitter"]');
+            const premiumConfig = document.getElementById('twitterPremiumConfig');
+            if (twitterCheckbox?.checked && premiumConfig) {
+                premiumConfig.classList.remove('hidden');
+            }
+        }
     }
 }
 
@@ -709,6 +743,10 @@ async function saveAgentWithSettings() {
     const redditSubredditInput = document.getElementById('redditSubreddit');
     const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
 
+    // Get Twitter Premium setting
+    const twitterPremiumCheckbox = document.getElementById('twitterPremium');
+    const twitterIsPremium = twitterPremiumCheckbox?.checked || false;
+
     const settings = {
         topics,
         keywords: keywords,
@@ -728,6 +766,9 @@ async function saveAgentWithSettings() {
         platformSettings: {
             reddit: {
                 subreddit: redditSubreddit
+            },
+            twitter: {
+                isPremium: twitterIsPremium
             }
         }
     };
@@ -1086,6 +1127,19 @@ function populateFormWithAgentSettings(settings) {
                 subredditConfig.classList.remove('hidden');
             }
         }
+
+        // Twitter Premium
+        if (settings.platformSettings.twitter?.isPremium !== undefined) {
+            const twitterPremiumCheckbox = document.getElementById('twitterPremium');
+            if (twitterPremiumCheckbox) {
+                twitterPremiumCheckbox.checked = settings.platformSettings.twitter.isPremium;
+            }
+            // Show the premium config if Twitter is the agent's platform
+            const premiumConfig = document.getElementById('twitterPremiumConfig');
+            if (currentAgent?.platform === 'twitter' && premiumConfig) {
+                premiumConfig.classList.remove('hidden');
+            }
+        }
     }
 }
 
@@ -1107,6 +1161,10 @@ async function saveAgentSettings() {
     const redditSubredditInput = document.getElementById('redditSubreddit');
     const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
 
+    // Get Twitter Premium setting
+    const twitterPremiumCheckbox = document.getElementById('twitterPremium');
+    const twitterIsPremium = twitterPremiumCheckbox?.checked || false;
+
     const settings = {
         topics,
         keywords: keywords,
@@ -1126,6 +1184,9 @@ async function saveAgentSettings() {
         platformSettings: {
             reddit: {
                 subreddit: redditSubreddit
+            },
+            twitter: {
+                isPremium: twitterIsPremium
             }
         }
     };

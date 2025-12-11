@@ -65,11 +65,19 @@ router.post('/generate', postGenerationLimiter, postGenerateValidation, async (r
     
     // Generate content for the first platform (primary)
     const primaryPlatform = validPlatforms[0];
+
+    // Build agentSettings from request (minimal settings for this endpoint)
+    const agentSettings = {
+      contentStyle: {
+        tone: tone,
+        includeHashtags: true
+      }
+    };
+
     const generatedContent = await contentGenerator.generateContent(
       trendData,
       primaryPlatform,
-      tone,
-      userId
+      agentSettings
     );
     
     if (!generatedContent) {
@@ -353,11 +361,22 @@ router.post('/test', async (req, res) => {
     console.log(`[Test Post]   → Article: ${trendData.title}`);
     console.log(`[Test Post]   → Platform: ${targetPlatforms[0]}`);
 
+    // Build agentSettings from user's saved settings
+    const agentSettings = {
+      topics: topics,
+      keywords: keywords,
+      geoFilter: geoFilter,
+      contentStyle: {
+        tone: tone,
+        includeHashtags: true
+      },
+      platformSettings: user.settings?.platformSettings || {}
+    };
+
     const generatedContent = await contentGenerator.generateContent(
       trendData,
       targetPlatforms[0], // Primary platform for formatting
-      tone,
-      userId
+      agentSettings
     );
 
     if (!generatedContent || !generatedContent.text) {

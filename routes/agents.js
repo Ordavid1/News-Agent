@@ -510,11 +510,22 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     // Step 2: Generate content
     console.log(`[Agent Test] Generating content for ${platform} with tone: ${tone}`);
 
+    // Build agentSettings from agent's saved settings
+    const agentSettings = {
+      topics: topics,
+      keywords: keywords,
+      geoFilter: geoFilter,
+      contentStyle: {
+        tone: tone,
+        includeHashtags: settings.contentStyle?.includeHashtags ?? true
+      },
+      platformSettings: platformSettings
+    };
+
     const generatedContent = await contentGenerator.generateContent(
       trendData,
       platform,
-      tone,
-      userId
+      agentSettings
     );
 
     if (!generatedContent || !generatedContent.text) {

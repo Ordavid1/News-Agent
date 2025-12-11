@@ -1,9 +1,17 @@
 // services/ContentGenerator.js
 import OpenAI from 'openai';
 import winston from 'winston';
-import { getSystemPrompt, getUserPrompt, getOpenAIConfig } from '../public/components/socialMediaPrompts.mjs';
+
+// Import platform-specific prompts
 import { getLinkedInSystemPrompt, getLinkedInUserPrompt } from '../public/components/linkedInPrompts.mjs';
 import { getGeneralLinkedInSystemPrompt, getGeneralLinkedInUserPrompt } from '../public/components/generalLinkedInPrompts.mjs';
+import { getTwitterStandardSystemPrompt, getTwitterStandardUserPrompt, getTwitterPremiumSystemPrompt, getTwitterPremiumUserPrompt } from '../public/components/twitterPrompts.mjs';
+import { getFacebookSystemPrompt, getFacebookUserPrompt } from '../public/components/facebookPrompts.mjs';
+import { getRedditSystemPrompt, getRedditUserPrompt } from '../public/components/redditPrompts.mjs';
+import { getTelegramSystemPrompt, getTelegramUserPrompt } from '../public/components/telegramPrompts.mjs';
+
+// Legacy import for fallback
+import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -36,76 +44,72 @@ class ContentGenerator {
     };
   }
 
-  async generateContent(trend, platform, tone = 'professional', userId = null) {
+  /**
+   * Generate content for a specific platform
+   * @param {Object} trend - The article/trend to create content about
+   * @param {string} platform - Target platform (twitter, linkedin, facebook, reddit, telegram, instagram)
+   * @param {Object} agentSettings - User's agent settings (topics, keywords, tone, platformSettings)
+   * @returns {Object} Generated content with text, platform, trend, source, generatedAt
+   */
+  async generateContent(trend, platform, agentSettings = {}) {
     try {
       logger.info(`Generating ${platform} content for trend: ${trend.title}`);
       logger.debug(`Article details - URL: ${trend.url}, Source: ${trend.source}, Published: ${trend.publishedAt}`);
-      
+
+      // Build article object for prompts
+      const article = {
+        title: trend.title,
+        description: trend.description || trend.summary || '',
+        summary: trend.summary || trend.description || '',
+        url: trend.url,
+        publishedAt: trend.publishedAt,
+        source: trend.source
+      };
+
       let systemPrompt, userPrompt;
-      
-      // Use news format for Twitter and other platforms
+
+      // Platform-specific prompt selection with agentSettings
       if (platform === 'twitter') {
-        // Use Twitter-specific news format with strict character limit
-        systemPrompt = `You are a breaking news Twitter account. Create concise news updates that MUST be under 280 characters total.
-        
-Format:
-🚨 [Main news point - 1 sentence]
-🔗 [URL]
-#[Topic] #[Company] #[Location]
+        // Check if user has Twitter Premium
+        const isPremium = agentSettings?.platformSettings?.twitter?.isPremium || false;
 
-CRITICAL: Total length including emojis, spaces, URL, and hashtags MUST be under 280 characters.`;
+        if (isPremium) {
+          systemPrompt = getTwitterPremiumSystemPrompt(agentSettings);
+          userPrompt = getTwitterPremiumUserPrompt(article, agentSettings);
+          logger.info('Using Twitter Premium prompts (4000 chars)');
+        } else {
+          systemPrompt = getTwitterStandardSystemPrompt(agentSettings);
+          userPrompt = getTwitterStandardUserPrompt(article, agentSettings);
+          logger.info('Using Twitter Standard prompts (280 chars)');
+        }
 
-        // Simple prompt for Twitter
-        userPrompt = `Create a Twitter news update about:
-Title: ${trend.title}
-Description: ${trend.description || trend.summary || ''}
-URL: ${trend.url}
-Source: ${trend.source}
-Published: ${new Date(trend.publishedAt || new Date()).toLocaleString()}
+      } else if (platform === 'linkedin') {
+        // Use LinkedIn prompts with agentSettings
+        systemPrompt = getLinkedInSystemPrompt(agentSettings);
+        userPrompt = getLinkedInUserPrompt(article, agentSettings);
 
-Focus on the actual news content. Extract hashtags from the article content - use actual names, companies, technologies mentioned.
-Remember: TOTAL length must be under 280 characters including everything.`;
+      } else if (platform === 'facebook') {
+        // Use Facebook-specific prompts
+        systemPrompt = getFacebookSystemPrompt(agentSettings);
+        userPrompt = getFacebookUserPrompt(article, agentSettings);
+
+      } else if (platform === 'reddit') {
+        // Use Reddit-specific prompts (community-appropriate, no emojis)
+        systemPrompt = getRedditSystemPrompt(agentSettings);
+        userPrompt = getRedditUserPrompt(article, agentSettings);
+
       } else if (platform === 'telegram') {
-        // Telegram channel format - news-focused, supports HTML formatting
-        systemPrompt = `You are a professional news correspondent for a Telegram channel. Create engaging news updates optimized for Telegram's format.
+        // Use Telegram-specific prompts (HTML formatting)
+        systemPrompt = getTelegramSystemPrompt(agentSettings);
+        userPrompt = getTelegramUserPrompt(article, agentSettings);
 
-Format your posts using Telegram's supported HTML:
-- <b>bold</b> for emphasis
-- <i>italic</i> for quotes or emphasis
-- Use line breaks for readability
-
-Your style should be:
-- Concise but informative (300-500 characters ideal)
-- News-focused with key facts
-- Include relevant emojis for visual appeal
-- End with hashtags for discoverability`;
-
-        userPrompt = `Create a Telegram channel post about this news:
-
-Title: ${trend.title}
-Summary: ${trend.description || trend.summary || ''}
-Source: ${trend.source || 'News'}
-URL: ${trend.url || ''}
-Published: ${new Date(trend.publishedAt || new Date()).toLocaleString()}
-
-Format:
-📰 <b>[Headline]</b>
-
-[Key points in 2-3 short paragraphs]
-
-🔗 Read more: [URL if available]
-
-#Hashtag1 #Hashtag2 #Hashtag3
-
-Keep it concise but informative. Use HTML formatting for emphasis.`;
-      } else if (platform === 'facebook' || platform === 'instagram') {
-        // Use the general news correspondent format from socialMediaPrompts
+      } else if (platform === 'instagram') {
+        // Instagram - use legacy socialMediaPrompts as fallback for now
         systemPrompt = getSystemPrompt(false); // English version
-        
+
         // Extract keywords from the trend
         const keywords = [];
         if (trend.title) {
-          // Extract company names, tech terms, etc.
           const words = trend.title.split(' ');
           words.forEach(word => {
             if (word.length > 4 && /[A-Z]/.test(word[0])) {
@@ -113,7 +117,7 @@ Keep it concise but informative. Use HTML formatting for emphasis.`;
             }
           });
         }
-        
+
         userPrompt = getUserPrompt(keywords, {
           title: trend.title,
           description: trend.description || trend.summary,
@@ -121,37 +125,10 @@ Keep it concise but informative. Use HTML formatting for emphasis.`;
           url: trend.url,
           source: { name: trend.source }
         });
-      } else if (platform === 'linkedin') {
-        // Check if this is an AI-related topic
-        const isAITopic = trend.topic && ['ai', 'genai', 'artificial-intelligence', 'generative-ai'].includes(trend.topic.toLowerCase());
-        
-        if (isAITopic) {
-          // Use AI-specific LinkedIn prompts
-          systemPrompt = getLinkedInSystemPrompt();
-          userPrompt = getLinkedInUserPrompt({
-            title: trend.title,
-            description: trend.description || trend.summary,
-            url: trend.url,
-            publishedAt: trend.publishedAt
-          });
-        } else {
-          // Use general LinkedIn prompts for all other topics
-          systemPrompt = getGeneralLinkedInSystemPrompt();
-          userPrompt = getGeneralLinkedInUserPrompt({
-            title: trend.title,
-            description: trend.description || trend.summary,
-            url: trend.url,
-            publishedAt: trend.publishedAt
-          });
-        }
+
       } else {
-        // Use original prompt generators for LinkedIn and Reddit
-        const promptGenerator = this.platformPrompts[platform];
-        if (!promptGenerator) {
-          throw new Error(`Unsupported platform: ${platform}`);
-        }
-        systemPrompt = this.getSystemPromptForPlatform(platform, tone);
-        userPrompt = promptGenerator.call(this, trend, tone);
+        // Fallback for unsupported platforms
+        throw new Error(`Unsupported platform: ${platform}`);
       }
       
       const config = {
@@ -373,13 +350,20 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
     return mockTemplates[platform] || mockTemplates.twitter;
   }
 
-  async generateBulkContent(trends, platforms, tone = 'professional', userId = null) {
+  /**
+   * Generate content for multiple trends and platforms
+   * @param {Array} trends - Array of trends/articles
+   * @param {Array} platforms - Array of platform names
+   * @param {Object} agentSettings - User's agent settings
+   * @returns {Array} Results array with success/failure for each
+   */
+  async generateBulkContent(trends, platforms, agentSettings = {}) {
     const results = [];
-    
+
     for (const trend of trends) {
       for (const platform of platforms) {
         try {
-          const content = await this.generateContent(trend, platform, tone, userId);
+          const content = await this.generateContent(trend, platform, agentSettings);
           results.push({
             success: true,
             content,
@@ -397,7 +381,7 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
         }
       }
     }
-    
+
     return results;
   }
 }
