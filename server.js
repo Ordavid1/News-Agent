@@ -1,5 +1,11 @@
 // server.js
+console.log('[STARTUP] Beginning server initialization...');
+console.log('[STARTUP] Node version:', process.version);
+console.log('[STARTUP] PORT:', process.env.PORT || '3000 (default)');
+
 import express from 'express';
+console.log('[STARTUP] Express loaded');
+
 import helmet from 'helmet';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -8,13 +14,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import session from 'express-session';
 import cookieParser from 'cookie-parser';
+console.log('[STARTUP] Core modules loaded');
+
 import passport from './config/passport.js';
 import { initializePassport } from './config/passport-init.js';
+console.log('[STARTUP] Passport loaded');
 
 // Load environment variables first
 dotenv.config();
+console.log('[STARTUP] Environment variables loaded');
 
 // Import routes
+console.log('[STARTUP] Loading routes...');
 import authRoutes from './routes/auth.js';
 import subscriptionRoutes from './routes/subscriptions.js';
 import postsRoutes from './routes/posts.js';
@@ -24,19 +35,25 @@ import automationRoutes from './routes/automation.js';
 import testRoutes from './routes/test.js';
 import connectionsRoutes from './routes/connections.js';
 import agentsRoutes from './routes/agents.js';
+console.log('[STARTUP] Routes loaded');
 
 // Import middleware
+console.log('[STARTUP] Loading middleware...');
 import { authenticateToken } from './middleware/auth.js';
 import { rateLimiter, demoLimiter } from './middleware/rateLimiter.js';
 import { checkSubscriptionLimits } from './middleware/subscription.js';
 import { csrfTokenSetter, csrfProtection, getCsrfToken } from './middleware/csrf.js';
+console.log('[STARTUP] Middleware loaded');
 
 // Import services
+console.log('[STARTUP] Loading services...');
 import { initializeDatabase, getDb } from './services/database.js';
 import AutomationManager from './services/AutomationManager.js';
 import { startAllWorkers, stopAllWorkers, getWorkersStatus } from './workers/index.js';
+console.log('[STARTUP] Services loaded');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+console.log('[STARTUP] All imports complete, configuring app...');
 
 // Server startup state tracking for health checks
 const serverState = {
