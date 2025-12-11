@@ -188,6 +188,9 @@ function updateProfileUI() {
         }
     }
 
+    // Update subscription management actions visibility
+    updateSubscriptionActions(tier, currentUser.subscription);
+
     // Update dashboard stats
     const postsLeftToday = document.getElementById('postsLeftToday');
     if (postsLeftToday) {
@@ -1551,14 +1554,18 @@ function showPaymentSuccessMessage() {
 
 // Poll for subscription update after payment
 async function pollForSubscriptionUpdate() {
-    const maxAttempts = 10;
+    const maxAttempts = 15; // Increased to allow more time for webhook
     const pollInterval = 2000; // 2 seconds between attempts
     let attempts = 0;
     const initialTier = currentUser?.subscription?.tier || 'free';
 
+    console.log('[Payment] Starting subscription polling, initial tier:', initialTier);
+
     const poll = async () => {
         attempts++;
         const token = localStorage.getItem('token');
+
+        console.log(`[Payment] Poll attempt ${attempts}/${maxAttempts}`);
 
         try {
             const response = await fetch('/api/users/profile', {
@@ -1568,12 +1575,21 @@ async function pollForSubscriptionUpdate() {
             if (response.ok) {
                 const data = await response.json();
                 const newTier = data.user?.subscription?.tier || 'free';
+                const newStatus = data.user?.subscription?.status;
 
-                // Check if subscription has been updated
-                if (newTier !== 'free' && newTier !== initialTier) {
+                console.log(`[Payment] Polled tier: ${newTier}, status: ${newStatus}`);
+
+                // Check if subscription has been updated to a paid tier
+                // For new users: initialTier is 'free', we're looking for any paid tier
+                // For upgrades: initialTier is paid, we're looking for a different tier
+                const hasPaidSubscription = newTier !== 'free' && (newStatus === 'active' || !newStatus);
+                const tierChanged = newTier !== initialTier;
+
+                if (hasPaidSubscription && tierChanged) {
+                    console.log(`[Payment] Subscription updated! ${initialTier} -> ${newTier}`);
                     // Subscription updated! Refresh the UI
                     currentUser = data.user;
-                    updateUI();
+                    updateProfileUI();
 
                     // Update the success message
                     const successText = document.getElementById('paymentSuccessText');
@@ -1584,14 +1600,15 @@ async function pollForSubscriptionUpdate() {
                 }
             }
         } catch (error) {
-            console.error('Poll error:', error);
+            console.error('[Payment] Poll error:', error);
         }
 
         // Continue polling if not yet updated and haven't exceeded attempts
         if (attempts < maxAttempts) {
             setTimeout(poll, pollInterval);
         } else {
-            // Final attempt - just reload the profile
+            console.log('[Payment] Max poll attempts reached, forcing profile reload');
+            // Final attempt - just reload the profile anyway
             await loadUserProfile();
         }
     };
@@ -1647,6 +1664,106 @@ function closePaymentCancelledNotification() {
     if (notification) {
         notification.classList.add('animate-slide-out');
         setTimeout(() => notification.remove(), 300);
+    }
+}
+
+// ============================================
+// Subscription Management UI
+// ============================================
+
+function updateSubscriptionActions(tier, subscription) {
+    const actionsContainer = document.getElementById('subscriptionActions');
+    const cancelBtn = document.getElementById('cancelSubscriptionBtn');
+    const resumeBtn = document.getElementById('resumeSubscriptionBtn');
+    const downgradeBtn = document.getElementById('downgradeToFreeBtn');
+    const endDateEl = document.getElementById('subscriptionEndDate');
+
+    if (!actionsContainer) return;
+
+    const isPaidUser = tier !== 'free';
+
+    if (isPaidUser) {
+        // Show subscription management actions for paid users
+        actionsContainer.classList.remove('hidden');
+
+        const isCancelled = subscription?.cancelAtPeriodEnd || subscription?.status === 'cancelled';
+
+        if (isCancelled) {
+            // Subscription is cancelled - show resume button, hide cancel/downgrade
+            cancelBtn?.classList.add('hidden');
+            downgradeBtn?.classList.add('hidden');
+            resumeBtn?.classList.remove('hidden');
+
+            // Show end date if available
+            if (subscription?.endsAt && endDateEl) {
+                const endDate = new Date(subscription.endsAt).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+                endDateEl.textContent = `Your subscription will end on ${endDate}. You can resume anytime before then.`;
+                endDateEl.classList.remove('hidden');
+            }
+        } else {
+            // Active subscription - show cancel and downgrade buttons
+            cancelBtn?.classList.remove('hidden');
+            downgradeBtn?.classList.remove('hidden');
+            resumeBtn?.classList.add('hidden');
+            endDateEl?.classList.add('hidden');
+        }
+    } else {
+        // Free user - hide subscription management actions
+        actionsContainer.classList.add('hidden');
+    }
+}
+
+async function downgradeToFree() {
+    const confirmed = confirm(
+        'Are you sure you want to downgrade to the Free plan?\n\n' +
+        'This will:\n' +
+        '- Cancel your current subscription immediately\n' +
+        '- Change your plan to Free (1 post per week)\n' +
+        '- You will lose access to paid features\n\n' +
+        'This action cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    const token = localStorage.getItem('token');
+    const downgradeBtn = document.getElementById('downgradeToFreeBtn');
+
+    if (downgradeBtn) {
+        downgradeBtn.disabled = true;
+        downgradeBtn.innerHTML = '<span class="animate-pulse">Downgrading...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/subscriptions/downgrade-to-free', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            alert(data.message || 'Successfully downgraded to Free plan.');
+            // Reload profile to update UI
+            await loadUserProfile();
+        } else {
+            alert(data.error || 'Failed to downgrade. Please try again.');
+        }
+    } catch (error) {
+        console.error('Downgrade error:', error);
+        alert('Failed to downgrade. Please try again.');
+    } finally {
+        if (downgradeBtn) {
+            downgradeBtn.disabled = false;
+            downgradeBtn.innerHTML = 'Downgrade to Free';
+        }
     }
 }
 
@@ -1797,3 +1914,4 @@ window.closePlanChangeNotification = closePlanChangeNotification;
 window.openCustomerPortal = openCustomerPortal;
 window.cancelSubscription = cancelSubscription;
 window.resumeSubscription = resumeSubscription;
+window.downgradeToFree = downgradeToFree;

@@ -86,6 +86,12 @@ const logger = winston.createLogger({
 // Initialize Express app
 const app = express();
 
+// Trust proxy - required for Render/Heroku/etc. which use reverse proxies
+// This enables correct client IP detection for rate limiting and logging
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // CRITICAL: Health check endpoint MUST be BEFORE any middleware that requires Origin header
 // Render's internal health checker doesn't send Origin headers
 app.get('/api/health', (req, res) => {
@@ -204,10 +210,12 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   const crypto = await import('crypto');
   const signature = req.headers['x-signature'];
 
-  // SECURITY: Validate webhook secret is configured and strong enough
+  // SECURITY: Validate webhook secret is configured
+  // Note: Lemon Squeezy generates secrets that may be shorter than 32 chars
   const webhookSecret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
-  if (!webhookSecret || webhookSecret.length < 32) {
-    console.error('[WEBHOOK] Webhook secret not configured or too weak');
+  if (!webhookSecret || webhookSecret.length < 16) {
+    console.error('[WEBHOOK] Webhook secret not configured or too short (min 16 chars)');
+    console.error('[WEBHOOK] Secret length:', webhookSecret ? webhookSecret.length : 0);
     return res.status(503).json({ error: 'Webhook not configured' });
   }
 

@@ -417,6 +417,83 @@ router.post('/resume', async (req, res) => {
   }
 });
 
+// Downgrade to free tier (cancel subscription and switch to free immediately)
+router.post('/downgrade-to-free', async (req, res) => {
+  console.log('[DOWNGRADE] POST /downgrade-to-free - User:', req.user?.id);
+  try {
+    const subscription = await getSubscription(req.user.id);
+    console.log('[DOWNGRADE] Current tier:', subscription?.tier || 'none');
+
+    // Check if user is already on free tier
+    if (!subscription || subscription.tier === 'free') {
+      return res.status(400).json({ error: 'You are already on the Free plan' });
+    }
+
+    // If user has an active Lemon Squeezy subscription, cancel it first
+    if (subscription.lsSubscriptionId) {
+      console.log('[DOWNGRADE] Cancelling Lemon Squeezy subscription:', subscription.lsSubscriptionId);
+
+      try {
+        const response = await fetch(
+          `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Accept': 'application/vnd.api+json',
+              'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+            }
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('[DOWNGRADE] Lemon Squeezy cancel error:', errorData);
+          // Continue anyway - we'll still downgrade locally
+        } else {
+          console.log('[DOWNGRADE] Lemon Squeezy subscription cancelled successfully');
+        }
+      } catch (lsError) {
+        console.error('[DOWNGRADE] Error cancelling Lemon Squeezy subscription:', lsError);
+        // Continue anyway - we'll still downgrade locally
+      }
+    }
+
+    // Calculate weekly reset date for free tier
+    const now = new Date();
+    const resetDate = new Date(now);
+    resetDate.setDate(resetDate.getDate() + 7);
+    resetDate.setHours(0, 0, 0, 0);
+
+    // Update user to free tier immediately
+    await updateUser(req.user.id, {
+      subscription: {
+        tier: 'free',
+        status: 'active',
+        postsRemaining: 1,
+        dailyLimit: 1,
+        resetDate: resetDate,
+        cancelAtPeriodEnd: false,
+        endsAt: null,
+        pendingTier: null,
+        pendingChangeAt: null
+      },
+      lsSubscriptionId: null
+    });
+
+    console.log(`[DOWNGRADE] User ${req.user.id} downgraded to free tier successfully`);
+
+    res.json({
+      success: true,
+      message: 'Successfully downgraded to Free plan. You now have 1 post per week.',
+      newTier: 'free'
+    });
+
+  } catch (error) {
+    console.error('[DOWNGRADE] Error:', error);
+    res.status(500).json({ error: 'Failed to downgrade subscription' });
+  }
+});
+
 // ============================================
 // WEBHOOK HANDLER
 // ============================================
