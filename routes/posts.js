@@ -397,7 +397,9 @@ router.post('/test', async (req, res) => {
             result = await publishToLinkedIn(content, userId);
             break;
           case 'reddit':
-            result = await publishToReddit(content, 'news', userId);
+            // Use subreddit from user settings if available, otherwise auto-select
+            const userRedditSubreddit = user.settings?.platformSettings?.reddit?.subreddit || null;
+            result = await publishToReddit(content, userRedditSubreddit, userId);
             break;
           case 'facebook':
             result = await publishToFacebook(content, userId);

@@ -101,7 +101,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize keyword input handlers
     initializeKeywordHandlers();
+
+    // Initialize Reddit subreddit toggle
+    initializeRedditSubredditToggle();
 });
+
+/**
+ * Initialize Reddit subreddit configuration toggle
+ * Shows/hides the subreddit input when Reddit checkbox is toggled
+ */
+function initializeRedditSubredditToggle() {
+    const redditCheckbox = document.querySelector('input[name="platforms"][value="reddit"]');
+    const subredditConfig = document.getElementById('redditSubredditConfig');
+    const subredditInput = document.getElementById('redditSubreddit');
+
+    if (redditCheckbox && subredditConfig) {
+        // Initial state
+        subredditConfig.classList.toggle('hidden', !redditCheckbox.checked);
+
+        // Toggle on change
+        redditCheckbox.addEventListener('change', (e) => {
+            subredditConfig.classList.toggle('hidden', !e.target.checked);
+        });
+    }
+
+    // Validate and sanitize subreddit input
+    if (subredditInput) {
+        subredditInput.addEventListener('input', (e) => {
+            // Remove r/ prefix if user types it
+            let value = e.target.value.replace(/^r\//, '');
+            // Remove spaces and special characters (only allow alphanumeric and underscore)
+            value = value.replace(/[^a-zA-Z0-9_]/g, '');
+            // Limit to 21 characters (Reddit's max subreddit name length)
+            value = value.slice(0, 21);
+            e.target.value = value;
+        });
+
+        // Also sanitize on blur (paste handling)
+        subredditInput.addEventListener('blur', (e) => {
+            let value = e.target.value.replace(/^r\//, '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 21);
+            e.target.value = value;
+        });
+    }
+}
 
 /**
  * Initialize keyword input event handlers
@@ -610,6 +652,23 @@ function populateForm(settings) {
             }
         });
     }
+
+    // Platform-specific settings
+    if (settings.platformSettings) {
+        // Reddit subreddit
+        if (settings.platformSettings.reddit?.subreddit) {
+            const redditSubredditInput = document.getElementById('redditSubreddit');
+            if (redditSubredditInput) {
+                redditSubredditInput.value = settings.platformSettings.reddit.subreddit;
+            }
+            // Show the subreddit config if Reddit is checked
+            const redditCheckbox = document.querySelector('input[name="platforms"][value="reddit"]');
+            const subredditConfig = document.getElementById('redditSubredditConfig');
+            if (redditCheckbox?.checked && subredditConfig) {
+                subredditConfig.classList.remove('hidden');
+            }
+        }
+    }
 }
 
 /**
@@ -646,6 +705,10 @@ async function saveAgentWithSettings() {
     const geoRegionSelect = document.querySelector('select[name="geoRegion"]');
     const includeGlobalNewsCheckbox = document.querySelector('input[name="includeGlobalNews"]');
 
+    // Get Reddit subreddit if specified
+    const redditSubredditInput = document.getElementById('redditSubreddit');
+    const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
+
     const settings = {
         topics,
         keywords: keywords,
@@ -661,6 +724,11 @@ async function saveAgentWithSettings() {
         contentStyle: {
             tone: document.querySelector('select[name="tone"]')?.value || 'professional',
             includeHashtags: document.querySelector('input[name="includeHashtags"]')?.checked ?? true
+        },
+        platformSettings: {
+            reddit: {
+                subreddit: redditSubreddit
+            }
         }
     };
 
@@ -1003,6 +1071,22 @@ function populateFormWithAgentSettings(settings) {
             includeHashtags.checked = settings.contentStyle.includeHashtags;
         }
     }
+
+    // Platform-specific settings
+    if (settings.platformSettings) {
+        // Reddit subreddit
+        if (settings.platformSettings.reddit?.subreddit) {
+            const redditSubredditInput = document.getElementById('redditSubreddit');
+            if (redditSubredditInput) {
+                redditSubredditInput.value = settings.platformSettings.reddit.subreddit;
+            }
+            // Show the subreddit config if Reddit is the agent's platform
+            const subredditConfig = document.getElementById('redditSubredditConfig');
+            if (currentAgent?.platform === 'reddit' && subredditConfig) {
+                subredditConfig.classList.remove('hidden');
+            }
+        }
+    }
 }
 
 /**
@@ -1019,6 +1103,10 @@ async function saveAgentSettings() {
     const geoRegionSelect = document.querySelector('select[name="geoRegion"]');
     const includeGlobalNewsCheckbox = document.querySelector('input[name="includeGlobalNews"]');
 
+    // Get Reddit subreddit if specified
+    const redditSubredditInput = document.getElementById('redditSubreddit');
+    const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
+
     const settings = {
         topics,
         keywords: keywords,
@@ -1034,6 +1122,11 @@ async function saveAgentSettings() {
         contentStyle: {
             tone: document.querySelector('select[name="tone"]').value || 'professional',
             includeHashtags: document.querySelector('input[name="includeHashtags"]').checked
+        },
+        platformSettings: {
+            reddit: {
+                subreddit: redditSubreddit
+            }
         }
     };
 

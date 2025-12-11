@@ -264,8 +264,10 @@ class PublishingService {
         throw new Error('Reddit publisher not available');
       }
 
-      // Use the publisher's publishPost method (not submitPost)
-      const result = await publisher.publishPost(content.text);
+      // Use the publisher's publishPost method with subreddit parameter
+      // Priority: explicit subreddit param > content.subreddit > auto-select
+      const targetSubreddit = subreddit || content.subreddit || null;
+      const result = await publisher.publishPost(content.text, null, targetSubreddit);
 
       if (result.success) {
         // Save to database

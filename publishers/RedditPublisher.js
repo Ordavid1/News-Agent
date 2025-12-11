@@ -129,13 +129,20 @@ class RedditPublisher {
     }
   }
 
-  async publishPost(content, mediaUrl = null) {
+  /**
+   * Publish a post to Reddit
+   * @param {string} content - The content to post
+   * @param {string|null} mediaUrl - Optional media URL (not used for text posts)
+   * @param {string|null} targetSubreddit - Override subreddit to post to
+   * @returns {Promise<Object>} Result object with success status
+   */
+  async publishPost(content, mediaUrl = null, targetSubreddit = null) {
     try {
       const token = await this.getAccessToken();
-      
-      // Determine best subreddit based on content
-      const targetSubreddit = this.subreddit || this.selectBestSubreddit(content);
-      
+
+      // Determine target subreddit: parameter > instance config > auto-select
+      const subredditToUse = targetSubreddit || this.subreddit || this.selectBestSubreddit(content);
+
       // Format content for Reddit news posting
       const formattedContent = this.formatForRedditNews(content);
       
@@ -146,7 +153,7 @@ class RedditPublisher {
       const submitUrl = 'https://oauth.reddit.com/api/submit';
       
       const postData = {
-        sr: targetSubreddit,
+        sr: subredditToUse,
         kind: 'self', // Text post
         title: title,
         text: formattedContent,
@@ -155,8 +162,8 @@ class RedditPublisher {
         nsfw: false,
         spoiler: false
       };
-      
-      logger.info(`Posting to r/${targetSubreddit} with title: ${title}`);
+
+      logger.info(`Posting to r/${subredditToUse} with title: ${title}`);
       
       const response = await axios.post(submitUrl, new URLSearchParams(postData), {
         headers: {
@@ -170,17 +177,18 @@ class RedditPublisher {
         const errors = response.data.json.errors.map(e => e[1]).join(', ');
         throw new Error(`Reddit API errors: ${errors}`);
       }
-      
+
       const postId = response.data.json?.data?.id;
-      const postUrl = `https://reddit.com/r/${this.subreddit}/comments/${postId}`;
-      
+      const postUrl = `https://reddit.com/r/${subredditToUse}/comments/${postId}`;
+
       logger.info(`Successfully published to Reddit: ${postUrl}`);
-      
+
       return {
         success: true,
         platform: 'reddit',
         postId: postId,
-        url: postUrl
+        url: postUrl,
+        subreddit: subredditToUse
       };
       
     } catch (error) {

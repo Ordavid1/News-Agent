@@ -465,8 +465,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const geoFilter = settings.geoFilter || {};
     const tone = settings.contentStyle?.tone || 'professional';
     const platform = agent.platform;
+    const platformSettings = settings.platformSettings || {};
 
-    console.log(`[Agent Test] Agent settings:`, { topics, keywords, geoFilter, tone, platform });
+    console.log(`[Agent Test] Agent settings:`, { topics, keywords, geoFilter, tone, platform, platformSettings });
 
     // Step 1: Fetch trends using agent's settings
     const selectedTopic = topics[Math.floor(Math.random() * topics.length)] || 'technology';
@@ -545,7 +546,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           publishResult = await publishToLinkedIn(content, userId);
           break;
         case 'reddit':
-          publishResult = await publishToReddit(content, 'news', userId);
+          // Use subreddit from agent settings, or fallback to auto-select
+          const redditSubreddit = platformSettings.reddit?.subreddit || null;
+          publishResult = await publishToReddit(content, redditSubreddit, userId);
           break;
         case 'facebook':
           publishResult = await publishToFacebook(content, userId);
