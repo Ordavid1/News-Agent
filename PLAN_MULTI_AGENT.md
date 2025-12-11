@@ -279,9 +279,9 @@ async function migrateUserToAgents(userId) {
 
 Update plan cards to show agent limits:
 
-| Tier | Posts/Day | Agents | Platforms |
-|------|-----------|--------|-----------|
-| Free | 5 | 1 | Twitter only |
+| Tier | Posts | Agents | Platforms |
+|------|-------|--------|-----------|
+| Free | 1/week | 1 | Twitter only |
 | Starter | 10 | 2 | Twitter, LinkedIn |
 | Growth | 30 | 5 | All platforms |
 | Professional | Unlimited | 10 | All platforms |

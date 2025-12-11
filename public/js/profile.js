@@ -175,8 +175,8 @@ function updateProfileUI() {
     }
 
     if (postsRemaining) {
-        const remaining = currentUser.subscription?.postsRemaining ?? 5;
-        const limit = currentUser.subscription?.dailyLimit ?? 5;
+        const remaining = currentUser.subscription?.postsRemaining ?? 1;
+        const limit = currentUser.subscription?.dailyLimit ?? 1;
         postsRemaining.textContent = `${remaining}/${limit}`;
     }
 
@@ -191,7 +191,7 @@ function updateProfileUI() {
     // Update dashboard stats
     const postsLeftToday = document.getElementById('postsLeftToday');
     if (postsLeftToday) {
-        postsLeftToday.textContent = currentUser.subscription?.postsRemaining ?? 5;
+        postsLeftToday.textContent = currentUser.subscription?.postsRemaining ?? 1;
     }
 
     // Highlight current plan

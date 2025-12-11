@@ -248,10 +248,10 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   // Import database functions dynamically
   const { createSubscription, getSubscriptionByLsId, updateUser } = await import('./services/database-wrapper.js');
 
-  // Helper to get post limit by tier
+  // Helper to get post limit by tier (free = 1 post/week, others = posts/day)
   const getTierPostLimit = (tier) => {
-    const limits = { free: 5, starter: 10, growth: 20, professional: 30, business: 45 };
-    return limits[tier] || 5;
+    const limits = { free: 1, starter: 10, growth: 20, professional: 30, business: 45 };
+    return limits[tier] || 1;
   };
 
   // Variant ID to tier mapping
@@ -397,14 +397,14 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
           subscription: {
             tier: 'free',
             status: 'expired',
-            postsRemaining: 5,
-            dailyLimit: 5,
+            postsRemaining: 1,
+            dailyLimit: 1,
             cancelAtPeriodEnd: false
           },
           lsSubscriptionId: null
         });
 
-        console.log(`[WEBHOOK] Subscription expired, user ${subscription.userId} downgraded to free`);
+        console.log(`[WEBHOOK] Subscription expired, user ${subscription.userId} downgraded to free (1 post/week)`);
         break;
       }
 

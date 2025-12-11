@@ -5,7 +5,7 @@ A modern SaaS platform for AI-powered social media post generation with subscrip
 ## Features
 
 - 🚀 **Multi-tier Subscription Model**
-  - Free: 5 posts/day
+  - Free: 1 post/week
   - Starter: 10 posts/day ($49/month)
   - Growth: 20 posts/day ($149/month)
   - Professional: 30 posts/day ($399/month)

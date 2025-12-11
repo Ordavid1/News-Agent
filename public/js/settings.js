@@ -53,12 +53,13 @@ let existingAgents = []; // To track which platforms already have agents
 let currentUser = null;
 
 // Plan limits configuration (must match server-side PRICING_TIERS)
+// Note: free tier is 1 post/week, paid tiers are posts/day
 const PLAN_POST_LIMITS = {
-    free: 5,
-    starter: 10,
-    growth: 20,
-    professional: 30,
-    business: 45
+    free: 1,          // 1 post/week
+    starter: 10,      // 10 posts/day
+    growth: 20,       // 20 posts/day
+    professional: 30, // 30 posts/day
+    business: 45      // 45 posts/day
 };
 
 document.addEventListener('DOMContentLoaded', async () => {

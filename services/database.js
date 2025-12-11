@@ -106,16 +106,17 @@ export async function createUser(userData) {
   }
 
   // Prepare profile data
+  const tier = rest.subscriptionTier || 'free';
   const profile = {
     id: authUserId,
     email,
     name,
     api_key: apiKey || null,
-    subscription_tier: rest.subscriptionTier || 'free',
+    subscription_tier: tier,
     subscription_status: rest.subscriptionStatus || 'active',
-    posts_remaining: rest.postsRemaining || 5,
-    daily_limit: rest.dailyLimit || 5,
-    reset_date: getDailyResetDate(),
+    posts_remaining: rest.postsRemaining || getTierPostLimit(tier),
+    daily_limit: rest.dailyLimit || getTierPostLimit(tier),
+    reset_date: getResetDateForTier(tier),
     default_platforms: rest.defaultPlatforms || [],
     preferred_topics: rest.preferredTopics || [],
     timezone: rest.timezone || 'UTC',
@@ -555,13 +556,13 @@ export async function hasActiveConnection(userId, platform) {
 
 function getTierPostLimit(tier) {
   const limits = {
-    free: 5,
-    starter: 10,
-    growth: 20,
-    professional: 30,
-    business: 45
+    free: 1,          // 1 post/week
+    starter: 10,      // 10 posts/day
+    growth: 20,       // 20 posts/day
+    professional: 30, // 30 posts/day
+    business: 45      // 45 posts/day
   };
-  return limits[tier] || 5;
+  return limits[tier] || 1;
 }
 
 function getDailyResetDate() {
@@ -570,6 +571,19 @@ function getDailyResetDate() {
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   tomorrow.setUTCHours(0, 0, 0, 0);
   return tomorrow;
+}
+
+function getWeeklyResetDate() {
+  const now = new Date();
+  const nextWeek = new Date(now);
+  nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+  nextWeek.setUTCHours(0, 0, 0, 0);
+  return nextWeek;
+}
+
+function getResetDateForTier(tier) {
+  // Free tier resets weekly, paid tiers reset daily
+  return tier === 'free' ? getWeeklyResetDate() : getDailyResetDate();
 }
 
 function getMonthlyResetDate() {

@@ -43,13 +43,13 @@ const PRICING_TIERS = {
 // Helper to get post limit by tier
 function getTierPostLimit(tier) {
   const limits = {
-    free: 5,
-    starter: 10,
-    growth: 20,
-    professional: 30,
-    business: 45
+    free: 1,          // 1 post/week
+    starter: 10,      // 10 posts/day
+    growth: 20,       // 20 posts/day
+    professional: 30, // 30 posts/day
+    business: 45      // 45 posts/day
   };
-  return limits[tier] || 5;
+  return limits[tier] || 1;
 }
 
 // Get current subscription
@@ -657,13 +657,13 @@ async function handleSubscriptionExpired(payload) {
     return;
   }
 
-  // Downgrade to free tier
+  // Downgrade to free tier (1 post per week)
   await updateUser(subscription.userId, {
     subscription: {
       tier: 'free',
       status: 'expired',
-      postsRemaining: 5,
-      dailyLimit: 5,
+      postsRemaining: 1,
+      dailyLimit: 1,
       cancelAtPeriodEnd: false
     },
     lsSubscriptionId: null

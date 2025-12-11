@@ -22,9 +22,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const ADMIN_EMAIL = 'ordavidone@gmail.com';
 const TARGET_TIER = 'business';
 
-// Daily limits by tier
+// Post limits by tier (free = 1 post/week, others = posts/day)
 const TIER_LIMITS = {
-  free: 5,
+  free: 1,
   starter: 10,
   growth: 20,
   professional: 30,

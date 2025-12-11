@@ -10,25 +10,28 @@ export async function checkSubscriptionLimits(req, res, next) {
     const now = new Date();
     
     if (now >= resetDate) {
-      // Reset daily post limit
+      // Reset post limit - free tier gets 1 post/week, paid tiers get daily limits
       const postLimits = {
-        free: 5,         // 5 posts/day
-        starter: 10,     // 10 posts/day  
+        free: 1,         // 1 post/week
+        starter: 10,     // 10 posts/day
         growth: 20,      // 20 posts/day
         professional: 30, // 30 posts/day
         business: 45     // 45 posts/day
       };
-      
+
+      const tier = user.subscription.tier;
+      const limit = postLimits[tier] || 1;
+
       await updateUser(user.id, {
-        'subscription.postsRemaining': postLimits[user.subscription.tier] || 5,
-        'subscription.dailyLimit': postLimits[user.subscription.tier] || 5,
-        'subscription.resetDate': getNextResetDate()
+        'subscription.postsRemaining': limit,
+        'subscription.dailyLimit': limit,
+        'subscription.resetDate': getNextResetDate(tier)
       });
-      
+
       // Refresh user data
-      user.subscription.postsRemaining = postLimits[user.subscription.tier] || 5;
-      user.subscription.dailyLimit = postLimits[user.subscription.tier] || 5;
-      user.subscription.resetDate = getNextResetDate();
+      user.subscription.postsRemaining = limit;
+      user.subscription.dailyLimit = limit;
+      user.subscription.resetDate = getNextResetDate(tier);
     }
     
     // Check if user has posts remaining
@@ -78,12 +81,20 @@ export function requireTier(minTier) {
   };
 }
 
-function getNextResetDate() {
+function getNextResetDate(tier = 'free') {
   const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  return tomorrow;
+  const resetDate = new Date(now);
+
+  if (tier === 'free') {
+    // Free tier: 7-day reset period (1 post per week)
+    resetDate.setDate(resetDate.getDate() + 7);
+  } else {
+    // Paid tiers: daily reset
+    resetDate.setDate(resetDate.getDate() + 1);
+  }
+
+  resetDate.setHours(0, 0, 0, 0);
+  return resetDate;
 }
 
 // Agent limits per subscription tier

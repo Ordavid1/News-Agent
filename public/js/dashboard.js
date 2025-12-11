@@ -82,15 +82,16 @@ function updateUI() {
 }
 
 // Helper function to get tier limits
+// Note: free tier is 1 post/week, paid tiers are posts/day
 function getTierLimit(tier) {
     const limits = {
-        free: 5,
-        starter: 10,
-        growth: 20,
-        professional: 30,
-        business: 45
+        free: 1,          // 1 post/week
+        starter: 10,      // 10 posts/day
+        growth: 20,       // 20 posts/day
+        professional: 30, // 30 posts/day
+        business: 45      // 45 posts/day
     };
-    return limits[tier] || 5;
+    return limits[tier] || 1;
 }
 
 // Update countdown to next reset

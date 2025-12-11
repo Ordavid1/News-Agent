@@ -22,10 +22,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
 
-  -- Usage limits
-  posts_remaining INTEGER DEFAULT 5,
-  daily_limit INTEGER DEFAULT 5,
-  reset_date TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '1 day'),
+  -- Usage limits (free tier: 1 post/week, paid tiers: posts/day)
+  posts_remaining INTEGER DEFAULT 1,
+  daily_limit INTEGER DEFAULT 1,
+  reset_date TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days'),
 
   -- Settings
   default_platforms TEXT[] DEFAULT '{}',
