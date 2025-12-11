@@ -86,6 +86,20 @@ const logger = winston.createLogger({
 // Initialize Express app
 const app = express();
 
+// CRITICAL: Health check endpoint MUST be BEFORE any middleware that requires Origin header
+// Render's internal health checker doesn't send Origin headers
+app.get('/api/health', (req, res) => {
+  const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
+  res.json({
+    status: serverState.status === 'ready' ? 'healthy' : serverState.status,
+    ready: serverState.status === 'ready',
+    uptime,
+    services: serverState.services,
+    timestamp: new Date().toISOString(),
+    ...(serverState.error && { error: serverState.error })
+  });
+});
+
 // SECURITY: Hardened security headers with Helmet
 app.use(helmet({
   contentSecurityPolicy: {
@@ -496,21 +510,7 @@ initializePassport();
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Health check endpoint - MUST be before rate limiter for Render health checks
-// Returns 200 even during startup so Render doesn't kill the container
-app.get('/api/health', (req, res) => {
-  const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
-  res.json({
-    status: serverState.status === 'ready' ? 'healthy' : serverState.status,
-    ready: serverState.status === 'ready',
-    uptime,
-    services: serverState.services,
-    timestamp: new Date().toISOString(),
-    ...(serverState.error && { error: serverState.error })
-  });
-});
-
-// Apply rate limiting to all API routes (except health check defined above)
+// Apply rate limiting to all API routes (health check is defined before CORS middleware)
 app.use('/api', rateLimiter);
 
 // SEO: Serve robots.txt with correct content type
