@@ -96,6 +96,7 @@ if (process.env.NODE_ENV === 'production') {
 // Render's internal health checker doesn't send Origin headers
 app.get('/api/health', (req, res) => {
   const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
+  console.log(`[HEALTH] Health check request received - status: ${serverState.status}, uptime: ${uptime}s`);
   res.json({
     status: serverState.status === 'ready' ? 'healthy' : serverState.status,
     ready: serverState.status === 'ready',
