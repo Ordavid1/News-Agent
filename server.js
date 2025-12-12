@@ -35,6 +35,7 @@ import automationRoutes from './routes/automation.js';
 import testRoutes from './routes/test.js';
 import connectionsRoutes from './routes/connections.js';
 import agentsRoutes from './routes/agents.js';
+import redditRoutes from './routes/reddit.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -605,6 +606,7 @@ app.use('/api/users', authenticateToken, csrfProtection, userRoutes);
 app.use('/api/automation', authenticateToken, csrfProtection, automationRoutes);
 app.use('/api/agents', authenticateToken, csrfProtection, agentsRoutes); // Agent management (each agent = platform + settings)
 app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route, OAuth callbacks exempt)
+app.use('/api/reddit', authenticateToken, csrfProtection, redditRoutes); // Reddit-specific API (subreddit requirements, flairs)
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

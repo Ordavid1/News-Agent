@@ -257,17 +257,18 @@ class PublishingService {
     }
   }
 
-  async publishToReddit(content, subreddit, userId) {
+  async publishToReddit(content, subreddit, userId, flairId = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'reddit');
       if (!publisher) {
         throw new Error('Reddit publisher not available');
       }
 
-      // Use the publisher's publishPost method with subreddit parameter
+      // Use the publisher's publishPost method with subreddit and flair parameters
       // Priority: explicit subreddit param > content.subreddit > auto-select
       const targetSubreddit = subreddit || content.subreddit || null;
-      const result = await publisher.publishPost(content.text, null, targetSubreddit);
+      const targetFlairId = flairId || content.flairId || null;
+      const result = await publisher.publishPost(content.text, null, targetSubreddit, targetFlairId);
 
       if (result.success) {
         // Save to database
@@ -276,7 +277,7 @@ class PublishingService {
         // Update last_used_at for the connection
         await this.updateConnectionLastUsed(userId, 'reddit');
 
-        logger.info(`Successfully published to Reddit for user ${userId}`);
+        logger.info(`Successfully published to Reddit for user ${userId}${targetFlairId ? ' with flair' : ''}`);
         return {
           success: true,
           platform: 'reddit',
@@ -454,7 +455,7 @@ class PublishingService {
             result = await this.publishToLinkedIn(content, userId);
             break;
           case 'reddit':
-            result = await this.publishToReddit(content, content.subreddit || 'technology', userId);
+            result = await this.publishToReddit(content, content.subreddit || 'technology', userId, content.flairId || null);
             break;
           case 'facebook':
             result = await this.publishToFacebook(content, userId);
@@ -504,7 +505,7 @@ const publishingService = new PublishingService();
 // Export individual platform functions for backward compatibility
 export const publishToTwitter = (content, userId) => publishingService.publishToTwitter(content, userId);
 export const publishToLinkedIn = (content, userId) => publishingService.publishToLinkedIn(content, userId);
-export const publishToReddit = (content, subreddit, userId) => publishingService.publishToReddit(content, subreddit, userId);
+export const publishToReddit = (content, subreddit, userId, flairId = null) => publishingService.publishToReddit(content, subreddit, userId, flairId);
 export const publishToFacebook = (content, userId) => publishingService.publishToFacebook(content, userId);
 export const publishToInstagram = (content, userId) => publishingService.publishToInstagram(content, userId);
 export const publishToTelegram = (content, userId) => publishingService.publishToTelegram(content, userId);

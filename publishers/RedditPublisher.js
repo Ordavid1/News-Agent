@@ -130,13 +130,137 @@ class RedditPublisher {
   }
 
   /**
+   * Fetch subreddit post requirements from Reddit API
+   * @param {string} subreddit - The subreddit name (without r/)
+   * @returns {Promise<Object>} Requirements object
+   */
+  async getSubredditRequirements(subreddit) {
+    try {
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(
+        `https://oauth.reddit.com/api/v1/${subreddit}/post_requirements`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'User-Agent': 'NewsBot/1.0 (by /u/' + (this.username || 'unknown') + ')'
+          }
+        }
+      );
+
+      const data = response.data;
+
+      return {
+        flairRequired: data.is_flair_required || false,
+        titleMinLength: data.title_text_min_length || 0,
+        titleMaxLength: data.title_text_max_length || 300,
+        bodyMinLength: data.body_text_min_length || 0,
+        bodyMaxLength: data.body_text_max_length || 40000,
+        bodyRestriction: data.body_restriction_policy || 'none', // required, notAllowed, none
+        linkRestriction: data.link_restriction_policy || 'none',
+        titleBlacklist: data.title_blacklisted_strings || [],
+        titleRequired: data.title_required_strings || [],
+        domainBlacklist: data.domain_blacklist || [],
+        domainWhitelist: data.domain_whitelist || [],
+        guidelines: data.guidelines_text || ''
+      };
+
+    } catch (error) {
+      logger.error(`Failed to fetch requirements for r/${subreddit}:`, error.message);
+
+      // Handle specific error cases
+      if (error.response?.status === 404) {
+        throw new Error(`Subreddit r/${subreddit} not found`);
+      }
+      if (error.response?.status === 403) {
+        throw new Error(`Cannot access r/${subreddit} (private or restricted)`);
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch available link flairs for a subreddit
+   * @param {string} subreddit - The subreddit name (without r/)
+   * @returns {Promise<Array>} Array of flair objects
+   */
+  async getSubredditFlairs(subreddit) {
+    try {
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(
+        `https://oauth.reddit.com/r/${subreddit}/api/link_flair_v2`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'User-Agent': 'NewsBot/1.0 (by /u/' + (this.username || 'unknown') + ')'
+          }
+        }
+      );
+
+      // Map to a cleaner format
+      const flairs = (response.data || []).map(flair => ({
+        id: flair.id,
+        text: flair.text || '',
+        textEditable: flair.text_editable || false,
+        backgroundColor: flair.background_color || '',
+        textColor: flair.text_color || 'dark',
+        modOnly: flair.mod_only || false,
+        cssClass: flair.css_class || ''
+      }));
+
+      // Filter out mod-only flairs that users can't use
+      return flairs.filter(f => !f.modOnly);
+
+    } catch (error) {
+      logger.error(`Failed to fetch flairs for r/${subreddit}:`, error.message);
+
+      // If we can't fetch flairs, return empty array (some subreddits don't allow it)
+      if (error.response?.status === 403 || error.response?.status === 404) {
+        return [];
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch combined subreddit info (requirements + flairs)
+   * @param {string} subreddit - The subreddit name (without r/)
+   * @returns {Promise<Object>} Combined requirements and flairs
+   */
+  async getSubredditInfo(subreddit) {
+    try {
+      // Fetch requirements and flairs in parallel
+      const [requirements, flairs] = await Promise.all([
+        this.getSubredditRequirements(subreddit),
+        this.getSubredditFlairs(subreddit)
+      ]);
+
+      return {
+        subreddit,
+        requirements: {
+          ...requirements,
+          flairs: flairs
+        }
+      };
+
+    } catch (error) {
+      logger.error(`Failed to fetch info for r/${subreddit}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Publish a post to Reddit
    * @param {string} content - The content to post
    * @param {string|null} mediaUrl - Optional media URL (not used for text posts)
    * @param {string|null} targetSubreddit - Override subreddit to post to
+   * @param {string|null} flairId - Optional flair ID to apply to the post
    * @returns {Promise<Object>} Result object with success status
    */
-  async publishPost(content, mediaUrl = null, targetSubreddit = null) {
+  async publishPost(content, mediaUrl = null, targetSubreddit = null, flairId = null) {
     try {
       const token = await this.getAccessToken();
 
@@ -162,6 +286,12 @@ class RedditPublisher {
         nsfw: false,
         spoiler: false
       };
+
+      // Add flair if provided (required by some subreddits)
+      if (flairId) {
+        postData.flair_id = flairId;
+        logger.debug(`Applying flair ID: ${flairId}`);
+      }
 
       logger.info(`Posting to r/${subredditToUse} with title: ${title}`);
       

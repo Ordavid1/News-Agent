@@ -44,6 +44,9 @@ let allConnections = []; // Full connection objects
 // Global state for keywords
 let keywords = [];
 
+// Reddit subreddit requirements state
+let currentSubredditRequirements = null;
+
 // Agent mode state
 let agentId = null;
 let currentAgent = null;
@@ -111,6 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 /**
  * Initialize Reddit subreddit configuration toggle
  * Shows/hides the subreddit input when Reddit checkbox is toggled
+ * Also handles auto-fetching subreddit requirements on Enter
  */
 function initializeRedditSubredditToggle() {
     const redditCheckbox = document.querySelector('input[name="platforms"][value="reddit"]');
@@ -124,6 +128,10 @@ function initializeRedditSubredditToggle() {
         // Toggle on change
         redditCheckbox.addEventListener('change', (e) => {
             subredditConfig.classList.toggle('hidden', !e.target.checked);
+            // Reset requirements state when toggling
+            if (!e.target.checked) {
+                resetSubredditRequirementsUI();
+            }
         });
     }
 
@@ -137,14 +145,310 @@ function initializeRedditSubredditToggle() {
             // Limit to 21 characters (Reddit's max subreddit name length)
             value = value.slice(0, 21);
             e.target.value = value;
+
+            // Reset status icons when user starts typing
+            resetSubredditRequirementsUI();
         });
 
-        // Also sanitize on blur (paste handling)
-        subredditInput.addEventListener('blur', (e) => {
+        // Handle Enter key to fetch subreddit requirements
+        subredditInput.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                await fetchSubredditRequirements(subredditInput.value.trim());
+            }
+        });
+
+        // Also fetch on blur (when user clicks away)
+        subredditInput.addEventListener('blur', async (e) => {
             let value = e.target.value.replace(/^r\//, '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 21);
             e.target.value = value;
+
+            if (value && value !== currentSubredditRequirements?.subreddit) {
+                await fetchSubredditRequirements(value);
+            }
         });
     }
+
+    // Add click handler for warning icon to re-open modal
+    const warningIcon = document.getElementById('redditSubredditWarning');
+    if (warningIcon) {
+        warningIcon.addEventListener('click', () => {
+            if (currentSubredditRequirements) {
+                openSubredditModal(currentSubredditRequirements);
+            }
+        });
+    }
+}
+
+/**
+ * Reset the subreddit requirements UI state
+ */
+function resetSubredditRequirementsUI() {
+    const loadingEl = document.getElementById('redditSubredditLoading');
+    const successEl = document.getElementById('redditSubredditSuccess');
+    const warningEl = document.getElementById('redditSubredditWarning');
+    const flairConfig = document.getElementById('redditFlairConfig');
+    const errorEl = document.getElementById('redditSubredditError');
+
+    if (loadingEl) loadingEl.classList.add('hidden');
+    if (successEl) successEl.classList.add('hidden');
+    if (warningEl) warningEl.classList.add('hidden');
+    if (flairConfig) flairConfig.classList.add('hidden');
+    if (errorEl) errorEl.classList.add('hidden');
+
+    currentSubredditRequirements = null;
+}
+
+/**
+ * Fetch subreddit requirements from the API
+ */
+async function fetchSubredditRequirements(subreddit) {
+    if (!subreddit) return;
+
+    const token = localStorage.getItem('token');
+    const loadingEl = document.getElementById('redditSubredditLoading');
+    const successEl = document.getElementById('redditSubredditSuccess');
+    const warningEl = document.getElementById('redditSubredditWarning');
+    const errorEl = document.getElementById('redditSubredditError');
+
+    // Show loading state
+    resetSubredditRequirementsUI();
+    if (loadingEl) loadingEl.classList.remove('hidden');
+
+    try {
+        const response = await fetch(`/api/reddit/subreddit/${encodeURIComponent(subreddit)}/requirements`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
+            }
+        });
+
+        const data = await response.json();
+
+        // Hide loading
+        if (loadingEl) loadingEl.classList.add('hidden');
+
+        if (!response.ok) {
+            // Handle specific error codes
+            if (data.code === 'REDDIT_NOT_CONNECTED') {
+                showSubredditError('Please connect your Reddit account first');
+            } else if (data.code === 'REDDIT_TOKEN_INVALID') {
+                showSubredditError('Reddit credentials invalid. Please disconnect and reconnect your Reddit account in Connections.');
+            } else if (data.code === 'SUBREDDIT_NOT_FOUND') {
+                showSubredditError(`Subreddit r/${subreddit} not found`);
+            } else if (data.code === 'SUBREDDIT_RESTRICTED') {
+                showSubredditError(`Cannot access r/${subreddit} (private or restricted)`);
+            } else {
+                showSubredditError(data.error || 'Failed to fetch requirements');
+            }
+            return;
+        }
+
+        // Store requirements
+        currentSubredditRequirements = data;
+
+        // Check if there are any requirements that need user attention
+        const hasRequirements = data.requirements?.flairRequired && data.requirements?.flairs?.length > 0;
+
+        if (hasRequirements) {
+            // Show warning icon and open modal
+            if (warningEl) warningEl.classList.remove('hidden');
+            openSubredditModal(data);
+        } else {
+            // Show success checkmark
+            if (successEl) {
+                successEl.classList.remove('hidden');
+                successEl.title = 'No special requirements';
+            }
+        }
+
+    } catch (error) {
+        console.error('Error fetching subreddit requirements:', error);
+        if (loadingEl) loadingEl.classList.add('hidden');
+        showSubredditError('Failed to fetch subreddit requirements');
+    }
+}
+
+/**
+ * Show error message for subreddit input
+ */
+function showSubredditError(message) {
+    const errorEl = document.getElementById('redditSubredditError');
+    if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+    }
+}
+
+/**
+ * Open the subreddit requirements modal
+ */
+function openSubredditModal(data) {
+    const modal = document.getElementById('subredditRequirementsModal');
+    const modalSubredditName = document.getElementById('modalSubredditName');
+    const modalFlairWarning = document.getElementById('modalFlairWarning');
+    const modalFlairSection = document.getElementById('modalFlairSection');
+    const modalFlairSelect = document.getElementById('modalFlairSelect');
+    const modalRequirementsList = document.getElementById('modalRequirementsList');
+    const modalGuidelines = document.getElementById('modalGuidelines');
+    const modalGuidelinesText = document.getElementById('modalGuidelinesText');
+
+    if (!modal) return;
+
+    // Set subreddit name
+    if (modalSubredditName) {
+        modalSubredditName.textContent = `r/${data.subreddit}`;
+    }
+
+    // Handle flair requirements
+    const requirements = data.requirements || {};
+
+    if (requirements.flairRequired && requirements.flairs?.length > 0) {
+        if (modalFlairWarning) modalFlairWarning.classList.remove('hidden');
+        if (modalFlairSection) modalFlairSection.classList.remove('hidden');
+
+        // Populate flair dropdown
+        if (modalFlairSelect) {
+            modalFlairSelect.innerHTML = '<option value="">Choose a flair...</option>';
+            requirements.flairs.forEach(flair => {
+                const option = document.createElement('option');
+                option.value = flair.id;
+                option.textContent = flair.text || '(No text)';
+                option.dataset.flairText = flair.text || '';
+                modalFlairSelect.appendChild(option);
+            });
+
+            // Pre-select if we have a saved flair
+            const savedFlairId = getSavedFlairId();
+            if (savedFlairId) {
+                modalFlairSelect.value = savedFlairId;
+            }
+        }
+    } else {
+        if (modalFlairWarning) modalFlairWarning.classList.add('hidden');
+        if (modalFlairSection) modalFlairSection.classList.add('hidden');
+    }
+
+    // Build requirements list
+    if (modalRequirementsList) {
+        const items = [];
+
+        if (requirements.titleMinLength > 0 || requirements.titleMaxLength < 300) {
+            items.push(`Title: ${requirements.titleMinLength || 0}-${requirements.titleMaxLength || 300} characters`);
+        }
+
+        if (requirements.bodyRestriction === 'required') {
+            items.push('Body text is required');
+        } else if (requirements.bodyRestriction === 'notAllowed') {
+            items.push('Body text is not allowed (link posts only)');
+        } else if (requirements.bodyMinLength > 0) {
+            items.push(`Body: minimum ${requirements.bodyMinLength} characters`);
+        }
+
+        if (requirements.linkRestriction === 'required') {
+            items.push('Link is required');
+        } else if (requirements.linkRestriction === 'notAllowed') {
+            items.push('Links not allowed (text posts only)');
+        }
+
+        if (requirements.domainWhitelist?.length > 0) {
+            items.push(`Only allowed domains: ${requirements.domainWhitelist.slice(0, 3).join(', ')}${requirements.domainWhitelist.length > 3 ? '...' : ''}`);
+        }
+
+        if (requirements.titleBlacklist?.length > 0) {
+            items.push(`Blacklisted words in title: ${requirements.titleBlacklist.slice(0, 3).join(', ')}${requirements.titleBlacklist.length > 3 ? '...' : ''}`);
+        }
+
+        if (items.length === 0) {
+            items.push('No specific content restrictions');
+        }
+
+        modalRequirementsList.innerHTML = items.map(item => `<li>• ${item}</li>`).join('');
+    }
+
+    // Show guidelines if present
+    if (requirements.guidelines && modalGuidelines && modalGuidelinesText) {
+        modalGuidelines.classList.remove('hidden');
+        modalGuidelinesText.textContent = requirements.guidelines;
+    } else if (modalGuidelines) {
+        modalGuidelines.classList.add('hidden');
+    }
+
+    // Show modal
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+/**
+ * Close the subreddit requirements modal
+ */
+function closeSubredditModal() {
+    const modal = document.getElementById('subredditRequirementsModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+}
+
+/**
+ * Save subreddit settings from the modal
+ */
+function saveSubredditSettings() {
+    const modalFlairSelect = document.getElementById('modalFlairSelect');
+    const requirements = currentSubredditRequirements?.requirements;
+
+    // Validate flair selection if required
+    if (requirements?.flairRequired && requirements?.flairs?.length > 0) {
+        if (!modalFlairSelect?.value) {
+            alert('Please select a flair for this subreddit');
+            return;
+        }
+    }
+
+    // Save the selected flair to the inline selector as well
+    const flairSelect = document.getElementById('redditFlairSelect');
+    const flairConfig = document.getElementById('redditFlairConfig');
+
+    if (modalFlairSelect?.value && requirements?.flairRequired) {
+        // Show inline flair config
+        if (flairConfig) flairConfig.classList.remove('hidden');
+
+        // Populate inline flair select
+        if (flairSelect) {
+            flairSelect.innerHTML = '<option value="">Select a flair...</option>';
+            requirements.flairs.forEach(flair => {
+                const option = document.createElement('option');
+                option.value = flair.id;
+                option.textContent = flair.text || '(No text)';
+                option.dataset.flairText = flair.text || '';
+                flairSelect.appendChild(option);
+            });
+            flairSelect.value = modalFlairSelect.value;
+        }
+
+        // Update warning icon to show configured state
+        const warningEl = document.getElementById('redditSubredditWarning');
+        const successEl = document.getElementById('redditSubredditSuccess');
+        if (warningEl) warningEl.classList.add('hidden');
+        if (successEl) {
+            successEl.classList.remove('hidden');
+            successEl.title = 'Requirements configured';
+        }
+    }
+
+    closeSubredditModal();
+}
+
+/**
+ * Get the currently saved flair ID from settings
+ */
+function getSavedFlairId() {
+    // Check inline select first
+    const flairSelect = document.getElementById('redditFlairSelect');
+    if (flairSelect?.value) {
+        return flairSelect.value;
+    }
+    return null;
 }
 
 /**
@@ -773,6 +1077,11 @@ async function saveAgentWithSettings() {
     const redditSubredditInput = document.getElementById('redditSubreddit');
     const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
 
+    // Get Reddit flair settings
+    const redditFlairSelect = document.getElementById('redditFlairSelect');
+    const redditFlairId = redditFlairSelect?.value || null;
+    const redditFlairText = redditFlairSelect?.options[redditFlairSelect?.selectedIndex]?.dataset?.flairText || null;
+
     // Get Twitter Premium setting
     const twitterPremiumCheckbox = document.getElementById('twitterPremium');
     const twitterIsPremium = twitterPremiumCheckbox?.checked || false;
@@ -795,7 +1104,9 @@ async function saveAgentWithSettings() {
         },
         platformSettings: {
             reddit: {
-                subreddit: redditSubreddit
+                subreddit: redditSubreddit,
+                flairId: redditFlairId,
+                flairText: redditFlairText
             },
             twitter: {
                 isPremium: twitterIsPremium
@@ -1158,6 +1469,36 @@ function populateFormWithAgentSettings(settings) {
             }
         }
 
+        // Reddit flair settings
+        if (settings.platformSettings.reddit?.flairId) {
+            const flairSelect = document.getElementById('redditFlairSelect');
+            const flairConfig = document.getElementById('redditFlairConfig');
+
+            if (flairSelect && flairConfig) {
+                // Show flair config
+                flairConfig.classList.remove('hidden');
+
+                // Add the saved flair as an option and select it
+                const savedFlairId = settings.platformSettings.reddit.flairId;
+                const savedFlairText = settings.platformSettings.reddit.flairText || 'Selected Flair';
+
+                flairSelect.innerHTML = '<option value="">Select a flair...</option>';
+                const option = document.createElement('option');
+                option.value = savedFlairId;
+                option.textContent = savedFlairText;
+                option.dataset.flairText = savedFlairText;
+                flairSelect.appendChild(option);
+                flairSelect.value = savedFlairId;
+
+                // Show success indicator
+                const successEl = document.getElementById('redditSubredditSuccess');
+                if (successEl) {
+                    successEl.classList.remove('hidden');
+                    successEl.title = 'Requirements configured';
+                }
+            }
+        }
+
         // Twitter Premium
         if (settings.platformSettings.twitter?.isPremium !== undefined) {
             const twitterPremiumCheckbox = document.getElementById('twitterPremium');
@@ -1211,6 +1552,11 @@ async function saveAgentSettings() {
     const redditSubredditInput = document.getElementById('redditSubreddit');
     const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
 
+    // Get Reddit flair settings
+    const redditFlairSelect = document.getElementById('redditFlairSelect');
+    const redditFlairId = redditFlairSelect?.value || null;
+    const redditFlairText = redditFlairSelect?.options[redditFlairSelect?.selectedIndex]?.dataset?.flairText || null;
+
     // Get Twitter Premium setting
     const twitterPremiumCheckbox = document.getElementById('twitterPremium');
     const twitterIsPremium = twitterPremiumCheckbox?.checked || false;
@@ -1233,7 +1579,9 @@ async function saveAgentSettings() {
         },
         platformSettings: {
             reddit: {
-                subreddit: redditSubreddit
+                subreddit: redditSubreddit,
+                flairId: redditFlairId,
+                flairText: redditFlairText
             },
             twitter: {
                 isPremium: twitterIsPremium

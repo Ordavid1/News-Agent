@@ -226,6 +226,16 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
         contentStyle: {
           tone: settings.contentStyle?.tone || 'professional',
           includeHashtags: settings.contentStyle?.includeHashtags ?? true
+        },
+        platformSettings: {
+          reddit: {
+            subreddit: settings.platformSettings?.reddit?.subreddit || null,
+            flairId: settings.platformSettings?.reddit?.flairId || null,
+            flairText: settings.platformSettings?.reddit?.flairText || null
+          },
+          twitter: {
+            isPremium: settings.platformSettings?.twitter?.isPremium ?? false
+          }
         }
       };
     }
@@ -302,6 +312,16 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
         contentStyle: {
           tone: settings.contentStyle?.tone || agent.settings?.contentStyle?.tone || 'professional',
           includeHashtags: settings.contentStyle?.includeHashtags ?? agent.settings?.contentStyle?.includeHashtags ?? true
+        },
+        platformSettings: {
+          reddit: {
+            subreddit: settings.platformSettings?.reddit?.subreddit ?? agent.settings?.platformSettings?.reddit?.subreddit ?? null,
+            flairId: settings.platformSettings?.reddit?.flairId ?? agent.settings?.platformSettings?.reddit?.flairId ?? null,
+            flairText: settings.platformSettings?.reddit?.flairText ?? agent.settings?.platformSettings?.reddit?.flairText ?? null
+          },
+          twitter: {
+            isPremium: settings.platformSettings?.twitter?.isPremium ?? agent.settings?.platformSettings?.twitter?.isPremium ?? false
+          }
         }
       };
       updates.settings = validatedSettings;
@@ -569,9 +589,10 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           publishResult = await publishToLinkedIn(content, userId);
           break;
         case 'reddit':
-          // Use subreddit from agent settings, or fallback to auto-select
+          // Use subreddit and flair from agent settings
           const redditSubreddit = platformSettings.reddit?.subreddit || null;
-          publishResult = await publishToReddit(content, redditSubreddit, userId);
+          const redditFlairId = platformSettings.reddit?.flairId || null;
+          publishResult = await publishToReddit(content, redditSubreddit, userId, redditFlairId);
           break;
         case 'facebook':
           publishResult = await publishToFacebook(content, userId);
