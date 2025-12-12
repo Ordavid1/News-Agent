@@ -1,13 +1,46 @@
 // linkedInPrompts.mjs
 
 /**
- * Check if the content should be in Hebrew based on geoFilter region
+ * Check if text contains Hebrew characters
+ * Hebrew Unicode range: \u0590-\u05FF (includes letters, vowels, cantillation marks)
+ * @param {string} text - Text to check
+ * @returns {boolean} Whether text contains Hebrew characters
+ */
+const containsHebrew = (text) => {
+  if (!text || typeof text !== 'string') return false;
+  return /[\u0590-\u05FF]/.test(text);
+};
+
+/**
+ * Check if the content should be in Hebrew based on region, topics, or keywords
+ * Hebrew is used if:
+ * 1. Region is 'il' (Israel)
+ * 2. Any topic contains Hebrew characters
+ * 3. Any keyword contains Hebrew characters
  * @param {Object} agentSettings - User's agent settings
  * @returns {boolean} Whether to use Hebrew language
  */
 const isHebrewLanguage = (agentSettings) => {
   const region = agentSettings?.geoFilter?.region || '';
-  return region.toLowerCase() === 'il';
+  const topics = agentSettings?.topics || [];
+  const keywords = agentSettings?.keywords || [];
+
+  // Check if region is Israel
+  if (region.toLowerCase() === 'il') {
+    return true;
+  }
+
+  // Check if any topic contains Hebrew characters
+  if (topics.some(topic => containsHebrew(topic))) {
+    return true;
+  }
+
+  // Check if any keyword contains Hebrew characters
+  if (keywords.some(keyword => containsHebrew(keyword))) {
+    return true;
+  }
+
+  return false;
 };
 
 /**
@@ -245,5 +278,6 @@ export {
   buildTopicGuidance,
   getToneInstructions,
   isHebrewLanguage,
-  getLanguageInstruction
+  getLanguageInstruction,
+  containsHebrew
 };

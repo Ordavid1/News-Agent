@@ -23,13 +23,50 @@ class NewsService {
     this.gnewsApiKey = process.env.GNEWS_API_KEY;
     this.googleApiKey = process.env.GOOGLE_CSE_API_KEY;
     this.googleCseId = process.env.GOOGLE_CSE_ID;
-    
+
     // Topic mappings are now loaded dynamically from config
     // This allows for better scalability and easier maintenance
-    
+
     // Cache for news to avoid hitting API limits
     this.newsCache = new Map();
     this.cacheTimeout = 30 * 60 * 1000; // 30 minutes
+  }
+
+  /**
+   * Check if text contains Hebrew characters
+   * Hebrew Unicode range: \u0590-\u05FF (includes letters, vowels, cantillation marks)
+   * @param {string} text - Text to check
+   * @returns {boolean} Whether text contains Hebrew characters
+   */
+  containsHebrew(text) {
+    if (!text || typeof text !== 'string') return false;
+    return /[\u0590-\u05FF]/.test(text);
+  }
+
+  /**
+   * Determine if Hebrew search should be used based on region, topics, or keywords
+   * @param {string} region - Geographic region code
+   * @param {Array} topics - Array of topic strings
+   * @param {Array} keywords - Array of keyword strings
+   * @returns {boolean} Whether to use Hebrew search
+   */
+  shouldUseHebrewSearch(region, topics = [], keywords = []) {
+    // Check if region is Israel
+    if (region && region.toLowerCase() === 'il') {
+      return true;
+    }
+
+    // Check if any topic contains Hebrew characters
+    if (topics.some(topic => this.containsHebrew(topic))) {
+      return true;
+    }
+
+    // Check if any keyword contains Hebrew characters
+    if (keywords.some(keyword => this.containsHebrew(keyword))) {
+      return true;
+    }
+
+    return false;
   }
 
   async getNewsForTopics(topics, options = {}) {
@@ -44,11 +81,11 @@ class NewsService {
 
     const { region = '', includeGlobal = true } = geoFilter;
 
-    // Determine if we should use Hebrew search
-    const isHebrewRegion = region.toLowerCase() === 'il';
-    const effectiveLanguage = isHebrewRegion ? 'he' : language;
+    // Determine if we should use Hebrew search based on region, topics, or keywords
+    const useHebrewSearch = this.shouldUseHebrewSearch(region, topics, keywords);
+    const effectiveLanguage = useHebrewSearch ? 'he' : language;
 
-    logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}, language: ${effectiveLanguage}`);
+    logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}, language: ${effectiveLanguage}, useHebrewSearch: ${useHebrewSearch}`);
 
     const allNews = [];
 
@@ -73,8 +110,8 @@ class NewsService {
 
       const topicNews = [];
 
-      // For Israel region, prioritize Hebrew search sources
-      if (isHebrewRegion) {
+      // For Hebrew content (Israel region, Hebrew topics, or Hebrew keywords), prioritize Hebrew search sources
+      if (useHebrewSearch) {
         try {
           logger.info(`Using Hebrew search for topic: ${topic}`);
           const hebrewResults = await this.fetchFromHebrewSources(topic, { keywords, region });
@@ -85,7 +122,7 @@ class NewsService {
       }
 
       // Try different news sources (as fallback or primary for non-Hebrew)
-      if (topicNews.length === 0 || !isHebrewRegion) {
+      if (topicNews.length === 0 || !useHebrewSearch) {
         if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
           try {
             const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
@@ -116,7 +153,7 @@ class NewsService {
       }
 
       // If includeGlobal is true and we're in Hebrew mode, also fetch some global news
-      if (isHebrewRegion && includeGlobal && topicNews.length < limit) {
+      if (useHebrewSearch && includeGlobal && topicNews.length < limit) {
         try {
           logger.info(`Fetching global news to supplement Hebrew results for topic: ${topic}`);
           const globalResults = await this.fetchFromGoogleCSE(topic, 'en', { keywords, region: '' });
