@@ -132,6 +132,77 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        /* Mobile tab scroll indicator */
+        .tabs-container {
+            position: relative;
+        }
+
+        .tabs-scroll-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+        }
+
+        .tabs-scroll-wrapper::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+
+        /* Fade gradient indicators for more content */
+        .tabs-container::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 4px; /* Account for border-bottom padding */
+            width: 60px;
+            background: linear-gradient(to right, transparent, #0a0a0a);
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+
+        .tabs-container.scrolled-end::after {
+            opacity: 0;
+        }
+
+        /* Scroll hint animation on mobile */
+        @media (max-width: 768px) {
+            .scroll-hint {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                color: rgba(168, 85, 247, 0.7);
+                margin-bottom: 8px;
+                animation: pulse-hint 2s ease-in-out infinite;
+            }
+
+            .scroll-hint svg {
+                animation: bounce-x 1.5s ease-in-out infinite;
+            }
+
+            @keyframes pulse-hint {
+                0%, 100% { opacity: 0.7; }
+                50% { opacity: 1; }
+            }
+
+            @keyframes bounce-x {
+                0%, 100% { transform: translateX(0); }
+                50% { transform: translateX(4px); }
+            }
+        }
+
+        @media (min-width: 769px) {
+            .scroll-hint {
+                display: none;
+            }
+
+            .tabs-container::after {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body class="bg-black text-white min-h-screen">
@@ -163,41 +234,49 @@
             </div>
 
             <!-- Tab Navigation -->
-            <div class="flex gap-2 mb-8 border-b border-gray-800 pb-4 overflow-x-auto">
-                <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all tab-active whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-                        </svg>
-                        Dashboard
-                    </span>
-                </button>
-                <button onclick="showTab('agents')" id="tab-agents" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                        </svg>
-                        Agents
-                        <span id="agentCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/1</span>
-                    </span>
-                </button>
-                <button onclick="showTab('connections')" id="tab-connections" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                        </svg>
-                        Connections
-                        <span id="connectionCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/7</span>
-                    </span>
-                </button>
-                <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
-                    <span class="flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-                        </svg>
-                        Subscription
-                    </span>
-                </button>
+            <div class="scroll-hint" id="tabScrollHint">
+                <span>Swipe for more</span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
+                </svg>
+            </div>
+            <div class="tabs-container mb-8" id="tabsContainer">
+                <div class="tabs-scroll-wrapper flex gap-2 border-b border-gray-800 pb-4" id="tabsScrollWrapper">
+                    <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all tab-active whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+                            </svg>
+                            Dashboard
+                        </span>
+                    </button>
+                    <button onclick="showTab('agents')" id="tab-agents" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                            Agents
+                            <span id="agentCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/1</span>
+                        </span>
+                    </button>
+                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                            </svg>
+                            Connections
+                            <span id="connectionCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/7</span>
+                        </span>
+                    </button>
+                    <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                            </svg>
+                            Subscription
+                        </span>
+                    </button>
+                </div>
             </div>
 
             <!-- Dashboard Tab -->
@@ -898,5 +977,49 @@
 
     <script src="js/profile.js?v=4"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script>
+        // Tab scroll indicator logic
+        (function() {
+            const tabsContainer = document.getElementById('tabsContainer');
+            const tabsScrollWrapper = document.getElementById('tabsScrollWrapper');
+            const scrollHint = document.getElementById('tabScrollHint');
+
+            if (!tabsScrollWrapper || !tabsContainer || !scrollHint) return;
+
+            function checkScrollState() {
+                const isScrollable = tabsScrollWrapper.scrollWidth > tabsScrollWrapper.clientWidth;
+                const isAtEnd = tabsScrollWrapper.scrollLeft + tabsScrollWrapper.clientWidth >= tabsScrollWrapper.scrollWidth - 10;
+
+                // Hide hint if not scrollable or user has scrolled
+                if (!isScrollable || tabsScrollWrapper.scrollLeft > 20) {
+                    scrollHint.style.display = 'none';
+                } else {
+                    // Only show on mobile
+                    if (window.innerWidth <= 768) {
+                        scrollHint.style.display = 'flex';
+                    }
+                }
+
+                // Toggle fade gradient based on scroll position
+                if (isAtEnd) {
+                    tabsContainer.classList.add('scrolled-end');
+                } else {
+                    tabsContainer.classList.remove('scrolled-end');
+                }
+            }
+
+            // Check on scroll
+            tabsScrollWrapper.addEventListener('scroll', checkScrollState);
+
+            // Check on resize
+            window.addEventListener('resize', checkScrollState);
+
+            // Initial check
+            checkScrollState();
+
+            // Re-check after fonts load (may affect tab widths)
+            document.fonts.ready.then(checkScrollState);
+        })();
+    </script>
 </body>
 </html>
