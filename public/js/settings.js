@@ -730,8 +730,37 @@ async function saveAgentWithSettings() {
         return;
     }
 
+    // Validate Reddit subreddit is required when Reddit is selected
+    if (selectedPlatforms.includes('reddit')) {
+        const redditSubredditInput = document.getElementById('redditSubreddit');
+        const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
+        if (!redditSubreddit) {
+            // Show error on the subreddit field
+            const errorEl = document.getElementById('redditSubredditError');
+            if (errorEl) {
+                errorEl.classList.remove('hidden');
+            }
+            // Also highlight the input
+            if (redditSubredditInput) {
+                redditSubredditInput.classList.add('border-red-500');
+                redditSubredditInput.focus();
+            }
+            showAgentIdentityError('Please enter a subreddit name for Reddit posting');
+            return;
+        }
+    }
+
     // Hide any previous errors
     hideAgentIdentityError();
+    // Hide subreddit error if it was shown
+    const subredditErrorEl = document.getElementById('redditSubredditError');
+    if (subredditErrorEl) {
+        subredditErrorEl.classList.add('hidden');
+    }
+    const redditInput = document.getElementById('redditSubreddit');
+    if (redditInput) {
+        redditInput.classList.remove('border-red-500');
+    }
 
     // Collect form settings
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))
@@ -1149,6 +1178,26 @@ function populateFormWithAgentSettings(settings) {
  */
 async function saveAgentSettings() {
     const token = localStorage.getItem('token');
+
+    // Validate Reddit subreddit is required when agent platform is Reddit
+    if (currentAgent?.platform === 'reddit') {
+        const redditSubredditInput = document.getElementById('redditSubreddit');
+        const redditSubreddit = redditSubredditInput?.value?.trim().replace(/^r\//, '') || '';
+        if (!redditSubreddit) {
+            // Show error on the subreddit field
+            const errorEl = document.getElementById('redditSubredditError');
+            if (errorEl) {
+                errorEl.classList.remove('hidden');
+            }
+            // Also highlight the input
+            if (redditSubredditInput) {
+                redditSubredditInput.classList.add('border-red-500');
+                redditSubredditInput.focus();
+            }
+            alert('Please enter a subreddit name for Reddit posting');
+            return;
+        }
+    }
 
     // Collect form data
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))

@@ -317,7 +317,7 @@
                             </label>
                             <!-- Subreddit selection (shown when Reddit is enabled) -->
                             <div id="redditSubredditConfig" class="mt-4 pt-4 border-t border-purple-500/20 hidden">
-                                <label class="block text-sm text-gray-400 mb-2">Target Subreddit <span class="text-gray-600">(one subreddit only)</span></label>
+                                <label class="block text-sm text-gray-400 mb-2">Target Subreddit <span class="text-red-400">*</span> <span class="text-gray-600">(required)</span></label>
                                 <div class="flex items-center gap-2">
                                     <span class="text-gray-500">r/</span>
                                     <input type="text"
@@ -328,7 +328,8 @@
                                            maxlength="21"
                                            class="flex-1 px-4 py-2 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
                                 </div>
-                                <p class="text-xs text-gray-500 mt-2">Enter a single subreddit name (e.g., technology, news). Leave empty to auto-select based on content.</p>
+                                <p class="text-xs text-gray-500 mt-2">You must specify a subreddit to post to (e.g., technology, news, worldnews).</p>
+                                <p id="redditSubredditError" class="text-xs text-red-400 mt-1 hidden">Please enter a subreddit name</p>
                             </div>
                         </div>
                         <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
