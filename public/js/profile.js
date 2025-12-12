@@ -1902,6 +1902,106 @@ async function resumeSubscription() {
     }
 }
 
+// ============================================
+// Beta Plan Modal Functions
+// ============================================
+
+// Track which plan the modal is currently showing
+let currentBetaPlan = null;
+
+function openBetaPlanModal(plan) {
+    currentBetaPlan = plan;
+    const modal = document.getElementById('betaPlanModal');
+    const confirmationEl = document.getElementById('planInterestConfirmation');
+    const interestBtn = document.getElementById('planInterestBtn');
+
+    // Reset state
+    if (confirmationEl) confirmationEl.classList.add('hidden');
+    if (interestBtn) {
+        interestBtn.disabled = false;
+        interestBtn.innerHTML = '<span class="text-xl">+1</span><span>I want this!</span>';
+    }
+
+    // Show modal
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+
+function closeBetaPlanModal() {
+    const modal = document.getElementById('betaPlanModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    currentBetaPlan = null;
+}
+
+async function trackPlanInterest() {
+    if (!currentBetaPlan) return;
+
+    const token = localStorage.getItem('token');
+    const interestBtn = document.getElementById('planInterestBtn');
+    const confirmationEl = document.getElementById('planInterestConfirmation');
+
+    // Show loading state
+    if (interestBtn) {
+        interestBtn.disabled = true;
+        interestBtn.innerHTML = '<span class="loading-spinner"></span>';
+    }
+
+    try {
+        const response = await fetch('/api/subscriptions/plan-interest', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
+            },
+            body: JSON.stringify({ plan: currentBetaPlan })
+        });
+
+        const data = await response.json();
+
+        // Show confirmation regardless of response (graceful degradation)
+        if (confirmationEl) {
+            confirmationEl.classList.remove('hidden');
+        }
+        if (interestBtn) {
+            interestBtn.innerHTML = '<span class="text-xl">+1</span><span>Noted!</span>';
+            interestBtn.classList.remove('from-purple-500', 'to-pink-500');
+            interestBtn.classList.add('from-green-500', 'to-emerald-500');
+        }
+
+        console.log(`[PLAN-INTEREST] Tracked interest for plan: ${currentBetaPlan}`);
+
+    } catch (error) {
+        console.error('[PLAN-INTEREST] Error tracking interest:', error);
+        // Still show confirmation for better UX (we don't want to discourage users)
+        if (confirmationEl) {
+            confirmationEl.classList.remove('hidden');
+        }
+        if (interestBtn) {
+            interestBtn.innerHTML = '<span class="text-xl">+1</span><span>Noted!</span>';
+        }
+    }
+}
+
+// Close beta plan modal on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeBetaPlanModal();
+    }
+});
+
+// Close beta plan modal on background click
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'betaPlanModal') {
+        closeBetaPlanModal();
+    }
+});
+
 // Make functions globally available
 window.showTab = showTab;
 window.connectPlatform = connectPlatform;
@@ -1928,3 +2028,7 @@ window.openCustomerPortal = openCustomerPortal;
 window.cancelSubscription = cancelSubscription;
 window.resumeSubscription = resumeSubscription;
 window.downgradeToFree = downgradeToFree;
+// Beta plan modal functions
+window.openBetaPlanModal = openBetaPlanModal;
+window.closeBetaPlanModal = closeBetaPlanModal;
+window.trackPlanInterest = trackPlanInterest;

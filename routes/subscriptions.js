@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
+// Supabase for plan interest tracking
+import { supabaseAdmin, isConfigured as isSupabaseConfigured } from '../services/supabase.js';
 
 const router = express.Router();
 
@@ -491,6 +493,81 @@ router.post('/downgrade-to-free', async (req, res) => {
   } catch (error) {
     console.error('[DOWNGRADE] Error:', error);
     res.status(500).json({ error: 'Failed to downgrade subscription' });
+  }
+});
+
+// ============================================
+// PLAN INTEREST TRACKING (Beta Feature)
+// ============================================
+
+// Track user interest in unavailable plans (+1 button)
+router.post('/plan-interest', async (req, res) => {
+  console.log('[PLAN-INTEREST] POST /plan-interest - User:', req.user?.id, 'Plan:', req.body?.plan);
+  try {
+    const { plan } = req.body;
+
+    // Validate plan name
+    const validPlans = ['growth', 'professional', 'business'];
+    if (!plan || !validPlans.includes(plan)) {
+      return res.status(400).json({ error: 'Invalid plan name' });
+    }
+
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      console.warn('[PLAN-INTEREST] Supabase not configured, skipping tracking');
+      return res.json({ success: true, message: 'Interest noted (tracking unavailable)' });
+    }
+
+    // Get user IP and user agent for analytics
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || req.ip || null;
+    const userAgent = req.headers['user-agent'] || null;
+
+    // Insert into plan_interest table
+    const { data, error } = await supabaseAdmin
+      .from('plan_interest')
+      .insert({
+        plan_name: plan,
+        user_id: req.user?.id || null,
+        ip_address: ipAddress,
+        user_agent: userAgent
+      });
+
+    if (error) {
+      console.error('[PLAN-INTEREST] Supabase insert error:', error);
+      // Don't fail the request, just log the error
+      return res.json({ success: true, message: 'Interest registered' });
+    }
+
+    console.log(`[PLAN-INTEREST] Interest recorded for plan: ${plan}, user: ${req.user?.id || 'anonymous'}`);
+    res.json({ success: true, message: 'Thank you for your interest!' });
+
+  } catch (error) {
+    console.error('[PLAN-INTEREST] Error:', error);
+    // Don't fail the request for tracking errors
+    res.json({ success: true, message: 'Interest noted' });
+  }
+});
+
+// Get plan interest summary (admin only - could be protected later)
+router.get('/plan-interest/summary', async (req, res) => {
+  try {
+    if (!isSupabaseConfigured()) {
+      return res.status(503).json({ error: 'Tracking unavailable' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('plan_interest_summary')
+      .select('*');
+
+    if (error) {
+      console.error('[PLAN-INTEREST] Summary fetch error:', error);
+      return res.status(500).json({ error: 'Failed to fetch summary' });
+    }
+
+    res.json({ success: true, summary: data });
+  } catch (error) {
+    console.error('[PLAN-INTEREST] Summary error:', error);
+    res.status(500).json({ error: 'Failed to fetch interest summary' });
   }
 });
 
