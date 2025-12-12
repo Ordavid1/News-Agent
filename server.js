@@ -571,21 +571,24 @@ app.get('/manifest.json', (req, res) => {
 
 // SEO: Add caching headers for static assets
 app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '1d', // Cache static files for 1 day
   etag: true,
   lastModified: true,
   setHeaders: (res, filePath) => {
-    // Set longer cache for images and fonts
+    // Set longer cache for images and fonts (immutable assets)
     if (filePath.match(/\.(jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
     }
-    // Set shorter cache for HTML files
-    if (filePath.match(/\.html$/)) {
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+    // HTML files - always revalidate
+    else if (filePath.match(/\.html$/)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     }
-    // Set cache for CSS and JS
-    if (filePath.match(/\.(css|js)$/)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
+    // CSS and JS - short cache with revalidation for active development
+    else if (filePath.match(/\.(css|js)$/)) {
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate'); // 5 minutes
+    }
+    // Default for other files
+    else {
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
     }
   }
 }));
