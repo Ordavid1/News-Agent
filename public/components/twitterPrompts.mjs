@@ -1,6 +1,6 @@
 // twitterPrompts.mjs
 // Twitter-specific prompts with Standard (280 chars) and Premium (4000 chars) templates
-import { buildTopicGuidance, getToneInstructions } from './linkedInPrompts.mjs';
+import { buildTopicGuidance, getToneInstructions, isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs';
 
 /**
  * Generate Twitter Standard system prompt (280 character limit)
@@ -11,35 +11,38 @@ const getTwitterStandardSystemPrompt = (agentSettings = {}) => {
   const topicGuidance = buildTopicGuidance(agentSettings);
   const tone = agentSettings?.contentStyle?.tone || 'professional';
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
+  const isHebrew = isHebrewLanguage(agentSettings);
+  const languageInstruction = getLanguageInstruction(agentSettings);
 
   const toneStyles = {
-    professional: 'Authoritative but accessible',
-    casual: 'Conversational and friendly',
-    humorous: 'Witty with personality',
-    educational: 'Clear and informative'
+    professional: isHebrew ? 'סמכותי אך נגיש' : 'Authoritative but accessible',
+    casual: isHebrew ? 'שיחתי וידידותי' : 'Conversational and friendly',
+    humorous: isHebrew ? 'שנון עם אישיות' : 'Witty with personality',
+    educational: isHebrew ? 'ברור ואינפורמטיבי' : 'Clear and informative'
   };
 
-  return `You are a breaking news Twitter account. Create ultra-concise news updates that MUST be under 280 characters total.
+  return `${isHebrew ? 'אתה חשבון טוויטר לחדשות חמות. צור עדכוני חדשות תמציתיים במיוחד שחייבים להיות מתחת ל-280 תווים.' : 'You are a breaking news Twitter account. Create ultra-concise news updates that MUST be under 280 characters total.'}
+${languageInstruction}
 
-CRITICAL: Total tweet length including emojis, spaces, URL, and hashtags MUST be under 280 characters.
+${isHebrew ? 'קריטי: אורך הציוץ הכולל כולל אמוג׳ים, רווחים, URL והאשטגים חייב להיות מתחת ל-280 תווים.' : 'CRITICAL: Total tweet length including emojis, spaces, URL, and hashtags MUST be under 280 characters.'}
 
-Topic Focus:
+${isHebrew ? 'מיקוד נושאי:' : 'Topic Focus:'}
 ${topicGuidance}
 
-Tone: ${toneStyles[tone] || toneStyles.professional}
+${isHebrew ? 'טון:' : 'Tone:'} ${toneStyles[tone] || toneStyles.professional}
 
-Format (STRICT 280 CHAR LIMIT):
-🚨 [Main news point - 1 SHORT sentence, max 100 chars]
-🔗 [URL - counts toward limit!]
-${includeHashtags ? '#Tag1 #Tag2 #Tag3 (max 3 hashtags, each counts toward limit)' : ''}
+${isHebrew ? 'פורמט (מגבלת 280 תווים קפדנית):' : 'Format (STRICT 280 CHAR LIMIT):'}
+🚨 [${isHebrew ? 'נקודת החדשות העיקרית - משפט קצר אחד, מקסימום 100 תווים' : 'Main news point - 1 SHORT sentence, max 100 chars'}]
+🔗 [URL - ${isHebrew ? 'נספר למגבלה!' : 'counts toward limit!'}]
+${includeHashtags ? (isHebrew ? '#תג1 #תג2 #תג3 (מקסימום 3 האשטגים, כל אחד נספר למגבלה)' : '#Tag1 #Tag2 #Tag3 (max 3 hashtags, each counts toward limit)') : ''}
 
-RULES:
-- Lead with ONE news emoji (🚨 📰 🔴 ⚡ 📢 💥 🔥)
-- One sentence only - the core news
-- Include the EXACT source URL provided
-- ${includeHashtags ? 'Max 3 hashtags, extracted from article content' : 'NO hashtags'}
-- NEVER exceed 280 characters total
-- NEVER shorten or modify the URL`;
+${isHebrew ? 'כללים:' : 'RULES:'}
+- ${isHebrew ? 'התחל עם אמוג׳י חדשות אחד (🚨 📰 🔴 ⚡ 📢 💥 🔥)' : 'Lead with ONE news emoji (🚨 📰 🔴 ⚡ 📢 💥 🔥)'}
+- ${isHebrew ? 'משפט אחד בלבד - החדשות המרכזיות' : 'One sentence only - the core news'}
+- ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT source URL provided'}
+- ${includeHashtags ? (isHebrew ? 'מקסימום 3 האשטגים, מחולצים מתוכן המאמר' : 'Max 3 hashtags, extracted from article content') : (isHebrew ? 'ללא האשטגים' : 'NO hashtags')}
+- ${isHebrew ? 'לעולם אל תעבור 280 תווים' : 'NEVER exceed 280 characters total'}
+- ${isHebrew ? 'לעולם אל תקצר או תשנה את הקישור' : 'NEVER shorten or modify the URL'}`;
 };
 
 /**
@@ -52,31 +55,32 @@ const getTwitterStandardUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
   const urlLength = hasValidUrl ? article.url.length : 0;
+  const isHebrew = isHebrewLanguage(agentSettings);
 
   // Calculate available characters (280 minus URL length and spacing)
   const availableChars = 280 - urlLength - 10; // 10 for emoji, newlines, spacing
 
   return `
-CREATE A TWITTER NEWS UPDATE (STRICT 280 CHARACTER LIMIT):
+${isHebrew ? 'צור עדכון חדשות לטוויטר (מגבלת 280 תווים קפדנית):' : 'CREATE A TWITTER NEWS UPDATE (STRICT 280 CHARACTER LIMIT):'}
 
-Article:
-Title: ${article.title}
-${hasValidUrl ? `URL: ${article.url} (URL is ${urlLength} chars)` : '(No URL available)'}
-Summary: ${article.description || article.summary || ''}
+${isHebrew ? 'מאמר:' : 'Article:'}
+${isHebrew ? 'כותרת:' : 'Title:'} ${article.title}
+${hasValidUrl ? `URL: ${article.url} (${isHebrew ? 'הקישור הוא' : 'URL is'} ${urlLength} ${isHebrew ? 'תווים' : 'chars'})` : (isHebrew ? '(אין קישור זמין)' : '(No URL available)')}
+${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
 
-CONSTRAINTS:
-- Total tweet must be UNDER 280 characters
-- URL alone is ${urlLength} characters
-- You have ~${availableChars} characters for text and hashtags
-- ${includeHashtags ? 'Include 2-3 SHORT hashtags from article content' : 'Do NOT include hashtags'}
-${hasValidUrl ? `- Use this EXACT URL: ${article.url}` : '- Do NOT include any URL'}
+${isHebrew ? 'אילוצים:' : 'CONSTRAINTS:'}
+- ${isHebrew ? 'הציוץ הכולל חייב להיות מתחת ל-280 תווים' : 'Total tweet must be UNDER 280 characters'}
+- ${isHebrew ? 'הקישור לבדו הוא' : 'URL alone is'} ${urlLength} ${isHebrew ? 'תווים' : 'characters'}
+- ${isHebrew ? 'יש לך בערך' : 'You have ~'}${availableChars} ${isHebrew ? 'תווים לטקסט והאשטגים' : 'characters for text and hashtags'}
+- ${includeHashtags ? (isHebrew ? 'כלול 2-3 האשטגים קצרים מתוכן המאמר' : 'Include 2-3 SHORT hashtags from article content') : (isHebrew ? 'אל תכלול האשטגים' : 'Do NOT include hashtags')}
+${hasValidUrl ? `- ${isHebrew ? 'השתמש בקישור המדויק הזה:' : 'Use this EXACT URL:'} ${article.url}` : `- ${isHebrew ? 'אל תכלול קישור' : 'Do NOT include any URL'}`}
 
-OUTPUT FORMAT:
-🚨 [News in one short sentence]
+${isHebrew ? 'פורמט הפלט:' : 'OUTPUT FORMAT:'}
+🚨 [${isHebrew ? 'החדשות במשפט קצר אחד' : 'News in one short sentence'}]
 ${hasValidUrl ? `🔗 ${article.url}` : ''}
-${includeHashtags ? '#Short #Tags' : ''}
+${includeHashtags ? (isHebrew ? '#תגים #קצרים' : '#Short #Tags') : ''}
 
-COUNT YOUR CHARACTERS CAREFULLY!`;
+${isHebrew ? 'ספור את התווים שלך בזהירות!' : 'COUNT YOUR CHARACTERS CAREFULLY!'}`;
 };
 
 /**
@@ -88,40 +92,43 @@ const getTwitterPremiumSystemPrompt = (agentSettings = {}) => {
   const topicGuidance = buildTopicGuidance(agentSettings);
   const toneInstructions = getToneInstructions(agentSettings?.contentStyle?.tone);
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
+  const isHebrew = isHebrewLanguage(agentSettings);
+  const languageInstruction = getLanguageInstruction(agentSettings);
 
-  return `You are a professional news correspondent on Twitter/X with Premium access. Create engaging news updates with more detail (up to 4000 characters).
+  return `${isHebrew ? 'אתה כתב חדשות מקצועי בטוויטר/X עם גישת Premium. צור עדכוני חדשות מרתקים עם יותר פרטים (עד 4000 תווים).' : 'You are a professional news correspondent on Twitter/X with Premium access. Create engaging news updates with more detail (up to 4000 characters).'}
+${languageInstruction}
 
-Topic Focus:
+${isHebrew ? 'מיקוד נושאי:' : 'Topic Focus:'}
 ${topicGuidance}
 
 ${toneInstructions}
 
-Your posts should:
-1. Start with a compelling headline using a news emoji
-2. Provide 2-3 short paragraphs of key information:
-   - First: The breaking news (who, what, when)
-   - Second: Key details and significance
-   - Third: Why it matters / what's next
-3. Include the exact source URL
-4. ${includeHashtags ? 'End with 4-6 relevant hashtags extracted from the article' : 'Do NOT include hashtags'}
+${isHebrew ? 'הפוסטים שלך צריכים:' : 'Your posts should:'}
+1. ${isHebrew ? 'להתחיל עם כותרת מרשימה עם אמוג׳י חדשות' : 'Start with a compelling headline using a news emoji'}
+2. ${isHebrew ? 'לספק 2-3 פסקאות קצרות של מידע מפתח:' : 'Provide 2-3 short paragraphs of key information:'}
+   - ${isHebrew ? 'ראשונה: החדשות הבוערות (מי, מה, מתי)' : 'First: The breaking news (who, what, when)'}
+   - ${isHebrew ? 'שנייה: פרטים מפתח ומשמעותם' : 'Second: Key details and significance'}
+   - ${isHebrew ? 'שלישית: למה זה חשוב / מה הלאה' : 'Third: Why it matters / what\'s next'}
+3. ${isHebrew ? 'לכלול את הקישור המדויק למקור' : 'Include the exact source URL'}
+4. ${includeHashtags ? (isHebrew ? 'לסיים עם 4-6 האשטגים רלוונטיים שחולצו מהמאמר' : 'End with 4-6 relevant hashtags extracted from the article') : (isHebrew ? 'לא לכלול האשטגים' : 'Do NOT include hashtags')}
 
-Format:
-🚨 [Attention-grabbing headline]
+${isHebrew ? 'פורמט:' : 'Format:'}
+🚨 [${isHebrew ? 'כותרת מושכת תשומת לב' : 'Attention-grabbing headline'}]
 
-📰 [Breaking news - the key facts in 2-3 sentences]
+📰 [${isHebrew ? 'החדשות הבוערות - העובדות המרכזיות ב-2-3 משפטים' : 'Breaking news - the key facts in 2-3 sentences'}]
 
-💡 [Why this matters - context and implications]
+💡 [${isHebrew ? 'למה זה חשוב - הקשר והשלכות' : 'Why this matters - context and implications'}]
 
-🔗 Read more: [URL]
+🔗 ${isHebrew ? 'קרא עוד:' : 'Read more:'} [URL]
 
-${includeHashtags ? '#Relevant #Hashtags #FromArticle' : ''}
+${includeHashtags ? (isHebrew ? '#האשטגים #רלוונטיים #מהמאמר' : '#Relevant #Hashtags #FromArticle') : ''}
 
-RULES:
-- Keep it engaging and Twitter-appropriate
-- Use line breaks for readability
-- Include the EXACT URL provided - never modify or shorten it
-- Stay under 4000 characters total
-- ${includeHashtags ? 'Extract hashtags from actual article content' : 'No hashtags'}`;
+${isHebrew ? 'כללים:' : 'RULES:'}
+- ${isHebrew ? 'שמור על זה מרתק ומתאים לטוויטר' : 'Keep it engaging and Twitter-appropriate'}
+- ${isHebrew ? 'השתמש בשורות ריקות לקריאות' : 'Use line breaks for readability'}
+- ${isHebrew ? 'כלול את הקישור המדויק שסופק - לעולם אל תשנה או תקצר אותו' : 'Include the EXACT URL provided - never modify or shorten it'}
+- ${isHebrew ? 'הישאר מתחת ל-4000 תווים' : 'Stay under 4000 characters total'}
+- ${includeHashtags ? (isHebrew ? 'חלץ האשטגים מתוכן המאמר בפועל' : 'Extract hashtags from actual article content') : (isHebrew ? 'ללא האשטגים' : 'No hashtags')}`;
 };
 
 /**
@@ -134,34 +141,46 @@ const getTwitterPremiumUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
   const keywords = agentSettings?.keywords || [];
+  const isHebrew = isHebrewLanguage(agentSettings);
 
   let focusContext = '';
   if (keywords.length > 0) {
     const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = `\nUser's areas of interest: ${keywordList}`;
+    focusContext = isHebrew
+      ? `\nתחומי עניין של המשתמש: ${keywordList}`
+      : `\nUser's areas of interest: ${keywordList}`;
   }
 
   return `
-CREATE A TWITTER PREMIUM POST (up to 4000 characters):
+${isHebrew ? 'צור פוסט טוויטר Premium (עד 4000 תווים):' : 'CREATE A TWITTER PREMIUM POST (up to 4000 characters):'}
 
-Article:
-Title: ${article.title}
-${hasValidUrl ? `URL: ${article.url}` : '(No URL available)'}
-Published: ${new Date(article.publishedAt || new Date()).toLocaleString()}
-Summary: ${article.description || article.summary || ''}
+${isHebrew ? 'מאמר:' : 'Article:'}
+${isHebrew ? 'כותרת:' : 'Title:'} ${article.title}
+${hasValidUrl ? `URL: ${article.url}` : (isHebrew ? '(אין קישור זמין)' : '(No URL available)')}
+${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
+${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
 ${focusContext}
 
-Create an engaging Twitter post that:
+${isHebrew
+  ? `צור פוסט טוויטר מרתק ש:
+- לוכד את החדשות המרכזיות בצורה מושכת תשומת לב
+- מספק הקשר ולמה זה חשוב
+- משתמש בסגנון השיחתי של טוויטר (יותר קז'ואל מלינקדאין)
+- מותאם למעורבות ושיתופים`
+  : `Create an engaging Twitter post that:
 - Captures the key news in an attention-grabbing way
 - Provides context and why it matters
 - Uses Twitter's conversational style (more casual than LinkedIn)
-- Is optimized for engagement and shares
+- Is optimized for engagement and shares`}
 
-${hasValidUrl ? `Include this EXACT URL in your post: ${article.url}
-Do NOT shorten or modify the URL.` : 'Do NOT include any URL since none was provided.'}
+${hasValidUrl ? `${isHebrew ? 'כלול את הקישור המדויק הזה בפוסט שלך:' : 'Include this EXACT URL in your post:'} ${article.url}
+${isHebrew ? 'אל תקצר או תשנה את הקישור.' : 'Do NOT shorten or modify the URL.'}` : (isHebrew ? 'אל תכלול קישור כי לא סופק.' : 'Do NOT include any URL since none was provided.')}
 
-${includeHashtags ? `Include 4-6 relevant hashtags extracted from the article content.
-Use hashtag format: #HashtagName (CamelCase for multi-word)` : 'Do NOT include any hashtags.'}
+${includeHashtags ? (isHebrew
+  ? `כלול 4-6 האשטגים רלוונטיים שחולצו מתוכן המאמר.
+השתמש בפורמט האשטג: #שםהאשטג`
+  : `Include 4-6 relevant hashtags extracted from the article content.
+Use hashtag format: #HashtagName (CamelCase for multi-word)`) : (isHebrew ? 'אל תכלול האשטגים.' : 'Do NOT include any hashtags.')}
 `;
 };
 

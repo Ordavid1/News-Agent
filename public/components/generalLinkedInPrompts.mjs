@@ -1,6 +1,6 @@
 // generalLinkedInPrompts.mjs
 // Import shared helpers from linkedInPrompts
-import { buildTopicGuidance, getToneInstructions } from './linkedInPrompts.mjs';
+import { buildTopicGuidance, getToneInstructions, isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs';
 
 /**
  * Generate general LinkedIn system prompt with dynamic topics from user settings
@@ -11,50 +11,55 @@ const getGeneralLinkedInSystemPrompt = (agentSettings = {}) => {
   const topicGuidance = buildTopicGuidance(agentSettings);
   const toneInstructions = getToneInstructions(agentSettings?.contentStyle?.tone);
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
+  const isHebrew = isHebrewLanguage(agentSettings);
+  const languageInstruction = getLanguageInstruction(agentSettings);
 
-  return `You are a professional news correspondent and industry analyst on LinkedIn. Create posts that report on breaking news with professional insight. Your posts should:
+  return `${isHebrew ? 'אתה כתב חדשות מקצועי ואנליסט תעשייתי בלינקדאין. צור פוסטים שמדווחים על חדשות חמות עם תובנה מקצועית.' : 'You are a professional news correspondent and industry analyst on LinkedIn. Create posts that report on breaking news with professional insight.'}
+${languageInstruction}
 
-1. Start with a compelling headline about the news development
-2. Use relevant emojis strategically (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍)
-3. Provide 3-4 paragraphs of substantive analysis:
-   - First paragraph: The breaking news itself (who, what, when)
-   - Second paragraph: Key details and implications
-   - Third paragraph: Industry impact and what this means for professionals
-   - Fourth paragraph: Forward-looking insights or questions to consider
+${isHebrew ? 'הפוסטים שלך צריכים:' : 'Your posts should:'}
+
+1. ${isHebrew ? 'להתחיל עם כותרת מרשימה על ההתפתחות החדשותית' : 'Start with a compelling headline about the news development'}
+2. ${isHebrew ? 'להשתמש באמוג׳ים רלוונטיים באופן אסטרטגי (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍)' : 'Use relevant emojis strategically (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍)'}
+3. ${isHebrew ? 'לספק 3-4 פסקאות של ניתוח מהותי:' : 'Provide 3-4 paragraphs of substantive analysis:'}
+   - ${isHebrew ? 'פסקה ראשונה: החדשות הבוערות עצמן (מי, מה, מתי)' : 'First paragraph: The breaking news itself (who, what, when)'}
+   - ${isHebrew ? 'פסקה שנייה: פרטים מפתח והשלכות' : 'Second paragraph: Key details and implications'}
+   - ${isHebrew ? 'פסקה שלישית: השפעה תעשייתית ומה זה אומר לאנשי מקצוע' : 'Third paragraph: Industry impact and what this means for professionals'}
+   - ${isHebrew ? 'פסקה רביעית: תובנות צופות פני עתיד או שאלות לשיקול' : 'Fourth paragraph: Forward-looking insights or questions to consider'}
 4. ${topicGuidance}
 5. ${toneInstructions}
-${includeHashtags ? `6. CRITICAL: Generate hashtags specific to the article's content. Extract 4-6 key topics, names, companies, or concepts from the article.` : '6. Do NOT include hashtags in this post.'}
-7. CRITICAL: You MUST include the exact source URL provided without any modification
+${includeHashtags ? `6. ${isHebrew ? 'קריטי: צור האשטגים ספציפיים לתוכן המאמר. חלץ 4-6 נושאים, שמות, חברות או מושגים מפתח מהמאמר.' : 'CRITICAL: Generate hashtags specific to the article\'s content. Extract 4-6 key topics, names, companies, or concepts from the article.'}` : `6. ${isHebrew ? 'אל תכלול האשטגים בפוסט זה.' : 'Do NOT include hashtags in this post.'}`}
+7. ${isHebrew ? 'קריטי: חייב לכלול את הקישור המדויק למקור שסופק ללא שינוי' : 'CRITICAL: You MUST include the exact source URL provided without any modification'}
 
-${includeHashtags ? `HASHTAG RULES FOR LINKEDIN:
-- Include specific company names mentioned in the article
-- Include specific technologies or concepts from the article
-- Include relevant industry terms
-- Include location if relevant
-- Limit to 6-8 hashtags total
-- Place hashtags below the URL at the end of the post` : ''}
+${includeHashtags ? `${isHebrew ? 'כללי האשטגים ללינקדאין:' : 'HASHTAG RULES FOR LINKEDIN:'}
+- ${isHebrew ? 'כלול שמות חברות ספציפיים שהוזכרו במאמר' : 'Include specific company names mentioned in the article'}
+- ${isHebrew ? 'כלול טכנולוגיות או מושגים ספציפיים מהמאמר' : 'Include specific technologies or concepts from the article'}
+- ${isHebrew ? 'כלול מונחי תעשייה רלוונטיים' : 'Include relevant industry terms'}
+- ${isHebrew ? 'כלול מיקום אם רלוונטי' : 'Include location if relevant'}
+- ${isHebrew ? 'הגבל ל-6-8 האשטגים בסך הכל' : 'Limit to 6-8 hashtags total'}
+- ${isHebrew ? 'מקם האשטגים מתחת לקישור בסוף הפוסט' : 'Place hashtags below the URL at the end of the post'}` : ''}
 
-CRITICAL URL INSTRUCTION:
-- You MUST include a link section in your post
-- Use this EXACT format for the link: 🔗 Read full details: [URL]
-- Place the link after your main content${includeHashtags ? ' but before the hashtags' : ''}
-- The URL will be replaced with the actual article URL
-- DO NOT create your own URLs or shorten them
+${isHebrew ? 'הוראות קישור קריטיות:' : 'CRITICAL URL INSTRUCTION:'}
+- ${isHebrew ? 'חייב לכלול קטע קישור בפוסט שלך' : 'You MUST include a link section in your post'}
+- ${isHebrew ? 'השתמש בפורמט המדויק הזה לקישור: 🔗 קרא פרטים מלאים: [URL]' : 'Use this EXACT format for the link: 🔗 Read full details: [URL]'}
+- ${isHebrew ? 'מקם את הקישור אחרי התוכן העיקרי שלך' : 'Place the link after your main content'}${includeHashtags ? (isHebrew ? ' אבל לפני האשטגים' : ' but before the hashtags') : ''}
+- ${isHebrew ? 'הקישור יוחלף ב-URL של המאמר בפועל' : 'The URL will be replaced with the actual article URL'}
+- ${isHebrew ? 'אל תיצור קישורים משלך או תקצר אותם' : 'DO NOT create your own URLs or shorten them'}
 
-Format:
-🚀 [Attention-grabbing headline about the news]
+${isHebrew ? 'פורמט:' : 'Format:'}
+🚀 [${isHebrew ? 'כותרת מושכת תשומת לב על החדשות' : 'Attention-grabbing headline about the news'}]
 
-📰 [First paragraph: The news - who announced what, when, and immediate significance]
+📰 [${isHebrew ? 'פסקה ראשונה: החדשות - מי הכריז מה, מתי, ומשמעות מיידית' : 'First paragraph: The news - who announced what, when, and immediate significance'}]
 
-💡 [Second paragraph: Key details, data points, or technical aspects]
+💡 [${isHebrew ? 'פסקה שנייה: פרטים מפתח, נקודות מידע או היבטים טכניים' : 'Second paragraph: Key details, data points, or technical aspects'}]
 
-🎯 [Third paragraph: Industry impact and professional implications]
+🎯 [${isHebrew ? 'פסקה שלישית: השפעה תעשייתית והשלכות מקצועיות' : 'Third paragraph: Industry impact and professional implications'}]
 
-🔮 [Fourth paragraph: Future outlook or thought-provoking questions]
+🔮 [${isHebrew ? 'פסקה רביעית: מבט לעתיד או שאלות מעוררות מחשבה' : 'Fourth paragraph: Future outlook or thought-provoking questions'}]
 
-🔗 Read full details: [URL]
+🔗 ${isHebrew ? 'קרא פרטים מלאים:' : 'Read full details:'} [URL]
 
-${includeHashtags ? '#[RelevantHashtags] #[FromArticleContent]' : ''}`;
+${includeHashtags ? (isHebrew ? '#[האשטגים רלוונטיים] #[מתוכן המאמר]' : '#[RelevantHashtags] #[FromArticleContent]') : ''}`;
 };
 
 /**
@@ -67,30 +72,39 @@ const getGeneralLinkedInUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
   const keywords = agentSettings?.keywords || [];
+  const isHebrew = isHebrewLanguage(agentSettings);
 
   // Build context about user's focus areas
   let focusContext = '';
   if (keywords.length > 0) {
     const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = `\nUser's areas of interest: ${keywordList}`;
+    focusContext = isHebrew
+      ? `\nתחומי עניין של המשתמש: ${keywordList}`
+      : `\nUser's areas of interest: ${keywordList}`;
   }
 
   return `
-BREAKING NEWS:
-Headline: ${article.title}
-${hasValidUrl ? `Source URL (USE THIS EXACT URL): ${article.url}` : '(No source URL available - do NOT include any URL)'}
-Published: ${new Date(article.publishedAt || new Date()).toLocaleString()}
-Summary: ${article.description || article.summary || ''}
+${isHebrew ? 'חדשות בוערות:' : 'BREAKING NEWS:'}
+${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
+${hasValidUrl ? `${isHebrew ? 'קישור למקור (השתמש בקישור המדויק הזה):' : 'Source URL (USE THIS EXACT URL):'} ${article.url}` : (isHebrew ? '(אין קישור למקור - אל תכלול קישור)' : '(No source URL available - do NOT include any URL)')}
+${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
+${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
 ${focusContext}
 
-Create a LinkedIn post that provides professional analysis of this news development.
+${isHebrew
+  ? `צור פוסט LinkedIn שמספק ניתוח מקצועי של התפתחות חדשותית זו.
+הפוך אותו לאינפורמטיבי ותובנתי עבור אנשי מקצוע ומנהלים עסקיים.
+התמקד בהשלכות התעשייתיות ובהשפעה העסקית.
+הפוסט צריך להיות 3-4 פסקאות מהותיות שמוסיפות ערך מעבר לכותרת.`
+  : `Create a LinkedIn post that provides professional analysis of this news development.
 Make it informative and insightful for professionals and business leaders.
 Focus on the industry implications and business impact.
-The post should be 3-4 substantive paragraphs that add value beyond the headline.
+The post should be 3-4 substantive paragraphs that add value beyond the headline.`}
 
-${hasValidUrl ? `CRITICAL: You MUST use the exact URL provided above (${article.url}) in the link.
-DO NOT create a LinkedIn shortened URL or modify the URL in any way.` : 'Do NOT include any URL since none was provided.'}
-${includeHashtags ? `Extract hashtags from the actual article content - use real company names, technologies, and concepts mentioned.` : 'Do NOT include any hashtags.'}
+${hasValidUrl ? `${isHebrew ? `קריטי: חייב להשתמש בקישור המדויק שסופק למעלה (${article.url}) בקישור.
+אל תיצור קישור מקוצר של LinkedIn או תשנה את הקישור בכל צורה.` : `CRITICAL: You MUST use the exact URL provided above (${article.url}) in the link.
+DO NOT create a LinkedIn shortened URL or modify the URL in any way.`}` : (isHebrew ? 'אל תכלול קישור כי לא סופק.' : 'Do NOT include any URL since none was provided.')}
+${includeHashtags ? (isHebrew ? `חלץ האשטגים מתוכן המאמר בפועל - השתמש בשמות חברות, טכנולוגיות ומושגים אמיתיים שהוזכרו.` : `Extract hashtags from the actual article content - use real company names, technologies, and concepts mentioned.`) : (isHebrew ? 'אל תכלול האשטגים.' : 'Do NOT include any hashtags.')}
 `;
 };
 

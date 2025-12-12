@@ -1077,6 +1077,14 @@ function renderAgentsGrid() {
             ? new Date(agent.last_posted_at).toLocaleDateString()
             : 'Never';
 
+        // Check if test was already used (persisted server-side)
+        const testUsed = !!agent.test_used_at;
+        const testDisabled = agent.status !== 'active' || testUsed;
+        const testButtonClass = testUsed
+            ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+            : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30';
+        const testButtonText = testUsed ? 'Used' : 'Test';
+
         return `
             <div class="platform-card rounded-xl p-6" id="agent-${agent.id}">
                 <div class="flex items-center justify-between mb-4">
@@ -1107,9 +1115,10 @@ function renderAgentsGrid() {
 
                 <div class="flex gap-2">
                     <button onclick="testAgentPost('${agent.id}')"
-                            class="flex-1 py-2 rounded-lg bg-cyan-500/20 text-cyan-400 text-sm font-medium hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
-                            ${agent.status !== 'active' ? 'disabled' : ''}>
-                        <span>Test</span>
+                            class="flex-1 py-2 rounded-lg ${testButtonClass} text-sm font-medium transition-all flex items-center justify-center gap-1"
+                            ${testDisabled ? 'disabled' : ''}
+                            title="${testUsed ? 'Test already used for this agent' : 'Test post to this platform'}">
+                        <span>${testButtonText}</span>
                     </button>
                     <button onclick="window.location.href='/settings.html?agent=${agent.id}'"
                             class="flex-1 py-2 rounded-lg bg-purple-500/20 text-purple-400 text-sm font-medium hover:bg-purple-500/30 transition-all">
@@ -1416,6 +1425,10 @@ function showAgentTestResults(result, isSuccess) {
         if (result.step === 'status') {
             html += `
                 <p class="text-gray-400">Activate the agent first to test posting.</p>
+            `;
+        } else if (result.step === 'test_limit') {
+            html += `
+                <p class="text-gray-400">Each agent can only be tested once. This test was already used.</p>
             `;
         }
     }

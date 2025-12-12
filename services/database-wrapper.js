@@ -38,5 +38,6 @@ export {
   updateAgent,
   deleteAgent,
   countUserAgents,
-  incrementAgentPost
+  incrementAgentPost,
+  markAgentTestUsed
 } from './database.js';

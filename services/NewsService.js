@@ -2,6 +2,8 @@
 import axios from 'axios';
 import winston from 'winston';
 import { getTopicSearchQueries, getTopicKeywords } from '../config/topicMappings.js';
+// Import Hebrew search module for Israeli news sources
+import { fetchFromGoogleCSE_HEBREW, SOURCE_TIERS as HEBREW_SOURCE_TIERS } from '../public/components/hebrewSearch.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -42,7 +44,11 @@ class NewsService {
 
     const { region = '', includeGlobal = true } = geoFilter;
 
-    logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}`);
+    // Determine if we should use Hebrew search
+    const isHebrewRegion = region.toLowerCase() === 'il';
+    const effectiveLanguage = isHebrewRegion ? 'he' : language;
+
+    logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}, language: ${effectiveLanguage}`);
 
     const allNews = [];
 
@@ -56,7 +62,7 @@ class NewsService {
 
     // Fetch news for each topic
     for (const topic of topics) {
-      const cacheKey = `${topic}_${language}_${sortBy}_${region}_${keywords.join(',')}`;
+      const cacheKey = `${topic}_${effectiveLanguage}_${sortBy}_${region}_${keywords.join(',')}`;
       const cached = this.getFromCache(cacheKey);
 
       if (cached) {
@@ -67,32 +73,60 @@ class NewsService {
 
       const topicNews = [];
 
-      // Try different news sources
-      if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
+      // For Israel region, prioritize Hebrew search sources
+      if (isHebrewRegion) {
         try {
-          const newsApiResults = await this.fetchFromNewsAPI(topic, language, sortBy, { keywords, region });
-          topicNews.push(...newsApiResults);
+          logger.info(`Using Hebrew search for topic: ${topic}`);
+          const hebrewResults = await this.fetchFromHebrewSources(topic, { keywords, region });
+          topicNews.push(...hebrewResults);
         } catch (error) {
-          logger.error(`NewsAPI error for topic ${topic}:`, error.message);
+          logger.error(`Hebrew search error for topic ${topic}:`, error.message);
         }
       }
 
-      if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
-        try {
-          const gnewsResults = await this.fetchFromGNews(topic, language, sortBy, { keywords, region });
-          topicNews.push(...gnewsResults);
-        } catch (error) {
-          logger.error(`GNews error for topic ${topic}:`, error.message);
+      // Try different news sources (as fallback or primary for non-Hebrew)
+      if (topicNews.length === 0 || !isHebrewRegion) {
+        if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
+          try {
+            const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
+            topicNews.push(...newsApiResults);
+          } catch (error) {
+            logger.error(`NewsAPI error for topic ${topic}:`, error.message);
+          }
+        }
+
+        if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
+          try {
+            const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region });
+            topicNews.push(...gnewsResults);
+          } catch (error) {
+            logger.error(`GNews error for topic ${topic}:`, error.message);
+          }
+        }
+
+        // If no real APIs available or no results, use Google Custom Search
+        if (topicNews.length === 0 && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+          try {
+            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { keywords, region });
+            topicNews.push(...googleResults);
+          } catch (error) {
+            logger.error(`Google CSE error for topic ${topic}:`, error.message);
+          }
         }
       }
 
-      // If no real APIs available or no results, use Google Custom Search
-      if (topicNews.length === 0 && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+      // If includeGlobal is true and we're in Hebrew mode, also fetch some global news
+      if (isHebrewRegion && includeGlobal && topicNews.length < limit) {
         try {
-          const googleResults = await this.fetchFromGoogleCSE(topic, language, { keywords, region });
-          topicNews.push(...googleResults);
+          logger.info(`Fetching global news to supplement Hebrew results for topic: ${topic}`);
+          const globalResults = await this.fetchFromGoogleCSE(topic, 'en', { keywords, region: '' });
+          // Add global results but mark them
+          globalResults.forEach(article => {
+            article.isGlobal = true;
+          });
+          topicNews.push(...globalResults.slice(0, Math.max(3, limit - topicNews.length)));
         } catch (error) {
-          logger.error(`Google CSE error for topic ${topic}:`, error.message);
+          logger.debug(`Global news supplement error for topic ${topic}:`, error.message);
         }
       }
 
@@ -116,6 +150,87 @@ class NewsService {
     const sortedNews = this.sortNews(uniqueNews, sortBy);
 
     return sortedNews.slice(0, limit);
+  }
+
+  /**
+   * Fetch news from Hebrew sources using the dedicated Hebrew search module
+   * @param {string} topic - Topic to search for
+   * @param {Object} filters - Additional filters (keywords, region)
+   * @returns {Array} Array of news articles
+   */
+  async fetchFromHebrewSources(topic, filters = {}) {
+    const { keywords = [] } = filters;
+
+    // Build Hebrew search query
+    let searchQuery = topic;
+    if (keywords.length > 0) {
+      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
+      searchQuery = `${topic} ${cleanKeywords.join(' ')}`;
+    }
+
+    try {
+      logger.info(`Hebrew CSE search for: ${searchQuery}`);
+      const hebrewResults = await fetchFromGoogleCSE_HEBREW(searchQuery);
+
+      if (!hebrewResults || hebrewResults.length === 0) {
+        logger.info('No Hebrew results found');
+        return [];
+      }
+
+      logger.info(`Hebrew search returned ${hebrewResults.length} articles`);
+
+      // Transform to standard article format
+      return hebrewResults.map(article => ({
+        title: article.title,
+        description: article.description,
+        content: article.description,
+        url: article.url,
+        urlToImage: null, // Hebrew search doesn't typically return images
+        publishedAt: article.publishedAt,
+        source: {
+          name: article.source?.name || 'Hebrew Source',
+          api: 'hebrew-cse',
+          tier: article.source?.tier || HEBREW_SOURCE_TIERS[article.source?.name] || 0.5
+        },
+        topic,
+        language: 'he',
+        relevanceScore: this.calculateHebrewRelevanceScore(article, topic)
+      }));
+
+    } catch (error) {
+      logger.error('Hebrew sources fetch error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Calculate relevance score for Hebrew articles
+   * Uses Hebrew source tiers for credibility scoring
+   */
+  calculateHebrewRelevanceScore(article, topic) {
+    let score = 0;
+    const text = `${article.title} ${article.description || ''}`.toLowerCase();
+
+    // Check topic matches (simple word matching)
+    const topicWords = topic.toLowerCase().split(/\s+/);
+    topicWords.forEach(word => {
+      if (text.includes(word)) {
+        score += 10;
+      }
+    });
+
+    // Boost for recent articles
+    const publishedDate = new Date(article.publishedAt);
+    const hoursAgo = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60);
+    if (hoursAgo < 24) score += 20;
+    else if (hoursAgo < 72) score += 10;
+    else if (hoursAgo < 168) score += 5;
+
+    // Boost for reputable Hebrew sources using imported tiers
+    const sourceTier = article.source?.tier || 0.5;
+    score += sourceTier * 20; // Max 20 points for tier 1 sources
+
+    return score;
   }
 
   /**

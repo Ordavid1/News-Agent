@@ -1,12 +1,53 @@
 // linkedInPrompts.mjs
 
 /**
+ * Check if the content should be in Hebrew based on geoFilter region
+ * @param {Object} agentSettings - User's agent settings
+ * @returns {boolean} Whether to use Hebrew language
+ */
+const isHebrewLanguage = (agentSettings) => {
+  const region = agentSettings?.geoFilter?.region || '';
+  return region.toLowerCase() === 'il';
+};
+
+/**
+ * Get language instruction based on settings
+ * @param {Object} agentSettings - User's agent settings
+ * @returns {string} Language instruction
+ */
+const getLanguageInstruction = (agentSettings) => {
+  if (isHebrewLanguage(agentSettings)) {
+    return `
+CRITICAL LANGUAGE INSTRUCTION:
+- Write the ENTIRE post in Hebrew (עברית)
+- Use Hebrew characters for all text
+- Write from right to left (RTL)
+- Only the URL should remain in English
+- Hashtags should be in Hebrew when appropriate (e.g., #טכנולוגיה #חדשות)
+- Maintain professional Hebrew writing style`;
+  }
+  return '';
+};
+
+/**
  * Build topic-specific guidance based on user's selected topics
  * @param {Object} agentSettings - User's agent settings
  * @returns {string} Topic guidance for the prompt
  */
 const buildTopicGuidance = (agentSettings) => {
-  const topicDescriptions = {
+  const isHebrew = isHebrewLanguage(agentSettings);
+
+  // Hebrew topic descriptions
+  const topicDescriptionsHebrew = {
+    technology: 'טכנולוגיה: תוכנה, חומרה, טרנספורמציה דיגיטלית, מגמות בתעשיית הטכנולוגיה, חדשנות',
+    business: 'עסקים: חדשות תאגידיות, מגמות שוק, יזמות, מנהיגות, אסטרטגיה',
+    entertainment: 'בידור: מדיה, סטרימינג, משחקים, חדשות סלבריטאים, תרבות פופולרית',
+    sports: 'ספורט: אירועי ספורט, קבוצות, שחקנים, ליגות, תחרויות',
+    health: 'בריאות: פריצות דרך רפואיות, אורח חיים בריא, תעשיית הבריאות, בריאות הציבור',
+    science: 'מדע: תגליות מחקריות, מחקרים מדעיים, חלל, סביבה, אקלים'
+  };
+
+  const topicDescriptionsEnglish = {
     technology: 'Technology: Software, hardware, digital transformation, tech industry trends, innovation',
     business: 'Business: Corporate news, market trends, entrepreneurship, leadership, strategy',
     entertainment: 'Entertainment: Media, streaming, gaming, celebrity news, pop culture',
@@ -15,11 +56,15 @@ const buildTopicGuidance = (agentSettings) => {
     science: 'Science: Research discoveries, scientific studies, space, environment, climate'
   };
 
+  const topicDescriptions = isHebrew ? topicDescriptionsHebrew : topicDescriptionsEnglish;
+
   const topics = agentSettings?.topics || [];
   const keywords = agentSettings?.keywords || [];
 
   if (topics.length === 0 && keywords.length === 0) {
-    return 'Cover news across technology, business, and general interest topics.';
+    return isHebrew
+      ? 'סקור חדשות בתחומי טכנולוגיה, עסקים ונושאים כלליים.'
+      : 'Cover news across technology, business, and general interest topics.';
   }
 
   let guidance = '';
@@ -29,12 +74,17 @@ const buildTopicGuidance = (agentSettings) => {
       .map(t => topicDescriptions[t])
       .filter(Boolean)
       .join('\n   - ');
-    guidance += `Focus on these topic areas:\n   - ${topicDetails}`;
+    guidance += isHebrew
+      ? `התמקד בתחומי נושא אלה:\n   - ${topicDetails}`
+      : `Focus on these topic areas:\n   - ${topicDetails}`;
   }
 
   if (keywords.length > 0) {
     const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    guidance += `${topics.length > 0 ? '\n\n' : ''}Pay special attention to content related to: ${keywordList}`;
+    const keywordPrefix = isHebrew
+      ? 'שים לב במיוחד לתוכן הקשור ל: '
+      : 'Pay special attention to content related to: ';
+    guidance += `${topics.length > 0 ? '\n\n' : ''}${keywordPrefix}${keywordList}`;
   }
 
   return guidance;
@@ -81,8 +131,13 @@ const getLinkedInSystemPrompt = (agentSettings = {}) => {
   const topicGuidance = buildTopicGuidance(agentSettings);
   const toneInstructions = getToneInstructions(agentSettings?.contentStyle?.tone);
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
+  const languageInstruction = getLanguageInstruction(agentSettings);
+  const isHebrew = isHebrewLanguage(agentSettings);
 
-  return `You are a professional industry analyst and thought leader on LinkedIn. Create posts that report on breaking news with professional insight. Your posts should:
+  return `You are a professional industry analyst and thought leader on LinkedIn. Create posts that report on breaking news with professional insight.
+${languageInstruction}
+
+Your posts should:
 
 1. Start with a compelling headline about the development
 2. Use relevant emojis strategically (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍 🤖 🧠)
@@ -125,11 +180,11 @@ Format:
 
 🔮 [Fourth paragraph: Future outlook - what this means for the future, questions it raises, or potential next steps]
 
-💬 What are your thoughts on this development? How do you see it impacting your work?
+${isHebrew ? '💬 מה דעתכם על ההתפתחות הזו? איך אתם רואים את ההשפעה שלה על העבודה שלכם?' : '💬 What are your thoughts on this development? How do you see it impacting your work?'}
 
 🔗 [Include the exact source URL here - or omit this line if no URL provided]
 
-${includeHashtags ? '#Hashtag1 #Hashtag2 #Hashtag3' : ''}
+${includeHashtags ? (isHebrew ? '#האשטג1 #האשטג2 #האשטג3' : '#Hashtag1 #Hashtag2 #Hashtag3') : ''}
 
 `;
 };
@@ -144,32 +199,42 @@ const getLinkedInUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
   const keywords = agentSettings?.keywords || [];
+  const isHebrew = isHebrewLanguage(agentSettings);
+  const languageInstruction = getLanguageInstruction(agentSettings);
 
   // Build context about user's focus areas
   let focusContext = '';
   if (keywords.length > 0) {
     const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = `\nUser's areas of interest: ${keywordList}`;
+    focusContext = isHebrew
+      ? `\nתחומי עניין של המשתמש: ${keywordList}`
+      : `\nUser's areas of interest: ${keywordList}`;
   }
 
   return `
-BREAKING NEWS TO SHARE:
-Headline: ${article.title}
-${hasValidUrl ? `Source URL: ${article.url}` : '(No source URL available - do NOT include any URL)'}
-Published: ${new Date(article.publishedAt || new Date()).toLocaleString()}
-Summary: ${article.description || article.summary || ''}
+${isHebrew ? 'חדשות לשיתוף:' : 'BREAKING NEWS TO SHARE:'}
+${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
+${hasValidUrl ? `${isHebrew ? 'קישור למקור:' : 'Source URL:'} ${article.url}` : (isHebrew ? '(אין קישור למקור - אל תכלול קישור)' : '(No source URL available - do NOT include any URL)')}
+${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
+${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
 ${focusContext}
+${languageInstruction}
 
-Create a LinkedIn post that provides professional analysis of this development.
+${isHebrew
+  ? `צור פוסט LinkedIn שמספק ניתוח מקצועי של ההתפתחות הזו.
+הפוך אותו לאינפורמטיבי ותובנתי עבור אנשי מקצוע ומנהלים עסקיים.
+התמקד בהשלכות ובהשפעה העסקית.
+הפוסט צריך להיות 3-4 פסקאות מהותיות שמוסיפות ערך מעבר לכותרת.`
+  : `Create a LinkedIn post that provides professional analysis of this development.
 Make it informative and insightful for professionals and business leaders.
 Focus on the implications and business impact.
-The post should be 3-4 substantive paragraphs that add value beyond the headline.
+The post should be 3-4 substantive paragraphs that add value beyond the headline.`}
 
-CRITICAL RULES:
-${hasValidUrl ? `- Include this EXACT URL in your post: ${article.url}` : '- Do NOT include any URL since none was provided'}
-- NEVER create fake URLs (no bit.ly, no shortened links, no made-up URLs)
-${includeHashtags ? `- Use proper hashtag format: #HashtagName (NOT "hashtag#HashtagName")
-- Extract relevant hashtags from the article content` : '- Do NOT include hashtags'}
+${isHebrew ? 'כללים קריטיים:' : 'CRITICAL RULES:'}
+${hasValidUrl ? `- ${isHebrew ? 'כלול את הקישור המדויק הזה בפוסט שלך:' : 'Include this EXACT URL in your post:'} ${article.url}` : `- ${isHebrew ? 'אל תכלול קישור כי לא סופק' : 'Do NOT include any URL since none was provided'}`}
+- ${isHebrew ? 'לעולם אל תיצור קישורים מזויפים (לא bit.ly, לא קישורים מקוצרים, לא קישורים בדויים)' : 'NEVER create fake URLs (no bit.ly, no shortened links, no made-up URLs)'}
+${includeHashtags ? `- ${isHebrew ? 'השתמש בפורמט האשטג תקין: #שםהאשטג' : 'Use proper hashtag format: #HashtagName (NOT "hashtag#HashtagName")'}
+- ${isHebrew ? 'חלץ האשטגים רלוונטיים מתוכן המאמר' : 'Extract relevant hashtags from the article content'}` : `- ${isHebrew ? 'אל תכלול האשטגים' : 'Do NOT include hashtags'}`}
 `;
 };
 
@@ -178,5 +243,7 @@ export {
   getLinkedInSystemPrompt,
   getLinkedInUserPrompt,
   buildTopicGuidance,
-  getToneInstructions
+  getToneInstructions,
+  isHebrewLanguage,
+  getLanguageInstruction
 };

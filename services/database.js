@@ -945,6 +945,35 @@ export async function incrementAgentPost(agentId) {
 }
 
 /**
+ * Mark agent's test as used (one-time test per agent)
+ * Once set, the Test button should be permanently disabled for this agent.
+ */
+export async function markAgentTestUsed(agentId) {
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .update({
+      test_used_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', agentId)
+    .is('test_used_at', null) // Only update if not already set
+    .select()
+    .single();
+
+  if (error) {
+    // PGRST116 means no rows matched (test already used) - that's OK
+    if (error.code === 'PGRST116') {
+      logger.info(`Agent ${agentId} test already used`);
+      return null;
+    }
+    logger.error('Error marking agent test used:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
  * Get the database instance (for backwards compatibility)
  * In Supabase, we just return the admin client
  */
@@ -981,5 +1010,6 @@ export default {
   updateAgent,
   deleteAgent,
   countUserAgents,
-  incrementAgentPost
+  incrementAgentPost,
+  markAgentTestUsed
 };

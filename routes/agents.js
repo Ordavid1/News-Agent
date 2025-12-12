@@ -17,7 +17,8 @@ import {
   getAgentByConnectionId,
   createPost,
   logUsage,
-  incrementAgentPost
+  incrementAgentPost,
+  markAgentTestUsed
 } from '../services/database-wrapper.js';
 import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
@@ -413,6 +414,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 /**
  * POST /api/agents/:id/test
  * Test post for a specific agent using its settings
+ * NOTE: Each agent can only use the Test button ONCE. This is persisted server-side.
  */
 router.post('/:id/test', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -436,6 +438,16 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       return res.status(403).json({
         success: false,
         error: 'Access denied'
+      });
+    }
+
+    // Check if test was already used (one-time test per agent)
+    if (agent.test_used_at) {
+      return res.status(403).json({
+        success: false,
+        error: 'Test already used for this agent. Each agent can only be tested once.',
+        step: 'test_limit',
+        testUsedAt: agent.test_used_at
       });
     }
 
@@ -606,6 +618,15 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       } catch (e) {
         console.warn('[Agent Test] Failed to increment agent post count:', e);
       }
+    }
+
+    // Mark test as used (one-time per agent) - do this regardless of success
+    // This prevents abuse by repeatedly clicking the test button
+    try {
+      await markAgentTestUsed(agentId);
+      console.log(`[Agent Test] Marked test as used for agent ${agentId}`);
+    } catch (e) {
+      console.warn('[Agent Test] Failed to mark test as used:', e);
     }
 
     // Log usage
