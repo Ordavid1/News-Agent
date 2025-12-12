@@ -79,16 +79,20 @@ async publishPost(content, mediaUrl = null) {
     logger.debug(`- TWITTER_PREMIUM: ${process.env.TWITTER_PREMIUM}`);
     
     let mediaId = null;
-    
-    // Upload video if provided
+
+    // Upload media if provided (image or video)
     if (mediaUrl) {
       try {
         logger.debug(`Downloading media from: ${mediaUrl}`);
         const mediaBuffer = await this.downloadMedia(mediaUrl);
         logger.debug(`Media downloaded, size: ${mediaBuffer.length} bytes`);
-        
+
+        // Detect if it's an image or video based on URL
+        const mimeType = this.detectMediaMimeType(mediaUrl);
+        logger.debug(`Detected mime type: ${mimeType}`);
+
         mediaId = await this.client.v1.uploadMedia(mediaBuffer, {
-          mimeType: 'video/mp4',
+          mimeType,
           target: 'tweet'
         });
         logger.debug(`Media uploaded with ID: ${mediaId}`);
@@ -273,9 +277,73 @@ optimizeForTwitter(content) {
   
   async downloadMedia(mediaUrl) {
     const response = await axios.get(mediaUrl, {
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; TwitterBot/1.0)',
+        'Accept': 'image/*,video/*'
+      },
+      timeout: 15000,
+      maxContentLength: 15 * 1024 * 1024 // 15MB limit
     });
     return Buffer.from(response.data);
+  }
+
+  /**
+   * Detect the MIME type of media based on URL
+   * @param {string} url - The media URL
+   * @returns {string} MIME type
+   */
+  detectMediaMimeType(url) {
+    const lowerUrl = url.toLowerCase();
+
+    // Video formats
+    if (lowerUrl.includes('.mp4') || lowerUrl.includes('video/mp4')) {
+      return 'video/mp4';
+    }
+    if (lowerUrl.includes('.mov')) {
+      return 'video/quicktime';
+    }
+    if (lowerUrl.includes('.webm')) {
+      return 'video/webm';
+    }
+
+    // Image formats
+    if (lowerUrl.includes('.png')) {
+      return 'image/png';
+    }
+    if (lowerUrl.includes('.gif')) {
+      return 'image/gif';
+    }
+    if (lowerUrl.includes('.webp')) {
+      return 'image/webp';
+    }
+
+    // Default to JPEG for images (most common for article images)
+    // Check common image URL patterns
+    if (lowerUrl.includes('.jpg') || lowerUrl.includes('.jpeg') ||
+        lowerUrl.includes('/image') || lowerUrl.includes('/img') ||
+        lowerUrl.includes('/photo') || lowerUrl.includes('/media') ||
+        lowerUrl.includes('unsplash') || lowerUrl.includes('pexels') ||
+        lowerUrl.includes('cloudinary') || lowerUrl.includes('imgix') ||
+        lowerUrl.includes('twimg.com') || lowerUrl.includes('fbcdn') ||
+        lowerUrl.includes('googleusercontent') || lowerUrl.includes('cdn')) {
+      return 'image/jpeg';
+    }
+
+    // Default to JPEG as fallback for images
+    return 'image/jpeg';
+  }
+
+  /**
+   * Check if URL points to a video
+   * @param {string} url - The media URL
+   * @returns {boolean} True if video
+   */
+  isVideoUrl(url) {
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.includes('.mp4') || lowerUrl.includes('.mov') ||
+           lowerUrl.includes('.webm') || lowerUrl.includes('.avi') ||
+           lowerUrl.includes('video/');
   }
 }
 

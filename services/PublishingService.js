@@ -191,23 +191,25 @@ class PublishingService {
     };
   }
 
-  async publishToTwitter(content, userId) {
+  async publishToTwitter(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'twitter');
       if (!publisher) {
         throw new Error('Twitter publisher not available');
       }
 
-      const result = await publisher.publishPost(content.text);
+      // Pass imageUrl to publisher - it will handle image upload
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
 
       if (result.success) {
         // Save to database
-        await this.savePostToDatabase(userId, 'twitter', content, result);
+        await this.savePostToDatabase(userId, 'twitter', content, result, mediaUrl);
 
         // Update last_used_at for the connection
         await this.updateConnectionLastUsed(userId, 'twitter');
 
-        logger.info(`Successfully published to Twitter for user ${userId}`);
+        logger.info(`Successfully published to Twitter for user ${userId}${mediaUrl ? ' with image' : ''}`);
         return {
           success: true,
           platform: 'twitter',
@@ -224,23 +226,25 @@ class PublishingService {
     }
   }
 
-  async publishToLinkedIn(content, userId) {
+  async publishToLinkedIn(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'linkedin');
       if (!publisher) {
         throw new Error('LinkedIn publisher not available');
       }
 
-      const result = await publisher.publishPost(content.text);
+      // Pass imageUrl to publisher - it will handle image upload
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
 
       if (result.success) {
         // Save to database
-        await this.savePostToDatabase(userId, 'linkedin', content, result);
+        await this.savePostToDatabase(userId, 'linkedin', content, result, mediaUrl);
 
         // Update last_used_at for the connection
         await this.updateConnectionLastUsed(userId, 'linkedin');
 
-        logger.info(`Successfully published to LinkedIn for user ${userId}`);
+        logger.info(`Successfully published to LinkedIn for user ${userId}${mediaUrl ? ' with image' : ''}`);
         return {
           success: true,
           platform: 'linkedin',
@@ -257,7 +261,7 @@ class PublishingService {
     }
   }
 
-  async publishToReddit(content, subreddit, userId, flairId = null) {
+  async publishToReddit(content, subreddit, userId, flairId = null, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'reddit');
       if (!publisher) {
@@ -268,16 +272,17 @@ class PublishingService {
       // Priority: explicit subreddit param > content.subreddit > auto-select
       const targetSubreddit = subreddit || content.subreddit || null;
       const targetFlairId = flairId || content.flairId || null;
-      const result = await publisher.publishPost(content.text, null, targetSubreddit, targetFlairId);
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl, targetSubreddit, targetFlairId);
 
       if (result.success) {
         // Save to database
-        await this.savePostToDatabase(userId, 'reddit', content, result);
+        await this.savePostToDatabase(userId, 'reddit', content, result, mediaUrl);
 
         // Update last_used_at for the connection
         await this.updateConnectionLastUsed(userId, 'reddit');
 
-        logger.info(`Successfully published to Reddit for user ${userId}${targetFlairId ? ' with flair' : ''}`);
+        logger.info(`Successfully published to Reddit for user ${userId}${targetFlairId ? ' with flair' : ''}${mediaUrl ? ' with image' : ''}`);
         return {
           success: true,
           platform: 'reddit',
@@ -294,16 +299,19 @@ class PublishingService {
     }
   }
 
-  async publishToFacebook(content, userId) {
+  async publishToFacebook(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'facebook');
-      const result = await publisher.publishPost(content.text);
+
+      // Pass imageUrl to publisher - Facebook already supports photo posts
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
 
       if (result.success) {
-        await this.savePostToDatabase(userId, 'facebook', content, result);
+        await this.savePostToDatabase(userId, 'facebook', content, result, mediaUrl);
         await this.updateConnectionLastUsed(userId, 'facebook');
 
-        logger.info(`Successfully published to Facebook for user ${userId}`);
+        logger.info(`Successfully published to Facebook for user ${userId}${mediaUrl ? ' with image' : ''}`);
         return {
           success: true,
           platform: 'facebook',
@@ -346,16 +354,19 @@ class PublishingService {
     }
   }
 
-  async publishToTelegram(content, userId) {
+  async publishToTelegram(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'telegram');
-      const result = await publisher.publishPost(content.text);
+
+      // Pass imageUrl to publisher - Telegram already supports photo posts
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
 
       if (result.success) {
-        await this.savePostToDatabase(userId, 'telegram', content, result);
+        await this.savePostToDatabase(userId, 'telegram', content, result, mediaUrl);
         await this.updateConnectionLastUsed(userId, 'telegram');
 
-        logger.info(`Successfully published to Telegram for user ${userId}`);
+        logger.info(`Successfully published to Telegram for user ${userId}${mediaUrl ? ' with image' : ''}`);
         return {
           success: true,
           platform: 'telegram',
@@ -392,7 +403,7 @@ class PublishingService {
     }
   }
 
-  async savePostToDatabase(userId, platform, content, publishResult) {
+  async savePostToDatabase(userId, platform, content, publishResult, imageUrl = null) {
     try {
       // Handle different content object formats
       const topic = content.trend || content.source?.title || content.topic || 'Generated Content';
@@ -404,16 +415,18 @@ class PublishingService {
         platforms: [platform],
         publishedAt: new Date().toISOString(),
         status: 'published',
+        source_article_image: imageUrl || content.imageUrl || null, // Store image URL
         metadata: {
           sourceUrl,
           postId: publishResult.postId,
           postUrl: publishResult.url,
-          generatedAt: content.generatedAt || new Date().toISOString()
+          generatedAt: content.generatedAt || new Date().toISOString(),
+          imageUrl: imageUrl || content.imageUrl || null // Also in metadata for convenience
         }
       };
 
       await createPost(userId, postData);
-      logger.info(`Post saved to database for user ${userId} on ${platform}`);
+      logger.info(`Post saved to database for user ${userId} on ${platform}${imageUrl ? ' with image' : ''}`);
 
     } catch (error) {
       logger.error(`Failed to save post to database:`, error.message);
@@ -423,7 +436,10 @@ class PublishingService {
 
   async publishToMultiplePlatforms(content, platforms, userId, options = {}) {
     const results = [];
-    const { requireConnections = false, skipMissing = false } = options;
+    const { requireConnections = false, skipMissing = false, imageUrl = null } = options;
+
+    // Get imageUrl from options or content object
+    const mediaUrl = imageUrl || content.imageUrl || null;
 
     // Optionally validate connections before publishing
     if (requireConnections) {
@@ -443,28 +459,32 @@ class PublishingService {
       }
     }
 
+    if (mediaUrl) {
+      logger.info(`Publishing to ${platforms.length} platforms with image: ${mediaUrl}`);
+    }
+
     for (const platform of platforms) {
       try {
         let result;
 
         switch (platform) {
           case 'twitter':
-            result = await this.publishToTwitter(content, userId);
+            result = await this.publishToTwitter(content, userId, mediaUrl);
             break;
           case 'linkedin':
-            result = await this.publishToLinkedIn(content, userId);
+            result = await this.publishToLinkedIn(content, userId, mediaUrl);
             break;
           case 'reddit':
-            result = await this.publishToReddit(content, content.subreddit || 'technology', userId, content.flairId || null);
+            result = await this.publishToReddit(content, content.subreddit || 'technology', userId, content.flairId || null, mediaUrl);
             break;
           case 'facebook':
-            result = await this.publishToFacebook(content, userId);
+            result = await this.publishToFacebook(content, userId, mediaUrl);
             break;
           case 'instagram':
             result = await this.publishToInstagram(content, userId);
             break;
           case 'telegram':
-            result = await this.publishToTelegram(content, userId);
+            result = await this.publishToTelegram(content, userId, mediaUrl);
             break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
@@ -503,12 +523,12 @@ class PublishingService {
 const publishingService = new PublishingService();
 
 // Export individual platform functions for backward compatibility
-export const publishToTwitter = (content, userId) => publishingService.publishToTwitter(content, userId);
-export const publishToLinkedIn = (content, userId) => publishingService.publishToLinkedIn(content, userId);
-export const publishToReddit = (content, subreddit, userId, flairId = null) => publishingService.publishToReddit(content, subreddit, userId, flairId);
-export const publishToFacebook = (content, userId) => publishingService.publishToFacebook(content, userId);
+export const publishToTwitter = (content, userId, imageUrl = null) => publishingService.publishToTwitter(content, userId, imageUrl);
+export const publishToLinkedIn = (content, userId, imageUrl = null) => publishingService.publishToLinkedIn(content, userId, imageUrl);
+export const publishToReddit = (content, subreddit, userId, flairId = null, imageUrl = null) => publishingService.publishToReddit(content, subreddit, userId, flairId, imageUrl);
+export const publishToFacebook = (content, userId, imageUrl = null) => publishingService.publishToFacebook(content, userId, imageUrl);
 export const publishToInstagram = (content, userId) => publishingService.publishToInstagram(content, userId);
-export const publishToTelegram = (content, userId) => publishingService.publishToTelegram(content, userId);
+export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
   publishingService.publishToMultiplePlatforms(content, platforms, userId, options);
 

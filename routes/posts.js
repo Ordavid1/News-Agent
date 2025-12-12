@@ -7,9 +7,13 @@ import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
 import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
+import ImageExtractor from '../services/ImageExtractor.js';
 // SECURITY: Input validation
 import { postGenerateValidation, bulkGenerateValidation, paginationQuery } from '../utils/validators.js';
 // AutomationManager instance is accessed via req.app.locals.automationManager
+
+// Tiers that get image extraction feature (Starter and above)
+const TIERS_WITH_IMAGES = ['starter', 'growth', 'professional', 'business'];
 
 const router = express.Router();
 
@@ -389,6 +393,39 @@ router.post('/test', async (req, res) => {
 
     console.log(`[Test Post] Generated content: ${generatedContent.text.substring(0, 100)}...`);
 
+    // Step 4b: Extract image from article (Growth tier and above)
+    let imageUrl = null;
+    const userTier = req.user.subscription?.tier || 'free';
+
+    if (TIERS_WITH_IMAGES.includes(userTier)) {
+      console.log(`[Test Post] Step 4b: Extracting image (${userTier} tier)...`);
+
+      try {
+        if (trendData.url) {
+          const imageExtractor = new ImageExtractor();
+          imageUrl = await imageExtractor.extractImageFromArticle(
+            trendData.url,
+            trendData.title,
+            trendData.source
+          );
+
+          if (imageUrl) {
+            console.log(`[Test Post] ✓ Image extracted: ${imageUrl}`);
+          } else {
+            console.log(`[Test Post] ⚠️ No suitable image found in article`);
+          }
+        } else {
+          console.log(`[Test Post] ⚠️ No article URL available for image extraction`);
+        }
+      } catch (imageError) {
+        console.error(`[Test Post] Image extraction failed:`, imageError.message);
+        // Continue without image - graceful fallback
+        imageUrl = null;
+      }
+    } else {
+      console.log(`[Test Post] Image extraction skipped (${userTier} tier - requires Growth+)`);
+    }
+
     // Step 5: Publish to each connected platform
     const results = {
       success: [],
@@ -397,7 +434,7 @@ router.post('/test', async (req, res) => {
 
     for (const platform of targetPlatforms) {
       try {
-        console.log(`[Test Post] Publishing to ${platform}...`);
+        console.log(`[Test Post] Publishing to ${platform}${imageUrl ? ' with image' : ''}...`);
 
         let result;
         const content = {
@@ -405,6 +442,7 @@ router.post('/test', async (req, res) => {
           trend: trendData.title,
           topic: selectedTopic,
           source: trendData,
+          imageUrl: imageUrl, // Include image URL in content object
           generatedAt: new Date().toISOString()
         };
 
@@ -464,12 +502,14 @@ router.post('/test', async (req, res) => {
       content: generatedContent.text,
       platforms: targetPlatforms,
       status: results.success.length > 0 ? 'published' : 'failed',
+      source_article_image: imageUrl, // Store extracted image URL
       metadata: {
         tone,
         sourceUrl: trendData.url,
         trend: trendData.title,
         generatedAt: new Date().toISOString(),
         testPost: true,
+        imageUrl: imageUrl, // Also in metadata
         results
       }
     });
@@ -509,6 +549,12 @@ router.post('/test', async (req, res) => {
           url: trendData.url || 'none',
           wasRecentlyUsed: trendData.wasRecentlyUsed || false,
           publishedAt: trendData.publishedAt || 'unknown'
+        },
+        imageExtraction: {
+          enabled: TIERS_WITH_IMAGES.includes(userTier),
+          userTier: userTier,
+          imageUrl: imageUrl || null,
+          success: !!imageUrl
         }
       }
     });

@@ -24,7 +24,11 @@ import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
 import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
+import ImageExtractor from '../services/ImageExtractor.js';
 import winston from 'winston';
+
+// Tiers that have access to image extraction feature (Starter and above)
+const TIERS_WITH_IMAGES = ['starter', 'growth', 'professional', 'business'];
 // SECURITY: Input validation
 import { agentCreateValidation, agentUpdateValidation, agentStatusValidation, idParam } from '../utils/validators.js';
 
@@ -568,6 +572,33 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       });
     }
 
+    // Step 2.5: Extract image from article (Growth tier and above only)
+    let imageUrl = null;
+    const userTier = req.user.subscription?.tier || 'free';
+
+    if (TIERS_WITH_IMAGES.includes(userTier)) {
+      console.log(`[Agent Test] User tier "${userTier}" - extracting image from article...`);
+      try {
+        const imageExtractor = new ImageExtractor();
+        imageUrl = await imageExtractor.extractImageFromArticle(
+          trendData.url,
+          trendData.title,
+          trendData.source
+        );
+
+        if (imageUrl) {
+          console.log(`[Agent Test] Image extracted: ${imageUrl}`);
+        } else {
+          console.log(`[Agent Test] No image found for article, continuing without image`);
+        }
+      } catch (imageError) {
+        console.warn(`[Agent Test] Image extraction failed, continuing without image:`, imageError.message);
+        imageUrl = null;
+      }
+    } else {
+      console.log(`[Agent Test] User tier "${userTier}" - image extraction not available (Growth+ required)`);
+    }
+
     // Step 3: Publish to the agent's platform
     console.log(`[Agent Test] Publishing to ${platform}...`);
 
@@ -577,6 +608,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       trend: trendData.title,
       topic: selectedTopic,
       source: trendData,
+      imageUrl: imageUrl,
       generatedAt: new Date().toISOString()
     };
 
@@ -680,7 +712,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       debug: {
         articleTitle: trendData.title,
         articleScore: trendData.calculatedScore?.toFixed(2) || 'N/A',
-        articleUrl: trendData.url || 'none'
+        articleUrl: trendData.url || 'none',
+        imageUrl: imageUrl || 'none',
+        userTier: userTier
       }
     });
 

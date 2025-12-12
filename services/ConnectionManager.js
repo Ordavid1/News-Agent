@@ -44,7 +44,7 @@ const PLATFORM_CONFIGS = {
     authUrl: 'https://www.reddit.com/api/v1/authorize',
     tokenUrl: 'https://www.reddit.com/api/v1/access_token',
     userInfoUrl: 'https://oauth.reddit.com/api/v1/me',
-    scopes: ['identity', 'submit', 'read'],
+    scopes: ['identity', 'submit', 'read', 'flair'],
     usePKCE: false
   },
   facebook: {

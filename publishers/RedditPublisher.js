@@ -214,14 +214,18 @@ class RedditPublisher {
       return flairs.filter(f => !f.modOnly);
 
     } catch (error) {
-      logger.error(`Failed to fetch flairs for r/${subreddit}:`, error.message);
+      logger.error(`Failed to fetch flairs for r/${subreddit}: ${error.message} (status: ${error.response?.status || 'N/A'})`);
 
       // If we can't fetch flairs, return empty array (some subreddits don't allow it)
-      if (error.response?.status === 403 || error.response?.status === 404) {
+      // Many subreddits restrict flair listing to approved users or don't have flairs
+      if (error.response?.status === 403 || error.response?.status === 404 || error.response?.status === 401) {
+        logger.debug(`Flair fetch returned ${error.response?.status} for r/${subreddit}, returning empty array`);
         return [];
       }
 
-      throw error;
+      // For other errors, also return empty array rather than failing entirely
+      logger.warn(`Unexpected error fetching flairs, continuing without flairs`);
+      return [];
     }
   }
 
@@ -276,16 +280,38 @@ class RedditPublisher {
       // Reddit API endpoint for submitting posts
       const submitUrl = 'https://oauth.reddit.com/api/submit';
       
-      const postData = {
-        sr: subredditToUse,
-        kind: 'self', // Text post
-        title: title,
-        text: formattedContent,
-        api_type: 'json',
-        sendreplies: true, // Enable inbox replies for engagement
-        nsfw: false,
-        spoiler: false
-      };
+      // Determine if this is an image post or text post
+      const isImagePost = mediaUrl && this.isImageUrl(mediaUrl);
+
+      let postData;
+
+      if (isImagePost) {
+        // For image posts, we use kind: 'link' with the image URL
+        // Reddit will automatically create an image post if the URL points to an image
+        logger.debug(`Creating image post with URL: ${mediaUrl}`);
+        postData = {
+          sr: subredditToUse,
+          kind: 'link', // Link post (Reddit treats image URLs as image posts)
+          title: title,
+          url: mediaUrl, // The image URL becomes the post content
+          api_type: 'json',
+          sendreplies: true,
+          nsfw: false,
+          spoiler: false
+        };
+      } else {
+        // Text post (self post)
+        postData = {
+          sr: subredditToUse,
+          kind: 'self',
+          title: title,
+          text: formattedContent,
+          api_type: 'json',
+          sendreplies: true,
+          nsfw: false,
+          spoiler: false
+        };
+      }
 
       // Add flair if provided (required by some subreddits)
       if (flairId) {
@@ -437,7 +463,7 @@ class RedditPublisher {
   extractTitle(content) {
     // Try to extract a good title from the content
     const lines = content.split('\n').filter(line => line.trim());
-    
+
     // Use first substantial line as title (skip emojis-only lines)
     for (const line of lines) {
       const cleanLine = line.replace(/[🚨📢🌍🤔💡✨🔍🎯📊]/g, '').trim();
@@ -446,9 +472,52 @@ class RedditPublisher {
         return cleanLine.substring(0, 297) + (cleanLine.length > 297 ? '...' : '');
       }
     }
-    
+
     // Fallback: use first 100 chars
     return content.substring(0, 97) + '...';
+  }
+
+  /**
+   * Check if URL points to an image
+   * @param {string} url - The media URL
+   * @returns {boolean} True if it's an image URL
+   */
+  isImageUrl(url) {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+
+    // Check for image extensions
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    if (imageExtensions.some(ext => lowerUrl.includes(ext))) {
+      return true;
+    }
+
+    // Check for known image hosting services
+    if (lowerUrl.includes('imgur.com') ||
+        lowerUrl.includes('i.redd.it') ||
+        lowerUrl.includes('preview.redd.it') ||
+        lowerUrl.includes('unsplash.com') ||
+        lowerUrl.includes('googleusercontent.com') ||
+        lowerUrl.includes('twimg.com') ||
+        lowerUrl.includes('fbcdn.net') ||
+        lowerUrl.includes('pinimg.com') ||
+        lowerUrl.includes('pexels.com') ||
+        lowerUrl.includes('cloudinary.com') ||
+        lowerUrl.includes('imgix.net') ||
+        lowerUrl.includes('/image') ||
+        lowerUrl.includes('/img') ||
+        lowerUrl.includes('/photo')) {
+      return true;
+    }
+
+    // Check for video extensions (return false)
+    const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.flv'];
+    if (videoExtensions.some(ext => lowerUrl.includes(ext))) {
+      return false;
+    }
+
+    // Default: assume image if it has common image URL patterns
+    return /\.(jpg|jpeg|png|gif|webp)/i.test(lowerUrl);
   }
 }
 

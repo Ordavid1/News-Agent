@@ -247,6 +247,15 @@ async function fetchSubredditRequirements(subreddit) {
         // Store requirements
         currentSubredditRequirements = data;
 
+        // Log the requirements for debugging
+        console.log(`[Reddit] r/${subreddit} requirements:`, {
+            flairRequired: data.requirements?.flairRequired,
+            flairsCount: data.requirements?.flairs?.length || 0,
+            titleLimits: `${data.requirements?.titleMinLength || 0}-${data.requirements?.titleMaxLength || 300}`,
+            bodyRestriction: data.requirements?.bodyRestriction,
+            linkRestriction: data.requirements?.linkRestriction
+        });
+
         // Check if there are any requirements that need user attention
         const hasRequirements = data.requirements?.flairRequired && data.requirements?.flairs?.length > 0;
 
