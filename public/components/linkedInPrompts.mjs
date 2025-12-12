@@ -63,61 +63,39 @@ CRITICAL LANGUAGE INSTRUCTION:
 };
 
 /**
- * Build topic-specific guidance based on user's selected topics
+ * Build topic-specific guidance based on user's selected topics and keywords
+ * Topics and keywords are fully dynamic - defined by the user in settings, not predefined
  * @param {Object} agentSettings - User's agent settings
  * @returns {string} Topic guidance for the prompt
  */
 const buildTopicGuidance = (agentSettings) => {
   const isHebrew = isHebrewLanguage(agentSettings);
-
-  // Hebrew topic descriptions
-  const topicDescriptionsHebrew = {
-    technology: 'טכנולוגיה: תוכנה, חומרה, טרנספורמציה דיגיטלית, מגמות בתעשיית הטכנולוגיה, חדשנות',
-    business: 'עסקים: חדשות תאגידיות, מגמות שוק, יזמות, מנהיגות, אסטרטגיה',
-    entertainment: 'בידור: מדיה, סטרימינג, משחקים, חדשות סלבריטאים, תרבות פופולרית',
-    sports: 'ספורט: אירועי ספורט, קבוצות, שחקנים, ליגות, תחרויות',
-    health: 'בריאות: פריצות דרך רפואיות, אורח חיים בריא, תעשיית הבריאות, בריאות הציבור',
-    science: 'מדע: תגליות מחקריות, מחקרים מדעיים, חלל, סביבה, אקלים'
-  };
-
-  const topicDescriptionsEnglish = {
-    technology: 'Technology: Software, hardware, digital transformation, tech industry trends, innovation',
-    business: 'Business: Corporate news, market trends, entrepreneurship, leadership, strategy',
-    entertainment: 'Entertainment: Media, streaming, gaming, celebrity news, pop culture',
-    sports: 'Sports: Athletic events, teams, players, leagues, competitions',
-    health: 'Health: Medical breakthroughs, wellness, healthcare industry, public health',
-    science: 'Science: Research discoveries, scientific studies, space, environment, climate'
-  };
-
-  const topicDescriptions = isHebrew ? topicDescriptionsHebrew : topicDescriptionsEnglish;
-
   const topics = agentSettings?.topics || [];
   const keywords = agentSettings?.keywords || [];
 
+  // If no topics or keywords defined, return generic guidance
   if (topics.length === 0 && keywords.length === 0) {
     return isHebrew
-      ? 'סקור חדשות בתחומי טכנולוגיה, עסקים ונושאים כלליים.'
-      : 'Cover news across technology, business, and general interest topics.';
+      ? 'צור תוכן רלוונטי בהתאם לכתבה שסופקה.'
+      : 'Create relevant content based on the provided article.';
   }
 
   let guidance = '';
 
+  // Topics are user-defined strings - use them directly
   if (topics.length > 0) {
-    const topicDetails = topics
-      .map(t => topicDescriptions[t])
-      .filter(Boolean)
-      .join('\n   - ');
+    const topicList = topics.join(', ');
     guidance += isHebrew
-      ? `התמקד בתחומי נושא אלה:\n   - ${topicDetails}`
-      : `Focus on these topic areas:\n   - ${topicDetails}`;
+      ? `התמקד בנושאים הבאים: ${topicList}`
+      : `Focus on these topics: ${topicList}`;
   }
 
+  // Keywords are user-defined - use them directly
   if (keywords.length > 0) {
     const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    const keywordPrefix = isHebrew
-      ? 'שים לב במיוחד לתוכן הקשור ל: '
-      : 'Pay special attention to content related to: ';
-    guidance += `${topics.length > 0 ? '\n\n' : ''}${keywordPrefix}${keywordList}`;
+    guidance += isHebrew
+      ? `${topics.length > 0 ? '\n' : ''}שים לב במיוחד למילות מפתח אלה: ${keywordList}`
+      : `${topics.length > 0 ? '\n' : ''}Pay special attention to these keywords: ${keywordList}`;
   }
 
   return guidance;
