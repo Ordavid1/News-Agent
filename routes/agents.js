@@ -518,13 +518,33 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       });
 
       if (allTrends && allTrends.length > 0) {
-        // Use AutomationManager's scoring if available
-        const automationManager = req.app.locals.automationManager;
-        trendData = automationManager
-          ? await automationManager.selectBestAINews(allTrends)
-          : allTrends[0];
+        // Score and select the best trend
+        // Prefer recent articles with good titles
+        const scored = allTrends.map(trend => {
+          let score = 50;
 
-        if (!trendData) trendData = allTrends[0];
+          // Recency bonus
+          if (trend.publishedAt) {
+            const ageHours = (Date.now() - new Date(trend.publishedAt).getTime()) / (1000 * 60 * 60);
+            if (ageHours < 2) score += 30;
+            else if (ageHours < 6) score += 20;
+            else if (ageHours < 12) score += 10;
+          }
+
+          // Title quality bonus
+          const title = trend.title || trend.topic || '';
+          if (title.length > 30 && title.length < 150) score += 15;
+
+          // Source diversity
+          const sources = Array.isArray(trend.sources) ? trend.sources.length : 1;
+          score += Math.min(sources * 5, 20);
+
+          return { ...trend, calculatedScore: score };
+        });
+
+        scored.sort((a, b) => b.calculatedScore - a.calculatedScore);
+        trendData = scored[0];
+
         console.log(`[Agent Test] Selected article: "${trendData.title}"`);
       } else {
         return res.status(400).json({
