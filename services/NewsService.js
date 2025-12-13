@@ -123,21 +123,25 @@ class NewsService {
 
       // Try different news sources (as fallback or primary for non-Hebrew)
       if (topicNews.length === 0 || !useHebrewSearch) {
-        if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
-          try {
-            const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
-            topicNews.push(...newsApiResults);
-          } catch (error) {
-            logger.error(`NewsAPI error for topic ${topic}:`, error.message);
-          }
-        }
-
+        // PRIMARY: Try GNews first
         if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
           try {
             const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region });
             topicNews.push(...gnewsResults);
+            logger.info(`GNews returned ${gnewsResults.length} articles for topic: ${topic}`);
           } catch (error) {
             logger.error(`GNews error for topic ${topic}:`, error.message);
+          }
+        }
+
+        // FALLBACK: Only try NewsAPI if GNews returned no results
+        if (topicNews.length === 0 && sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
+          try {
+            logger.info(`GNews returned 0 results, falling back to NewsAPI for topic: ${topic}`);
+            const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
+            topicNews.push(...newsApiResults);
+          } catch (error) {
+            logger.error(`NewsAPI error for topic ${topic}:`, error.message);
           }
         }
 

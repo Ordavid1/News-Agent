@@ -215,9 +215,20 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
     // Validate and prepare settings if provided
     let validatedSettings = null;
     if (settings) {
+      const topics = Array.isArray(settings.topics) ? settings.topics : [];
+      const keywords = Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : [];
+
+      // Require at least one topic OR one keyword
+      if (topics.length === 0 && keywords.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'At least one topic or keyword is required for the agent to find content'
+        });
+      }
+
       validatedSettings = {
-        topics: Array.isArray(settings.topics) ? settings.topics : [],
-        keywords: Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : [],
+        topics,
+        keywords,
         geoFilter: {
           region: settings.geoFilter?.region ?? '',
           includeGlobal: settings.geoFilter?.includeGlobal ?? true
@@ -301,9 +312,20 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
 
     if (settings !== undefined) {
       // Validate and merge settings
+      const topics = Array.isArray(settings.topics) ? settings.topics : agent.settings?.topics || [];
+      const keywords = Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : agent.settings?.keywords || [];
+
+      // Require at least one topic OR one keyword
+      if (topics.length === 0 && keywords.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'At least one topic or keyword is required for the agent to find content'
+        });
+      }
+
       const validatedSettings = {
-        topics: Array.isArray(settings.topics) ? settings.topics : agent.settings?.topics || [],
-        keywords: Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : agent.settings?.keywords || [],
+        topics,
+        keywords,
         geoFilter: {
           region: settings.geoFilter?.region ?? agent.settings?.geoFilter?.region ?? '',
           includeGlobal: settings.geoFilter?.includeGlobal ?? agent.settings?.geoFilter?.includeGlobal ?? true
@@ -377,6 +399,18 @@ router.put('/:id/status', authenticateToken, agentStatusValidation, async (req, 
         success: false,
         error: 'Status must be "active" or "paused"'
       });
+    }
+
+    // When activating, verify agent has topics or keywords configured
+    if (status === 'active') {
+      const topics = agent.settings?.topics || [];
+      const keywords = agent.settings?.keywords || [];
+      if (topics.length === 0 && keywords.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot activate agent without at least one topic or keyword configured'
+        });
+      }
     }
 
     const updatedAgent = await updateAgent(req.params.id, { status });
@@ -496,23 +530,33 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Get agent settings
     const settings = agent.settings || {};
-    const topics = settings.topics || ['technology'];
-    const keywords = settings.keywords || [];
+    const topics = Array.isArray(settings.topics) ? settings.topics : [];
+    const keywords = Array.isArray(settings.keywords) ? settings.keywords : [];
     const geoFilter = settings.geoFilter || {};
     const tone = settings.contentStyle?.tone || 'professional';
     const platform = agent.platform;
     const platformSettings = settings.platformSettings || {};
 
+    // Validate agent has topics or keywords (should be caught by activation check, but double-check)
+    if (topics.length === 0 && keywords.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Agent has no topics or keywords configured. Please configure the agent settings first.',
+        step: 'settings'
+      });
+    }
+
     console.log(`[Agent Test] Agent settings:`, { topics, keywords, geoFilter, tone, platform, platformSettings });
 
     // Step 1: Fetch trends using agent's settings
-    const selectedTopic = topics[Math.floor(Math.random() * topics.length)] || 'technology';
+    // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
+    const searchTopics = topics.length > 0 ? [topics[Math.floor(Math.random() * topics.length)]] : ['general'];
 
-    console.log(`[Agent Test] Fetching trends for topic: ${selectedTopic}`);
+    console.log(`[Agent Test] Fetching trends for ${topics.length > 0 ? 'topic: ' + searchTopics[0] : 'keywords only'}`);
 
     let trendData;
     try {
-      const allTrends = await trendAnalyzer.getTrendsForTopics([selectedTopic], {
+      const allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
         keywords,
         geoFilter
       });
@@ -547,9 +591,12 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
         console.log(`[Agent Test] Selected article: "${trendData.title}"`);
       } else {
+        const searchDescription = topics.length > 0
+          ? `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`
+          : `keywords "${keywords.join(', ')}"`;
         return res.status(400).json({
           success: false,
-          error: `No news found for topic "${selectedTopic}". Try different topics in agent settings.`,
+          error: `No news found for ${searchDescription}. Try different topics or keywords in agent settings.`,
           step: 'trends'
         });
       }

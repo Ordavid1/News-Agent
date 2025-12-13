@@ -1079,6 +1079,17 @@ async function saveAgentWithSettings() {
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))
         .map(cb => cb.value);
 
+    // Validate: require at least one topic OR one keyword
+    if (topics.length === 0 && keywords.length === 0) {
+        showAgentIdentityError('Please select at least one topic or add at least one keyword for the agent to find content.');
+        // Scroll to topics section
+        const topicsSection = document.querySelector('input[name="topics"]');
+        if (topicsSection) {
+            topicsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+    }
+
     const geoRegionSelect = document.querySelector('select[name="geoRegion"]');
     const includeGlobalNewsCheckbox = document.querySelector('input[name="includeGlobalNews"]');
 
@@ -1552,6 +1563,17 @@ async function saveAgentSettings() {
     // Collect form data
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))
         .map(cb => cb.value);
+
+    // Validate: require at least one topic OR one keyword
+    if (topics.length === 0 && keywords.length === 0) {
+        alert('Please select at least one topic or add at least one keyword for the agent to find content.');
+        // Scroll to topics section
+        const topicsSection = document.querySelector('input[name="topics"]');
+        if (topicsSection) {
+            topicsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+    }
 
     // Collect geo-filter settings
     const geoRegionSelect = document.querySelector('select[name="geoRegion"]');

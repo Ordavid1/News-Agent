@@ -9,6 +9,7 @@ import PostingStrategy from './PostingStrategy.js';
 import RateLimiter from './RateLimiter.js';
 import trendAnalyzer from './TrendAnalyzer.js';
 import ContentGenerator from './ContentGenerator.js';
+import ArticleDeduplicationService from './ArticleDeduplicationService.js';
 import {
   getAgentsReadyForPosting,
   resetDailyAgentPosts,
@@ -48,6 +49,7 @@ class AutomationManager {
     this.postingStrategy = new PostingStrategy(this.db);
     this.contentGenerator = new ContentGenerator();
     this.rateLimiter = new RateLimiter();
+    this.articleDedup = new ArticleDeduplicationService(this.db);
 
     // Processing configuration
     this.config = {
@@ -258,7 +260,17 @@ class AutomationManager {
         await this.postingStrategy.markTrendAsUsed(trend);
       }
 
-      // 8. Log publication
+      // 8. Mark article as used in persistent deduplication (prevents reuse for 24h)
+      if (trend.url) {
+        await this.articleDedup.markArticleUsed(agent.id, {
+          url: trend.url,
+          title: trend.title || trend.topic,
+          publishedAt: trend.publishedAt,
+          source: trend.source
+        });
+      }
+
+      // 9. Log publication
       await this.logAgentPublication(agent, trend, content, publishResult);
 
       agentLog('info', `✅ Successfully posted to ${platform}`);
@@ -339,10 +351,18 @@ class AutomationManager {
   async scoreAndSelectTrend(trends, agent) {
     if (!trends || trends.length === 0) return null;
 
+    // Filter through persistent article deduplication first
+    // This removes articles that were already used by this agent (exact URL or similar story)
+    const usableTrends = await this.articleDedup.filterUsableArticles(agent.id, trends);
+    if (usableTrends.length === 0) {
+      logger.warn(`[Agent:${agent.id.slice(0, 8)}] All ${trends.length} trends filtered by article deduplication`);
+      return null;
+    }
+
     // Get recently used topics to avoid repetition
     const recentlyUsed = await this.getRecentlyUsedTopics(agent.user_id, agent.platform, 24);
 
-    const scored = trends.map(trend => {
+    const scored = usableTrends.map(trend => {
       let score = 50; // Base score
 
       const title = trend.title || trend.topic || '';
@@ -646,6 +666,12 @@ class AutomationManager {
 
       await this.dbManager.cleanupOldPosts(thirtyDaysAgo);
       await this.dbManager.cleanupOldTrends(thirtyDaysAgo);
+
+      // Clean up old article usage records (keep 48 hours for deduplication window)
+      const cleanedArticles = await this.articleDedup.cleanup(48);
+      if (cleanedArticles > 0) {
+        logger.info(`Cleaned up ${cleanedArticles} old article usage records`);
+      }
 
       logger.info('✅ Maintenance completed');
 

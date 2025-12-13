@@ -261,11 +261,22 @@ router.post('/test', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const topics = user.settings?.preferredTopics || user.automation?.topics || ['technology'];
+    const topics = Array.isArray(user.settings?.preferredTopics) ? user.settings.preferredTopics
+      : Array.isArray(user.automation?.topics) ? user.automation.topics : [];
     const tone = user.automation?.tone || 'professional';
     const userPlatforms = user.settings?.defaultPlatforms || user.automation?.platforms || [];
-    const keywords = user.settings?.keywords || user.automation?.keywords || [];
+    const keywords = Array.isArray(user.settings?.keywords) ? user.settings.keywords
+      : Array.isArray(user.automation?.keywords) ? user.automation.keywords : [];
     const geoFilter = user.settings?.geoFilter || user.automation?.geoFilter || {};
+
+    // Require at least one topic or keyword
+    if (topics.length === 0 && keywords.length === 0) {
+      return res.status(400).json({
+        error: 'No topics or keywords configured',
+        message: 'Please configure at least one topic or keyword in your settings before testing.',
+        step: 'settings'
+      });
+    }
 
     console.log(`[Test Post] User settings:`, { topics, tone, userPlatforms, keywords, geoFilter });
 
@@ -309,20 +320,22 @@ router.post('/test', async (req, res) => {
     // Step 3: Use FULL PIPELINE - fetch trends with scoring and filtering
     let trendData;
     let postContent;
-    const selectedTopic = topics[Math.floor(Math.random() * topics.length)] || 'technology';
+    // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
+    const searchTopics = topics.length > 0 ? [topics[Math.floor(Math.random() * topics.length)]] : ['general'];
+    const isKeywordsOnly = topics.length === 0;
 
-    console.log(`[Test Post] Using FULL PIPELINE for topic: ${selectedTopic}`);
+    console.log(`[Test Post] Using FULL PIPELINE for ${isKeywordsOnly ? 'keywords only' : 'topic: ' + searchTopics[0]}`);
     console.log(`[Test Post] Step 3a: Fetching and scoring articles...`);
 
     try {
       // Use TrendAnalyzer to get multiple articles - pass user's keywords and geoFilter
-      const allTrends = await trendAnalyzer.getTrendsForTopics([selectedTopic], {
+      const allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
         keywords,
         geoFilter
       });
 
       if (allTrends && allTrends.length > 0) {
-        console.log(`[Test Post] Found ${allTrends.length} articles for topic "${selectedTopic}"`);
+        console.log(`[Test Post] Found ${allTrends.length} articles for ${isKeywordsOnly ? 'keywords' : 'topic "' + searchTopics[0] + '"'}`);
 
         // Use AutomationManager's scoring system to select the BEST article
         console.log(`[Test Post] Step 3b: Scoring articles with full pipeline...`);
@@ -344,10 +357,13 @@ router.post('/test', async (req, res) => {
           console.log(`[Test Post] Using first article (scoring returned null): ${trendData.title}`);
         }
       } else {
-        console.log(`[Test Post] ⚠️ No articles found for topic "${selectedTopic}"`);
+        const searchDescription = isKeywordsOnly
+          ? `keywords "${keywords.join(', ')}"`
+          : `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
+        console.log(`[Test Post] ⚠️ No articles found for ${searchDescription}`);
         return res.status(400).json({
           error: 'No news found',
-          message: `No trending news found for topic "${selectedTopic}". Try a different topic.`,
+          message: `No trending news found for ${searchDescription}. Try different topics or keywords.`,
           step: 'trends'
         });
       }
