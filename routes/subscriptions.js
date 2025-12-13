@@ -682,25 +682,48 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 // WEBHOOK EVENT HANDLERS
 // ============================================
 
+// Helper to determine tier from Lemon Squeezy variant ID
+function getTierFromVariantId(variantId) {
+  const variantIdStr = String(variantId);
+
+  for (const [tierName, tierConfig] of Object.entries(PRICING_TIERS)) {
+    if (tierConfig.variantId === variantIdStr) {
+      return tierName;
+    }
+  }
+
+  console.warn(`[WEBHOOK] Unknown variant ID: ${variantId}, defaulting to 'starter'`);
+  return 'starter';
+}
+
 async function handleSubscriptionCreated(payload, customData) {
-  const { user_id, tier } = customData;
+  const { user_id, tier: originalTier } = customData;
   const subscriptionData = payload.data.attributes;
   const subscriptionId = payload.data.id;
 
   if (!user_id) {
-    console.error('No user_id in custom_data for subscription_created');
+    console.error('[WEBHOOK] No user_id in custom_data for subscription_created');
     return;
   }
 
-  console.log(`Creating subscription for user ${user_id}, tier: ${tier}`);
+  // IMPORTANT: Determine actual tier from the variant_id in the payment, not from custom_data
+  // This handles cases where the user changes their plan on the Lemon Squeezy checkout page
+  const actualVariantId = subscriptionData.variant_id;
+  const actualTier = getTierFromVariantId(actualVariantId);
+
+  if (originalTier !== actualTier) {
+    console.log(`[WEBHOOK] User changed plan during checkout: ${originalTier} -> ${actualTier}`);
+  }
+
+  console.log(`[WEBHOOK] Creating subscription for user ${user_id}, tier: ${actualTier} (variant: ${actualVariantId})`);
 
   // Create subscription record in database
   await createSubscription({
     userId: user_id,
-    tier: tier,
+    tier: actualTier,
     lsSubscriptionId: subscriptionId,
     lsCustomerId: String(subscriptionData.customer_id),
-    lsVariantId: String(subscriptionData.variant_id),
+    lsVariantId: String(actualVariantId),
     lsOrderId: String(subscriptionData.order_id),
     status: 'active',
     currentPeriodStart: subscriptionData.created_at,
@@ -710,17 +733,17 @@ async function handleSubscriptionCreated(payload, customData) {
   // Update user profile with new subscription details
   await updateUser(user_id, {
     subscription: {
-      tier: tier,
+      tier: actualTier,
       status: 'active',
-      postsRemaining: getTierPostLimit(tier),
-      dailyLimit: getTierPostLimit(tier),
+      postsRemaining: getTierPostLimit(actualTier),
+      dailyLimit: getTierPostLimit(actualTier),
       cancelAtPeriodEnd: false
     },
     lsCustomerId: String(subscriptionData.customer_id),
     lsSubscriptionId: subscriptionId
   });
 
-  console.log(`Subscription created successfully for user ${user_id}`);
+  console.log(`[WEBHOOK] Subscription created successfully for user ${user_id}, tier: ${actualTier}`);
 }
 
 async function handleSubscriptionUpdated(payload) {
