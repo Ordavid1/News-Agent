@@ -97,6 +97,10 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
 
+      # WhatsApp (Whapi.Cloud) API
+      - key: WHAPI_API_TOKEN
+        sync: false
+
       # News API Keys
       - key: NEWSAPI_KEY
         sync: false

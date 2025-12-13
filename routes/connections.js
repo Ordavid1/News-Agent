@@ -25,7 +25,7 @@ const logger = winston.createLogger({
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Supported platforms
-const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'];
+const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'whatsapp'];
 
 /**
  * GET /api/connections
@@ -386,6 +386,367 @@ router.post('/telegram', authenticateToken, async (req, res) => {
       success: false,
       error: 'Failed to connect Telegram channel'
     });
+  }
+});
+
+// ============================================
+// WHATSAPP ENDPOINTS
+// Uses master account model with verification codes
+// ============================================
+
+import { supabaseAdmin } from '../services/supabase.js';
+import crypto from 'crypto';
+
+/**
+ * GET /api/connections/whatsapp/bot-info
+ * Get the app's WhatsApp account info (phone number for user to add to their group)
+ */
+router.get('/whatsapp/bot-info', async (req, res) => {
+  try {
+    if (!process.env.WHAPI_API_TOKEN) {
+      return res.status(503).json({
+        success: false,
+        configured: false,
+        error: 'WhatsApp not configured'
+      });
+    }
+
+    const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
+    const accountInfo = await WhatsAppPublisher.getAccountInfo();
+
+    res.json({
+      success: true,
+      configured: true,
+      account: {
+        phoneNumber: accountInfo.phoneNumber,
+        name: accountInfo.name
+      }
+    });
+  } catch (error) {
+    logger.error('Error getting WhatsApp account info:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get WhatsApp account info'
+    });
+  }
+});
+
+/**
+ * POST /api/connections/whatsapp/initiate
+ * Generate a verification code for WhatsApp connection
+ */
+router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
+  try {
+    // Check tier - WhatsApp is for Starter plan and above
+    const tier = req.user.subscription_tier || 'free';
+    const allowedTiers = ['starter', 'growth', 'professional', 'business', 'enterprise'];
+    if (!allowedTiers.includes(tier)) {
+      return res.status(403).json({
+        success: false,
+        error: 'WhatsApp is available on Starter plan and above. Please upgrade your subscription.'
+      });
+    }
+
+    if (!process.env.WHAPI_API_TOKEN) {
+      return res.status(503).json({
+        success: false,
+        error: 'WhatsApp integration not configured'
+      });
+    }
+
+    // Check for existing active code
+    const { data: existingCode } = await supabaseAdmin
+      .from('whatsapp_pending_connections')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (existingCode && !existingCode.group_id) {
+      // Return existing code if not yet used
+      const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
+      const accountInfo = await WhatsAppPublisher.getAccountInfo();
+
+      return res.json({
+        success: true,
+        verificationCode: existingCode.verification_code,
+        phoneNumber: accountInfo.phoneNumber,
+        expiresAt: existingCode.expires_at,
+        instructions: [
+          `Add ${accountInfo.phoneNumber} to your WhatsApp group as a participant`,
+          `Send this verification code in the group: ${existingCode.verification_code}`,
+          'Click "Check Status" once you\'ve sent the code'
+        ]
+      });
+    }
+
+    // Generate new verification code (format: NA-XXXXXXXX)
+    const verificationCode = 'NA-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    // Store pending connection
+    const { error: insertError } = await supabaseAdmin
+      .from('whatsapp_pending_connections')
+      .insert({
+        user_id: req.user.id,
+        verification_code: verificationCode,
+        expires_at: expiresAt.toISOString(),
+        status: 'pending'
+      });
+
+    if (insertError) {
+      logger.error('Error creating pending connection:', insertError);
+      throw new Error('Failed to create verification code');
+    }
+
+    const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
+    const accountInfo = await WhatsAppPublisher.getAccountInfo();
+
+    res.json({
+      success: true,
+      verificationCode,
+      phoneNumber: accountInfo.phoneNumber,
+      expiresAt: expiresAt.toISOString(),
+      instructions: [
+        `Add ${accountInfo.phoneNumber} to your WhatsApp group as a participant`,
+        `Send this verification code in the group: ${verificationCode}`,
+        'Click "Check Status" once you\'ve sent the code'
+      ]
+    });
+  } catch (error) {
+    logger.error('Error initiating WhatsApp connection:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to initiate WhatsApp connection'
+    });
+  }
+});
+
+/**
+ * GET /api/connections/whatsapp/pending
+ * Get user's pending WhatsApp connections (detected groups)
+ */
+router.get('/whatsapp/pending', authenticateToken, async (req, res) => {
+  try {
+    // Get pending connections where group was detected
+    const { data: pending, error } = await supabaseAdmin
+      .from('whatsapp_pending_connections')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    // Separate detected groups from active codes
+    const detectedGroups = pending.filter(p => p.group_id);
+    const activeCode = pending.find(p => !p.group_id);
+
+    res.json({
+      success: true,
+      pending: detectedGroups.map(p => ({
+        id: p.id,
+        groupId: p.group_id,
+        groupName: p.group_name,
+        participantCount: p.group_participant_count,
+        detectedAt: p.group_detected_at
+      })),
+      activeCode: activeCode ? {
+        code: activeCode.verification_code,
+        expiresAt: activeCode.expires_at
+      } : null
+    });
+  } catch (error) {
+    logger.error('Error getting pending connections:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get pending connections'
+    });
+  }
+});
+
+/**
+ * POST /api/connections/whatsapp/claim
+ * Claim a detected group as a connection
+ */
+router.post('/whatsapp/claim', authenticateToken, async (req, res) => {
+  try {
+    const { pendingId } = req.body;
+
+    if (!pendingId) {
+      return res.status(400).json({
+        success: false,
+        error: 'pendingId is required'
+      });
+    }
+
+    // Get the pending connection
+    const { data: pending, error: fetchError } = await supabaseAdmin
+      .from('whatsapp_pending_connections')
+      .select('*')
+      .eq('id', pendingId)
+      .eq('user_id', req.user.id)
+      .eq('status', 'pending')
+      .single();
+
+    if (fetchError || !pending) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pending connection not found'
+      });
+    }
+
+    if (!pending.group_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'No group detected yet. Please send the verification code in your WhatsApp group.'
+      });
+    }
+
+    // Validate group is still accessible
+    const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
+    let groupInfo;
+    try {
+      groupInfo = await WhatsAppPublisher.validateGroupAccess(pending.group_id);
+    } catch (validationError) {
+      return res.status(400).json({
+        success: false,
+        error: validationError.message
+      });
+    }
+
+    // Store the connection
+    await TokenManager.storeTokens({
+      userId: req.user.id,
+      platform: 'whatsapp',
+      accessToken: null, // Not needed - uses master account token
+      platformUserId: groupInfo.groupId,
+      platformUsername: groupInfo.groupName,
+      platformDisplayName: groupInfo.groupName,
+      platformMetadata: {
+        groupId: groupInfo.groupId,
+        groupName: groupInfo.groupName,
+        participantCount: groupInfo.participantCount
+      }
+    });
+
+    // Mark pending as claimed
+    await supabaseAdmin
+      .from('whatsapp_pending_connections')
+      .update({
+        status: 'claimed',
+        claimed_at: new Date().toISOString()
+      })
+      .eq('id', pendingId);
+
+    logger.info(`Connected WhatsApp group ${groupInfo.groupName} for user ${req.user.id}`);
+
+    res.json({
+      success: true,
+      message: 'WhatsApp group connected',
+      group: {
+        id: groupInfo.groupId,
+        name: groupInfo.groupName,
+        participantCount: groupInfo.participantCount
+      }
+    });
+  } catch (error) {
+    logger.error('Error claiming WhatsApp connection:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to connect WhatsApp group'
+    });
+  }
+});
+
+/**
+ * POST /api/connections/whatsapp/webhook
+ * Receive webhook notifications from Whapi
+ * This endpoint detects verification codes in group messages
+ */
+router.post('/whatsapp/webhook', async (req, res) => {
+  // Always return 200 OK for webhooks
+  res.status(200).json({ success: true });
+
+  try {
+    const payload = req.body;
+
+    // Handle different webhook event structures
+    const messages = payload.messages || (payload.message ? [payload.message] : []);
+
+    for (const message of messages) {
+      // Only process group messages
+      const chatId = message.chat_id || message.from;
+      if (!chatId || !chatId.endsWith('@g.us')) {
+        continue;
+      }
+
+      // Get message text
+      const text = message.text?.body || message.body || message.text || '';
+      if (!text) continue;
+
+      // Look for verification code pattern (NA-XXXXXXXX)
+      const codeMatch = text.match(/NA-[A-F0-9]{8}/i);
+      if (!codeMatch) continue;
+
+      const verificationCode = codeMatch[0].toUpperCase();
+      logger.info(`Detected verification code ${verificationCode} in group ${chatId}`);
+
+      // Find the pending connection with this code
+      const { data: pending, error } = await supabaseAdmin
+        .from('whatsapp_pending_connections')
+        .select('*')
+        .eq('verification_code', verificationCode)
+        .eq('status', 'pending')
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (error || !pending) {
+        logger.warn(`No valid pending connection found for code ${verificationCode}`);
+        continue;
+      }
+
+      // Get group info
+      const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
+      let groupInfo;
+      try {
+        groupInfo = await WhatsAppPublisher.validateGroupAccess(chatId);
+      } catch (e) {
+        logger.error(`Failed to get group info for ${chatId}:`, e.message);
+        // Still update with basic info
+        groupInfo = {
+          groupId: chatId,
+          groupName: message.chat_name || 'Unknown Group',
+          participantCount: 0
+        };
+      }
+
+      // Update the pending connection with group info
+      const { error: updateError } = await supabaseAdmin
+        .from('whatsapp_pending_connections')
+        .update({
+          group_id: groupInfo.groupId,
+          group_name: groupInfo.groupName,
+          group_participant_count: groupInfo.participantCount,
+          group_detected_at: new Date().toISOString()
+        })
+        .eq('id', pending.id);
+
+      if (updateError) {
+        logger.error('Error updating pending connection:', updateError);
+      } else {
+        logger.info(`Group ${groupInfo.groupName} linked to user ${pending.user_id}`);
+      }
+    }
+  } catch (error) {
+    // Log but don't fail - webhook should always succeed
+    logger.error('Error processing WhatsApp webhook:', error);
   }
 });
 

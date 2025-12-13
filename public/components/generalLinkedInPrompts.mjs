@@ -21,7 +21,7 @@ ${isHebrew ? 'הפוסטים שלך צריכים:' : 'Your posts should:'}
 
 1. ${isHebrew ? 'להתחיל עם כותרת מרשימה על ההתפתחות החדשותית' : 'Start with a compelling headline about the news development'}
 2. ${isHebrew ? 'להשתמש באמוג׳ים רלוונטיים באופן אסטרטגי (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍)' : 'Use relevant emojis strategically (🚀 💡 🔬 ⚡ 🌐 🎯 💻 🔥 📈 💰 🏢 🌍)'}
-3. ${isHebrew ? 'לספק 3-4 פסקאות של ניתוח מהותי:' : 'Provide 3-4 paragraphs of substantive analysis:'}
+3. ${isHebrew ? 'לספק 3-4 פסקאות קצרות של ניתוח מהותי:' : 'Provide 3-4 short paragraphs of substantive analysis:'}
    - ${isHebrew ? 'פסקה ראשונה: החדשות הבוערות עצמן (מי, מה, מתי)' : 'First paragraph: The breaking news itself (who, what, when)'}
    - ${isHebrew ? 'פסקה שנייה: פרטים מפתח והשלכות' : 'Second paragraph: Key details and implications'}
    - ${isHebrew ? 'פסקה שלישית: השפעה תעשייתית ומה זה אומר לאנשי מקצוע' : 'Third paragraph: Industry impact and what this means for professionals'}

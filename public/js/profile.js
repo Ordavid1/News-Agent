@@ -205,7 +205,7 @@ function updateProfileUI() {
 }
 
 function updateConnectionsUI() {
-    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'];
+    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'whatsapp'];
     let connectedCount = 0;
 
     platforms.forEach(platform => {
@@ -218,7 +218,11 @@ function updateConnectionsUI() {
             connectedCount++;
             if (card) card.classList.add('connected');
             if (statusEl) {
-                statusEl.textContent = `Connected as @${connection.username || connection.displayName || 'user'}`;
+                // For WhatsApp, show group name instead of username
+                const displayName = platform === 'whatsapp'
+                    ? connection.displayName || connection.username || 'group'
+                    : `@${connection.username || connection.displayName || 'user'}`;
+                statusEl.textContent = `Connected${platform === 'whatsapp' ? ' to ' : ' as '}${displayName}`;
                 statusEl.classList.remove('text-gray-400');
                 statusEl.classList.add('text-green-400');
             }
@@ -239,9 +243,11 @@ function updateConnectionsUI() {
                 btn.textContent = 'Connect';
                 btn.classList.remove('disconnect-btn');
                 btn.classList.add('connect-btn');
-                // Telegram uses a modal instead of OAuth redirect
+                // Telegram and WhatsApp use modals instead of OAuth redirect
                 if (platform === 'telegram') {
                     btn.onclick = () => openTelegramModal();
+                } else if (platform === 'whatsapp') {
+                    btn.onclick = () => openWhatsAppModal();
                 } else {
                     btn.onclick = () => connectPlatform(platform);
                 }
@@ -250,11 +256,10 @@ function updateConnectionsUI() {
     });
 
     // Update connection count badge
-    // Total connectable platforms: Twitter, LinkedIn, Reddit, Telegram, Instagram, TikTok, YouTube = 7
-    // (Facebook, Threads, WhatsApp are disabled/Coming Soon and not counted)
+    // Total connectable platforms: Twitter, LinkedIn, Reddit, Telegram, WhatsApp, Instagram, TikTok, YouTube = 8
     const connectionCount = document.getElementById('connectionCount');
     if (connectionCount) {
-        connectionCount.textContent = `${connectedCount}/7`;
+        connectionCount.textContent = `${connectedCount}/8`;
         if (connectedCount > 0) {
             connectionCount.classList.remove('bg-gray-700');
             connectionCount.classList.add('bg-green-500/20', 'text-green-400');
@@ -743,10 +748,256 @@ async function connectTelegram() {
     }
 }
 
+// ============================================
+// WhatsApp Modal Functions
+// ============================================
+let whatsappPhoneNumber = null;
+let whatsappVerificationCode = null;
+let whatsappCodeExpiresAt = null;
+
+async function openWhatsAppModal() {
+    const modal = document.getElementById('whatsappModal');
+
+    // Reset modal state
+    resetWhatsAppModal();
+
+    // Show modal
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeWhatsAppModal() {
+    const modal = document.getElementById('whatsappModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+function resetWhatsAppModal() {
+    // Show initial state, hide others
+    const initial = document.getElementById('whatsappInitial');
+    const codeSection = document.getElementById('whatsappCodeSection');
+    const groupsSection = document.getElementById('whatsappGroupsSection');
+    const errorDiv = document.getElementById('whatsappError');
+    const successDiv = document.getElementById('whatsappSuccess');
+
+    if (initial) initial.classList.remove('hidden');
+    if (codeSection) codeSection.classList.add('hidden');
+    if (groupsSection) groupsSection.classList.add('hidden');
+    if (errorDiv) errorDiv.classList.add('hidden');
+    if (successDiv) successDiv.classList.add('hidden');
+}
+
+function showWhatsAppError(message) {
+    const errorDiv = document.getElementById('whatsappError');
+    const errorText = document.getElementById('whatsappErrorText');
+    if (errorDiv && errorText) {
+        errorText.textContent = message;
+        errorDiv.classList.remove('hidden');
+    }
+}
+
+function showWhatsAppSuccess(message) {
+    const successDiv = document.getElementById('whatsappSuccess');
+    const successText = document.getElementById('whatsappSuccessText');
+    if (successDiv && successText) {
+        successText.textContent = message;
+        successDiv.classList.remove('hidden');
+    }
+}
+
+async function getWhatsAppCode() {
+    const token = localStorage.getItem('token');
+    const btn = document.getElementById('whatsappGetCodeBtn');
+    const errorDiv = document.getElementById('whatsappError');
+
+    // Hide previous error
+    if (errorDiv) errorDiv.classList.add('hidden');
+
+    // Show loading state
+    const originalText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/connections/whatsapp/initiate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Store the code and phone number
+            whatsappPhoneNumber = data.phoneNumber;
+            whatsappVerificationCode = data.verificationCode;
+            whatsappCodeExpiresAt = new Date(data.expiresAt);
+
+            // Update UI
+            document.getElementById('whatsappPhoneNumber').textContent = data.phoneNumber;
+            document.getElementById('whatsappPhoneNumberInstructions').textContent = data.phoneNumber;
+            document.getElementById('whatsappVerificationCode').textContent = data.verificationCode;
+            updateWhatsAppCodeExpiry();
+
+            // Show code section, hide initial
+            document.getElementById('whatsappInitial').classList.add('hidden');
+            document.getElementById('whatsappCodeSection').classList.remove('hidden');
+        } else {
+            showWhatsAppError(data.error || 'Failed to generate verification code');
+        }
+    } catch (error) {
+        console.error('Error getting WhatsApp code:', error);
+        showWhatsAppError('Failed to generate code. Please try again.');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+function updateWhatsAppCodeExpiry() {
+    if (!whatsappCodeExpiresAt) return;
+
+    const expirySpan = document.getElementById('whatsappCodeExpiry');
+    if (!expirySpan) return;
+
+    const now = new Date();
+    const diff = whatsappCodeExpiresAt - now;
+
+    if (diff <= 0) {
+        expirySpan.textContent = 'expired';
+        return;
+    }
+
+    const minutes = Math.floor(diff / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    expirySpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+    // Update every second
+    setTimeout(updateWhatsAppCodeExpiry, 1000);
+}
+
+function copyWhatsAppCode(e) {
+    if (!whatsappVerificationCode) return;
+
+    navigator.clipboard.writeText(whatsappVerificationCode).then(() => {
+        // Brief visual feedback
+        const btn = e?.target?.closest('button') || document.querySelector('#whatsappCodeSection button[title="Copy code"]');
+        if (btn) {
+            btn.classList.add('bg-green-600');
+            setTimeout(() => btn.classList.remove('bg-green-600'), 500);
+        }
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+async function checkWhatsAppStatus() {
+    const token = localStorage.getItem('token');
+    const btn = document.getElementById('whatsappCheckStatusBtn');
+    const errorDiv = document.getElementById('whatsappError');
+    const groupsSection = document.getElementById('whatsappGroupsSection');
+    const groupsList = document.getElementById('whatsappGroupsList');
+
+    // Hide previous messages
+    if (errorDiv) errorDiv.classList.add('hidden');
+
+    // Show loading state
+    const originalText = btn.textContent;
+    btn.textContent = 'Checking...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/connections/whatsapp/pending', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            if (data.pending && data.pending.length > 0) {
+                // Show detected groups
+                groupsSection.classList.remove('hidden');
+                groupsList.innerHTML = data.pending.map(group => `
+                    <div class="flex items-center justify-between bg-gray-800 rounded-lg p-3">
+                        <div>
+                            <p class="font-medium text-white">${escapeHtml(group.groupName)}</p>
+                            <p class="text-xs text-gray-400">${group.participantCount || 0} participants</p>
+                        </div>
+                        <button onclick="claimWhatsAppGroup('${group.id}')" class="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-medium transition-all">
+                            Connect
+                        </button>
+                    </div>
+                `).join('');
+            } else {
+                showWhatsAppError('No groups detected yet. Make sure you sent the verification code in your WhatsApp group.');
+            }
+        } else {
+            showWhatsAppError(data.error || 'Failed to check status');
+        }
+    } catch (error) {
+        console.error('Error checking WhatsApp status:', error);
+        showWhatsAppError('Failed to check status. Please try again.');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function claimWhatsAppGroup(pendingId) {
+    const token = localStorage.getItem('token');
+
+    try {
+        const response = await fetch('/api/connections/whatsapp/claim', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            },
+            body: JSON.stringify({ pendingId })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showWhatsAppSuccess(`Connected to ${data.group.name}!`);
+            // Hide code section and groups
+            document.getElementById('whatsappCodeSection').classList.add('hidden');
+            document.getElementById('whatsappGroupsSection').classList.add('hidden');
+
+            // Refresh connections and close modal after delay
+            setTimeout(async () => {
+                closeWhatsAppModal();
+                await loadConnections();
+            }, 1500);
+        } else {
+            showWhatsAppError(data.error || 'Failed to connect group');
+        }
+    } catch (error) {
+        console.error('Error claiming WhatsApp group:', error);
+        showWhatsAppError('Failed to connect group. Please try again.');
+    }
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Close Telegram modal on escape key
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeTelegramModal();
+        closeWhatsAppModal();
     }
 });
 
@@ -754,6 +1005,9 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
     if (e.target.id === 'telegramModal') {
         closeTelegramModal();
+    }
+    if (e.target.id === 'whatsappModal') {
+        closeWhatsAppModal();
     }
     if (e.target.id === 'testResultModal') {
         closeTestModal();
@@ -2010,6 +2264,13 @@ window.selectPlan = selectPlan;
 window.openTelegramModal = openTelegramModal;
 window.closeTelegramModal = closeTelegramModal;
 window.connectTelegram = connectTelegram;
+// WhatsApp functions
+window.openWhatsAppModal = openWhatsAppModal;
+window.closeWhatsAppModal = closeWhatsAppModal;
+window.getWhatsAppCode = getWhatsAppCode;
+window.copyWhatsAppCode = copyWhatsAppCode;
+window.checkWhatsAppStatus = checkWhatsAppStatus;
+window.claimWhatsAppGroup = claimWhatsAppGroup;
 window.testAgent = testAgent;
 window.closeTestModal = closeTestModal;
 // Agent functions

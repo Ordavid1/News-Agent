@@ -981,6 +981,210 @@ export function getDb() {
   return supabaseAdmin;
 }
 
+// ============================================
+// AGENT AUTOMATION FUNCTIONS
+// ============================================
+
+/**
+ * Calculate posting interval in milliseconds based on schedule
+ * Example: 3 posts/day in 12-hour window = 4 hours between posts
+ */
+function calculatePostingInterval(schedule) {
+  const { postsPerDay, startTime, endTime } = schedule;
+
+  // Parse times (HH:MM format)
+  const [startH, startM] = startTime.split(':').map(Number);
+  const [endH, endM] = endTime.split(':').map(Number);
+
+  // Calculate window duration in minutes
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+  const windowMinutes = endMinutes - startMinutes;
+
+  // Calculate interval (divide window by posts per day)
+  // Minimum interval is 30 minutes to avoid spam
+  const intervalMinutes = Math.max(30, windowMinutes / Math.max(1, postsPerDay));
+  return intervalMinutes * 60 * 1000; // Convert to milliseconds
+}
+
+/**
+ * Check if current time is within agent's posting window
+ */
+function isWithinPostingWindow(schedule, timezone = 'UTC') {
+  const { startTime, endTime } = schedule;
+
+  // Get current time in the specified timezone
+  const now = new Date();
+  const currentTimeStr = now.toLocaleTimeString('en-GB', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: timezone
+  });
+
+  return currentTimeStr >= startTime && currentTimeStr <= endTime;
+}
+
+/**
+ * Get all active agents ready for posting
+ *
+ * Filters by:
+ * - status = 'active'
+ * - connection status = 'active'
+ * - Current time within startTime-endTime window
+ * - posts_today < postsPerDay
+ * - Enough time passed since last_posted_at based on posting interval
+ */
+export async function getAgentsReadyForPosting() {
+  try {
+    // Get all active agents with their connection info
+    const { data: agents, error } = await supabaseAdmin
+      .from('agents')
+      .select(`
+        *,
+        social_connections!inner (
+          id,
+          user_id,
+          platform,
+          status,
+          platform_username,
+          platform_user_id,
+          platform_display_name
+        )
+      `)
+      .eq('status', 'active')
+      .eq('social_connections.status', 'active');
+
+    if (error) {
+      logger.error('Error fetching active agents:', error);
+      throw error;
+    }
+
+    if (!agents || agents.length === 0) {
+      logger.debug('No active agents found');
+      return [];
+    }
+
+    const now = new Date();
+
+    // Filter in application layer for complex conditions
+    const readyAgents = agents.filter(agent => {
+      const settings = agent.settings || {};
+      const schedule = settings.schedule || {
+        postsPerDay: 3,
+        startTime: '09:00',
+        endTime: '21:00'
+      };
+
+      // 1. Check if within time window (use UTC for consistency)
+      if (!isWithinPostingWindow(schedule, 'UTC')) {
+        logger.debug(`Agent ${agent.id}: Outside posting window (${schedule.startTime}-${schedule.endTime})`);
+        return false;
+      }
+
+      // 2. Check posts_today limit
+      const postsToday = agent.posts_today || 0;
+      const maxPosts = schedule.postsPerDay || 3;
+      if (postsToday >= maxPosts) {
+        logger.debug(`Agent ${agent.id}: Daily limit reached (${postsToday}/${maxPosts})`);
+        return false;
+      }
+
+      // 3. Check interval since last post
+      if (agent.last_posted_at) {
+        const intervalMs = calculatePostingInterval(schedule);
+        const timeSinceLastPost = now - new Date(agent.last_posted_at);
+        if (timeSinceLastPost < intervalMs) {
+          const minutesLeft = Math.ceil((intervalMs - timeSinceLastPost) / 60000);
+          logger.debug(`Agent ${agent.id}: Too soon since last post (${minutesLeft} min left)`);
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    logger.info(`Found ${readyAgents.length} agents ready for posting (out of ${agents.length} active)`);
+    return readyAgents;
+
+  } catch (error) {
+    logger.error('Error in getAgentsReadyForPosting:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get agents for a specific platform that are ready for posting
+ */
+export async function getAgentsReadyForPlatform(platform) {
+  const allReady = await getAgentsReadyForPosting();
+  return allReady.filter(agent => agent.platform === platform);
+}
+
+/**
+ * Reset daily post counts for all agents
+ * Should be called at midnight (UTC or configured timezone)
+ */
+export async function resetDailyAgentPosts() {
+  try {
+    // Try to use the RPC function first
+    const { error: rpcError } = await supabaseAdmin.rpc('reset_daily_agent_posts');
+
+    if (rpcError) {
+      // Fallback to direct update if function doesn't exist
+      logger.warn('reset_daily_agent_posts RPC failed, using direct update:', rpcError.message);
+
+      const { data, error: updateError } = await supabaseAdmin
+        .from('agents')
+        .update({
+          posts_today: 0,
+          updated_at: new Date().toISOString()
+        })
+        .neq('posts_today', 0) // Only update agents that have posts
+        .select('id');
+
+      if (updateError) {
+        logger.error('Error resetting daily agent posts:', updateError);
+        throw updateError;
+      }
+
+      logger.info(`Reset daily posts for ${data?.length || 0} agents (direct update)`);
+      return data?.length || 0;
+    }
+
+    logger.info('Daily agent posts reset via RPC');
+    return true;
+
+  } catch (error) {
+    logger.error('Failed to reset daily agent posts:', error);
+    throw error;
+  }
+}
+
+/**
+ * Log automation event for an agent
+ */
+export async function logAgentAutomation(agentId, userId, eventType, details = {}) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('automation_logs')
+      .insert({
+        agent_id: agentId,
+        user_id: userId,
+        type: eventType,
+        details: details,
+        timestamp: new Date().toISOString()
+      });
+
+    if (error) {
+      // Log but don't throw - this is non-critical
+      logger.warn('Failed to log agent automation event:', error.message);
+    }
+  } catch (error) {
+    logger.warn('Error in logAgentAutomation:', error.message);
+  }
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -1011,5 +1215,10 @@ export default {
   deleteAgent,
   countUserAgents,
   incrementAgentPost,
-  markAgentTestUsed
+  markAgentTestUsed,
+  // Agent automation functions
+  getAgentsReadyForPosting,
+  getAgentsReadyForPlatform,
+  resetDailyAgentPosts,
+  logAgentAutomation
 };

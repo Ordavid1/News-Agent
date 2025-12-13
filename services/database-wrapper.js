@@ -39,5 +39,10 @@ export {
   deleteAgent,
   countUserAgents,
   incrementAgentPost,
-  markAgentTestUsed
+  markAgentTestUsed,
+  // Agent automation functions
+  getAgentsReadyForPosting,
+  getAgentsReadyForPlatform,
+  resetDailyAgentPosts,
+  logAgentAutomation
 } from './database.js';

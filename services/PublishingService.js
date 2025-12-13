@@ -5,6 +5,7 @@ import LinkedInPublisher from '../publishers/LinkedInPublisher.js';
 import RedditPublisher from '../publishers/RedditPublisher.js';
 import FacebookPublisher from '../publishers/FacebookPublisher.js';
 import TelegramPublisher from '../publishers/TelegramPublisher.js';
+import WhatsAppPublisher from '../publishers/WhatsAppPublisher.js';
 // MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import { createPost } from './database-wrapper.js';
 import TokenManager, { TokenDecryptionError } from './TokenManager.js';
@@ -153,6 +154,15 @@ class PublishingService {
         logger.info(`  → Telegram Chat ID: ${credentials.chatId}`);
         logger.info(`  → Telegram Channel: ${credentials.channelUsername || 'private channel'}`);
         return TelegramPublisher.withCredentials(credentials);
+
+      case 'whatsapp':
+        // WhatsApp uses master account token, user provides group info
+        credentials.groupId = connection.platform_user_id || connection.platform_metadata?.groupId;
+        credentials.groupName = connection.platform_username || connection.platform_metadata?.groupName;
+        credentials.metadata = connection.platform_metadata || {};
+        logger.info(`  → WhatsApp Group ID: ${credentials.groupId}`);
+        logger.info(`  → WhatsApp Group Name: ${credentials.groupName || 'unknown'}`);
+        return WhatsAppPublisher.withCredentials(credentials);
 
       case 'instagram':
         // Instagram is not yet implemented
@@ -384,6 +394,36 @@ class PublishingService {
     }
   }
 
+  async publishToWhatsApp(content, userId, imageUrl = null) {
+    try {
+      const publisher = await this.getPublisherForUser(userId, 'whatsapp');
+
+      // Pass imageUrl to publisher - WhatsApp supports image messages
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
+
+      if (result.success) {
+        await this.savePostToDatabase(userId, 'whatsapp', content, result, mediaUrl);
+        await this.updateConnectionLastUsed(userId, 'whatsapp');
+
+        logger.info(`Successfully published to WhatsApp for user ${userId}${mediaUrl ? ' with image' : ''}`);
+        return {
+          success: true,
+          platform: 'whatsapp',
+          postId: result.postId,
+          groupId: result.groupId,
+          groupName: result.groupName
+        };
+      }
+
+      throw new Error('WhatsApp publishing failed');
+
+    } catch (error) {
+      logger.error(`Failed to publish to WhatsApp for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
   /**
    * Update the last_used_at timestamp for a connection
    * @param {string} userId - User ID
@@ -486,6 +526,9 @@ class PublishingService {
           case 'telegram':
             result = await this.publishToTelegram(content, userId, mediaUrl);
             break;
+          case 'whatsapp':
+            result = await this.publishToWhatsApp(content, userId, mediaUrl);
+            break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
         }
@@ -529,6 +572,7 @@ export const publishToReddit = (content, subreddit, userId, flairId = null, imag
 export const publishToFacebook = (content, userId, imageUrl = null) => publishingService.publishToFacebook(content, userId, imageUrl);
 export const publishToInstagram = (content, userId) => publishingService.publishToInstagram(content, userId);
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
+export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
   publishingService.publishToMultiplePlatforms(content, platforms, userId, options);
 

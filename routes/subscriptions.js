@@ -176,6 +176,8 @@ router.get('/portal', async (req, res) => {
   try {
     const subscription = await getSubscription(req.user.id);
     console.log('[PORTAL] Subscription found:', !!subscription?.lsSubscriptionId);
+    console.log('[PORTAL] lsSubscriptionId value:', subscription?.lsSubscriptionId);
+    console.log('[PORTAL] Subscription tier:', subscription?.tier);
 
     if (!subscription?.lsSubscriptionId) {
       console.log('[PORTAL] No lsSubscriptionId found');
@@ -183,9 +185,10 @@ router.get('/portal', async (req, res) => {
     }
 
     // Fetch fresh subscription data from Lemon Squeezy (portal URL is valid for 24h)
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
-      {
+    const lsUrl = `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`;
+    console.log('[PORTAL] Fetching from LS API:', lsUrl);
+
+    const response = await fetch(lsUrl, {
         headers: {
           'Accept': 'application/vnd.api+json',
           'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
@@ -193,9 +196,13 @@ router.get('/portal', async (req, res) => {
       }
     );
 
+    console.log('[PORTAL] LS API Response status:', response.status);
+
     if (!response.ok) {
-      console.error('Failed to fetch subscription from Lemon Squeezy');
-      return res.status(500).json({ error: 'Failed to fetch portal URL' });
+      const errorData = await response.json();
+      console.error('[PORTAL] LS API Error:', JSON.stringify(errorData));
+      console.error('[PORTAL] This may indicate the subscription ID does not exist in Lemon Squeezy');
+      return res.status(500).json({ error: 'Failed to fetch portal URL', details: errorData });
     }
 
     const data = await response.json();
@@ -218,6 +225,8 @@ router.post('/cancel', async (req, res) => {
   try {
     const subscription = await getSubscription(req.user.id);
     console.log('[CANCEL] Subscription found:', !!subscription?.lsSubscriptionId);
+    console.log('[CANCEL] lsSubscriptionId value:', subscription?.lsSubscriptionId);
+    console.log('[CANCEL] Subscription tier:', subscription?.tier);
 
     if (!subscription || !subscription.lsSubscriptionId) {
       console.log('[CANCEL] No subscription found');
@@ -225,9 +234,10 @@ router.post('/cancel', async (req, res) => {
     }
 
     // Cancel subscription via Lemon Squeezy API
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
-      {
+    const lsUrl = `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`;
+    console.log('[CANCEL] Sending PATCH to LS API:', lsUrl);
+
+    const response = await fetch(lsUrl, {
         method: 'PATCH',
         headers: {
           'Accept': 'application/vnd.api+json',
@@ -246,10 +256,13 @@ router.post('/cancel', async (req, res) => {
       }
     );
 
+    console.log('[CANCEL] LS API Response status:', response.status);
+
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('Lemon Squeezy cancel error:', errorData);
-      return res.status(500).json({ error: 'Failed to cancel subscription' });
+      console.error('[CANCEL] LS API Error:', JSON.stringify(errorData));
+      console.error('[CANCEL] This may indicate the subscription ID does not exist in Lemon Squeezy');
+      return res.status(500).json({ error: 'Failed to cancel subscription', details: errorData });
     }
 
     const data = await response.json();
