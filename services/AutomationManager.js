@@ -22,7 +22,9 @@ import {
   publishToReddit,
   publishToFacebook,
   publishToTelegram,
-  publishToWhatsApp
+  publishToWhatsApp,
+  publishToInstagram,
+  publishToThreads
 } from './PublishingService.js';
 import '../config/env.js';
 
@@ -176,7 +178,7 @@ class AutomationManager {
               totalFailed++;
             }
           } catch (error) {
-            logger.error(`❌ Agent ${agent.id} failed:`, error.message);
+            logger.error(`❌ Agent ${agent.id} failed: ${error.message}`);
             totalFailed++;
             await this.handleAgentError(agent, error);
           }
@@ -221,7 +223,7 @@ class AutomationManager {
     const platform = agent.platform;
 
     // 1. Check rate limits for this user/platform
-    const canPost = await this.rateLimiter.canPost(platform, userId);
+    const canPost = await this.rateLimiter.checkLimit(userId, platform);
     if (!canPost) {
       agentLog('warn', `Rate limited for ${platform}, skipping`);
       return { success: false, error: 'rate_limited' };
@@ -540,6 +542,23 @@ class AutomationManager {
 
         case 'whatsapp':
           result = await publishToWhatsApp(content, userId, imageUrl);
+          break;
+
+        case 'instagram':
+          // Instagram requires an image — skip gracefully if no image available
+          if (!imageUrl) {
+            logger.warn(`Skipping Instagram for agent ${agent.id}: no image available (Instagram requires media)`);
+            return {
+              success: false,
+              platform,
+              error: 'Instagram requires an image or video. Post skipped because no media was available.'
+            };
+          }
+          result = await publishToInstagram(content, userId, imageUrl);
+          break;
+
+        case 'threads':
+          result = await publishToThreads(content, userId, imageUrl);
           break;
 
         default:

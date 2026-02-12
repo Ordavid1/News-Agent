@@ -36,6 +36,18 @@ class RateLimiter {
       instagram: {
         posts: 20,        // 20 posts per hour
         window: 3600000   // 1 hour in ms
+      },
+      telegram: {
+        posts: 30,        // 30 posts per hour
+        window: 3600000   // 1 hour in ms
+      },
+      threads: {
+        posts: 20,        // 20 posts per hour
+        window: 3600000   // 1 hour in ms
+      },
+      whatsapp: {
+        posts: 20,        // 20 posts per hour
+        window: 3600000   // 1 hour in ms
       }
     };
     

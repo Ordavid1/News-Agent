@@ -205,7 +205,7 @@ function updateProfileUI() {
 }
 
 function updateConnectionsUI() {
-    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'whatsapp'];
+    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp'];
     let connectedCount = 0;
 
     platforms.forEach(platform => {

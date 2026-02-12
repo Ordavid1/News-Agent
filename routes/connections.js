@@ -25,7 +25,7 @@ const logger = winston.createLogger({
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Supported platforms
-const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'whatsapp'];
+const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp'];
 
 /**
  * GET /api/connections
@@ -75,8 +75,11 @@ router.get('/:platform/initiate', authenticateToken, async (req, res) => {
     }
 
     // Check if platform credentials are configured
-    const clientId = process.env[`${platform.toUpperCase()}_CLIENT_ID`] ||
-                     process.env[`${platform.toUpperCase()}_APP_ID`];
+    // Instagram and Threads use the same Meta/Facebook App credentials
+    const sharedCredentialMap = { instagram: 'FACEBOOK_APP_ID', threads: 'FACEBOOK_APP_ID' };
+    const clientId = sharedCredentialMap[platform]
+      ? process.env[sharedCredentialMap[platform]]
+      : (process.env[`${platform.toUpperCase()}_CLIENT_ID`] || process.env[`${platform.toUpperCase()}_APP_ID`]);
 
     if (!clientId) {
       return res.status(503).json({

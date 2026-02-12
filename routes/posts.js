@@ -5,7 +5,7 @@ import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
+import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 // SECURITY: Input validation
@@ -232,14 +232,14 @@ router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter
 });
 
 // Helper function to get allowed platforms by tier
-// Note: Facebook is disabled until integration is set up
+// To enable remaining Meta platforms: add 'threads' to starter+, add 'instagram' to growth+.
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
-    starter: ['linkedin', 'reddit', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram'],
-    business: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram', 'tiktok', 'youtube']
+    starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
+    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'tiktok', 'youtube']
   };
 
   return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
@@ -480,6 +480,12 @@ router.post('/test', async (req, res) => {
             break;
           case 'telegram':
             result = await publishToTelegram(content, userId);
+            break;
+          case 'instagram':
+            result = await publishToInstagram(content, userId);
+            break;
+          case 'threads':
+            result = await publishToThreads(content, userId);
             break;
           default:
             console.log(`[Test Post] Platform ${platform} not yet supported for publishing`);

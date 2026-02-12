@@ -24,6 +24,9 @@ const logger = winston.createLogger({
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+// Meta Graph API version — update this single constant when upgrading
+const META_GRAPH_API_VERSION = 'v24.0';
+
 // Platform OAuth configurations
 const PLATFORM_CONFIGS = {
   twitter: {
@@ -48,10 +51,24 @@ const PLATFORM_CONFIGS = {
     usePKCE: false
   },
   facebook: {
-    authUrl: 'https://www.facebook.com/v18.0/dialog/oauth',
-    tokenUrl: 'https://graph.facebook.com/v18.0/oauth/access_token',
-    userInfoUrl: 'https://graph.facebook.com/me',
-    scopes: ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list'],
+    authUrl: `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth`,
+    tokenUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token`,
+    userInfoUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me`,
+    scopes: ['public_profile', 'pages_manage_posts', 'pages_read_engagement', 'pages_show_list'],
+    usePKCE: false
+  },
+  instagram: {
+    authUrl: `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth`,
+    tokenUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token`,
+    userInfoUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts`,
+    scopes: ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement'],
+    usePKCE: false
+  },
+  threads: {
+    authUrl: 'https://threads.net/oauth/authorize',
+    tokenUrl: 'https://graph.threads.net/oauth/access_token',
+    userInfoUrl: 'https://graph.threads.net/v1.0/me',
+    scopes: ['threads_basic', 'threads_content_publish'],
     usePKCE: false
   }
 };
@@ -210,14 +227,45 @@ export async function exchangeCodeForTokens(platform, code, state) {
 
   const tokens = await response.json();
 
-  // Fetch user info
-  const userInfo = await fetchUserInfo(platform, tokens.access_token);
+  // For Facebook/Instagram: exchange short-lived token for long-lived token (60 days)
+  // Page tokens derived from long-lived user tokens are never-expiring
+  let accessToken = tokens.access_token;
+  if (platform === 'facebook' || platform === 'instagram') {
+    // DEBUG: Test /me/accounts with short-lived token BEFORE exchange
+    logger.info('[DEBUG] Testing /me/accounts with SHORT-LIVED token...');
+    try {
+      const shortLivedTest = await fetch(
+        `https://graph.facebook.com/${PLATFORM_CONFIGS[platform]?.authUrl ? META_GRAPH_API_VERSION : 'v24.0'}/me/accounts?fields=id,name&access_token=${accessToken}`
+      );
+      const shortLivedData = await shortLivedTest.json();
+      logger.info(`[DEBUG] /me/accounts with SHORT-LIVED token returned: ${JSON.stringify(shortLivedData)}`);
+    } catch (e) {
+      logger.warn(`[DEBUG] Short-lived token test failed: ${e.message}`);
+    }
+
+    accessToken = await exchangeForLongLivedToken(accessToken);
+
+    // DEBUG: Test /me/accounts with long-lived token AFTER exchange
+    logger.info('[DEBUG] Testing /me/accounts with LONG-LIVED token...');
+    try {
+      const longLivedTest = await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=id,name&access_token=${accessToken}`
+      );
+      const longLivedData = await longLivedTest.json();
+      logger.info(`[DEBUG] /me/accounts with LONG-LIVED token returned: ${JSON.stringify(longLivedData)}`);
+    } catch (e) {
+      logger.warn(`[DEBUG] Long-lived token test failed: ${e.message}`);
+    }
+  }
+
+  // Fetch user info (uses long-lived token for facebook/instagram)
+  const userInfo = await fetchUserInfo(platform, accessToken);
 
   // Store tokens
   await TokenManager.storeTokens({
     userId: stateData.userId,
     platform,
-    accessToken: tokens.access_token,
+    accessToken: accessToken,
     refreshToken: tokens.refresh_token,
     expiresIn: tokens.expires_in,
     platformUserId: userInfo.id,
@@ -250,6 +298,16 @@ async function fetchUserInfo(platform, accessToken) {
     headers['User-Agent'] = 'NewsAgentSaaS/1.0';
   }
 
+  // Instagram requires a multi-step lookup to find the IG Business Account
+  if (platform === 'instagram') {
+    return fetchInstagramUserInfo(accessToken);
+  }
+
+  // Threads uses its own API endpoint
+  if (platform === 'threads') {
+    return fetchThreadsUserInfo(accessToken);
+  }
+
   let url = config.userInfoUrl;
 
   // Platform-specific URL modifications
@@ -270,7 +328,231 @@ async function fetchUserInfo(platform, accessToken) {
   const data = await response.json();
 
   // Normalize user info across platforms
-  return normalizeUserInfo(platform, data);
+  const userInfo = normalizeUserInfo(platform, data);
+
+  // For Facebook, also discover and store the user's Page info during initial connection
+  // so that publishing can later use direct page ID fetching instead of /me/accounts
+  if (platform === 'facebook') {
+    try {
+      const pageInfo = await fetchFacebookPageInfo(accessToken);
+      if (pageInfo) {
+        userInfo.metadata = {
+          ...userInfo.metadata,
+          pageId: pageInfo.id,
+          pageAccessToken: pageInfo.accessToken,
+          pageName: pageInfo.name
+        };
+        logger.info(`Stored Facebook page info: ${pageInfo.name} (${pageInfo.id})`);
+      }
+    } catch (pageError) {
+      logger.warn('Could not fetch Facebook page info during connection:', pageError.message);
+      // Non-fatal — user can still reconnect or page token will be fetched at publish time
+    }
+  }
+
+  return userInfo;
+}
+
+/**
+ * Fetch Facebook Page info for the connected user.
+ * Tries /me/accounts first; if that returns empty (common with Business-type apps),
+ * returns null so the caller can handle gracefully.
+ * @param {string} accessToken - User's access token
+ * @returns {Object|null} Page info { id, name, accessToken } or null if none found
+ */
+async function fetchFacebookPageInfo(accessToken) {
+  // First, check what permissions were actually granted by the user
+  try {
+    const permResponse = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/permissions?access_token=${accessToken}`
+    );
+    if (permResponse.ok) {
+      const permData = await permResponse.json();
+      logger.info(`Facebook granted permissions: ${JSON.stringify(permData.data)}`);
+    }
+  } catch (permErr) {
+    logger.warn(`Could not check Facebook permissions: ${permErr.message}`);
+  }
+
+  const pagesUrl = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=id,name,access_token,picture&access_token=${accessToken}`;
+  logger.info(`Fetching Facebook pages from: ${pagesUrl.replace(accessToken, 'TOKEN_REDACTED')}`);
+
+  const pagesResponse = await fetch(pagesUrl);
+
+  if (!pagesResponse.ok) {
+    const errorText = await pagesResponse.text();
+    logger.warn('Failed to fetch pages via /me/accounts:', errorText);
+    return null;
+  }
+
+  const pagesData = await pagesResponse.json();
+  const pages = pagesData.data || [];
+
+  logger.info(`Facebook /me/accounts returned ${pages.length} pages. Full response: ${JSON.stringify(pagesData)}`);
+
+  if (pages.length === 0) {
+    logger.warn('/me/accounts returned no pages (common with Business-type Meta apps)');
+    return null;
+  }
+
+  const page = pages[0];
+  return {
+    id: page.id,
+    name: page.name,
+    accessToken: page.access_token,
+    pictureUrl: page.picture?.data?.url
+  };
+}
+
+/**
+ * Exchange a short-lived Facebook/Instagram token for a long-lived token.
+ * Short-lived tokens last ~1-2 hours. Long-lived tokens last ~60 days.
+ * Page tokens derived from long-lived user tokens are never-expiring.
+ * @param {string} shortLivedToken - The short-lived access token from OAuth code exchange
+ * @returns {string} Long-lived access token (or original token if exchange fails)
+ */
+async function exchangeForLongLivedToken(shortLivedToken) {
+  const clientId = getClientId('facebook');
+  const clientSecret = getClientSecret('facebook');
+
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token?` +
+      `grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}` +
+      `&fb_exchange_token=${shortLivedToken}`
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.warn('Failed to exchange for long-lived token:', errorText);
+      return shortLivedToken;
+    }
+
+    const data = await response.json();
+    logger.info(`Exchanged for long-lived Facebook token (expires in ${data.expires_in}s)`);
+    return data.access_token;
+  } catch (error) {
+    logger.warn('Long-lived token exchange error:', error.message);
+    return shortLivedToken;
+  }
+}
+
+/**
+ * Fetch a Facebook Page's info directly by page ID.
+ * This is the reliable method for Business-type Meta apps where /me/accounts
+ * may return empty results.
+ * @param {string} pageId - The Facebook Page ID
+ * @param {string} accessToken - User's access token with page permissions
+ * @returns {Object} Page info with id, name, access_token, instagram_business_account
+ */
+async function fetchPageById(pageId, accessToken, fields = 'id,name,access_token') {
+  const response = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pageId}?fields=${fields}&access_token=${accessToken}`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error(`Failed to fetch page ${pageId} by ID:`, errorText);
+    throw new Error(`Failed to fetch page by ID: ${errorText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Fetch Instagram Business Account info via Facebook Pages API.
+ * Instagram requires: Facebook token → get Pages → find linked IG account → get IG user info.
+ *
+ * Strategy:
+ *   1. Try /me/accounts to discover pages with linked IG accounts.
+ *   2. If /me/accounts returns empty (Business-type app), this will throw with a
+ *      clear error message guiding the user.
+ */
+async function fetchInstagramUserInfo(accessToken) {
+  // Step 1: Try /me/accounts to get pages with Instagram Business Accounts
+  const pagesResponse = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`
+  );
+
+  if (!pagesResponse.ok) {
+    const errorText = await pagesResponse.text();
+    logger.error('Failed to fetch Facebook pages for Instagram:', errorText);
+    throw new Error(`Failed to fetch Facebook pages: ${errorText}`);
+  }
+
+  const pagesData = await pagesResponse.json();
+  const pages = pagesData.data || [];
+
+  // Step 2: Find the first page with an Instagram Business Account
+  const pageWithIG = pages.find(page => page.instagram_business_account);
+
+  if (!pageWithIG) {
+    if (pages.length === 0) {
+      throw new Error(
+        'No Facebook pages returned. For Business-type Meta apps, /me/accounts may not list pages. ' +
+        'Please ensure you have granted pages_show_list and pages_read_engagement permissions, ' +
+        'and that your Facebook Page is associated with your Meta Business account.'
+      );
+    }
+    throw new Error(
+      'No Instagram Business Account found linked to your Facebook Pages. ' +
+      'Please ensure your Instagram account is connected to a Facebook Page and set as a Business or Creator account.'
+    );
+  }
+
+  const igAccountId = pageWithIG.instagram_business_account.id;
+
+  // Step 3: Fetch Instagram account details
+  const igResponse = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${igAccountId}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
+  );
+
+  if (!igResponse.ok) {
+    const errorText = await igResponse.text();
+    logger.error('Failed to fetch Instagram account info:', errorText);
+    throw new Error(`Failed to fetch Instagram account info: ${errorText}`);
+  }
+
+  const igData = await igResponse.json();
+
+  return {
+    id: igData.id,
+    username: igData.username,
+    displayName: igData.name || igData.username,
+    avatarUrl: igData.profile_picture_url,
+    metadata: {
+      igUserId: igData.id,
+      linkedPageId: pageWithIG.id,
+      linkedPageName: pageWithIG.name
+    }
+  };
+}
+
+/**
+ * Fetch Threads user info from Threads API
+ */
+async function fetchThreadsUserInfo(accessToken) {
+  const response = await fetch(
+    `https://graph.threads.net/v1.0/me?fields=id,username,name,threads_profile_picture_url&access_token=${accessToken}`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error('Failed to fetch Threads user info:', errorText);
+    throw new Error(`Failed to fetch Threads user info: ${errorText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    id: data.id,
+    username: data.username,
+    displayName: data.name || data.username,
+    avatarUrl: data.threads_profile_picture_url,
+    metadata: {
+      threadsUserId: data.id
+    }
+  };
 }
 
 /**
@@ -316,6 +598,32 @@ function normalizeUserInfo(platform, data) {
         displayName: data.name,
         avatarUrl: data.picture?.data?.url,
         metadata: {}
+      };
+
+    case 'instagram':
+      // Instagram user info is handled by fetchInstagramUserInfo() directly
+      // This case is a fallback if normalizeUserInfo is called directly
+      return {
+        id: data.id,
+        username: data.username,
+        displayName: data.name || data.username,
+        avatarUrl: data.profile_picture_url,
+        metadata: {
+          igUserId: data.id
+        }
+      };
+
+    case 'threads':
+      // Threads user info is handled by fetchThreadsUserInfo() directly
+      // This case is a fallback if normalizeUserInfo is called directly
+      return {
+        id: data.id,
+        username: data.username,
+        displayName: data.name || data.username,
+        avatarUrl: data.threads_profile_picture_url,
+        metadata: {
+          threadsUserId: data.id
+        }
       };
 
     default:
@@ -448,7 +756,9 @@ function getClientId(platform) {
     twitter: 'TWITTER_CLIENT_ID',
     linkedin: 'LINKEDIN_CLIENT_ID',
     reddit: 'REDDIT_CLIENT_ID',
-    facebook: 'FACEBOOK_APP_ID'
+    facebook: 'FACEBOOK_APP_ID',
+    instagram: 'FACEBOOK_APP_ID',    // Instagram uses the same Meta/Facebook App
+    threads: 'FACEBOOK_APP_ID'       // Threads uses the same Meta/Facebook App
   };
   return process.env[envMap[platform]];
 }
@@ -458,7 +768,9 @@ function getClientSecret(platform) {
     twitter: 'TWITTER_CLIENT_SECRET',
     linkedin: 'LINKEDIN_CLIENT_SECRET',
     reddit: 'REDDIT_CLIENT_SECRET',
-    facebook: 'FACEBOOK_APP_SECRET'
+    facebook: 'FACEBOOK_APP_SECRET',
+    instagram: 'FACEBOOK_APP_SECRET', // Instagram uses the same Meta/Facebook App
+    threads: 'FACEBOOK_APP_SECRET'    // Threads uses the same Meta/Facebook App
   };
   return process.env[envMap[platform]];
 }

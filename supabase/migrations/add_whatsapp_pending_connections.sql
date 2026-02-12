@@ -46,25 +46,25 @@ ALTER TABLE whatsapp_pending_connections ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own pending connections"
   ON whatsapp_pending_connections
   FOR SELECT
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Users can insert their own pending connections
 CREATE POLICY "Users can insert own pending connections"
   ON whatsapp_pending_connections
   FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 -- Users can update their own pending connections
 CREATE POLICY "Users can update own pending connections"
   ON whatsapp_pending_connections
   FOR UPDATE
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Users can delete their own pending connections
 CREATE POLICY "Users can delete own pending connections"
   ON whatsapp_pending_connections
   FOR DELETE
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- ============================================
 -- GRANTS
@@ -76,11 +76,15 @@ GRANT ALL ON whatsapp_pending_connections TO service_role;
 -- CLEANUP FUNCTION (optional - for expired codes)
 -- ============================================
 CREATE OR REPLACE FUNCTION cleanup_expired_whatsapp_codes()
-RETURNS void AS $$
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 BEGIN
-  UPDATE whatsapp_pending_connections
+  UPDATE public.whatsapp_pending_connections
   SET status = 'expired'
   WHERE status = 'pending'
     AND expires_at < NOW();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;

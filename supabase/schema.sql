@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.social_connections (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
 
   -- Platform info
-  platform TEXT NOT NULL CHECK (platform IN ('twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube', 'telegram')),
+  platform TEXT NOT NULL CHECK (platform IN ('twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube', 'telegram', 'whatsapp', 'threads')),
   platform_user_id TEXT,
   platform_username TEXT,
   platform_display_name TEXT,
@@ -210,17 +210,17 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT
   TO authenticated
-  USING (auth.uid() = id);
+  USING ((select auth.uid()) = id);
 
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   TO authenticated
-  USING (auth.uid() = id);
+  USING ((select auth.uid()) = id);
 
 CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = id);
+  WITH CHECK ((select auth.uid()) = id);
 
 -- Social Connections: Users can only access their own
 ALTER TABLE social_connections ENABLE ROW LEVEL SECURITY;
@@ -228,22 +228,22 @@ ALTER TABLE social_connections ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own connections"
   ON social_connections FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can insert own connections"
   ON social_connections FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own connections"
   ON social_connections FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own connections"
   ON social_connections FOR DELETE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Posts: Users can only access their own
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
@@ -251,22 +251,22 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own posts"
   ON posts FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can insert own posts"
   ON posts FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own posts"
   ON posts FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own posts"
   ON posts FOR DELETE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Subscriptions: Users can only view their own
 ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
@@ -274,7 +274,7 @@ ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own subscription"
   ON subscriptions FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Usage Logs: Users can only view their own
 ALTER TABLE usage_logs ENABLE ROW LEVEL SECURITY;
@@ -282,7 +282,7 @@ ALTER TABLE usage_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own usage"
   ON usage_logs FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- Queues: Service role only (no user access)
 ALTER TABLE token_refresh_queue ENABLE ROW LEVEL SECURITY;

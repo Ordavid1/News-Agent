@@ -131,14 +131,14 @@ router.post('/resume', async (req, res) => {
 });
 
 // Helper function to get allowed platforms by tier
-// Note: Facebook is disabled until integration is set up
+// To enable remaining Meta platforms: add 'threads' to starter+, add 'instagram' to growth+.
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
-    starter: ['linkedin', 'reddit', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram'],
-    business: ['twitter', 'linkedin', 'reddit', 'telegram', 'instagram', 'tiktok', 'youtube']
+    starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
+    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'tiktok', 'youtube']
   };
 
   return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];

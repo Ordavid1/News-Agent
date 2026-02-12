@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
 
   -- Basic info
   name TEXT NOT NULL,
-  platform TEXT NOT NULL CHECK (platform IN ('twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube', 'telegram')),
+  platform TEXT NOT NULL CHECK (platform IN ('twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube', 'telegram', 'whatsapp', 'threads')),
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'error')),
 
   -- Agent-specific configuration (JSONB for flexibility)
@@ -50,22 +50,22 @@ ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own agents"
   ON agents FOR SELECT
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can insert own agents"
   ON agents FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own agents"
   ON agents FOR UPDATE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own agents"
   ON agents FOR DELETE
   TO authenticated
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- ============================================
 -- GRANTS

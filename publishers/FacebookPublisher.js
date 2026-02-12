@@ -14,7 +14,7 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
-const GRAPH_API_VERSION = 'v18.0';
+const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 class FacebookPublisher {
@@ -63,7 +63,48 @@ class FacebookPublisher {
   }
 
   /**
-   * Get list of pages the user manages
+   * Get a specific page's info and access token by page ID.
+   * This is the preferred method for Business-type Meta apps where
+   * /me/accounts may not reliably return pages.
+   * @param {string} pageId - The Facebook Page ID
+   * @returns {Object} Page info with id, name, accessToken, pictureUrl
+   */
+  async getPageById(pageId) {
+    if (!this.userAccessToken) {
+      throw new Error('User access token required to fetch page');
+    }
+
+    try {
+      const response = await axios.get(`${GRAPH_API_BASE}/${pageId}`, {
+        params: {
+          access_token: this.userAccessToken,
+          fields: 'id,name,access_token,picture'
+        }
+      });
+
+      const page = response.data;
+      if (!page?.id || !page?.access_token) {
+        throw new Error(`Page ${pageId} returned incomplete data (missing id or access_token)`);
+      }
+
+      logger.info(`Fetched page by ID: ${page.name} (${page.id})`);
+
+      return {
+        id: page.id,
+        name: page.name,
+        accessToken: page.access_token,
+        pictureUrl: page.picture?.data?.url
+      };
+    } catch (error) {
+      logger.error(`Failed to fetch page ${pageId} by ID:`, error.response?.data || error.message);
+      throw new Error(`Failed to fetch Facebook page by ID: ${error.response?.data?.error?.message || error.message}`);
+    }
+  }
+
+  /**
+   * Get list of pages the user manages via /me/accounts.
+   * Note: This endpoint may not return results for Business-type Meta apps.
+   * Prefer getPageById() when the page ID is already known.
    * @returns {Array} List of pages with id, name, and access_token
    */
   async getUserPages() {
@@ -80,7 +121,7 @@ class FacebookPublisher {
       });
 
       const pages = response.data.data || [];
-      logger.info(`Found ${pages.length} Facebook pages for user`);
+      logger.info(`Found ${pages.length} Facebook pages via /me/accounts`);
 
       return pages.map(page => ({
         id: page.id,
@@ -89,7 +130,7 @@ class FacebookPublisher {
         pictureUrl: page.picture?.data?.url
       }));
     } catch (error) {
-      logger.error('Failed to fetch user pages:', error.response?.data || error.message);
+      logger.error('Failed to fetch user pages via /me/accounts:', error.response?.data || error.message);
       throw new Error(`Failed to fetch Facebook pages: ${error.response?.data?.error?.message || error.message}`);
     }
   }
@@ -108,8 +149,11 @@ class FacebookPublisher {
   }
 
   /**
-   * Ensure we have a valid page access token
-   * If only user token is available, fetch pages and use the first one
+   * Ensure we have a valid page access token.
+   * Strategy:
+   *   1. If we already have both pageId and pageAccessToken, use them.
+   *   2. If we have a pageId but no pageAccessToken, fetch the token directly by page ID.
+   *   3. As a fallback, try /me/accounts to discover pages (may fail for Business-type apps).
    */
   async ensurePageToken() {
     if (this.pageAccessToken && this.pageId) {
@@ -120,14 +164,28 @@ class FacebookPublisher {
       throw new Error('No Facebook access token available');
     }
 
-    // Fetch user's pages and use the first one
+    // If we have a known page ID, fetch its token directly (works for Business-type apps)
+    if (this.pageId) {
+      logger.info(`Fetching page token directly for known page ID: ${this.pageId}`);
+      const page = await this.getPageById(this.pageId);
+      this.pageAccessToken = page.accessToken;
+      this.pageName = page.name;
+      logger.info(`Retrieved page token for: ${this.pageName} (${this.pageId})`);
+      return { pageId: this.pageId, pageAccessToken: this.pageAccessToken };
+    }
+
+    // Fallback: discover pages via /me/accounts
+    logger.info('No page ID stored — falling back to /me/accounts discovery');
     const pages = await this.getUserPages();
 
     if (pages.length === 0) {
-      throw new Error('No Facebook pages found for this account. User must manage at least one Page.');
+      throw new Error(
+        'No Facebook pages found for this account. ' +
+        'For Business-type Meta apps, page discovery via /me/accounts may not work. ' +
+        'Please reconnect your Facebook account and ensure page permissions are granted.'
+      );
     }
 
-    // Use the first page by default
     this.pageId = pages[0].id;
     this.pageAccessToken = pages[0].accessToken;
     this.pageName = pages[0].name;

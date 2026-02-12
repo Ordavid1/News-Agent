@@ -12,10 +12,10 @@ const PLATFORMS = {
     linkedin: { name: 'LinkedIn', icon: '💼', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     reddit: { name: 'Reddit', icon: '🔴', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    facebook: { name: 'Facebook', icon: '📘', available: [], disabled: true, disabledReason: 'Coming Soon' },
+    facebook: { name: 'Facebook', icon: '📘', available: ['starter', 'growth', 'professional', 'business'] },
     threads: { name: 'Threads', icon: '@', available: [], disabled: true, disabledReason: 'Coming Soon' },
     whatsapp: { name: 'WhatsApp', icon: '💬', available: [], disabled: true, disabledReason: 'Coming Soon' },
-    instagram: { name: 'Instagram', icon: '📸', available: ['professional', 'business'] },
+    instagram: { name: 'Instagram', icon: '📸', available: [], disabled: true, disabledReason: 'Coming Soon' },
     tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] },
     youtube: { name: 'YouTube', icon: '▶️', available: ['business'] }
 };

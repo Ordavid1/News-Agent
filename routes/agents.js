@@ -23,7 +23,7 @@ import {
 import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram } from '../services/PublishingService.js';
+import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 import winston from 'winston';
 
@@ -552,7 +552,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
     const searchTopics = topics.length > 0 ? [topics[Math.floor(Math.random() * topics.length)]] : ['general'];
 
-    console.log(`[Agent Test] Fetching trends for ${topics.length > 0 ? 'topic: ' + searchTopics[0] : 'keywords only'}`);
+    const selectedTopic = searchTopics[0];
+
+    console.log(`[Agent Test] Fetching trends for ${topics.length > 0 ? 'topic: ' + selectedTopic : 'keywords only'}`);
 
     let trendData;
     try {
@@ -682,22 +684,39 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     try {
       switch (platform) {
         case 'twitter':
-          publishResult = await publishToTwitter(content, userId);
+          publishResult = await publishToTwitter(content, userId, imageUrl);
           break;
         case 'linkedin':
-          publishResult = await publishToLinkedIn(content, userId);
+          publishResult = await publishToLinkedIn(content, userId, imageUrl);
           break;
-        case 'reddit':
+        case 'reddit': {
           // Use subreddit and flair from agent settings
           const redditSubreddit = platformSettings.reddit?.subreddit || null;
           const redditFlairId = platformSettings.reddit?.flairId || null;
-          publishResult = await publishToReddit(content, redditSubreddit, userId, redditFlairId);
+          publishResult = await publishToReddit(content, redditSubreddit, userId, redditFlairId, imageUrl);
           break;
+        }
         case 'facebook':
-          publishResult = await publishToFacebook(content, userId);
+          publishResult = await publishToFacebook(content, userId, imageUrl);
           break;
         case 'telegram':
-          publishResult = await publishToTelegram(content, userId);
+          publishResult = await publishToTelegram(content, userId, imageUrl);
+          break;
+        case 'whatsapp':
+          publishResult = await publishToWhatsApp(content, userId, imageUrl);
+          break;
+        case 'instagram':
+          if (!imageUrl) {
+            return res.status(400).json({
+              success: false,
+              error: 'Instagram requires an image or video. No media was found for this article.',
+              step: 'publishing'
+            });
+          }
+          publishResult = await publishToInstagram(content, userId, imageUrl);
+          break;
+        case 'threads':
+          publishResult = await publishToThreads(content, userId, imageUrl);
           break;
         default:
           return res.status(400).json({

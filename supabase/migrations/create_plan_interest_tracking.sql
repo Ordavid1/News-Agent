@@ -27,12 +27,12 @@ ALTER TABLE public.plan_interest ENABLE ROW LEVEL SECURITY;
 -- Allow authenticated users to insert their own interest
 CREATE POLICY "Users can insert their own interest" ON public.plan_interest
     FOR INSERT
-    WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
+    WITH CHECK ((select auth.uid()) = user_id OR user_id IS NULL);
 
 -- Allow service role to read all (for analytics)
 CREATE POLICY "Service role can read all" ON public.plan_interest
     FOR SELECT
-    USING (auth.role() = 'service_role');
+    USING ((select auth.role()) = 'service_role');
 
 -- Add comments for documentation
 COMMENT ON TABLE public.plan_interest IS 'Tracks user interest (+1 clicks) for plans not yet available during beta';
@@ -42,7 +42,9 @@ COMMENT ON COLUMN public.plan_interest.ip_address IS 'IP address for anonymous i
 COMMENT ON COLUMN public.plan_interest.user_agent IS 'Browser user agent for analytics purposes';
 
 -- Create a view for plan interest counts (useful for admin dashboard)
-CREATE OR REPLACE VIEW public.plan_interest_summary AS
+CREATE OR REPLACE VIEW public.plan_interest_summary
+WITH (security_invoker = true)
+AS
 SELECT
     plan_name,
     COUNT(*) as total_interest,

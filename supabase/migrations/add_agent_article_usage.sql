@@ -56,12 +56,12 @@ CREATE POLICY "Users can manage their own agents article usage" ON agent_article
   FOR ALL
   USING (
     agent_id IN (
-      SELECT id FROM agents WHERE user_id = auth.uid()
+      SELECT id FROM agents WHERE user_id = (select auth.uid())
     )
   )
   WITH CHECK (
     agent_id IN (
-      SELECT id FROM agents WHERE user_id = auth.uid()
+      SELECT id FROM agents WHERE user_id = (select auth.uid())
     )
   );
 
@@ -77,11 +77,12 @@ CREATE OR REPLACE FUNCTION cleanup_old_article_usage(hours_to_keep INTEGER DEFAU
 RETURNS INTEGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   v_count INTEGER;
 BEGIN
-  DELETE FROM agent_article_usage
+  DELETE FROM public.agent_article_usage
   WHERE used_at < NOW() - (hours_to_keep || ' hours')::INTERVAL;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;

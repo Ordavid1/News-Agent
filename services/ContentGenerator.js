@@ -9,6 +9,8 @@ import { getTwitterStandardSystemPrompt, getTwitterStandardUserPrompt, getTwitte
 import { getFacebookSystemPrompt, getFacebookUserPrompt } from '../public/components/facebookPrompts.mjs';
 import { getRedditSystemPrompt, getRedditUserPrompt } from '../public/components/redditPrompts.mjs';
 import { getTelegramSystemPrompt, getTelegramUserPrompt } from '../public/components/telegramPrompts.mjs';
+import { getInstagramSystemPrompt, getInstagramUserPrompt } from '../public/components/instagramPrompts.mjs';
+import { getThreadsSystemPrompt, getThreadsUserPrompt } from '../public/components/threadsPrompts.mjs';
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -40,7 +42,8 @@ class ContentGenerator {
       reddit: this.getRedditPrompt,
       facebook: this.getFacebookPrompt,
       instagram: this.getInstagramPrompt,
-      telegram: this.getTelegramPrompt
+      telegram: this.getTelegramPrompt,
+      threads: this.getThreadsPrompt
     };
   }
 
@@ -104,27 +107,14 @@ class ContentGenerator {
         userPrompt = getTelegramUserPrompt(article, agentSettings);
 
       } else if (platform === 'instagram') {
-        // Instagram - use legacy socialMediaPrompts as fallback for now
-        systemPrompt = getSystemPrompt(false); // English version
+        // Use Instagram-specific prompts (visual-first, caption-focused)
+        systemPrompt = getInstagramSystemPrompt(agentSettings);
+        userPrompt = getInstagramUserPrompt(article, agentSettings);
 
-        // Extract keywords from the trend
-        const keywords = [];
-        if (trend.title) {
-          const words = trend.title.split(' ');
-          words.forEach(word => {
-            if (word.length > 4 && /[A-Z]/.test(word[0])) {
-              keywords.push(word.replace(/[^a-zA-Z0-9]/g, ''));
-            }
-          });
-        }
-
-        userPrompt = getUserPrompt(keywords, {
-          title: trend.title,
-          description: trend.description || trend.summary,
-          publishedAt: trend.publishedAt,
-          url: trend.url,
-          source: { name: trend.source }
-        });
+      } else if (platform === 'threads') {
+        // Use Threads-specific prompts (conversational, text-first)
+        systemPrompt = getThreadsSystemPrompt(agentSettings);
+        userPrompt = getThreadsUserPrompt(article, agentSettings);
 
       } else {
         // Fallback for unsupported platforms
@@ -179,7 +169,8 @@ class ContentGenerator {
       reddit: 'community-oriented, authentic, and discussion-provoking',
       facebook: 'friendly, shareable, and relatable',
       instagram: 'visual-focused, trendy, and hashtag-rich',
-      telegram: 'news-focused, informative, and HTML-formatted for channels'
+      telegram: 'news-focused, informative, and HTML-formatted for channels',
+      threads: 'conversational, concise, and discussion-provoking'
     };
     
     return `You are a ${toneDescriptions[tone]} social media content creator specializing in ${platform} posts.
@@ -344,7 +335,8 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
       reddit: `Title: ${trend.title}\nContent: Just came across this interesting development. ${trend.summary || trend.description}. \n\nWhat does everyone think about this? I'm particularly interested in how this might affect our community.`,
       facebook: `Amazing news! 🎉\n\n${trend.title}\n\n${trend.summary || trend.description}\n\nThis is why I love technology - it never stops evolving! What do you think about this development?`,
       instagram: `${trend.title} 🚀✨\n\n${trend.summary || trend.description}\n\n#Tech #Innovation #Future #Technology #Trending #News #Digital #AI #Startup #TechNews`,
-      telegram: `📰 <b>${trend.title}</b>\n\n${trend.summary || trend.description}\n\nThis development marks an important moment in the industry. Stay tuned for more updates.\n\n${trend.url ? `🔗 Read more: ${trend.url}` : ''}\n\n#News #Technology #Update`
+      telegram: `📰 <b>${trend.title}</b>\n\n${trend.summary || trend.description}\n\nThis development marks an important moment in the industry. Stay tuned for more updates.\n\n${trend.url ? `🔗 Read more: ${trend.url}` : ''}\n\n#News #Technology #Update`,
+      threads: `${trend.title} — here's why this matters.\n\n${(trend.summary || trend.description || '').substring(0, 300)}\n\nWhat's your take on this?`
     };
     
     return mockTemplates[platform] || mockTemplates.twitter;

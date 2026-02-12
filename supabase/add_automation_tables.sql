@@ -152,3 +152,73 @@ GRANT ALL ON public.published_posts TO service_role;
 GRANT ALL ON public.trend_history TO service_role;
 GRANT ALL ON public.automation_logs TO service_role;
 GRANT ALL ON public.analytics_reports TO service_role;
+
+-- ============================================
+-- ROW LEVEL SECURITY POLICIES
+-- ============================================
+-- Note: These tables also need RLS policies for authenticated user access
+-- (e.g. viewing own scheduled/published posts in the dashboard).
+-- Using (select auth.uid()) for InitPlan optimization.
+
+ALTER TABLE scheduled_posts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own scheduled posts"
+  ON scheduled_posts FOR SELECT
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can insert own scheduled posts"
+  ON scheduled_posts FOR INSERT
+  TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can update own scheduled posts"
+  ON scheduled_posts FOR UPDATE
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can delete own scheduled posts"
+  ON scheduled_posts FOR DELETE
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+ALTER TABLE published_posts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own published posts"
+  ON published_posts FOR SELECT
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can insert own published posts"
+  ON published_posts FOR INSERT
+  TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can update own published posts"
+  ON published_posts FOR UPDATE
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can delete own published posts"
+  ON published_posts FOR DELETE
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+ALTER TABLE analytics_reports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own analytics"
+  ON analytics_reports FOR SELECT
+  TO authenticated
+  USING ((select auth.uid()) = user_id);
+
+CREATE POLICY "Users can insert own analytics"
+  ON analytics_reports FOR INSERT
+  TO authenticated
+  WITH CHECK ((select auth.uid()) = user_id);
+
+ALTER TABLE automation_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own automation logs"
+  ON automation_logs FOR SELECT
+  TO authenticated
+  USING ((select auth.uid()) = user_id);

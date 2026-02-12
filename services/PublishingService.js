@@ -6,6 +6,8 @@ import RedditPublisher from '../publishers/RedditPublisher.js';
 import FacebookPublisher from '../publishers/FacebookPublisher.js';
 import TelegramPublisher from '../publishers/TelegramPublisher.js';
 import WhatsAppPublisher from '../publishers/WhatsAppPublisher.js';
+import InstagramPublisher from '../publishers/InstagramPublisher.js';
+import ThreadsPublisher from '../publishers/ThreadsPublisher.js';
 // MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import { createPost } from './database-wrapper.js';
 import TokenManager, { TokenDecryptionError } from './TokenManager.js';
@@ -165,9 +167,20 @@ class PublishingService {
         return WhatsAppPublisher.withCredentials(credentials);
 
       case 'instagram':
-        // Instagram is not yet implemented
-        logger.error(`${platform} publishing not yet implemented`);
-        throw new Error(`${platform} publishing is coming soon. Currently supported: Twitter, LinkedIn, Reddit, Facebook`);
+        credentials.igUserId = connection.platform_user_id || connection.platform_metadata?.igUserId;
+        credentials.metadata = {
+          igUserId: credentials.igUserId
+        };
+        logger.info(`  → Instagram User ID: ${credentials.igUserId || 'unknown'}`);
+        return InstagramPublisher.withCredentials(credentials);
+
+      case 'threads':
+        credentials.threadsUserId = connection.platform_user_id || connection.platform_metadata?.threadsUserId;
+        credentials.metadata = {
+          threadsUserId: credentials.threadsUserId
+        };
+        logger.info(`  → Threads User ID: ${credentials.threadsUserId || 'unknown'}`);
+        return ThreadsPublisher.withCredentials(credentials);
 
       default:
         logger.error(`Unknown platform: ${platform}`);
@@ -338,16 +351,22 @@ class PublishingService {
     }
   }
 
-  async publishToInstagram(content, userId) {
+  async publishToInstagram(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'instagram');
-      const result = await publisher.publishPost(content.text);
+      const mediaUrl = imageUrl || content.imageUrl || null;
+
+      if (!mediaUrl) {
+        throw new Error('Instagram requires an image or video. Please provide media to publish.');
+      }
+
+      const result = await publisher.publishPost(content.text, mediaUrl);
 
       if (result.success) {
-        await this.savePostToDatabase(userId, 'instagram', content, result);
+        await this.savePostToDatabase(userId, 'instagram', content, result, mediaUrl);
         await this.updateConnectionLastUsed(userId, 'instagram');
 
-        logger.info(`Successfully published to Instagram for user ${userId}`);
+        logger.info(`Successfully published to Instagram for user ${userId} with image`);
         return {
           success: true,
           platform: 'instagram',
@@ -360,6 +379,33 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Instagram for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  async publishToThreads(content, userId, imageUrl = null) {
+    try {
+      const publisher = await this.getPublisherForUser(userId, 'threads');
+      const mediaUrl = imageUrl || content.imageUrl || null;
+      const result = await publisher.publishPost(content.text, mediaUrl);
+
+      if (result.success) {
+        await this.savePostToDatabase(userId, 'threads', content, result, mediaUrl);
+        await this.updateConnectionLastUsed(userId, 'threads');
+
+        logger.info(`Successfully published to Threads for user ${userId}${mediaUrl ? ' with image' : ''}`);
+        return {
+          success: true,
+          platform: 'threads',
+          postId: result.postId,
+          url: result.url
+        };
+      }
+
+      throw new Error('Threads publishing failed');
+
+    } catch (error) {
+      logger.error(`Failed to publish to Threads for user ${userId}:`, error);
       throw error;
     }
   }
@@ -521,7 +567,10 @@ class PublishingService {
             result = await this.publishToFacebook(content, userId, mediaUrl);
             break;
           case 'instagram':
-            result = await this.publishToInstagram(content, userId);
+            result = await this.publishToInstagram(content, userId, mediaUrl);
+            break;
+          case 'threads':
+            result = await this.publishToThreads(content, userId, mediaUrl);
             break;
           case 'telegram':
             result = await this.publishToTelegram(content, userId, mediaUrl);
@@ -570,7 +619,8 @@ export const publishToTwitter = (content, userId, imageUrl = null) => publishing
 export const publishToLinkedIn = (content, userId, imageUrl = null) => publishingService.publishToLinkedIn(content, userId, imageUrl);
 export const publishToReddit = (content, subreddit, userId, flairId = null, imageUrl = null) => publishingService.publishToReddit(content, subreddit, userId, flairId, imageUrl);
 export const publishToFacebook = (content, userId, imageUrl = null) => publishingService.publishToFacebook(content, userId, imageUrl);
-export const publishToInstagram = (content, userId) => publishingService.publishToInstagram(content, userId);
+export const publishToInstagram = (content, userId, imageUrl = null) => publishingService.publishToInstagram(content, userId, imageUrl);
+export const publishToThreads = (content, userId, imageUrl = null) => publishingService.publishToThreads(content, userId, imageUrl);
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
