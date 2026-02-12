@@ -80,6 +80,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup event handlers
     setupEventHandlers();
 
+    // Handle connection success/error from OAuth callback
+    const connectionError = urlParams.get('error');
+    const connectionPlatform = urlParams.get('platform');
+    const connectedPlatform = urlParams.get('connected');
+    const connectedUsername = urlParams.get('username');
+
+    if (connectedPlatform) {
+        showConnectionSuccessMessage(connectedPlatform, connectedUsername);
+        // Clean up connection params from URL
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('connected');
+        cleanUrl.searchParams.delete('username');
+        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
+    } else if (connectionError) {
+        showConnectionErrorMessage(connectionPlatform, connectionError);
+        // Clean up error params from URL
+        const cleanUrl = new URL(window.location);
+        cleanUrl.searchParams.delete('error');
+        cleanUrl.searchParams.delete('platform');
+        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
+    }
+
     // Check URL params for tab navigation
     if (tab) {
         showTab(tab);
@@ -1928,6 +1950,95 @@ function closePaymentNotification() {
 
 function closePaymentCancelledNotification() {
     const notification = document.getElementById('paymentCancelledNotification');
+    if (notification) {
+        notification.classList.add('animate-slide-out');
+        setTimeout(() => notification.remove(), 300);
+    }
+}
+
+// ============================================
+// Connection Success/Error Handling
+// ============================================
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showConnectionSuccessMessage(platform, username) {
+    const displayName = escapeHtml(platform.charAt(0).toUpperCase() + platform.slice(1));
+    const usernameText = username ? ` as ${escapeHtml(username)}` : '';
+
+    const notification = document.createElement('div');
+    notification.id = 'connectionSuccessNotification';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/50 shadow-2xl animate-slide-in';
+    notification.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-semibold text-green-400 mb-1">${displayName} Connected!</h3>
+                <p class="text-gray-300 text-sm mb-3">Successfully connected to ${displayName}${usernameText}.</p>
+                <button onclick="closeConnectionNotification()" class="text-sm text-green-400 hover:text-green-300 transition-colors">
+                    Dismiss
+                </button>
+            </div>
+            <button onclick="closeConnectionNotification()" class="text-gray-500 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        closeConnectionNotification();
+    }, 10000);
+}
+
+function showConnectionErrorMessage(platform, error) {
+    const displayName = platform ? escapeHtml(platform.charAt(0).toUpperCase() + platform.slice(1)) : 'Platform';
+    // Decode and clean up the error message for display
+    const errorMessage = escapeHtml(decodeURIComponent(error).replace(/_/g, ' '));
+
+    const notification = document.createElement('div');
+    notification.id = 'connectionErrorNotification';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-red-500/20 to-rose-500/20 border border-red-500/50 shadow-2xl animate-slide-in';
+    notification.innerHTML = `
+        <div class="flex items-start gap-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
+                <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-lg font-semibold text-red-400 mb-1">${displayName} Connection Failed</h3>
+                <p class="text-gray-300 text-sm mb-3">${errorMessage}</p>
+                <button onclick="closeConnectionNotification()" class="text-sm text-red-400 hover:text-red-300 transition-colors">
+                    Dismiss
+                </button>
+            </div>
+            <button onclick="closeConnectionNotification()" class="text-gray-500 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        closeConnectionNotification();
+    }, 15000);
+}
+
+function closeConnectionNotification() {
+    const notification = document.getElementById('connectionSuccessNotification') || document.getElementById('connectionErrorNotification');
     if (notification) {
         notification.classList.add('animate-slide-out');
         setTimeout(() => notification.remove(), 300);

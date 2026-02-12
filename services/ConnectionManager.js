@@ -54,7 +54,7 @@ const PLATFORM_CONFIGS = {
     authUrl: `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth`,
     tokenUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token`,
     userInfoUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me`,
-    scopes: ['public_profile', 'pages_manage_posts', 'pages_read_engagement', 'pages_show_list'],
+    scopes: ['public_profile', 'pages_manage_posts', 'pages_read_engagement', 'pages_show_list', 'business_management'],
     usePKCE: false
   },
   instagram: {
@@ -231,31 +231,7 @@ export async function exchangeCodeForTokens(platform, code, state) {
   // Page tokens derived from long-lived user tokens are never-expiring
   let accessToken = tokens.access_token;
   if (platform === 'facebook' || platform === 'instagram') {
-    // DEBUG: Test /me/accounts with short-lived token BEFORE exchange
-    logger.info('[DEBUG] Testing /me/accounts with SHORT-LIVED token...');
-    try {
-      const shortLivedTest = await fetch(
-        `https://graph.facebook.com/${PLATFORM_CONFIGS[platform]?.authUrl ? META_GRAPH_API_VERSION : 'v24.0'}/me/accounts?fields=id,name&access_token=${accessToken}`
-      );
-      const shortLivedData = await shortLivedTest.json();
-      logger.info(`[DEBUG] /me/accounts with SHORT-LIVED token returned: ${JSON.stringify(shortLivedData)}`);
-    } catch (e) {
-      logger.warn(`[DEBUG] Short-lived token test failed: ${e.message}`);
-    }
-
     accessToken = await exchangeForLongLivedToken(accessToken);
-
-    // DEBUG: Test /me/accounts with long-lived token AFTER exchange
-    logger.info('[DEBUG] Testing /me/accounts with LONG-LIVED token...');
-    try {
-      const longLivedTest = await fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts?fields=id,name&access_token=${accessToken}`
-      );
-      const longLivedData = await longLivedTest.json();
-      logger.info(`[DEBUG] /me/accounts with LONG-LIVED token returned: ${JSON.stringify(longLivedData)}`);
-    } catch (e) {
-      logger.warn(`[DEBUG] Long-lived token test failed: ${e.message}`);
-    }
   }
 
   // Fetch user info (uses long-lived token for facebook/instagram)
