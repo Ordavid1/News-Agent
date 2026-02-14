@@ -232,14 +232,13 @@ router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter
 });
 
 // Helper function to get allowed platforms by tier
-// To enable remaining Meta platforms: add 'threads' to starter+, add 'instagram' to growth+.
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
     starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'telegram', 'tiktok', 'youtube']
+    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'tiktok', 'youtube']
   };
 
   return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
@@ -414,11 +413,30 @@ router.post('/test', async (req, res) => {
     const userTier = req.user.subscription?.tier || 'free';
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
-      console.log(`[Test Post] Step 4b: Extracting image (${userTier} tier)...`);
+      const isInstagramTargeted = targetPlatforms.includes('instagram');
+      console.log(`[Test Post] Step 4b: Extracting image (${userTier} tier)${isInstagramTargeted ? ' [Instagram targeted — retry enabled]' : ''}...`);
 
       try {
-        if (trendData.url) {
-          const imageExtractor = new ImageExtractor();
+        const imageExtractor = new ImageExtractor();
+
+        if (isInstagramTargeted && trendData.url) {
+          // Instagram requires an image — use robust retry logic
+          imageUrl = await imageExtractor.extractImageWithRetry({
+            articleUrl: trendData.url,
+            articleTitle: trendData.title,
+            articleSource: trendData.source,
+            preExistingImageUrl: trendData.imageUrl || null,
+            maxRetries: 2,
+            retryDelayMs: 3000
+          });
+
+          if (imageUrl) {
+            console.log(`[Test Post] ✓ Image extracted (with retry): ${imageUrl}`);
+          } else {
+            console.log(`[Test Post] ⚠️ No image found after retries — Instagram post will be blocked`);
+          }
+        } else if (trendData.url) {
+          // Other platforms: single attempt, graceful fallback
           imageUrl = await imageExtractor.extractImageFromArticle(
             trendData.url,
             trendData.title,
@@ -435,11 +453,12 @@ router.post('/test', async (req, res) => {
         }
       } catch (imageError) {
         console.error(`[Test Post] Image extraction failed:`, imageError.message);
-        // Continue without image - graceful fallback
+        // Continue without image - graceful fallback for non-Instagram platforms
+        // Instagram will be blocked by PublishingService validation
         imageUrl = null;
       }
     } else {
-      console.log(`[Test Post] Image extraction skipped (${userTier} tier - requires Growth+)`);
+      console.log(`[Test Post] Image extraction skipped (${userTier} tier - requires Starter+)`);
     }
 
     // Step 5: Publish to each connected platform

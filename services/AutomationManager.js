@@ -10,7 +10,9 @@ import RateLimiter from './RateLimiter.js';
 import trendAnalyzer from './TrendAnalyzer.js';
 import ContentGenerator from './ContentGenerator.js';
 import ArticleDeduplicationService from './ArticleDeduplicationService.js';
+import ImageExtractor from './ImageExtractor.js';
 import {
+  getAgentById,
   getAgentsReadyForPosting,
   resetDailyAgentPosts,
   incrementAgentPost,
@@ -52,6 +54,7 @@ class AutomationManager {
     this.contentGenerator = new ContentGenerator();
     this.rateLimiter = new RateLimiter();
     this.articleDedup = new ArticleDeduplicationService(this.db);
+    this.imageExtractor = new ImageExtractor();
 
     // Processing configuration
     this.config = {
@@ -246,6 +249,55 @@ class AutomationManager {
     }
 
     agentLog('info', `Generated content (${content.text.length} chars)`);
+
+    // 3.5 For platforms requiring media, ensure we have an image
+    if (ImageExtractor.PLATFORMS_REQUIRING_MEDIA.includes(platform)) {
+      if (!content.imageUrl) {
+        agentLog('info', `${platform} requires media — extracting image from article...`);
+
+        const extractedImage = await this.imageExtractor.extractImageWithRetry({
+          articleUrl: trend.url,
+          articleTitle: trend.title || trend.topic,
+          articleSource: trend.source,
+          preExistingImageUrl: trend.imageUrl || null,
+          fallbackUrls: this.extractFallbackUrls(trend),
+          maxRetries: 2,
+          retryDelayMs: 3000
+        });
+
+        if (extractedImage) {
+          content.imageUrl = extractedImage;
+          agentLog('info', `Image extracted successfully: ${extractedImage}`);
+        } else {
+          agentLog('warn', `No image could be extracted for ${platform} — post blocked`);
+
+          await logAgentAutomation(agent.id, userId, 'image_extraction_failed', {
+            platform,
+            trend: trend.title || trend.topic,
+            trendUrl: trend.url
+          });
+
+          return {
+            success: false,
+            error: `${platform} requires an image but none could be extracted from the article. Post skipped.`
+          };
+        }
+      } else {
+        agentLog('info', `Image already available from trend data: ${content.imageUrl}`);
+      }
+    }
+
+    // 3.9 Re-check agent eligibility from DB before publishing (guards against race
+    // conditions where a manual test post was published during content generation)
+    const freshAgent = await getAgentById(agent.id);
+    if (freshAgent) {
+      const freshPostsToday = freshAgent.posts_today || 0;
+      const maxPosts = (settings.schedule?.postsPerDay) || 3;
+      if (freshPostsToday >= maxPosts) {
+        agentLog('warn', `Agent already at ${freshPostsToday}/${maxPosts} posts (concurrent post detected) — skipping`);
+        return { success: false, error: 'daily_limit_reached_after_generation' };
+      }
+    }
 
     // 4. Publish using user's OAuth credentials
     const publishResult = await this.publishForAgent(agent, content, trend);
@@ -453,6 +505,38 @@ class AutomationManager {
   }
 
   /**
+   * Extract fallback URLs from a trend object for image extraction retries.
+   * Trends may carry metadata with original URLs from different sources.
+   * @param {Object} trend - Trend object
+   * @returns {string[]} Array of alternative URLs to try
+   */
+  extractFallbackUrls(trend) {
+    const urls = [];
+
+    // Check metadata for original URLs from different sources
+    if (trend.metadata && typeof trend.metadata === 'object') {
+      for (const meta of Object.values(trend.metadata)) {
+        if (meta?.originalUrl && meta.originalUrl !== trend.url) {
+          urls.push(meta.originalUrl);
+        }
+        if (meta?.url && meta.url !== trend.url) {
+          urls.push(meta.url);
+        }
+      }
+    }
+
+    // Check for sourceUrl or originalUrl directly on trend
+    if (trend.sourceUrl && trend.sourceUrl !== trend.url) {
+      urls.push(trend.sourceUrl);
+    }
+    if (trend.originalUrl && trend.originalUrl !== trend.url) {
+      urls.push(trend.originalUrl);
+    }
+
+    return [...new Set(urls)]; // Deduplicate
+  }
+
+  /**
    * Generate content using agent's configured style settings
    * @param {Object} agent - Agent with settings
    * @param {Object} trend - Selected trend
@@ -582,7 +666,7 @@ class AutomationManager {
    */
   async logAgentPublication(agent, trend, content, result) {
     try {
-      await this.dbManager.savePublishedPost({
+      const postData = {
         agent_id: agent.id,
         user_id: agent.user_id,
         trend: trend,
@@ -591,7 +675,20 @@ class AutomationManager {
         platform_url: result.url,
         success: result.success,
         content: content.text
-      });
+      };
+
+      try {
+        await this.dbManager.savePublishedPost(postData);
+      } catch (dbError) {
+        // If agent_id column doesn't exist yet, retry without it
+        if (dbError.message?.includes('agent_id') || dbError.message?.includes('schema cache')) {
+          logger.warn('published_posts missing agent_id column — saving without it. Run the migration: supabase/migrations/add_agent_id_to_published_posts.sql');
+          const { agent_id, user_id, ...postDataWithoutAgentFields } = postData;
+          await this.dbManager.savePublishedPost(postDataWithoutAgentFields);
+        } else {
+          throw dbError;
+        }
+      }
 
       // Also log to automation_logs for tracking
       await logAgentAutomation(agent.id, agent.user_id, 'post_published', {

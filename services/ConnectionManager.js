@@ -61,7 +61,7 @@ const PLATFORM_CONFIGS = {
     authUrl: `https://www.facebook.com/${META_GRAPH_API_VERSION}/dialog/oauth`,
     tokenUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token`,
     userInfoUrl: `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/accounts`,
-    scopes: ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement'],
+    scopes: ['instagram_basic', 'instagram_content_publish', 'pages_show_list', 'pages_read_engagement', 'business_management'],
     usePKCE: false
   },
   threads: {

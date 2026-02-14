@@ -646,19 +646,33 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const userTier = req.user.subscription?.tier || 'free';
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
-      console.log(`[Agent Test] User tier "${userTier}" - extracting image from article...`);
+      const isInstagramAgent = platform === 'instagram';
+      console.log(`[Agent Test] User tier "${userTier}" - extracting image${isInstagramAgent ? ' [Instagram — retry enabled]' : ''}...`);
       try {
         const imageExtractor = new ImageExtractor();
-        imageUrl = await imageExtractor.extractImageFromArticle(
-          trendData.url,
-          trendData.title,
-          trendData.source
-        );
+
+        if (isInstagramAgent) {
+          // Instagram requires an image — use robust retry logic
+          imageUrl = await imageExtractor.extractImageWithRetry({
+            articleUrl: trendData.url,
+            articleTitle: trendData.title,
+            articleSource: trendData.source,
+            preExistingImageUrl: trendData.imageUrl || null,
+            maxRetries: 2,
+            retryDelayMs: 3000
+          });
+        } else {
+          imageUrl = await imageExtractor.extractImageFromArticle(
+            trendData.url,
+            trendData.title,
+            trendData.source
+          );
+        }
 
         if (imageUrl) {
           console.log(`[Agent Test] Image extracted: ${imageUrl}`);
         } else {
-          console.log(`[Agent Test] No image found for article, continuing without image`);
+          console.log(`[Agent Test] No image found for article${isInstagramAgent ? ' — Instagram post will be blocked' : ', continuing without image'}`);
         }
       } catch (imageError) {
         console.warn(`[Agent Test] Image extraction failed, continuing without image:`, imageError.message);

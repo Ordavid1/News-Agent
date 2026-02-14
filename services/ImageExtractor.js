@@ -19,6 +19,11 @@ const logger = winston.createLogger({
 });
 
 class ImageExtractor {
+  /**
+   * Platforms that require media (image/video) — text-only posts not supported
+   */
+  static PLATFORMS_REQUIRING_MEDIA = ['instagram'];
+
   constructor() {
     this.articleResolver = new ArticleResolver();
     this.articleSearcher = new ArticleSearcher();
@@ -136,6 +141,86 @@ class ImageExtractor {
       logger.error(`Error extracting image from article: ${error.message}`);
       return null;
     }
+  }
+
+  /**
+   * Extract image from an article with retry logic and optional fallback URLs.
+   * Designed for platforms like Instagram that REQUIRE media.
+   *
+   * Strategy:
+   *  1. If a preExistingImageUrl is provided (e.g. news API thumbnail), validate it first
+   *  2. Try extractImageFromArticle on the primary URL with retries
+   *  3. If that fails and fallbackUrls are provided, try each fallback URL once
+   *  4. Return null only if all strategies are exhausted
+   *
+   * @param {Object} options
+   * @param {string} options.articleUrl - Primary article URL to extract from
+   * @param {string} [options.articleTitle] - Article title (helps with Google News resolution)
+   * @param {string} [options.articleSource] - Article source name
+   * @param {string} [options.preExistingImageUrl] - Image URL already known (e.g. from news API)
+   * @param {string[]} [options.fallbackUrls] - Alternative article URLs to try if primary fails
+   * @param {number} [options.maxRetries=2] - Number of retry attempts for the primary URL
+   * @param {number} [options.retryDelayMs=3000] - Delay between retries in milliseconds
+   * @returns {Promise<string|null>} Image URL or null if all strategies fail
+   */
+  async extractImageWithRetry({
+    articleUrl,
+    articleTitle = null,
+    articleSource = null,
+    preExistingImageUrl = null,
+    fallbackUrls = [],
+    maxRetries = 2,
+    retryDelayMs = 3000
+  } = {}) {
+    // Step 1: If we already have an image URL (from news API), validate it
+    if (preExistingImageUrl && this.isValidImage(preExistingImageUrl)) {
+      logger.info(`Pre-existing image URL is valid: ${preExistingImageUrl}`);
+      return preExistingImageUrl;
+    }
+
+    if (!articleUrl) {
+      logger.warn('No article URL provided for image extraction');
+      return null;
+    }
+
+    // Step 2: Try primary URL with retries
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        logger.info(`Image extraction attempt ${attempt}/${maxRetries + 1} for: ${articleUrl}`);
+        const imageUrl = await this.extractImageFromArticle(articleUrl, articleTitle, articleSource);
+        if (imageUrl) {
+          logger.info(`Image found on attempt ${attempt}: ${imageUrl}`);
+          return imageUrl;
+        }
+        logger.debug(`No image found on attempt ${attempt}`);
+      } catch (error) {
+        logger.warn(`Image extraction attempt ${attempt} failed: ${error.message}`);
+      }
+
+      // Delay before retry (but not after the last attempt)
+      if (attempt <= maxRetries) {
+        logger.debug(`Waiting ${retryDelayMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    // Step 3: Try fallback URLs (one attempt each)
+    for (const fallbackUrl of fallbackUrls) {
+      if (!fallbackUrl || fallbackUrl === articleUrl) continue;
+      try {
+        logger.info(`Trying fallback URL for image: ${fallbackUrl}`);
+        const imageUrl = await this.extractImageFromArticle(fallbackUrl, articleTitle, articleSource);
+        if (imageUrl) {
+          logger.info(`Image found from fallback URL: ${imageUrl}`);
+          return imageUrl;
+        }
+      } catch (error) {
+        logger.warn(`Fallback URL image extraction failed: ${error.message}`);
+      }
+    }
+
+    logger.warn(`All image extraction strategies exhausted for: ${articleUrl}`);
+    return null;
   }
 
   getOpenGraphImage($, baseUrl) {
