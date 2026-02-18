@@ -235,7 +235,7 @@ router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter
 function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
-    starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
+    starter: ['linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
     growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
     professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
     business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp', 'tiktok', 'youtube']
