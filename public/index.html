@@ -45,10 +45,13 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
-    <meta name="msapplication-TileColor" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
+    <meta name="msapplication-TileColor" content="#6366F1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="News Agent">
 
     <!-- Preconnect for Performance -->
@@ -224,370 +227,557 @@
     }
     </script>
 
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Satoshi:wght@400;500;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-        
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-            overflow-x: hidden;
-        }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
-        }
-        
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
-        }
-        
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: box-shadow 0.3s ease;
-        }
-        
-        .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
-                       0 0 50px rgba(236, 72, 153, 0.3);
-        }
-        
-        .floating {
-            animation: float 6s ease-in-out infinite;
-        }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-20px); }
-        }
-        
-        .pulse-glow {
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
-            animation: pulse-simple 2s ease-in-out infinite;
-        }
-        
-        @keyframes pulse-simple {
-            0%, 100% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% { 
-                transform: scale(1.02);
-                opacity: 0.9;
-            }
-        }
-        
-        .price-card {
-            transition: all 0.3s ease;
-            transform-style: preserve-3d;
-        }
-        
-        .price-card:hover {
-            transform: translateY(-10px) rotateX(5deg);
-        }
-        
-        .loader {
-            width: 50px;
-            height: 50px;
-            border: 3px solid transparent;
-            border-top-color: var(--glow-purple);
+        body { overflow-x: hidden; }
+        .font-satoshi { font-family: 'Satoshi', 'Inter', system-ui, sans-serif; }
+        .hero-orb {
+            position: absolute;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            filter: blur(80px);
+            pointer-events: none;
+            will-change: transform;
         }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .feature-card-hover { transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+        .feature-card-hover:hover { transform: translateY(-6px); box-shadow: 0 20px 40px -12px rgba(99, 102, 241, 0.12); }
+        .pricing-check { flex-shrink: 0; width: 18px; height: 18px; }
+        details[open] .faq-chevron { transform: rotate(180deg); }
+        .faq-chevron { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .grid-pattern {
+            background-image: radial-gradient(circle, rgba(99,102,241,0.06) 1px, transparent 1px);
+            background-size: 32px 32px;
         }
     </style>
 </head>
-<body class="min-h-screen bg-black text-white">
-    <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4">
+<body class="min-h-screen bg-surface-0 text-ink-900">
+
+    <!-- ==================== NAVIGATION ==================== -->
+    <nav class="nav-glass" role="navigation" aria-label="Main navigation">
+        <div class="max-w-7xl mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
-                <div class="text-2xl font-bold glow-text">News Agent ✨</div>
-                <div class="hidden md:flex space-x-8">
-                    <a href="#features" class="hover:text-purple-400 transition">Features</a>
-                    <a href="#pricing" class="hover:text-purple-400 transition">Pricing</a>
-                    <a href="/blog/" class="hover:text-purple-400 transition">Blog</a>
-                    <a href="#" onclick="showLogin()" class="hover:text-purple-400 transition">Login</a>
-                    <button onclick="showSignup()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition">
-                        Get Started
-                    </button>
+                <!-- Logo -->
+                <a href="/" class="flex items-center gap-2.5 group" aria-label="News Agent Home">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center shadow-button transition-transform duration-200 group-hover:scale-105">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <span class="text-xl font-bold font-satoshi text-ink-900">News Agent</span>
+                </a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="#features" class="nav-link text-body-sm font-medium text-ink-600 hover:text-brand-600 transition-colors duration-200">Features</a>
+                    <a href="#pricing" class="nav-link text-body-sm font-medium text-ink-600 hover:text-brand-600 transition-colors duration-200">Pricing</a>
+                    <a href="/blog/" class="nav-link text-body-sm font-medium text-ink-600 hover:text-brand-600 transition-colors duration-200">Blog</a>
+                    <a href="/demo.html" class="nav-link text-body-sm font-medium text-ink-600 hover:text-brand-600 transition-colors duration-200">Demo</a>
+                </div>
+
+                <!-- Theme Toggle -->
+                <div class="hidden md:flex">
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                </div>
+
+                <!-- Desktop CTA -->
+                <div class="hidden md:flex items-center gap-3">
+                    <button onclick="showLogin()" class="btn-outline btn-sm">Log in</button>
+                    <button onclick="showSignup()" class="btn-primary btn-sm">Get Started Free</button>
+                </div>
+
+                <!-- Mobile Menu Toggle -->
+                <button id="mobile-menu-toggle" class="md:hidden flex flex-col gap-1.5 p-2 -mr-2" aria-label="Toggle menu" aria-expanded="false">
+                    <span class="menu-bar block w-5 h-0.5 bg-ink-700 rounded-full transition-all duration-300"></span>
+                    <span class="menu-bar block w-5 h-0.5 bg-ink-700 rounded-full transition-all duration-300"></span>
+                    <span class="menu-bar block w-5 h-0.5 bg-ink-700 rounded-full transition-all duration-300"></span>
+                </button>
+            </div>
+
+            <!-- Mobile Menu -->
+            <div id="mobile-menu" class="hidden md:hidden mt-4 pb-4 border-t border-surface-200 pt-4">
+                <div class="flex flex-col gap-3">
+                    <a href="#features" class="text-body font-medium text-ink-700 hover:text-brand-600 py-2 transition-colors">Features</a>
+                    <a href="#pricing" class="text-body font-medium text-ink-700 hover:text-brand-600 py-2 transition-colors">Pricing</a>
+                    <a href="/blog/" class="text-body font-medium text-ink-700 hover:text-brand-600 py-2 transition-colors">Blog</a>
+                    <a href="/demo.html" class="text-body font-medium text-ink-700 hover:text-brand-600 py-2 transition-colors">Demo</a>
+                    <div class="flex items-center gap-2 py-2">
+                        <span class="text-body-sm text-ink-400">Theme:</span>
+                        <div class="theme-toggle" aria-label="Theme switcher">
+                            <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                            <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                            <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-2 mt-2 pt-3 border-t border-surface-200">
+                        <button onclick="showLogin()" class="btn-outline w-full">Log in</button>
+                        <button onclick="showSignup()" class="btn-primary w-full">Get Started Free</button>
+                    </div>
                 </div>
             </div>
         </div>
     </nav>
 
-    <!-- Hero Section -->
-    <section class="pt-32 pb-20 px-6">
-        <div class="container mx-auto text-center">
-            <h1 class="text-6xl md:text-8xl font-bold mb-6 glow-text floating">
-                Social Media on Autopilot 🚀
+    <!-- ==================== HERO SECTION ==================== -->
+    <section class="relative pt-32 md:pt-40 pb-20 md:pb-32 px-6 overflow-hidden">
+        <!-- Floating gradient orbs -->
+        <div class="hero-orb w-[500px] h-[500px] bg-brand-300/30 top-[-10%] left-[-10%] animate-orb-float-1"></div>
+        <div class="hero-orb w-[400px] h-[400px] bg-accent-300/20 top-[10%] right-[-8%] animate-orb-float-2"></div>
+        <div class="hero-orb w-[300px] h-[300px] bg-cyan-300/15 bottom-[0%] left-[30%] animate-orb-float-3"></div>
+        <!-- Dot grid pattern -->
+        <div class="absolute inset-0 grid-pattern opacity-40 pointer-events-none"></div>
+
+        <div class="relative max-w-5xl mx-auto text-center">
+            <!-- Overline badge -->
+            <div class="animate-on-scroll inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-brand-50 border border-brand-200 mb-8">
+                <span class="flex h-2 w-2 rounded-full bg-brand-500 animate-pulse-ring"></span>
+                <span class="text-caption text-brand-700">AI-powered content automation</span>
+            </div>
+
+            <!-- Headline -->
+            <h1 class="animate-on-scroll font-satoshi text-display-lg md:text-display-xl leading-[1.05] mb-6">
+                Your Social Media,<br>
+                <span class="gradient-text-vibrant">Fully Automated</span>
             </h1>
-            <p class="text-xl md:text-2xl mb-8 text-gray-300">
-                Let AI create viral content while you focus on what matters
+
+            <!-- Subtitle -->
+            <p class="animate-on-scroll text-body-lg md:text-xl text-ink-500 max-w-2xl mx-auto mb-10 leading-relaxed" data-delay="100">
+                News Agent uses AI to generate, schedule, and publish trending content across every platform — so you can grow your audience while you sleep.
             </p>
-            <div class="flex justify-center space-x-4 mb-12">
-                <button onclick="showSignup()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-4 rounded-full text-lg font-semibold hover:scale-105 transition pulse-glow">
+
+            <!-- CTA Buttons -->
+            <div class="animate-on-scroll flex flex-col sm:flex-row items-center justify-center gap-4 mb-20" data-delay="200">
+                <button onclick="showSignup()" class="btn-primary btn-lg text-base w-full sm:w-auto">
                     Start Free Trial
+                    <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
                 </button>
+                <a href="/demo.html" class="btn-outline btn-lg text-base w-full sm:w-auto">
+                    <svg class="mr-2 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Watch Demo
+                </a>
             </div>
-            
+
             <!-- Stats -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mt-16">
-                <div class="neon-border p-6">
-                    <div class="text-4xl font-bold glow-text">10K+</div>
-                    <div class="text-gray-400">Posts Generated</div>
+            <div class="animate-on-scroll stagger-children grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto" data-delay="300">
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1" data-counter="10000">0</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Posts Generated</div>
                 </div>
-                <div class="neon-border p-6">
-                    <div class="text-4xl font-bold glow-text">95%</div>
-                    <div class="text-gray-400">Time Saved</div>
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1">95%</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Time Saved</div>
                 </div>
-                <div class="neon-border p-6">
-                    <div class="text-4xl font-bold glow-text">24/7</div>
-                    <div class="text-gray-400">AI Working</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Features Section -->
-    <section id="features" class="py-20 px-6">
-        <div class="container mx-auto">
-            <h2 class="text-5xl font-bold text-center mb-16 glow-text">
-                Features That Slap 💯
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div class="neon-border p-8 hover:scale-105 transition">
-                    <div class="text-3xl mb-4">🤖</div>
-                    <h3 class="text-2xl font-bold mb-3 text-purple-400">AI-Powered Content</h3>
-                    <p class="text-gray-400">Generate engaging posts that sound like you, not a robot</p>
-                </div>
-                <div class="neon-border p-8 hover:scale-105 transition">
-                    <div class="text-3xl mb-4">📱</div>
-                    <h3 class="text-2xl font-bold mb-3 text-pink-400">Multi-Platform</h3>
-                    <p class="text-gray-400">Post to Twitter, LinkedIn, Reddit, and more with one click</p>
-                </div>
-                <div class="neon-border p-8 hover:scale-105 transition">
-                    <div class="text-3xl mb-4">📊</div>
-                    <h3 class="text-2xl font-bold mb-3 text-blue-400">Analytics Dashboard</h3>
-                    <p class="text-gray-400">Track your growth and see what's working</p>
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1">24/7</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Always Running</div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Pricing Section -->
-    <section id="pricing" class="py-20 px-6 gradient-bg">
-        <div class="container mx-auto">
-            <h2 class="text-5xl font-bold text-center mb-16 glow-text">
-                Pricing That Hits Different 💸
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-                <!-- Starter -->
-                <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">Starter</h3>
-                    <div class="text-4xl font-bold mb-6">$49<span class="text-lg text-gray-400">/mo</span></div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 10 posts/day (300/mo)</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 3 platforms</li>
-                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> LinkedIn, Reddit, Telegram</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Basic analytics</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Email support</li>
-                        <li class="flex items-center text-gray-500"><span class="text-red-400 mr-2">✗</span> Scheduling</li>
-                    </ul>
-                    <button onclick="subscribe('starter')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
-                        Get Started
-                    </button>
-                </div>
+    <!-- ==================== PLATFORM LOGOS ==================== -->
+    <section class="py-12 border-y border-surface-200 bg-surface-50">
+        <div class="max-w-5xl mx-auto px-6">
+            <p class="text-center text-caption text-ink-400 uppercase tracking-wider mb-8">Publish to all major platforms</p>
+            <div class="flex flex-wrap items-center justify-center gap-8 md:gap-14 opacity-60">
+                <!-- Twitter/X -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                <!-- LinkedIn -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                <!-- Reddit -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
+                <!-- Facebook -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                <!-- Telegram -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                <!-- Instagram -->
+                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 1 0 0-12.324zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405a1.441 1.441 0 1 1-2.882 0 1.441 1.441 0 0 1 2.882 0z"/></svg>
+            </div>
+        </div>
+    </section>
 
-                <!-- Growth -->
-                <div class="price-card neon-border p-8 transform scale-105 border-2 border-purple-500">
-                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 text-xs font-bold px-3 py-1 rounded-full inline-block mb-4">
-                        MOST POPULAR
+    <!-- ==================== FEATURES SECTION ==================== -->
+    <section id="features" class="py-24 md:py-32 px-6 bg-surface-0 section-mesh">
+        <div class="max-w-7xl mx-auto">
+            <!-- Section Header -->
+            <div class="text-center mb-16 md:mb-20 animate-on-scroll">
+                <span class="badge-primary mb-4 inline-block">Powerful Features</span>
+                <h2 class="font-satoshi text-display-lg mb-4">Everything you need to<br class="hidden md:block"> <span class="gradient-text">dominate social media</span></h2>
+                <p class="text-body-lg text-ink-500 max-w-2xl mx-auto">From content generation to multi-platform publishing, News Agent handles every aspect of your social media strategy.</p>
+            </div>
+
+            <!-- Bento Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children animate-on-scroll">
+                <!-- Feature 1: AI Content -->
+                <div class="card-static feature-card-hover p-8 lg:col-span-2">
+                    <div class="flex flex-col md:flex-row md:items-start gap-6">
+                        <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-brand-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-subheading text-ink-900 mb-2">AI-Powered Content Generation</h3>
+                            <p class="text-body text-ink-500 leading-relaxed">Advanced AI analyzes trending topics and generates platform-optimized posts that match your brand voice. Each piece of content is uniquely crafted for maximum engagement.</p>
+                        </div>
                     </div>
-                    <h3 class="text-2xl font-bold mb-4">Growth</h3>
-                    <div class="text-4xl font-bold mb-6">$149<span class="text-lg text-gray-400">/mo</span></div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 20 posts/day (600/mo)</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 4 platforms</li>
-                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + Twitter</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Advanced analytics</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Priority support</li>
+                </div>
+
+                <!-- Feature 2: Multi-Platform -->
+                <div class="card-static feature-card-hover p-8">
+                    <div class="w-14 h-14 rounded-2xl bg-accent-50 border border-accent-100 flex items-center justify-center mb-5">
+                        <svg class="w-7 h-7 text-accent-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"/></svg>
+                    </div>
+                    <h3 class="text-subheading text-ink-900 mb-2">Multi-Platform Publishing</h3>
+                    <p class="text-body text-ink-500">One click publishes to Twitter, LinkedIn, Reddit, Facebook, Telegram, Instagram, and more. Content adapts to each platform.</p>
+                </div>
+
+                <!-- Feature 3: Scheduling -->
+                <div class="card-static feature-card-hover p-8">
+                    <div class="w-14 h-14 rounded-2xl bg-cyan-50 border border-cyan-100 flex items-center justify-center mb-5">
+                        <svg class="w-7 h-7 text-cyan-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <h3 class="text-subheading text-ink-900 mb-2">Smart Scheduling</h3>
+                    <p class="text-body text-ink-500">Set your posting schedule and let AI determine optimal timing. Posts go out when your audience is most active.</p>
+                </div>
+
+                <!-- Feature 4: Trending -->
+                <div class="card-static feature-card-hover p-8">
+                    <div class="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center mb-5">
+                        <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>
+                    </div>
+                    <h3 class="text-subheading text-ink-900 mb-2">Trending News Detection</h3>
+                    <p class="text-body text-ink-500">AI monitors news sources in real-time, identifying trending stories relevant to your niche before they peak.</p>
+                </div>
+
+                <!-- Feature 5: Analytics -->
+                <div class="card-static feature-card-hover p-8 lg:col-span-2">
+                    <div class="flex flex-col md:flex-row md:items-start gap-6">
+                        <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-subheading text-ink-900 mb-2">Analytics &amp; Performance Insights</h3>
+                            <p class="text-body text-ink-500 leading-relaxed">Track post performance across all platforms in a unified dashboard. Understand what content resonates with your audience and optimize your strategy with data-driven insights.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== SOCIAL PROOF ==================== -->
+    <section class="py-16 bg-surface-50 border-y border-surface-200">
+        <div class="max-w-4xl mx-auto px-6 text-center animate-on-scroll">
+            <div class="flex items-center justify-center gap-1 mb-3">
+                <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+            </div>
+            <p class="text-heading font-satoshi text-ink-800 mb-2">Rated 4.8/5 by content creators</p>
+            <p class="text-body text-ink-400">Trusted by marketers, agencies, and creators worldwide</p>
+        </div>
+    </section>
+
+    <!-- ==================== PRICING SECTION ==================== -->
+    <section id="pricing" class="py-24 md:py-32 px-6 bg-surface-0">
+        <div class="max-w-7xl mx-auto">
+            <!-- Section Header -->
+            <div class="text-center mb-16 animate-on-scroll">
+                <span class="badge-primary mb-4 inline-block">Simple Pricing</span>
+                <h2 class="font-satoshi text-display-lg mb-4">Choose your <span class="gradient-text">growth plan</span></h2>
+                <p class="text-body-lg text-ink-500 max-w-xl mx-auto">Scale your social media presence with transparent, flexible pricing. Start free and upgrade as you grow.</p>
+            </div>
+
+            <!-- Pricing Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto stagger-children animate-on-scroll">
+
+                <!-- Starter -->
+                <div class="pricing-card p-8 flex flex-col">
+                    <div class="mb-6">
+                        <h3 class="text-subheading text-ink-900 mb-1">Starter</h3>
+                        <p class="text-body-sm text-ink-400">For individuals getting started</p>
+                    </div>
+                    <div class="mb-6">
+                        <span class="text-display font-satoshi text-ink-900">$49</span>
+                        <span class="text-body text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8 flex-1">
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            10 posts/day (300/month)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            3 platforms
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-400">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            LinkedIn, Reddit, Telegram
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Basic analytics
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Email support
+                        </li>
                     </ul>
-                    <button onclick="subscribe('growth')" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 py-3 rounded-full transition hover:scale-105">
-                        Get Started
-                    </button>
+                    <button onclick="subscribe('starter')" class="btn-outline w-full">Get Started</button>
+                </div>
+
+                <!-- Growth - Featured -->
+                <div class="pricing-card pricing-card-featured p-8 flex flex-col relative">
+                    <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-500 to-accent-500 rounded-t-card"></div>
+                    <div class="mb-6">
+                        <div class="flex items-center gap-2 mb-1">
+                            <h3 class="text-subheading text-ink-900">Growth</h3>
+                            <span class="badge-primary text-[10px]">POPULAR</span>
+                        </div>
+                        <p class="text-body-sm text-ink-400">For growing creators</p>
+                    </div>
+                    <div class="mb-6">
+                        <span class="text-display font-satoshi text-ink-900">$149</span>
+                        <span class="text-body text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8 flex-1">
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            20 posts/day (600/month)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            4 platforms (+ Twitter)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Advanced analytics
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Smart scheduling
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Priority support
+                        </li>
+                    </ul>
+                    <button onclick="subscribe('growth')" class="btn-primary w-full">Get Started</button>
                 </div>
 
                 <!-- Professional -->
-                <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">Professional</h3>
-                    <div class="text-4xl font-bold mb-6">$399<span class="text-lg text-gray-400">/mo</span></div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 30 posts/day (900/mo)</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 5 platforms</li>
-                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + Instagram</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Advanced analytics</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Bulk generation</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> API access</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Dedicated support</li>
+                <div class="pricing-card p-8 flex flex-col">
+                    <div class="mb-6">
+                        <h3 class="text-subheading text-ink-900 mb-1">Professional</h3>
+                        <p class="text-body-sm text-ink-400">For teams and agencies</p>
+                    </div>
+                    <div class="mb-6">
+                        <span class="text-display font-satoshi text-ink-900">$399</span>
+                        <span class="text-body text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8 flex-1">
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            30 posts/day (900/month)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            5 platforms (+ Instagram)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Bulk generation
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            API access
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Dedicated support
+                        </li>
                     </ul>
-                    <button onclick="subscribe('professional')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
-                        Get Started
-                    </button>
+                    <button onclick="subscribe('professional')" class="btn-outline w-full">Get Started</button>
                 </div>
 
                 <!-- Business -->
-                <div class="price-card neon-border p-8">
-                    <h3 class="text-2xl font-bold mb-4">Business</h3>
-                    <div class="text-4xl font-bold mb-6">$799<span class="text-lg text-gray-400">/mo</span></div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 45 posts/day (1,350/mo)</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 7 platforms</li>
-                        <li class="flex items-center text-gray-500 text-sm"><span class="mr-2">•</span> + TikTok, YouTube</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Custom analytics</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Scheduling</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> Bulk generation</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> API access</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> White-label</li>
-                        <li class="flex items-center"><span class="text-green-400 mr-2">✓</span> 24/7 Phone support</li>
+                <div class="pricing-card p-8 flex flex-col">
+                    <div class="mb-6">
+                        <h3 class="text-subheading text-ink-900 mb-1">Business</h3>
+                        <p class="text-body-sm text-ink-400">For enterprises at scale</p>
+                    </div>
+                    <div class="mb-6">
+                        <span class="text-display font-satoshi text-ink-900">$799</span>
+                        <span class="text-body text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8 flex-1">
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            45 posts/day (1,350/month)
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            All 7 platforms
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            White-label option
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Custom analytics
+                        </li>
+                        <li class="flex items-start gap-3 text-body-sm text-ink-600">
+                            <svg class="pricing-check text-brand-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            24/7 phone support
+                        </li>
                     </ul>
-                    <button onclick="subscribe('business')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-full transition">
-                        Get Started
-                    </button>
+                    <button onclick="subscribe('business')" class="btn-outline w-full">Get Started</button>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- FAQ Section for SEO/AEO -->
-    <section id="faq" class="py-20 px-6">
-        <div class="container mx-auto max-w-4xl">
-            <h2 class="text-5xl font-bold text-center mb-16 glow-text">
-                Frequently Asked Questions
-            </h2>
-            <div class="space-y-6">
-                <details class="neon-border p-6 group" open>
-                    <summary class="text-xl font-semibold cursor-pointer list-none flex justify-between items-center">
-                        <span>What is News Agent?</span>
-                        <span class="text-purple-400 group-open:rotate-180 transition-transform">▼</span>
+    <!-- ==================== FAQ SECTION ==================== -->
+    <section id="faq" class="py-24 md:py-32 px-6 bg-surface-50">
+        <div class="max-w-3xl mx-auto">
+            <div class="text-center mb-16 animate-on-scroll">
+                <span class="badge-primary mb-4 inline-block">FAQ</span>
+                <h2 class="font-satoshi text-display-lg mb-4">Frequently Asked <span class="gradient-text">Questions</span></h2>
+            </div>
+
+            <div class="space-y-4 animate-on-scroll stagger-children">
+                <details class="accordion-item bg-surface-0 group" open>
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">What is News Agent?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
-                    <p class="mt-4 text-gray-400 leading-relaxed">
+                    <div class="accordion-content">
                         News Agent is an AI-powered social media automation platform that automatically generates and publishes trending news content to your social media accounts including Twitter, LinkedIn, Reddit, and Facebook. It saves content creators up to 95% of their time by handling content creation and posting automatically.
-                    </p>
+                    </div>
                 </details>
-                <details class="neon-border p-6 group">
-                    <summary class="text-xl font-semibold cursor-pointer list-none flex justify-between items-center">
-                        <span>How does AI social media automation work?</span>
-                        <span class="text-purple-400 group-open:rotate-180 transition-transform">▼</span>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">How does AI social media automation work?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
-                    <p class="mt-4 text-gray-400 leading-relaxed">
+                    <div class="accordion-content">
                         News Agent uses advanced AI to monitor trending news topics, automatically generate engaging social media posts tailored for each platform, and schedule them for optimal posting times. The AI understands platform-specific requirements like Twitter's character limits and LinkedIn's professional tone.
-                    </p>
+                    </div>
                 </details>
-                <details class="neon-border p-6 group">
-                    <summary class="text-xl font-semibold cursor-pointer list-none flex justify-between items-center">
-                        <span>Which social media platforms are supported?</span>
-                        <span class="text-purple-400 group-open:rotate-180 transition-transform">▼</span>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">Which social media platforms are supported?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
-                    <p class="mt-4 text-gray-400 leading-relaxed">
+                    <div class="accordion-content">
                         News Agent supports Twitter/X, LinkedIn, Reddit, Facebook, Telegram, and Instagram. Depending on your subscription plan, you can post to multiple platforms simultaneously with content optimized for each platform's unique requirements.
-                    </p>
+                    </div>
                 </details>
-                <details class="neon-border p-6 group">
-                    <summary class="text-xl font-semibold cursor-pointer list-none flex justify-between items-center">
-                        <span>How much does News Agent cost?</span>
-                        <span class="text-purple-400 group-open:rotate-180 transition-transform">▼</span>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">How much does News Agent cost?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
-                    <p class="mt-4 text-gray-400 leading-relaxed">
+                    <div class="accordion-content">
                         News Agent offers four pricing tiers: Starter at $49/month (10 posts/day, 2 platforms), Growth at $149/month (20 posts/day, 3 platforms), Professional at $399/month (30 posts/day, 5 platforms), and Business at $799/month (45 posts/day, all platforms). A free trial is available.
-                    </p>
+                    </div>
                 </details>
-                <details class="neon-border p-6 group">
-                    <summary class="text-xl font-semibold cursor-pointer list-none flex justify-between items-center">
-                        <span>Can I try News Agent for free?</span>
-                        <span class="text-purple-400 group-open:rotate-180 transition-transform">▼</span>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">Can I try News Agent for free?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
-                    <p class="mt-4 text-gray-400 leading-relaxed">
+                    <div class="accordion-content">
                         Yes! News Agent offers a free tier with 1 post per week so you can test the AI content generation and see how it works for your social media strategy before committing to a paid plan.
-                    </p>
+                    </div>
                 </details>
             </div>
         </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+    <!-- ==================== CTA SECTION ==================== -->
+    <section class="py-24 px-6 section-gradient relative overflow-hidden">
+        <div class="hero-orb w-[400px] h-[400px] bg-brand-300/20 top-[-20%] right-[-10%] animate-orb-float-2"></div>
+        <div class="relative max-w-3xl mx-auto text-center animate-on-scroll">
+            <h2 class="font-satoshi text-display-lg mb-4">Ready to automate your <span class="gradient-text">social media?</span></h2>
+            <p class="text-body-lg text-ink-500 mb-8 max-w-xl mx-auto">Join thousands of creators who save hours every week with AI-powered content automation.</p>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <button onclick="showSignup()" class="btn-primary btn-lg text-base w-full sm:w-auto">
+                    Start Free Trial
+                    <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </button>
+                <a href="/demo.html" class="btn-outline btn-lg text-base w-full sm:w-auto bg-surface-0">Try the Demo</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== FOOTER ==================== -->
+    <footer class="bg-surface-50 border-t border-surface-200 pt-16 pb-8 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
                 <!-- Brand -->
-                <div>
-                    <div class="text-2xl font-bold glow-text mb-4">News Agent</div>
-                    <p class="text-gray-400 text-sm mb-4">AI-powered social media automation platform. Generate and publish trending content automatically.</p>
-                    <div class="flex space-x-4">
-                        <a href="https://twitter.com/" target="_blank" rel="noopener noreferrer" aria-label="Twitter" class="text-gray-400 hover:text-purple-400 transition">
+                <div class="col-span-2 md:col-span-1">
+                    <div class="flex items-center gap-2.5 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        </div>
+                        <span class="text-lg font-bold font-satoshi text-ink-900">News Agent</span>
+                    </div>
+                    <p class="text-body-sm text-ink-400 mb-5 max-w-xs">AI-powered social media automation platform. Generate and publish trending content automatically.</p>
+                    <div class="flex gap-4">
+                        <a href="https://twitter.com/" target="_blank" rel="noopener noreferrer" aria-label="Twitter" class="text-ink-400 hover:text-brand-500 transition-colors duration-200">
                             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                         </a>
-                        <a href="https://linkedin.com/company/newsagent" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" class="text-gray-400 hover:text-purple-400 transition">
+                        <a href="https://linkedin.com/company/newsagent" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" class="text-ink-400 hover:text-brand-500 transition-colors duration-200">
                             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
                         </a>
                     </div>
                 </div>
+
                 <!-- Product -->
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Product</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="#features" class="hover:text-white transition">Features</a></li>
-                        <li><a href="#pricing" class="hover:text-white transition">Pricing</a></li>
-                        <li><a href="#faq" class="hover:text-white transition">FAQ</a></li>
+                    <h4 class="text-caption font-bold text-ink-800 uppercase tracking-wider mb-4">Product</h4>
+                    <ul class="space-y-2.5">
+                        <li><a href="#features" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Features</a></li>
+                        <li><a href="#pricing" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Pricing</a></li>
+                        <li><a href="#faq" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">FAQ</a></li>
+                        <li><a href="/demo.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Demo</a></li>
                     </ul>
                 </div>
+
                 <!-- Resources -->
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Resources</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/blog/" class="hover:text-white transition">Blog</a></li>
-                        <li><a href="/blog/ai-social-media-automation-guide.html" class="hover:text-white transition">AI Automation Guide</a></li>
-                        <li><a href="/blog/how-to-automate-social-media-posting.html" class="hover:text-white transition">How-To Guides</a></li>
-                        <li><a href="/blog/best-ai-content-generators-2024.html" class="hover:text-white transition">Best AI Tools 2024</a></li>
+                    <h4 class="text-caption font-bold text-ink-800 uppercase tracking-wider mb-4">Resources</h4>
+                    <ul class="space-y-2.5">
+                        <li><a href="/blog/" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Blog</a></li>
+                        <li><a href="/blog/ai-social-media-automation-guide.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">AI Automation Guide</a></li>
+                        <li><a href="/blog/how-to-automate-social-media-posting.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">How-To Guides</a></li>
+                        <li><a href="/blog/best-ai-content-generators-2024.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Best AI Tools</a></li>
                     </ul>
                 </div>
-                <!-- Company -->
+
+                <!-- Legal -->
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Legal</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="mailto:or@ailead.work" class="hover:text-white transition">Contact Support</a></li>
-                        <li><a href="/privacy.html" class="hover:text-white transition">Privacy Policy</a></li>
-                        <li><a href="/terms.html" class="hover:text-white transition">Terms of Service</a></li>
-                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-white transition">Cookie Settings</a></li>
+                    <h4 class="text-caption font-bold text-ink-800 uppercase tracking-wider mb-4">Legal</h4>
+                    <ul class="space-y-2.5">
+                        <li><a href="mailto:or@ailead.work" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Contact Support</a></li>
+                        <li><a href="/privacy.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Privacy Policy</a></li>
+                        <li><a href="/terms.html" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Terms of Service</a></li>
+                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="text-body-sm text-ink-500 hover:text-brand-600 transition-colors">Cookie Settings</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="border-t border-purple-500/20 pt-8 text-center text-sm text-gray-500">
-                <p>&copy; 2024-2025 News Agent. All rights reserved. | AI-Powered Social Media Automation</p>
-                <p class="mt-2">Made with AI for creators who want to work smarter, not harder.</p>
+
+            <!-- Bottom bar -->
+            <div class="border-t border-surface-200 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                <p class="text-caption text-ink-400">&copy; 2024-2025 News Agent. All rights reserved.</p>
+                <p class="text-caption text-ink-400">AI-Powered Social Media Automation</p>
             </div>
         </div>
     </footer>
@@ -595,7 +785,10 @@
     <!-- Modal Container -->
     <div id="modalContainer"></div>
 
+    <script src="/js/animations.js"></script>
+    <script src="/js/nav.js"></script>
     <script src="/js/app.js"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

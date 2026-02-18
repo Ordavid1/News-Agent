@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const indicator = document.getElementById('testModeIndicator');
                 if (indicator) {
                     indicator.classList.remove('hidden');
-                    indicator.classList.add('inline-block');
+                    indicator.classList.add('flex');
                 }
             }
         }
@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // Store token in localStorage
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    
+
                     // Check if user had an intended plan
                     const intendedPlan = localStorage.getItem('intendedPlan');
                     if (intendedPlan) {
@@ -62,11 +62,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                         window.location.href = '/profile.html';
                     }
                 } else {
-                    alert(data.error || 'Login failed');
+                    showError(data.error || 'Login failed');
                 }
             } catch (error) {
                 console.error('Login error:', error);
-                alert('An error occurred during login');
+                showError('An error occurred during login');
             }
         });
     }
@@ -113,14 +113,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Show error message
+// Show error message — uses shared toast from animations.js if available, falls back to basic notification
 function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-4 right-4 bg-red-500/20 border border-red-500 text-red-400 px-6 py-3 rounded-lg z-50';
-    errorDiv.textContent = message;
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => {
-        errorDiv.remove();
-    }, 5000);
+    if (window.showToast) {
+        window.showToast(message, 'error', 6000);
+    } else {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'fixed top-4 right-4 bg-red-50 border border-red-200 text-red-700 px-6 py-3 rounded-xl z-50 shadow-lg text-sm';
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
+    }
 }

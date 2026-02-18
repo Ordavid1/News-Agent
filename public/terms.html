@@ -6,10 +6,18 @@
     <title>Terms of Service - News Agent | AI-Powered Social Media Automation</title>
     <meta name="description" content="Terms of Service for News Agent. Read our terms and conditions for using our AI-powered social media automation platform.">
     <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+
+    <!-- Fonts -->
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Styles -->
     <link rel="stylesheet" href="/styles/output.css">
@@ -29,47 +37,54 @@
     </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
 </head>
-<body class="bg-black text-white min-h-screen">
+<body class="min-h-screen bg-surface-50">
     <!-- Navigation -->
-    <nav class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-            <a href="/" class="text-2xl font-bold glow-text">News Agent</a>
-            <div class="flex items-center space-x-4">
-                <a href="/" class="text-gray-300 hover:text-white transition">Home</a>
-                <a href="/auth.html" class="bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 rounded-lg font-semibold hover:opacity-90 transition">Get Started</a>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-4">
+                    <div class="theme-toggle hidden sm:inline-flex" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Home</a>
+                    <a href="/auth.html" class="btn-primary btn-sm">Get Started</a>
+                </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
-    <main class="pt-24 pb-16 px-6">
+    <main class="pt-12 pb-16 px-4 sm:px-6 lg:px-8">
         <div class="container mx-auto max-w-4xl">
-            <h1 class="text-4xl font-bold mb-4 glow-text">Terms of Service</h1>
-            <p class="text-gray-400 mb-8">Last updated: December 10, 2024</p>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Terms of Service</h1>
+            <p class="text-ink-400 mb-8">Last updated: December 10, 2024</p>
 
             <div class="prose prose-invert max-w-none space-y-8">
 
                 <!-- Introduction -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">1. Agreement to Terms</h2>
-                    <p class="text-gray-300 leading-relaxed">
-                        These Terms of Service ("Terms") constitute a legally binding agreement between you ("User," "you," or "your") and News Agent ("we," "us," or "our") governing your access to and use of the News Agent website at <a href="https://configure.news" class="text-purple-400 hover:text-purple-300">configure.news</a> and our AI-powered social media automation platform (collectively, the "Service").
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">1. Agreement to Terms</h2>
+                    <p class="text-ink-600 leading-relaxed">
+                        These Terms of Service ("Terms") constitute a legally binding agreement between you ("User," "you," or "your") and News Agent ("we," "us," or "our") governing your access to and use of the News Agent website at <a href="https://configure.news" class="text-brand-600 hover:text-brand-700">configure.news</a> and our AI-powered social media automation platform (collectively, the "Service").
                     </p>
-                    <p class="text-gray-300 leading-relaxed mt-4">
-                        By accessing or using our Service, you acknowledge that you have read, understood, and agree to be bound by these Terms and our <a href="/privacy.html" class="text-purple-400 hover:text-purple-300">Privacy Policy</a>. If you do not agree to these Terms, you must not access or use the Service.
+                    <p class="text-ink-600 leading-relaxed mt-4">
+                        By accessing or using our Service, you acknowledge that you have read, understood, and agree to be bound by these Terms and our <a href="/privacy.html" class="text-brand-600 hover:text-brand-700">Privacy Policy</a>. If you do not agree to these Terms, you must not access or use the Service.
                     </p>
-                    <p class="text-gray-300 leading-relaxed mt-4">
+                    <p class="text-ink-600 leading-relaxed mt-4">
                         We reserve the right to modify these Terms at any time. We will notify you of material changes by posting the updated Terms on our website and updating the "Last updated" date. Your continued use of the Service after such modifications constitutes your acceptance of the revised Terms.
                     </p>
                 </section>
 
                 <!-- Service Description -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">2. Description of Service</h2>
-                    <p class="text-gray-300 leading-relaxed">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">2. Description of Service</h2>
+                    <p class="text-ink-600 leading-relaxed">
                         News Agent is an AI-powered social media automation platform that provides the following services:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-4">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-4">
                         <li>AI-generated social media content based on trending news and user-selected topics</li>
                         <li>Automated publishing to connected social media platforms (Twitter/X, LinkedIn, Reddit, Facebook, Telegram, and others)</li>
                         <li>Scheduling and automation of social media posts</li>
@@ -77,50 +92,50 @@
                         <li>Analytics and performance tracking</li>
                         <li>Multi-agent management for automated posting workflows</li>
                     </ul>
-                    <p class="text-gray-300 leading-relaxed mt-4">
+                    <p class="text-ink-600 leading-relaxed mt-4">
                         The availability of specific features depends on your subscription tier. We reserve the right to modify, suspend, or discontinue any aspect of the Service at any time with reasonable notice.
                     </p>
                 </section>
 
                 <!-- Eligibility -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">3. Eligibility</h2>
-                    <p class="text-gray-300 leading-relaxed">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">3. Eligibility</h2>
+                    <p class="text-ink-600 leading-relaxed">
                         To use our Service, you must:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-4">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-4">
                         <li>Be at least 16 years of age</li>
                         <li>Have the legal capacity to enter into a binding agreement</li>
                         <li>Not be prohibited from using the Service under applicable laws</li>
                         <li>Provide accurate and complete registration information</li>
                         <li>Comply with the terms of service of all connected social media platforms</li>
                     </ul>
-                    <p class="text-gray-300 leading-relaxed mt-4">
+                    <p class="text-ink-600 leading-relaxed mt-4">
                         By using the Service, you represent and warrant that you meet all eligibility requirements. If you are using the Service on behalf of an organization, you represent that you have the authority to bind that organization to these Terms.
                     </p>
                 </section>
 
                 <!-- Account Registration -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">4. Account Registration and Security</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">4. Account Registration and Security</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">4.1 Account Creation</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">4.1 Account Creation</h3>
+                    <p class="text-ink-600">
                         To access most features of the Service, you must create an account by providing accurate, current, and complete information. You may register using your email address or through Google OAuth.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">4.2 Account Security</h3>
-                    <p class="text-gray-300">You are responsible for:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">4.2 Account Security</h3>
+                    <p class="text-ink-600">You are responsible for:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Maintaining the confidentiality of your account credentials</li>
                         <li>All activities that occur under your account</li>
                         <li>Notifying us immediately of any unauthorized access or security breach</li>
                         <li>Ensuring your connected social media accounts are properly secured</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">4.3 Account Restrictions</h3>
-                    <p class="text-gray-300">You may not:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">4.3 Account Restrictions</h3>
+                    <p class="text-ink-600">You may not:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Create multiple accounts to circumvent usage limits or restrictions</li>
                         <li>Share your account credentials with third parties</li>
                         <li>Transfer your account to another person without our consent</li>
@@ -129,34 +144,34 @@
                 </section>
 
                 <!-- Subscriptions and Payment -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">5. Subscriptions and Payment</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">5. Subscriptions and Payment</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">5.1 Subscription Tiers</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">5.1 Subscription Tiers</h3>
+                    <p class="text-ink-600">
                         We offer various subscription tiers with different features and usage limits. The current tiers and their features are displayed on our pricing page. We reserve the right to modify pricing and features with reasonable notice.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.2 Billing</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.2 Billing</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Subscriptions are billed monthly in advance</li>
                         <li>Payment is processed through our payment provider, LemonSqueezy</li>
                         <li>By subscribing, you authorize us to charge your payment method on a recurring basis</li>
                         <li>Prices are subject to applicable taxes</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.3 Refund Policy</h3>
-                    <div class="bg-black/50 rounded-lg p-4 border border-yellow-500/30 mt-2">
-                        <p class="text-gray-300">
-                            <strong class="text-yellow-400">No Refunds After Service Usage:</strong> Once you have begun using the Service during a billing period (including generating content, connecting social accounts, or publishing posts), no refunds will be issued for that billing period.
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.3 Refund Policy</h3>
+                    <div class="bg-amber-50 rounded-xl p-4 border border-amber-200 mt-2">
+                        <p class="text-ink-600">
+                            <strong class="text-amber-700">No Refunds After Service Usage:</strong> Once you have begun using the Service during a billing period (including generating content, connecting social accounts, or publishing posts), no refunds will be issued for that billing period.
                         </p>
                     </div>
-                    <p class="text-gray-300 mt-4">
-                        For new subscriptions where no service usage has occurred, you may request a refund within 7 days of the initial purchase by contacting us at <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a>.
+                    <p class="text-ink-600 mt-4">
+                        For new subscriptions where no service usage has occurred, you may request a refund within 7 days of the initial purchase by contacting us at <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a>.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.4 Cancellation</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.4 Cancellation</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>You may cancel your subscription at any time through your account settings or by contacting us</li>
                         <li>Upon cancellation, your subscription will remain active until the end of the current billing period</li>
                         <li>You will continue to have access to paid features until your subscription period ends</li>
@@ -164,21 +179,21 @@
                         <li>We do not provide prorated refunds for unused portions of a billing period</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.5 Failed Payments</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.5 Failed Payments</h3>
+                    <p class="text-ink-600">
                         If a payment fails, we may retry the charge and/or suspend your access to paid features until payment is successfully processed. Continued payment failures may result in subscription cancellation.
                     </p>
                 </section>
 
                 <!-- Prohibited Uses -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">6. Prohibited Uses</h2>
-                    <p class="text-gray-300 mb-4">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">6. Prohibited Uses</h2>
+                    <p class="text-ink-600 mb-4">
                         You agree not to use the Service to create, distribute, or publish content that:
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">6.1 Harmful or Illegal Content</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">6.1 Harmful or Illegal Content</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Violates any applicable law, regulation, or legal obligation</li>
                         <li>Promotes violence, terrorism, or illegal activities</li>
                         <li>Contains threats, harassment, bullying, or intimidation</li>
@@ -188,8 +203,8 @@
                         <li>Promotes self-harm or suicide</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.2 Spam and Manipulation</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.2 Spam and Manipulation</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Spam, unsolicited messages, or bulk commercial communications</li>
                         <li>Artificially inflating engagement metrics (fake likes, followers, etc.)</li>
                         <li>Coordinated inauthentic behavior or manipulation campaigns</li>
@@ -197,8 +212,8 @@
                         <li>Circumventing our rate limits or usage restrictions</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.3 Misinformation and Deception</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.3 Misinformation and Deception</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Deliberate misinformation, disinformation, or fake news</li>
                         <li>Impersonation of individuals, organizations, or entities</li>
                         <li>Fraudulent schemes, scams, or deceptive practices</li>
@@ -206,15 +221,15 @@
                         <li>Election interference or voter manipulation</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.4 Intellectual Property Violations</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.4 Intellectual Property Violations</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Copyright, trademark, or other intellectual property infringement</li>
                         <li>Unauthorized use of third-party content, images, or media</li>
                         <li>Plagiarism or misattribution of content</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.5 Technical Abuse</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.5 Technical Abuse</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Distributing malware, viruses, or malicious code</li>
                         <li>Attempting to gain unauthorized access to our systems or other users' accounts</li>
                         <li>Reverse engineering, decompiling, or disassembling the Service</li>
@@ -222,53 +237,53 @@
                         <li>Interfering with or disrupting the Service or its infrastructure</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.6 Commercial Restrictions</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.6 Commercial Restrictions</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Reselling, sublicensing, or redistributing the Service without authorization</li>
                         <li>Using the Service to build a competing product</li>
                         <li>Providing access to third parties as a managed service without our consent</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">6.7 Platform Violations</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">6.7 Platform Violations</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Violating the terms of service of connected social media platforms</li>
                         <li>Using the Service in ways that could result in platform bans or restrictions</li>
                         <li>Posting content prohibited by specific platforms</li>
                     </ul>
 
-                    <p class="text-gray-300 mt-6">
+                    <p class="text-ink-600 mt-6">
                         We reserve the right to investigate violations and take appropriate action, including content removal, account suspension, or termination without refund.
                     </p>
                 </section>
 
                 <!-- User Content -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">7. User Content and Responsibility</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">7. User Content and Responsibility</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">7.1 Your Content</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">7.1 Your Content</h3>
+                    <p class="text-ink-600">
                         You retain ownership of content you create or provide through the Service. By using the Service, you grant us a limited license to process, store, and transmit your content as necessary to provide the Service.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">7.2 AI-Generated Content</h3>
-                    <div class="bg-black/50 rounded-lg p-4 border border-purple-500/30 mt-2">
-                        <p class="text-gray-300">
-                            <strong class="text-purple-400">Important:</strong> Content generated by our AI is provided as a tool to assist you. You are solely responsible for reviewing, editing, and approving all content before publication. AI-generated content may contain errors, inaccuracies, or inappropriate material.
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">7.2 AI-Generated Content</h3>
+                    <div class="bg-brand-50 rounded-xl p-4 border border-brand-200 mt-2">
+                        <p class="text-ink-600">
+                            <strong class="text-brand-600">Important:</strong> Content generated by our AI is provided as a tool to assist you. You are solely responsible for reviewing, editing, and approving all content before publication. AI-generated content may contain errors, inaccuracies, or inappropriate material.
                         </p>
                     </div>
-                    <p class="text-gray-300 mt-4">You acknowledge that:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <p class="text-ink-600 mt-4">You acknowledge that:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>AI-generated content requires human review and judgment</li>
                         <li>You are responsible for the accuracy and appropriateness of published content</li>
                         <li>We do not guarantee that AI-generated content will meet your specific needs</li>
                         <li>Content generated should be treated as a draft requiring verification</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">7.3 Content Responsibility</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">7.3 Content Responsibility</h3>
+                    <p class="text-ink-600">
                         You are solely responsible for all content published through your connected social media accounts, including:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Ensuring content complies with applicable laws and regulations</li>
                         <li>Verifying the accuracy of information before publication</li>
                         <li>Obtaining necessary rights and permissions for any third-party content</li>
@@ -278,47 +293,47 @@
                 </section>
 
                 <!-- Third-Party Platforms -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">8. Third-Party Platforms and Services</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">8. Third-Party Platforms and Services</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">8.1 Social Media Platforms</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">8.1 Social Media Platforms</h3>
+                    <p class="text-ink-600">
                         Our Service integrates with third-party social media platforms. Your use of these platforms through our Service is subject to:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Each platform's terms of service and policies</li>
                         <li>Each platform's API terms and rate limits</li>
                         <li>Platform-specific content guidelines and restrictions</li>
                     </ul>
-                    <p class="text-gray-300 mt-4">
+                    <p class="text-ink-600 mt-4">
                         We are not responsible for changes to third-party platforms that may affect Service functionality. Platform bans or restrictions resulting from your content are your sole responsibility.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">8.2 Third-Party Links</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">8.2 Third-Party Links</h3>
+                    <p class="text-ink-600">
                         The Service may contain links to third-party websites or services. We are not responsible for the content, policies, or practices of any third-party sites.
                     </p>
                 </section>
 
                 <!-- Intellectual Property -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">9. Intellectual Property</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">9. Intellectual Property</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">9.1 Our Intellectual Property</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">9.1 Our Intellectual Property</h3>
+                    <p class="text-ink-600">
                         The Service, including its design, features, functionality, code, graphics, and documentation, is owned by News Agent and protected by intellectual property laws. You may not copy, modify, distribute, or create derivative works without our written consent.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">9.2 Feedback</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">9.2 Feedback</h3>
+                    <p class="text-ink-600">
                         If you provide feedback, suggestions, or ideas about the Service, you grant us a non-exclusive, royalty-free, perpetual license to use and incorporate such feedback without compensation or attribution.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">9.3 DMCA and Copyright Claims</h3>
-                    <p class="text-gray-300">
-                        If you believe content on our Service infringes your copyright, please contact us at <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a> with the following information:
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">9.3 DMCA and Copyright Claims</h3>
+                    <p class="text-ink-600">
+                        If you believe content on our Service infringes your copyright, please contact us at <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a> with the following information:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Description of the copyrighted work</li>
                         <li>Location of the infringing content</li>
                         <li>Your contact information</li>
@@ -329,15 +344,15 @@
                 </section>
 
                 <!-- Disclaimer of Warranties -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">10. Disclaimer of Warranties</h2>
-                    <div class="bg-black/50 rounded-lg p-4 border border-red-500/30">
-                        <p class="text-gray-300 uppercase text-sm">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">10. Disclaimer of Warranties</h2>
+                    <div class="bg-red-50 rounded-xl p-4 border border-red-200">
+                        <p class="text-ink-600 uppercase text-sm">
                             THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
                         </p>
                     </div>
-                    <p class="text-gray-300 mt-4">We do not warrant that:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <p class="text-ink-600 mt-4">We do not warrant that:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>The Service will be uninterrupted, secure, or error-free</li>
                         <li>AI-generated content will be accurate, appropriate, or suitable for your purposes</li>
                         <li>The Service will meet your specific requirements</li>
@@ -347,15 +362,15 @@
                 </section>
 
                 <!-- Limitation of Liability -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">11. Limitation of Liability</h2>
-                    <div class="bg-black/50 rounded-lg p-4 border border-red-500/30">
-                        <p class="text-gray-300 uppercase text-sm">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">11. Limitation of Liability</h2>
+                    <div class="bg-red-50 rounded-xl p-4 border border-red-200">
+                        <p class="text-ink-600 uppercase text-sm">
                             TO THE MAXIMUM EXTENT PERMITTED BY LAW, NEWS AGENT AND ITS AFFILIATES, OFFICERS, DIRECTORS, EMPLOYEES, AND AGENTS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, USE, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATED TO YOUR USE OF THE SERVICE.
                         </p>
                     </div>
-                    <p class="text-gray-300 mt-4">This includes, but is not limited to, damages arising from:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <p class="text-ink-600 mt-4">This includes, but is not limited to, damages arising from:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Content published through the Service</li>
                         <li>Account suspensions or bans on third-party platforms</li>
                         <li>Service interruptions or unavailability</li>
@@ -363,18 +378,18 @@
                         <li>Unauthorized access to your account</li>
                         <li>Third-party actions or platform changes</li>
                     </ul>
-                    <p class="text-gray-300 mt-4">
-                        <strong>Maximum Liability:</strong> Our total liability for any claims arising from these Terms or your use of the Service shall not exceed the amount you paid us in the twelve (12) months preceding the claim.
+                    <p class="text-ink-600 mt-4">
+                        <strong class="text-ink-800">Maximum Liability:</strong> Our total liability for any claims arising from these Terms or your use of the Service shall not exceed the amount you paid us in the twelve (12) months preceding the claim.
                     </p>
                 </section>
 
                 <!-- Indemnification -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">12. Indemnification</h2>
-                    <p class="text-gray-300">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">12. Indemnification</h2>
+                    <p class="text-ink-600">
                         You agree to indemnify, defend, and hold harmless News Agent and its affiliates, officers, directors, employees, and agents from and against any claims, liabilities, damages, losses, costs, and expenses (including reasonable attorneys' fees) arising out of or related to:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-4">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-4">
                         <li>Your use of the Service</li>
                         <li>Content you create, publish, or distribute through the Service</li>
                         <li>Your violation of these Terms</li>
@@ -384,26 +399,26 @@
                 </section>
 
                 <!-- Termination -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">13. Termination</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">13. Termination</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">13.1 Termination by You</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">13.1 Termination by You</h3>
+                    <p class="text-ink-600">
                         You may terminate your account at any time by canceling your subscription and contacting us to request account deletion. Upon termination, your right to use the Service will cease immediately.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">13.2 Termination by Us</h3>
-                    <p class="text-gray-300">We may suspend or terminate your account immediately, without prior notice, if:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">13.2 Termination by Us</h3>
+                    <p class="text-ink-600">We may suspend or terminate your account immediately, without prior notice, if:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>You violate these Terms or our Prohibited Uses policy</li>
                         <li>We reasonably believe your conduct may harm us, other users, or third parties</li>
                         <li>We are required to do so by law</li>
                         <li>We discontinue the Service</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">13.3 Effect of Termination</h3>
-                    <p class="text-gray-300">Upon termination:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">13.3 Effect of Termination</h3>
+                    <p class="text-ink-600">Upon termination:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Your access to the Service will be revoked</li>
                         <li>Your connected social media accounts will be disconnected</li>
                         <li>Scheduled posts will not be published</li>
@@ -413,75 +428,75 @@
                 </section>
 
                 <!-- Dispute Resolution -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">14. Dispute Resolution</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">14. Dispute Resolution</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">14.1 Informal Resolution</h3>
-                    <p class="text-gray-300">
-                        Before initiating any formal dispute resolution process, you agree to first contact us at <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a> to attempt to resolve the dispute informally. We will make reasonable efforts to resolve disputes within 30 days.
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">14.1 Informal Resolution</h3>
+                    <p class="text-ink-600">
+                        Before initiating any formal dispute resolution process, you agree to first contact us at <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a> to attempt to resolve the dispute informally. We will make reasonable efforts to resolve disputes within 30 days.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">14.2 Jurisdiction and Venue</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">14.2 Jurisdiction and Venue</h3>
+                    <p class="text-ink-600">
                         If informal resolution is unsuccessful, any legal action or proceeding arising out of or related to these Terms shall be brought exclusively in the courts of competent jurisdiction. You consent to the personal jurisdiction of such courts.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">14.3 No Arbitration Requirement</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">14.3 No Arbitration Requirement</h3>
+                    <p class="text-ink-600">
                         These Terms do not require arbitration. You retain the right to pursue claims in court, including participation in class action lawsuits if applicable.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">14.4 Time Limitation</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">14.4 Time Limitation</h3>
+                    <p class="text-ink-600">
                         Any claim or cause of action arising from these Terms or your use of the Service must be filed within one (1) year after the claim arose, or it will be permanently barred.
                     </p>
                 </section>
 
                 <!-- General Provisions -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">15. General Provisions</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">15. General Provisions</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">15.1 Entire Agreement</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">15.1 Entire Agreement</h3>
+                    <p class="text-ink-600">
                         These Terms, together with our Privacy Policy, constitute the entire agreement between you and News Agent regarding the Service and supersede all prior agreements.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">15.2 Severability</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">15.2 Severability</h3>
+                    <p class="text-ink-600">
                         If any provision of these Terms is found to be unenforceable, the remaining provisions will continue in full force and effect.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">15.3 Waiver</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">15.3 Waiver</h3>
+                    <p class="text-ink-600">
                         Our failure to enforce any right or provision of these Terms shall not constitute a waiver of such right or provision.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">15.4 Assignment</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">15.4 Assignment</h3>
+                    <p class="text-ink-600">
                         You may not assign or transfer these Terms without our prior written consent. We may assign our rights and obligations without restriction.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">15.5 Force Majeure</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">15.5 Force Majeure</h3>
+                    <p class="text-ink-600">
                         We shall not be liable for any failure or delay in performing our obligations due to circumstances beyond our reasonable control, including natural disasters, war, terrorism, strikes, or internet failures.
                     </p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">15.6 Headings</h3>
-                    <p class="text-gray-300">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">15.6 Headings</h3>
+                    <p class="text-ink-600">
                         Section headings are for convenience only and do not affect the interpretation of these Terms.
                     </p>
                 </section>
 
                 <!-- Contact -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">16. Contact Us</h2>
-                    <p class="text-gray-300 mb-4">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">16. Contact Us</h2>
+                    <p class="text-ink-600 mb-4">
                         If you have any questions about these Terms of Service, please contact us:
                     </p>
-                    <div class="bg-black/50 rounded-lg p-4 border border-purple-500/30">
-                        <p class="text-gray-300"><strong class="text-white">News Agent</strong></p>
-                        <p class="text-gray-300">Email: <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a></p>
-                        <p class="text-gray-300">Website: <a href="https://configure.news" class="text-purple-400 hover:text-purple-300">https://configure.news</a></p>
+                    <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                        <p class="text-ink-600"><strong class="text-ink-800">News Agent</strong></p>
+                        <p class="text-ink-600">Email: <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a></p>
+                        <p class="text-ink-600">Website: <a href="https://configure.news" class="text-brand-600 hover:text-brand-700">https://configure.news</a></p>
                     </div>
                 </section>
 
@@ -490,44 +505,46 @@
     </main>
 
     <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto">
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
                 <div>
-                    <div class="text-2xl font-bold glow-text mb-4">News Agent</div>
-                    <p class="text-gray-400 text-sm">AI-powered social media automation platform.</p>
+                    <div class="text-xl font-bold gradient-text mb-4" style="font-family: 'Satoshi', sans-serif;">News Agent</div>
+                    <p class="text-ink-400 text-sm">AI-powered social media automation platform.</p>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Product</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/#features" class="hover:text-white transition">Features</a></li>
-                        <li><a href="/#pricing" class="hover:text-white transition">Pricing</a></li>
-                        <li><a href="/demo.html" class="hover:text-white transition">Try Demo</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Product</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/#features" class="hover:text-brand-600 transition-colors">Features</a></li>
+                        <li><a href="/#pricing" class="hover:text-brand-600 transition-colors">Pricing</a></li>
+                        <li><a href="/demo.html" class="hover:text-brand-600 transition-colors">Try Demo</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Resources</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/blog/" class="hover:text-white transition">Blog</a></li>
-                        <li><a href="/#faq" class="hover:text-white transition">FAQ</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Resources</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/blog/" class="hover:text-brand-600 transition-colors">Blog</a></li>
+                        <li><a href="/#faq" class="hover:text-brand-600 transition-colors">FAQ</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Legal</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/privacy.html" class="hover:text-white transition">Privacy Policy</a></li>
-                        <li><a href="/terms.html" class="hover:text-white transition">Terms of Service</a></li>
-                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-white transition">Cookie Settings</a></li>
-                        <li><a href="mailto:or@ailead.work" class="hover:text-white transition">Contact</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Legal</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/privacy.html" class="hover:text-brand-600 transition-colors">Privacy Policy</a></li>
+                        <li><a href="/terms.html" class="hover:text-brand-600 transition-colors">Terms of Service</a></li>
+                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-brand-600 transition-colors">Cookie Settings</a></li>
+                        <li><a href="mailto:or@ailead.work" class="hover:text-brand-600 transition-colors">Contact</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="border-t border-purple-500/20 pt-8 text-center text-sm text-gray-500">
+            <div class="border-t border-surface-200 pt-8 text-center text-sm text-ink-400">
                 <p>&copy; 2024-2025 News Agent. All rights reserved.</p>
             </div>
         </div>
     </footer>
 
+    <script src="/js/animations.js"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

@@ -572,7 +572,7 @@ function showKeywordLimitMessage() {
 
     const msg = document.createElement('div');
     msg.id = 'keywordLimitMsg';
-    msg.className = 'text-yellow-400 text-sm mt-2';
+    msg.className = 'text-amber-600 text-sm mt-2';
     msg.textContent = `Maximum ${MAX_KEYWORDS} keywords allowed`;
     container.parentNode.appendChild(msg);
 
@@ -590,8 +590,8 @@ function updateKeywordCounter() {
     if (counterEl) {
         counterEl.textContent = `${keywords.length}/${MAX_KEYWORDS}`;
         counterEl.className = keywords.length >= MAX_KEYWORDS
-            ? 'text-yellow-400 text-sm'
-            : 'text-gray-500 text-sm';
+            ? 'text-amber-600 text-sm font-medium'
+            : 'text-ink-400 text-sm';
     }
 }
 
@@ -612,9 +612,9 @@ function renderKeywordTags() {
     if (!container) return;
 
     container.innerHTML = keywords.map((keyword, index) => `
-        <span class="inline-flex items-center gap-1 px-3 py-1 bg-purple-600/30 border border-purple-500/50 rounded-full text-sm">
+        <span class="inline-flex items-center gap-1 px-3 py-1 bg-brand-50 border border-brand-200 rounded-full text-sm text-brand-700">
             <span>${keyword}</span>
-            <button type="button" onclick="removeKeyword(${index})" class="text-gray-400 hover:text-white transition-colors ml-1">
+            <button type="button" onclick="removeKeyword(${index})" class="text-brand-400 hover:text-brand-700 transition-colors ml-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -831,7 +831,7 @@ function updatePlatformCheckboxes() {
     const connectionHintText = document.getElementById('connectionHintText');
     if (allConnections.length === 0 && connectionHint && connectionHintText) {
         connectionHint.classList.remove('hidden');
-        connectionHintText.innerHTML = 'No platforms connected. <a href="/profile.html?tab=connections" class="text-purple-400 hover:underline">Connect a platform first</a>.';
+        connectionHintText.innerHTML = 'No platforms connected. <a href="/profile.html?tab=connections" class="text-brand-600 hover:underline font-medium">Connect a platform first</a>.';
     } else if (connectionHint) {
         connectionHint.classList.add('hidden');
     }

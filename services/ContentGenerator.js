@@ -11,6 +11,7 @@ import { getRedditSystemPrompt, getRedditUserPrompt } from '../public/components
 import { getTelegramSystemPrompt, getTelegramUserPrompt } from '../public/components/telegramPrompts.mjs';
 import { getInstagramSystemPrompt, getInstagramUserPrompt } from '../public/components/instagramPrompts.mjs';
 import { getThreadsSystemPrompt, getThreadsUserPrompt } from '../public/components/threadsPrompts.mjs';
+import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/components/whatsappPrompts.mjs';
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -43,7 +44,8 @@ class ContentGenerator {
       facebook: this.getFacebookPrompt,
       instagram: this.getInstagramPrompt,
       telegram: this.getTelegramPrompt,
-      threads: this.getThreadsPrompt
+      threads: this.getThreadsPrompt,
+      whatsapp: this.getWhatsAppPrompt
     };
   }
 
@@ -115,6 +117,11 @@ class ContentGenerator {
         // Use Threads-specific prompts (conversational, text-first)
         systemPrompt = getThreadsSystemPrompt(agentSettings);
         userPrompt = getThreadsUserPrompt(article, agentSettings);
+
+      } else if (platform === 'whatsapp') {
+        // Use WhatsApp-specific prompts (mobile-first, WhatsApp formatting)
+        systemPrompt = getWhatsAppSystemPrompt(agentSettings);
+        userPrompt = getWhatsAppUserPrompt(article, agentSettings);
 
       } else {
         // Fallback for unsupported platforms

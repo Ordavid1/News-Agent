@@ -35,7 +35,10 @@
     <!-- App Icons -->
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -130,77 +133,63 @@
     </script>
 
     <link rel="stylesheet" href="/styles/output.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-        }
-        body { font-family: 'Space Grotesk', sans-serif; background: #0a0a0a; }
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .neon-border {
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-        }
-        .prose h2 { color: #a855f7; font-size: 1.75rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
-        .prose h3 { color: #ec4899; font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
-        .prose p { color: #d1d5db; line-height: 1.8; margin-bottom: 1.25rem; }
-        .prose ul, .prose ol { color: #d1d5db; margin-bottom: 1.25rem; padding-left: 1.5rem; }
-        .prose li { margin-bottom: 0.5rem; }
-        .prose strong { color: #fff; }
-        .prose a { color: #a855f7; text-decoration: underline; }
-        .prose blockquote { border-left: 4px solid #a855f7; padding-left: 1rem; margin: 1.5rem 0; color: #9ca3af; font-style: italic; }
+    .prose h2 { color: rgb(var(--color-ink-800)); font-size: 1.75rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
+    .prose h3 { color: rgb(var(--color-ink-700)); font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
+    .prose p { color: rgb(var(--color-ink-600)); line-height: 1.8; margin-bottom: 1.25rem; }
+    .prose ul, .prose ol { color: rgb(var(--color-ink-600)); margin-bottom: 1.25rem; padding-left: 1.5rem; }
+    .prose li { margin-bottom: 0.5rem; }
+    .prose strong { color: rgb(var(--color-ink-800)); }
+    .prose a { color: rgb(var(--color-brand-500)); text-decoration: underline; }
+    .prose blockquote { border-left: 4px solid rgb(var(--color-brand-500)); padding-left: 1rem; margin: 1.5rem 0; color: rgb(var(--color-ink-400)); font-style: italic; }
     </style>
 </head>
-<body class="min-h-screen bg-black text-white">
+<body class="min-h-screen bg-surface-50">
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex justify-between items-center">
-                <a href="/" class="text-2xl font-bold glow-text">News Agent</a>
-                <div class="hidden md:flex space-x-8">
-                    <a href="/#features" class="hover:text-purple-400 transition">Features</a>
-                    <a href="/#pricing" class="hover:text-purple-400 transition">Pricing</a>
-                    <a href="/blog/" class="text-purple-400">Blog</a>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="hidden md:flex items-center gap-6">
+                    <a href="/#features" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Features</a>
+                    <a href="/#pricing" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Pricing</a>
+                    <a href="/blog/" class="text-brand-600 text-sm font-medium">Blog</a>
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Article -->
-    <article class="pt-28 pb-20 px-6">
+    <article class="pt-12 pb-16 px-4 sm:px-6 lg:px-8">
         <div class="container mx-auto max-w-3xl">
             <!-- Breadcrumb -->
-            <nav class="text-sm text-gray-400 mb-8">
-                <a href="/" class="hover:text-purple-400">Home</a>
+            <nav class="text-sm text-ink-400 mb-8">
+                <a href="/" class="hover:text-brand-600">Home</a>
                 <span class="mx-2">/</span>
-                <a href="/blog/" class="hover:text-purple-400">Blog</a>
+                <a href="/blog/" class="hover:text-brand-600">Blog</a>
                 <span class="mx-2">/</span>
-                <span class="text-gray-300">AI Social Media Automation Guide</span>
+                <span class="text-ink-600">AI Social Media Automation Guide</span>
             </nav>
 
             <!-- Header -->
             <header class="mb-12">
-                <span class="text-purple-400 text-sm font-medium uppercase tracking-wide">Complete Guide</span>
-                <h1 class="text-4xl md:text-5xl font-bold mt-4 mb-6 glow-text leading-tight">
+                <span class="text-brand-600 text-sm font-medium uppercase tracking-wide">Complete Guide</span>
+                <h1 class="text-4xl md:text-5xl font-bold mt-4 mb-6 gradient-text leading-tight" style="font-family: 'Satoshi', sans-serif;">
                     The Complete Guide to AI Social Media Automation in 2024
                 </h1>
-                <div class="flex items-center text-gray-400 text-sm">
+                <div class="flex items-center text-ink-400 text-sm">
                     <span>December 1, 2024</span>
-                    <span class="mx-3">•</span>
+                    <span class="mx-3">&bull;</span>
                     <span>15 min read</span>
-                    <span class="mx-3">•</span>
+                    <span class="mx-3">&bull;</span>
                     <span>By News Agent Team</span>
                 </div>
             </header>
@@ -211,21 +200,21 @@
             </div>
 
             <!-- Table of Contents -->
-            <div class="neon-border p-6 mb-12">
-                <h2 class="text-lg font-bold mb-4 text-purple-400">Table of Contents</h2>
-                <ol class="space-y-2 text-gray-300">
-                    <li><a href="#what-is" class="hover:text-purple-400 transition">1. What is AI Social Media Automation?</a></li>
-                    <li><a href="#how-it-works" class="hover:text-purple-400 transition">2. How Does AI Social Media Automation Work?</a></li>
-                    <li><a href="#benefits" class="hover:text-purple-400 transition">3. Key Benefits of AI Automation</a></li>
-                    <li><a href="#getting-started" class="hover:text-purple-400 transition">4. Getting Started with AI Automation</a></li>
-                    <li><a href="#best-practices" class="hover:text-purple-400 transition">5. Best Practices and Tips</a></li>
-                    <li><a href="#future" class="hover:text-purple-400 transition">6. The Future of AI in Social Media</a></li>
+            <div class="card-static p-6 mb-12">
+                <h2 class="text-lg font-bold mb-4 text-brand-600">Table of Contents</h2>
+                <ol class="space-y-2 text-ink-600">
+                    <li><a href="#what-is" class="hover:text-brand-600 transition">1. What is AI Social Media Automation?</a></li>
+                    <li><a href="#how-it-works" class="hover:text-brand-600 transition">2. How Does AI Social Media Automation Work?</a></li>
+                    <li><a href="#benefits" class="hover:text-brand-600 transition">3. Key Benefits of AI Automation</a></li>
+                    <li><a href="#getting-started" class="hover:text-brand-600 transition">4. Getting Started with AI Automation</a></li>
+                    <li><a href="#best-practices" class="hover:text-brand-600 transition">5. Best Practices and Tips</a></li>
+                    <li><a href="#future" class="hover:text-brand-600 transition">6. The Future of AI in Social Media</a></li>
                 </ol>
             </div>
 
             <!-- Content -->
             <div class="prose max-w-none">
-                <p class="text-xl text-gray-300 mb-8">
+                <p class="text-xl text-ink-600 mb-8">
                     Social media management has evolved dramatically with the introduction of artificial intelligence. What once required teams of content creators and hours of manual work can now be accomplished efficiently with AI-powered automation tools. In this comprehensive guide, we'll explore everything you need to know about AI social media automation and how to leverage it for your business.
                 </p>
 
@@ -356,38 +345,38 @@
                 </p>
 
                 <!-- CTA Box -->
-                <div class="neon-border p-8 mt-12 text-center">
-                    <h3 class="text-2xl font-bold mb-4 glow-text">Ready to Automate Your Social Media?</h3>
-                    <p class="text-gray-400 mb-6">
+                <div class="card-gradient p-8 mt-12 text-center">
+                    <h3 class="text-2xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Ready to Automate Your Social Media?</h3>
+                    <p class="text-ink-500 mb-6">
                         Try News Agent free and see how AI can transform your social media presence.
                     </p>
-                    <a href="/auth.html" class="inline-block bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                    <a href="/auth.html" class="btn-primary">
                         Get Started Free
                     </a>
                 </div>
             </div>
 
             <!-- Author Box -->
-            <div class="mt-12 p-6 bg-gray-900/50 rounded-2xl flex items-center gap-6">
+            <div class="mt-12 p-6 bg-surface-50 border border-surface-200 rounded-2xl flex items-center gap-6">
                 <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-2xl">
                     🤖
                 </div>
                 <div>
                     <h4 class="font-bold text-lg">News Agent Team</h4>
-                    <p class="text-gray-400 text-sm">The News Agent team is dedicated to helping businesses and creators automate their social media presence with AI.</p>
+                    <p class="text-ink-400 text-sm">The News Agent team is dedicated to helping businesses and creators automate their social media presence with AI.</p>
                 </div>
             </div>
 
             <!-- Related Articles -->
             <div class="mt-16">
-                <h3 class="text-2xl font-bold mb-8 text-purple-400">Related Articles</h3>
+                <h3 class="text-2xl font-bold mb-8 text-ink-800">Related Articles</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <a href="/blog/how-to-automate-social-media-posting.html" class="neon-border p-6 hover:scale-105 transition block">
-                        <span class="text-cyan-400 text-sm">Tutorial</span>
+                    <a href="/blog/how-to-automate-social-media-posting.html" class="card-interactive p-6 hover:scale-105 transition block">
+                        <span class="text-cyan-600 text-sm">Tutorial</span>
                         <h4 class="font-bold mt-2">How to Automate Social Media Posting: Step-by-Step</h4>
                     </a>
-                    <a href="/blog/best-ai-content-generators-2024.html" class="neon-border p-6 hover:scale-105 transition block">
-                        <span class="text-pink-400 text-sm">Comparison</span>
+                    <a href="/blog/best-ai-content-generators-2024.html" class="card-interactive p-6 hover:scale-105 transition block">
+                        <span class="text-rose-600 text-sm">Comparison</span>
                         <h4 class="font-bold mt-2">Best AI Content Generators for Social Media in 2024</h4>
                     </a>
                 </div>
@@ -396,10 +385,13 @@
     </article>
 
     <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto text-center text-sm text-gray-500">
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-6">
+        <div class="container mx-auto text-center text-sm text-ink-400">
             <p>&copy; 2024 News Agent. All rights reserved.</p>
         </div>
     </footer>
+
+    <script src="/js/animations.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

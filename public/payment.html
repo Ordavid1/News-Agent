@@ -32,7 +32,10 @@
     <!-- App Icons -->
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -112,222 +115,182 @@
     }
     </script>
 
+    <!-- Fonts -->
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-        
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
-        }
-        
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
-        }
-        
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: all 0.3s ease;
-        }
-        
-        .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
-                       0 0 50px rgba(236, 72, 153, 0.3);
-            transform: scale(1.02);
-        }
-        
-        .magic-button {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
-            transition: all 0.3s ease;
-        }
-        
-        .magic-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
-        }
-        
-        .recommended-badge {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
-            animation: glow 2s ease-in-out infinite;
-        }
-        
-        @keyframes glow {
-            0%, 100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
-            50% { box-shadow: 0 0 30px rgba(236, 72, 153, 0.8); }
-        }
-    </style>
 </head>
-<body class="bg-black text-white min-h-screen">
+<body class="min-h-screen bg-surface-50">
     <!-- Header -->
-    <header class="gradient-bg border-b border-purple-500/30">
+    <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center">
-                    <h1 class="text-xl font-bold glow-text">AI News Agent ✨</h1>
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-3">
+                    <div class="theme-toggle hidden sm:inline-flex" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/profile.html" class="text-ink-400 hover:text-brand-600 transition-colors text-sm font-medium flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        Back to Dashboard
+                    </a>
                 </div>
-                <a href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
-                    ← Back to Dashboard
-                </a>
             </div>
         </div>
     </header>
 
     <!-- Main Content -->
-    <main class="pb-12">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
-            <div class="text-center mb-12">
-                <h2 class="text-5xl font-bold mb-4 glow-text">Choose Your Superpower 🚀</h2>
-                <p class="text-gray-400 text-lg">Select the perfect plan to unleash your AI News Agent</p>
+    <main class="pb-16">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 sm:pt-16">
+            <!-- Heading -->
+            <div class="text-center mb-12 sm:mb-16">
+                <h2 class="text-4xl sm:text-5xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Choose Your Plan</h2>
+                <p class="text-ink-400 text-lg max-w-2xl mx-auto">Select the perfect plan to power your AI-driven social media presence</p>
             </div>
 
             <!-- Pricing Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                <!-- Basic Plan -->
-                <div class="neon-border p-6">
-                    <h3 class="text-2xl font-bold mb-2 text-purple-400">🌟 Starter</h3>
-                    <p class="text-gray-400 text-sm mb-4">Perfect for getting started</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 mb-16 items-start">
+                <!-- Starter Plan -->
+                <div class="price-card card-static p-6 sm:p-8 hover:shadow-lg transition-all duration-300" data-plan="basic">
                     <div class="mb-6">
-                        <span class="text-4xl font-bold glow-text">$29</span>
-                        <span class="text-gray-400">/month</span>
+                        <h3 class="text-xl font-bold text-ink-800 mb-1">Starter</h3>
+                        <p class="text-ink-400 text-sm">Perfect for getting started</p>
                     </div>
-                    <ul class="space-y-3 mb-6">
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold text-ink-800">$29</span>
+                        <span class="text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>5 posts per day</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>1 social platform</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Basic analytics</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Email support</span>
                         </li>
                     </ul>
-                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold" 
-                            onclick="checkout('basic')">
-                        Launch Starter Plan
+                    <button class="w-full btn-outline py-3" onclick="checkout('basic')">
+                        Get Started
                     </button>
                 </div>
 
                 <!-- Pro Plan (Recommended) -->
-                <div class="neon-border p-6 relative transform scale-105">
-                    <div class="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                        <span class="recommended-badge text-white text-xs font-bold px-4 py-2 rounded-full">
-                            🔥 MOST POPULAR
+                <div class="price-card relative card-static p-6 sm:p-8 border-2 border-brand-500 shadow-lg shadow-brand-500/10 hover:shadow-xl transition-all duration-300" data-plan="pro">
+                    <div class="absolute -top-3.5 left-1/2 transform -translate-x-1/2">
+                        <span class="badge-primary text-xs font-bold px-4 py-1.5 shadow-md">
+                            MOST POPULAR
                         </span>
                     </div>
-                    <h3 class="text-2xl font-bold mb-2 text-pink-400">⚡ Pro</h3>
-                    <p class="text-gray-400 text-sm mb-4">For serious content creators</p>
                     <div class="mb-6">
-                        <span class="text-4xl font-bold glow-text">$79</span>
-                        <span class="text-gray-400">/month</span>
+                        <h3 class="text-xl font-bold text-ink-800 mb-1">Pro</h3>
+                        <p class="text-ink-400 text-sm">For serious content creators</p>
                     </div>
-                    <ul class="space-y-3 mb-6">
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">$79</span>
+                        <span class="text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>20 posts per day</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>3 social platforms</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Advanced analytics</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Priority support</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Custom scheduling</span>
                         </li>
                     </ul>
-                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold"
-                            onclick="checkout('pro')">
-                        Launch Pro Plan
+                    <button class="w-full btn-primary py-3" onclick="checkout('pro')">
+                        Get Started
                     </button>
                 </div>
 
                 <!-- Enterprise Plan -->
-                <div class="neon-border p-6">
-                    <h3 class="text-2xl font-bold mb-2 text-cyan-400">🏆 Enterprise</h3>
-                    <p class="text-gray-400 text-sm mb-4">For teams and agencies</p>
+                <div class="price-card card-static p-6 sm:p-8 hover:shadow-lg transition-all duration-300" data-plan="enterprise">
                     <div class="mb-6">
-                        <span class="text-4xl font-bold glow-text">$199</span>
-                        <span class="text-gray-400">/month</span>
+                        <h3 class="text-xl font-bold text-ink-800 mb-1">Enterprise</h3>
+                        <p class="text-ink-400 text-sm">For teams and agencies</p>
                     </div>
-                    <ul class="space-y-3 mb-6">
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                    <div class="mb-6">
+                        <span class="text-4xl font-bold text-ink-800">$199</span>
+                        <span class="text-ink-400">/month</span>
+                    </div>
+                    <ul class="space-y-3 mb-8">
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Unlimited posts</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>All platforms</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Custom integrations</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>Dedicated support</span>
                         </li>
-                        <li class="flex items-center gap-2">
-                            <span class="text-green-500">✓</span>
+                        <li class="flex items-center gap-3 text-ink-600">
+                            <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             <span>API access</span>
                         </li>
                     </ul>
-                    <button class="w-full magic-button text-white rounded-full px-4 py-3 font-semibold"
-                            onclick="checkout('enterprise')">
-                        Launch Enterprise
+                    <button class="w-full btn-outline py-3" onclick="checkout('enterprise')">
+                        Get Started
                     </button>
                 </div>
             </div>
 
             <!-- Trust Badges -->
-            <div class="text-center text-gray-400 text-sm">
-                <p class="mb-4">🔒 Secure payment powered by LemonSqueezy</p>
-                <div class="flex items-center justify-center gap-6">
-                    <span>🛡️ SSL Encrypted</span>
-                    <span>💳 Secure Checkout</span>
-                    <span>↩️ 30-Day Money Back</span>
+            <div class="text-center">
+                <div class="inline-flex flex-wrap items-center justify-center gap-6 text-ink-400 text-sm">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                        SSL Encrypted
+                    </span>
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        Secure Checkout
+                    </span>
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+                        30-Day Money Back
+                    </span>
                 </div>
+                <p class="text-ink-300 text-xs mt-3">Secure payment powered by LemonSqueezy</p>
             </div>
         </div>
     </main>
 
+    <script src="/js/animations.js"></script>
     <script src="js/payment.js"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

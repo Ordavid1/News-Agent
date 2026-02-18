@@ -5,162 +5,147 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - News Agent</title>
     <meta name="description" content="Manage your AI-powered social media content from the News Agent dashboard.">
-    <!-- Prevent indexing of authenticated pages -->
     <meta name="robots" content="noindex, nofollow">
     <meta name="googlebot" content="noindex, nofollow">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-        
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-        
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.5));
-        }
-        
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: box-shadow 0.3s ease;
-        }
-        
-        .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
-                       0 0 50px rgba(236, 72, 153, 0.3);
-        }
-        
-        .platform-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        
-        .platform-twitter { background: #1DA1F2; }
-        .platform-linkedin { background: #0077B5; }
-        .platform-reddit { background: #FF4500; }
-        .platform-facebook { background: #1877F2; }
-        .platform-instagram { background: linear-gradient(45deg, #F58529, #DD2A7B, #8134AF); }
-    </style>
 </head>
-<body class="min-h-screen bg-black text-white">
+<body class="min-h-screen">
+
+    <!-- Mobile Header (visible on small screens) -->
+    <header class="lg:hidden sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="flex items-center justify-between px-4 h-14">
+            <a href="/" class="text-lg font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+            <div class="flex items-center gap-2">
+                <div class="theme-toggle" aria-label="Theme switcher">
+                    <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                    <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                    <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                </div>
+                <button id="mobileMenuBtn" onclick="toggleSidebar()" class="p-2 text-ink-500 hover:text-brand-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Sidebar Overlay (mobile) -->
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 hidden lg:hidden" onclick="toggleSidebar()"></div>
+
     <!-- Sidebar -->
-    <div class="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 p-6">
-        <div class="text-2xl font-bold glow-text mb-8">AIPostGen ✨</div>
-        <nav class="space-y-2">
-            <a href="#" onclick="showSection('generate')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
-                ✨ Generate Post
+    <div id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-0 border-r border-surface-200 p-6 z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-300">
+        <a href="/" class="text-xl font-bold gradient-text block mb-8" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+        <nav class="space-y-1">
+            <a href="#" onclick="showSection('generate')" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-ink-600 hover:bg-brand-50 hover:text-brand-600 transition-all font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Generate Post
             </a>
-            <a href="#" onclick="showSection('posts')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
-                📝 My Posts
+            <a href="#" onclick="showSection('posts')" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-ink-600 hover:bg-brand-50 hover:text-brand-600 transition-all font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                My Posts
             </a>
-            <a href="#" onclick="showSection('analytics')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
-                📊 Analytics
+            <a href="#" onclick="showSection('analytics')" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-ink-600 hover:bg-brand-50 hover:text-brand-600 transition-all font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                Analytics
             </a>
-            <a href="#" onclick="showSection('settings')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
-                ⚙️ Settings
+            <a href="#" onclick="showSection('settings')" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-ink-600 hover:bg-brand-50 hover:text-brand-600 transition-all font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                Settings
             </a>
-            <a href="#" onclick="showSection('subscription')" class="block px-4 py-3 rounded-lg hover:bg-purple-500/20 transition">
-                💎 Subscription
+            <a href="#" onclick="showSection('subscription')" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-ink-600 hover:bg-brand-50 hover:text-brand-600 transition-all font-medium">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
+                Subscription
             </a>
         </nav>
-        
+
+        <div class="theme-toggle mt-6 px-4" aria-label="Theme switcher">
+            <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+            <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+            <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+        </div>
+
         <div class="absolute bottom-6 left-6 right-6">
-            <div class="neon-border p-4 text-sm">
-                <div class="text-gray-400 mb-1">Posts Today</div>
-                <div class="text-2xl font-bold" id="postsRemaining">--</div>
-                <div class="text-xs text-gray-500 mt-1">Resets daily at midnight</div>
+            <div class="card-static p-4">
+                <div class="text-ink-400 text-sm mb-1">Posts Today</div>
+                <div class="text-2xl font-bold text-ink-800" id="postsRemaining">--</div>
+                <div class="text-xs text-ink-400 mt-1">Resets daily at midnight</div>
             </div>
-            <button onclick="logout()" class="w-full mt-4 text-gray-400 hover:text-white transition">
-                Logout
+            <button onclick="logout()" class="w-full mt-4 text-sm text-ink-400 hover:text-brand-600 transition-colors font-medium">
+                Sign Out
             </button>
         </div>
     </div>
 
     <!-- Main Content -->
-    <div class="ml-64 p-8">
+    <div class="lg:ml-64 p-6 lg:p-8">
         <!-- Demo Configuration Display (only shown in demo mode) -->
-        <div id="demoConfigDisplay" class="hidden mb-8 neon-border p-6 bg-purple-500/10">
-            <h2 class="text-xl font-bold mb-4 text-purple-300">🎮 Demo Mode Configuration</h2>
+        <div id="demoConfigDisplay" class="hidden mb-8 card-gradient p-6 border-l-4 border-l-brand-500">
+            <h2 class="text-lg font-bold mb-3 text-ink-800">Demo Mode Configuration</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                 <div>
-                    <span class="text-gray-400">Plan:</span>
-                    <span id="demoPlan" class="ml-2 font-semibold"></span>
+                    <span class="text-ink-400">Plan:</span>
+                    <span id="demoPlan" class="ml-2 font-semibold text-ink-700"></span>
                 </div>
                 <div>
-                    <span class="text-gray-400">Topics:</span>
-                    <span id="demoTopics" class="ml-2 font-semibold"></span>
+                    <span class="text-ink-400">Topics:</span>
+                    <span id="demoTopics" class="ml-2 font-semibold text-ink-700"></span>
                 </div>
                 <div>
-                    <span class="text-gray-400">Platforms:</span>
-                    <span id="demoPlatforms" class="ml-2 font-semibold"></span>
+                    <span class="text-ink-400">Platforms:</span>
+                    <span id="demoPlatforms" class="ml-2 font-semibold text-ink-700"></span>
                 </div>
             </div>
         </div>
-        
+
         <!-- Generate Section -->
         <section id="generateSection" class="max-w-4xl">
-            <h1 class="text-4xl font-bold mb-8 glow-text">Create Magic ✨</h1>
-            
-            <div class="neon-border p-8 mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Generate Content</h1>
+
+            <div class="card-static p-6 sm:p-8 mb-8">
                 <form onsubmit="generatePost(event)">
                     <div class="mb-6">
-                        <label class="block text-gray-400 mb-2">What's the topic?</label>
-                        <input 
-                            type="text" 
-                            name="topic" 
+                        <label class="label">What's the topic?</label>
+                        <input
+                            type="text"
+                            name="topic"
                             placeholder="e.g., AI trends, startup tips, tech news..."
-                            required 
-                            class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:border-purple-500 focus:outline-none">
+                            required
+                            class="input">
                     </div>
-                    
+
                     <div class="mb-6">
-                        <label class="block text-gray-400 mb-2">Select Platforms</label>
+                        <label class="label">Select Platforms</label>
                         <div class="flex flex-wrap gap-3" id="platformOptions">
                             <!-- Platform options will be populated dynamically -->
                         </div>
                     </div>
-                    
-                    <button type="submit" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 py-3 rounded-full font-semibold hover:scale-105 transition">
-                        Generate Post 🚀
+
+                    <button type="submit" class="btn-primary w-full">
+                        Generate Post
                     </button>
                 </form>
             </div>
-            
+
             <!-- Generated Post Preview -->
             <div id="generatedPost" class="hidden">
-                <h2 class="text-2xl font-bold mb-4">Your Generated Post</h2>
-                <div class="neon-border p-6 mb-4">
-                    <div id="postContent" class="text-lg mb-4"></div>
+                <h2 class="text-xl font-bold mb-4 text-ink-800">Your Generated Post</h2>
+                <div class="card-static p-6 mb-4">
+                    <div id="postContent" class="text-ink-700 text-lg mb-4 leading-relaxed"></div>
                     <div id="postPlatforms" class="flex gap-2"></div>
                 </div>
-                <button onclick="publishPost()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                <button onclick="publishPost()" class="btn-primary">
                     Publish Now
                 </button>
             </div>
@@ -168,7 +153,7 @@
 
         <!-- Posts Section -->
         <section id="postsSection" class="hidden">
-            <h1 class="text-4xl font-bold mb-8 glow-text">Your Posts 📝</h1>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Your Posts</h1>
             <div id="postsList" class="space-y-4">
                 <!-- Posts will be loaded here -->
             </div>
@@ -176,51 +161,51 @@
 
         <!-- Analytics Section -->
         <section id="analyticsSection" class="hidden">
-            <h1 class="text-4xl font-bold mb-8 glow-text">Analytics 📊</h1>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Analytics</h1>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="neon-border p-6">
-                    <div class="text-gray-400 mb-2">Total Posts</div>
-                    <div class="text-3xl font-bold" id="totalPosts">0</div>
+                <div class="card-static p-6">
+                    <div class="text-ink-400 text-sm mb-2">Total Posts</div>
+                    <div class="text-3xl font-bold text-ink-800" id="totalPosts">0</div>
                 </div>
-                <div class="neon-border p-6">
-                    <div class="text-gray-400 mb-2">Success Rate</div>
-                    <div class="text-3xl font-bold" id="successRate">0%</div>
+                <div class="card-static p-6">
+                    <div class="text-ink-400 text-sm mb-2">Success Rate</div>
+                    <div class="text-3xl font-bold text-ink-800" id="successRate">0%</div>
                 </div>
-                <div class="neon-border p-6">
-                    <div class="text-gray-400 mb-2">Most Used Platform</div>
-                    <div class="text-3xl font-bold" id="topPlatform">-</div>
+                <div class="card-static p-6">
+                    <div class="text-ink-400 text-sm mb-2">Most Used Platform</div>
+                    <div class="text-3xl font-bold text-ink-800" id="topPlatform">-</div>
                 </div>
             </div>
-            
-            <div class="neon-border p-8">
-                <h2 class="text-2xl font-bold mb-4">Platform Breakdown</h2>
-                <div id="platformBreakdown"></div>
+
+            <div class="card-static p-6 sm:p-8">
+                <h2 class="text-xl font-bold mb-4 text-ink-800">Platform Breakdown</h2>
+                <div id="platformBreakdown" class="divide-y divide-surface-200"></div>
             </div>
         </section>
 
         <!-- Settings Section -->
         <section id="settingsSection" class="hidden max-w-2xl">
-            <h1 class="text-4xl font-bold mb-8 glow-text">Settings ⚙️</h1>
-            
-            <div class="neon-border p-8 mb-6">
-                <h2 class="text-2xl font-bold mb-4">Profile</h2>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Settings</h1>
+
+            <div class="card-static p-6 sm:p-8 mb-6">
+                <h2 class="text-xl font-bold mb-4 text-ink-800">Profile</h2>
                 <form onsubmit="updateProfile(event)">
                     <div class="mb-4">
-                        <label class="block text-gray-400 mb-2">Name</label>
-                        <input type="text" name="name" id="userName" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:border-purple-500 focus:outline-none">
+                        <label class="label" for="userName">Name</label>
+                        <input type="text" name="name" id="userName" class="input">
                     </div>
-                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded-full transition">
+                    <button type="submit" class="btn-primary btn-sm">
                         Update Profile
                     </button>
                 </form>
             </div>
-            
-            <div class="neon-border p-8">
-                <h2 class="text-2xl font-bold mb-4">API Access</h2>
-                <p class="text-gray-400 mb-4">Use our API to integrate this AI Post Generator into your workflows</p>
-                <div class="flex items-center gap-4">
-                    <input type="text" id="apiKey" readonly class="flex-1 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg">
-                    <button onclick="copyApiKey()" class="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded-lg transition">
+
+            <div class="card-static p-6 sm:p-8">
+                <h2 class="text-xl font-bold mb-4 text-ink-800">API Access</h2>
+                <p class="text-ink-500 mb-4">Use our API to integrate this AI Post Generator into your workflows</p>
+                <div class="flex items-center gap-3">
+                    <input type="text" id="apiKey" readonly class="input flex-1 bg-surface-50">
+                    <button onclick="copyApiKey()" class="btn-secondary btn-sm whitespace-nowrap">
                         Copy
                     </button>
                 </div>
@@ -229,34 +214,62 @@
 
         <!-- Subscription Section -->
         <section id="subscriptionSection" class="hidden max-w-4xl">
-            <h1 class="text-4xl font-bold mb-8 glow-text">Subscription 💎</h1>
-            
-            <div class="neon-border p-8 mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Subscription</h1>
+
+            <div class="card-static p-6 sm:p-8 mb-8">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold">Current Plan</h2>
-                    <span id="currentTier" class="text-purple-400 font-semibold text-xl"></span>
+                    <h2 class="text-xl font-bold text-ink-800">Current Plan</h2>
+                    <span id="currentTier" class="badge-primary text-base"></span>
                 </div>
-                <div class="grid grid-cols-2 gap-4 text-gray-400">
+                <div class="grid grid-cols-2 gap-6">
                     <div>
-                        <span class="block">Posts Remaining Today</span>
-                        <span class="text-2xl font-bold text-white" id="subPostsRemaining">--</span>
+                        <span class="block text-ink-400 text-sm mb-1">Posts Remaining Today</span>
+                        <span class="text-2xl font-bold text-ink-800" id="subPostsRemaining">--</span>
                     </div>
                     <div>
-                        <span class="block">Resets In</span>
-                        <span class="text-2xl font-bold text-white" id="resetTime">--</span>
+                        <span class="block text-ink-400 text-sm mb-1">Resets In</span>
+                        <span class="text-2xl font-bold text-ink-800" id="resetTime">--</span>
                     </div>
                 </div>
             </div>
-            
+
             <div class="text-center">
-                <button onclick="window.location.href='/#pricing'" class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                <button onclick="window.location.href='/#pricing'" class="btn-primary">
                     Upgrade Plan
                 </button>
             </div>
         </section>
     </div>
 
+    <script src="/js/animations.js"></script>
     <script src="/js/dashboard.js"></script>
     <script src="/js/cookieConsent.js"></script>
+
+    <script>
+        // Sidebar toggle for mobile
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const isOpen = !sidebar.classList.contains('-translate-x-full');
+
+            if (isOpen) {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            } else {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            }
+        }
+
+        // Close sidebar on navigation click (mobile)
+        document.querySelectorAll('.sidebar-link').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 1024) {
+                    toggleSidebar();
+                }
+            });
+        });
+    </script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

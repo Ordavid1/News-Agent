@@ -21,13 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function highlightPlan(planId) {
     // Remove highlight from all plans
     document.querySelectorAll('.price-card').forEach(card => {
-        card.classList.remove('ring-2', 'ring-purple-500');
+        card.classList.remove('ring-2', 'ring-brand-500');
     });
 
     // Add highlight to selected plan
     const selectedCard = document.querySelector(`[data-plan="${planId}"]`);
     if (selectedCard) {
-        selectedCard.classList.add('ring-2', 'ring-purple-500');
+        selectedCard.classList.add('ring-2', 'ring-brand-500');
     }
 }
 

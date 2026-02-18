@@ -6,10 +6,18 @@
     <title>Privacy Policy - News Agent | AI-Powered Social Media Automation</title>
     <meta name="description" content="Privacy Policy for News Agent. Learn how we collect, use, and protect your personal information.">
     <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png">
+
+    <!-- Fonts -->
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Styles -->
     <link rel="stylesheet" href="/styles/output.css">
@@ -29,77 +37,84 @@
     </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
 </head>
-<body class="bg-black text-white min-h-screen">
+<body class="min-h-screen bg-surface-50">
     <!-- Navigation -->
-    <nav class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-            <a href="/" class="text-2xl font-bold glow-text">News Agent</a>
-            <div class="flex items-center space-x-4">
-                <a href="/" class="text-gray-300 hover:text-white transition">Home</a>
-                <a href="/auth.html" class="bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 rounded-lg font-semibold hover:opacity-90 transition">Get Started</a>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-4">
+                    <div class="theme-toggle hidden sm:inline-flex" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Home</a>
+                    <a href="/auth.html" class="btn-primary btn-sm">Get Started</a>
+                </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
-    <main class="pt-24 pb-16 px-6">
+    <main class="pt-12 pb-16 px-4 sm:px-6 lg:px-8">
         <div class="container mx-auto max-w-4xl">
-            <h1 class="text-4xl font-bold mb-4 glow-text">Privacy Policy</h1>
-            <p class="text-gray-400 mb-8">Last updated: December 10, 2024</p>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Privacy Policy</h1>
+            <p class="text-ink-400 mb-8">Last updated: December 10, 2024</p>
 
             <div class="prose prose-invert max-w-none space-y-8">
 
                 <!-- Introduction -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">1. Introduction</h2>
-                    <p class="text-gray-300 leading-relaxed">
-                        News Agent ("we," "our," or "us") operates the website <a href="https://configure.news" class="text-purple-400 hover:text-purple-300">configure.news</a> and provides an AI-powered social media automation platform (the "Service"). This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our Service.
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">1. Introduction</h2>
+                    <p class="text-ink-600 leading-relaxed">
+                        News Agent ("we," "our," or "us") operates the website <a href="https://configure.news" class="text-brand-600 hover:text-brand-700">configure.news</a> and provides an AI-powered social media automation platform (the "Service"). This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our Service.
                     </p>
-                    <p class="text-gray-300 leading-relaxed mt-4">
+                    <p class="text-ink-600 leading-relaxed mt-4">
                         We are committed to protecting your privacy and complying with applicable data protection laws, including the General Data Protection Regulation (GDPR), the California Consumer Privacy Act (CCPA), and other relevant privacy regulations worldwide.
                     </p>
-                    <p class="text-gray-300 leading-relaxed mt-4">
+                    <p class="text-ink-600 leading-relaxed mt-4">
                         By using our Service, you agree to the collection and use of information in accordance with this Privacy Policy. If you do not agree with this policy, please do not use our Service.
                     </p>
                 </section>
 
                 <!-- Information We Collect -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">2. Information We Collect</h2>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">2. Information We Collect</h2>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">2.1 Information You Provide Directly</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Account Information:</strong> Email address, full name, and password (stored as a secure hash) when you create an account</li>
-                        <li><strong>Profile Information:</strong> Preferences such as preferred topics, default platforms, timezone, and content style settings</li>
-                        <li><strong>Payment Information:</strong> When you subscribe, payment processing is handled by LemonSqueezy. We receive confirmation of your subscription status but do not store credit card numbers</li>
-                        <li><strong>Social Media Credentials:</strong> When you connect social media accounts, we store encrypted OAuth tokens to post on your behalf</li>
-                        <li><strong>Content:</strong> Topics, keywords, and preferences you provide for content generation</li>
-                        <li><strong>Communications:</strong> Information you provide when contacting our support team</li>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">2.1 Information You Provide Directly</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Account Information:</strong> Email address, full name, and password (stored as a secure hash) when you create an account</li>
+                        <li><strong class="text-ink-800">Profile Information:</strong> Preferences such as preferred topics, default platforms, timezone, and content style settings</li>
+                        <li><strong class="text-ink-800">Payment Information:</strong> When you subscribe, payment processing is handled by LemonSqueezy. We receive confirmation of your subscription status but do not store credit card numbers</li>
+                        <li><strong class="text-ink-800">Social Media Credentials:</strong> When you connect social media accounts, we store encrypted OAuth tokens to post on your behalf</li>
+                        <li><strong class="text-ink-800">Content:</strong> Topics, keywords, and preferences you provide for content generation</li>
+                        <li><strong class="text-ink-800">Communications:</strong> Information you provide when contacting our support team</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">2.2 Information Collected Automatically</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Usage Data:</strong> Posts created, platforms used, content topics, scheduling patterns, and feature usage</li>
-                        <li><strong>Device Information:</strong> Browser type, operating system, device type, and screen resolution</li>
-                        <li><strong>Log Data:</strong> IP address, access times, pages viewed, and referring URLs</li>
-                        <li><strong>Cookies and Similar Technologies:</strong> Session identifiers, preferences, and analytics data (see Section 7)</li>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">2.2 Information Collected Automatically</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Usage Data:</strong> Posts created, platforms used, content topics, scheduling patterns, and feature usage</li>
+                        <li><strong class="text-ink-800">Device Information:</strong> Browser type, operating system, device type, and screen resolution</li>
+                        <li><strong class="text-ink-800">Log Data:</strong> IP address, access times, pages viewed, and referring URLs</li>
+                        <li><strong class="text-ink-800">Cookies and Similar Technologies:</strong> Session identifiers, preferences, and analytics data (see Section 7)</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">2.3 Information from Third Parties</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Google OAuth:</strong> If you sign in with Google, we receive your name, email address, and profile picture</li>
-                        <li><strong>Social Media Platforms:</strong> When you connect accounts, we receive your username, profile information, and posting permissions</li>
-                        <li><strong>Payment Provider:</strong> LemonSqueezy provides us with subscription status, billing dates, and transaction confirmations</li>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">2.3 Information from Third Parties</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Google OAuth:</strong> If you sign in with Google, we receive your name, email address, and profile picture</li>
+                        <li><strong class="text-ink-800">Social Media Platforms:</strong> When you connect accounts, we receive your username, profile information, and posting permissions</li>
+                        <li><strong class="text-ink-800">Payment Provider:</strong> LemonSqueezy provides us with subscription status, billing dates, and transaction confirmations</li>
                     </ul>
                 </section>
 
                 <!-- How We Use Your Information -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">3. How We Use Your Information</h2>
-                    <p class="text-gray-300 mb-4">We use your information for the following purposes:</p>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">3. How We Use Your Information</h2>
+                    <p class="text-ink-600 mb-4">We use your information for the following purposes:</p>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">3.1 Service Delivery</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">3.1 Service Delivery</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Create and manage your account</li>
                         <li>Generate AI-powered social media content based on your preferences</li>
                         <li>Publish content to your connected social media platforms</li>
@@ -107,23 +122,23 @@
                         <li>Provide customer support</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">3.2 Service Improvement</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">3.2 Service Improvement</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Analyze usage patterns to improve our Service</li>
                         <li>Develop new features and functionality</li>
                         <li>Monitor and prevent technical issues</li>
                         <li>Conduct research and analytics</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">3.3 Communications</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">3.3 Communications</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Send service-related notifications (e.g., account verification, security alerts)</li>
                         <li>Respond to your inquiries and support requests</li>
                         <li>Send promotional communications (with your consent, where required)</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">3.4 Security and Compliance</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">3.4 Security and Compliance</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
                         <li>Detect, prevent, and address fraud and abuse</li>
                         <li>Enforce our Terms of Service</li>
                         <li>Comply with legal obligations</li>
@@ -131,59 +146,59 @@
                 </section>
 
                 <!-- Legal Basis for Processing (GDPR) -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">4. Legal Basis for Processing (GDPR)</h2>
-                    <p class="text-gray-300 mb-4">For users in the European Economic Area (EEA), we process your personal data based on the following legal grounds:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Contract:</strong> Processing necessary to provide you with our Service as agreed in our Terms of Service</li>
-                        <li><strong>Consent:</strong> Processing based on your explicit consent (e.g., cookies, marketing communications)</li>
-                        <li><strong>Legitimate Interests:</strong> Processing necessary for our legitimate business interests, such as security, fraud prevention, and service improvement, where these interests do not override your rights</li>
-                        <li><strong>Legal Obligation:</strong> Processing necessary to comply with applicable laws and regulations</li>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">4. Legal Basis for Processing (GDPR)</h2>
+                    <p class="text-ink-600 mb-4">For users in the European Economic Area (EEA), we process your personal data based on the following legal grounds:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Contract:</strong> Processing necessary to provide you with our Service as agreed in our Terms of Service</li>
+                        <li><strong class="text-ink-800">Consent:</strong> Processing based on your explicit consent (e.g., cookies, marketing communications)</li>
+                        <li><strong class="text-ink-800">Legitimate Interests:</strong> Processing necessary for our legitimate business interests, such as security, fraud prevention, and service improvement, where these interests do not override your rights</li>
+                        <li><strong class="text-ink-800">Legal Obligation:</strong> Processing necessary to comply with applicable laws and regulations</li>
                     </ul>
                 </section>
 
                 <!-- Data Sharing and Third Parties -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">5. Data Sharing and Third Parties</h2>
-                    <p class="text-gray-300 mb-4">We share your information with the following categories of third parties:</p>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">5. Data Sharing and Third Parties</h2>
+                    <p class="text-ink-600 mb-4">We share your information with the following categories of third parties:</p>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">5.1 Service Providers</h3>
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">5.1 Service Providers</h3>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-gray-300 mt-2">
+                        <table class="w-full text-ink-600 mt-2">
                             <thead>
-                                <tr class="border-b border-purple-500/30">
-                                    <th class="text-left py-2 px-3">Provider</th>
-                                    <th class="text-left py-2 px-3">Purpose</th>
-                                    <th class="text-left py-2 px-3">Data Shared</th>
+                                <tr class="border-b border-surface-200">
+                                    <th class="text-left py-2 px-3 text-ink-800">Provider</th>
+                                    <th class="text-left py-2 px-3 text-ink-800">Purpose</th>
+                                    <th class="text-left py-2 px-3 text-ink-800">Data Shared</th>
                                 </tr>
                             </thead>
                             <tbody class="text-sm">
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">Supabase</td>
                                     <td class="py-2 px-3">Database hosting & authentication</td>
                                     <td class="py-2 px-3">Account data, posts, connections</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">LemonSqueezy</td>
                                     <td class="py-2 px-3">Payment processing</td>
                                     <td class="py-2 px-3">Email, name, subscription tier</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">OpenAI</td>
                                     <td class="py-2 px-3">AI content generation</td>
                                     <td class="py-2 px-3">Topic keywords, content requirements (no PII)</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">Google Analytics</td>
                                     <td class="py-2 px-3">Website analytics</td>
                                     <td class="py-2 px-3">Anonymized usage data, device info</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">Google Cloud Platform</td>
                                     <td class="py-2 px-3">Infrastructure services</td>
                                     <td class="py-2 px-3">Task scheduling data</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3">Render.com</td>
                                     <td class="py-2 px-3">Application hosting</td>
                                     <td class="py-2 px-3">Server logs, application data</td>
@@ -192,9 +207,9 @@
                         </table>
                     </div>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.2 Social Media Platforms</h3>
-                    <p class="text-gray-300 mb-2">When you connect your social media accounts, we interact with the following platforms on your behalf:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-1">
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.2 Social Media Platforms</h3>
+                    <p class="text-ink-600 mb-2">When you connect your social media accounts, we interact with the following platforms on your behalf:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-1">
                         <li>Twitter/X - For posting tweets and accessing trends</li>
                         <li>LinkedIn - For posting to your profile or pages</li>
                         <li>Reddit - For posting to subreddits</li>
@@ -202,56 +217,56 @@
                         <li>Telegram - For posting to channels</li>
                         <li>Instagram, TikTok, YouTube (depending on subscription tier)</li>
                     </ul>
-                    <p class="text-gray-300 mt-2">Each platform has its own privacy policy governing their use of your data.</p>
+                    <p class="text-ink-600 mt-2">Each platform has its own privacy policy governing their use of your data.</p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.3 News and Content Sources</h3>
-                    <p class="text-gray-300">We use news aggregation services (NewsAPI, GNews, Google Custom Search) to fetch trending content. No personal information is shared with these services.</p>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.3 News and Content Sources</h3>
+                    <p class="text-ink-600">We use news aggregation services (NewsAPI, GNews, Google Custom Search) to fetch trending content. No personal information is shared with these services.</p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">5.4 Legal Requirements</h3>
-                    <p class="text-gray-300">We may disclose your information if required by law, court order, or government request, or to protect our rights, property, or safety.</p>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">5.4 Legal Requirements</h3>
+                    <p class="text-ink-600">We may disclose your information if required by law, court order, or government request, or to protect our rights, property, or safety.</p>
                 </section>
 
                 <!-- Data Retention -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">6. Data Retention</h2>
-                    <p class="text-gray-300 mb-4">We retain your personal data for as long as necessary to fulfill the purposes outlined in this Privacy Policy, unless a longer retention period is required or permitted by law:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Account Data:</strong> Retained while your account is active and for a reasonable period thereafter to comply with legal obligations, resolve disputes, and enforce agreements</li>
-                        <li><strong>Posts and Content:</strong> Retained for the maximum period allowed by applicable law to provide service history and analytics</li>
-                        <li><strong>Usage Analytics:</strong> Retained for the maximum period allowed by applicable law for service improvement purposes</li>
-                        <li><strong>Payment Records:</strong> Retained as required by tax and financial regulations</li>
-                        <li><strong>OAuth Tokens:</strong> Retained until you disconnect the platform or revoke access</li>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">6. Data Retention</h2>
+                    <p class="text-ink-600 mb-4">We retain your personal data for as long as necessary to fulfill the purposes outlined in this Privacy Policy, unless a longer retention period is required or permitted by law:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Account Data:</strong> Retained while your account is active and for a reasonable period thereafter to comply with legal obligations, resolve disputes, and enforce agreements</li>
+                        <li><strong class="text-ink-800">Posts and Content:</strong> Retained for the maximum period allowed by applicable law to provide service history and analytics</li>
+                        <li><strong class="text-ink-800">Usage Analytics:</strong> Retained for the maximum period allowed by applicable law for service improvement purposes</li>
+                        <li><strong class="text-ink-800">Payment Records:</strong> Retained as required by tax and financial regulations</li>
+                        <li><strong class="text-ink-800">OAuth Tokens:</strong> Retained until you disconnect the platform or revoke access</li>
                     </ul>
-                    <p class="text-gray-300 mt-4">Upon account deletion request, we will delete or anonymize your personal data within 30 days, except where retention is required by law.</p>
+                    <p class="text-ink-600 mt-4">Upon account deletion request, we will delete or anonymize your personal data within 30 days, except where retention is required by law.</p>
                 </section>
 
                 <!-- Cookies and Tracking -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">7. Cookies and Tracking Technologies</h2>
-                    <p class="text-gray-300 mb-4">We use cookies and similar tracking technologies to enhance your experience:</p>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">7. Cookies and Tracking Technologies</h2>
+                    <p class="text-ink-600 mb-4">We use cookies and similar tracking technologies to enhance your experience:</p>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">7.1 Types of Cookies We Use</h3>
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">7.1 Types of Cookies We Use</h3>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-gray-300 mt-2">
+                        <table class="w-full text-ink-600 mt-2">
                             <thead>
-                                <tr class="border-b border-purple-500/30">
-                                    <th class="text-left py-2 px-3">Type</th>
-                                    <th class="text-left py-2 px-3">Purpose</th>
-                                    <th class="text-left py-2 px-3">Duration</th>
+                                <tr class="border-b border-surface-200">
+                                    <th class="text-left py-2 px-3 text-ink-800">Type</th>
+                                    <th class="text-left py-2 px-3 text-ink-800">Purpose</th>
+                                    <th class="text-left py-2 px-3 text-ink-800">Duration</th>
                                 </tr>
                             </thead>
                             <tbody class="text-sm">
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3 font-medium">Essential</td>
                                     <td class="py-2 px-3">Authentication, security, session management</td>
                                     <td class="py-2 px-3">Session / 24 hours</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3 font-medium">Functional</td>
                                     <td class="py-2 px-3">User preferences, settings, language</td>
                                     <td class="py-2 px-3">1 year</td>
                                 </tr>
-                                <tr class="border-b border-gray-700">
+                                <tr class="border-b border-surface-200">
                                     <td class="py-2 px-3 font-medium">Analytics</td>
                                     <td class="py-2 px-3">Google Analytics - usage statistics, performance</td>
                                     <td class="py-2 px-3">2 years</td>
@@ -260,52 +275,52 @@
                         </table>
                     </div>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">7.2 Local Storage</h3>
-                    <p class="text-gray-300">We use browser local storage to store authentication tokens and user preferences for a seamless experience.</p>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">7.2 Local Storage</h3>
+                    <p class="text-ink-600">We use browser local storage to store authentication tokens and user preferences for a seamless experience.</p>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">7.3 Managing Cookies</h3>
-                    <p class="text-gray-300">You can manage your cookie preferences through our cookie consent banner or your browser settings. Note that disabling essential cookies may affect the functionality of our Service.</p>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">7.3 Managing Cookies</h3>
+                    <p class="text-ink-600">You can manage your cookie preferences through our cookie consent banner or your browser settings. Note that disabling essential cookies may affect the functionality of our Service.</p>
                 </section>
 
                 <!-- Your Rights -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">8. Your Privacy Rights</h2>
-                    <p class="text-gray-300 mb-4">Depending on your location, you may have the following rights regarding your personal data:</p>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">8. Your Privacy Rights</h2>
+                    <p class="text-ink-600 mb-4">Depending on your location, you may have the following rights regarding your personal data:</p>
 
-                    <h3 class="text-xl font-medium text-white mt-4 mb-3">8.1 Rights Under GDPR (EEA Residents)</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Right of Access:</strong> Request a copy of your personal data</li>
-                        <li><strong>Right to Rectification:</strong> Request correction of inaccurate data</li>
-                        <li><strong>Right to Erasure:</strong> Request deletion of your personal data ("right to be forgotten")</li>
-                        <li><strong>Right to Restrict Processing:</strong> Request limitation of how we use your data</li>
-                        <li><strong>Right to Data Portability:</strong> Receive your data in a structured, machine-readable format</li>
-                        <li><strong>Right to Object:</strong> Object to processing based on legitimate interests</li>
-                        <li><strong>Right to Withdraw Consent:</strong> Withdraw consent at any time where processing is based on consent</li>
-                        <li><strong>Right to Lodge a Complaint:</strong> File a complaint with a supervisory authority</li>
+                    <h3 class="text-lg font-medium text-ink-700 mt-4 mb-3">8.1 Rights Under GDPR (EEA Residents)</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Right of Access:</strong> Request a copy of your personal data</li>
+                        <li><strong class="text-ink-800">Right to Rectification:</strong> Request correction of inaccurate data</li>
+                        <li><strong class="text-ink-800">Right to Erasure:</strong> Request deletion of your personal data ("right to be forgotten")</li>
+                        <li><strong class="text-ink-800">Right to Restrict Processing:</strong> Request limitation of how we use your data</li>
+                        <li><strong class="text-ink-800">Right to Data Portability:</strong> Receive your data in a structured, machine-readable format</li>
+                        <li><strong class="text-ink-800">Right to Object:</strong> Object to processing based on legitimate interests</li>
+                        <li><strong class="text-ink-800">Right to Withdraw Consent:</strong> Withdraw consent at any time where processing is based on consent</li>
+                        <li><strong class="text-ink-800">Right to Lodge a Complaint:</strong> File a complaint with a supervisory authority</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">8.2 Rights Under CCPA (California Residents)</h3>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Right to Know:</strong> Request information about data collection, use, and sharing</li>
-                        <li><strong>Right to Delete:</strong> Request deletion of your personal information</li>
-                        <li><strong>Right to Opt-Out:</strong> Opt out of the sale of personal information (Note: We do not sell personal information)</li>
-                        <li><strong>Right to Non-Discrimination:</strong> Not receive discriminatory treatment for exercising your rights</li>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">8.2 Rights Under CCPA (California Residents)</h3>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Right to Know:</strong> Request information about data collection, use, and sharing</li>
+                        <li><strong class="text-ink-800">Right to Delete:</strong> Request deletion of your personal information</li>
+                        <li><strong class="text-ink-800">Right to Opt-Out:</strong> Opt out of the sale of personal information (Note: We do not sell personal information)</li>
+                        <li><strong class="text-ink-800">Right to Non-Discrimination:</strong> Not receive discriminatory treatment for exercising your rights</li>
                     </ul>
 
-                    <h3 class="text-xl font-medium text-white mt-6 mb-3">8.3 Exercising Your Rights</h3>
-                    <p class="text-gray-300">To exercise any of these rights, please contact us at <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a>. We will respond to your request within 30 days (or as required by applicable law). We may need to verify your identity before processing your request.</p>
+                    <h3 class="text-lg font-medium text-ink-700 mt-6 mb-3">8.3 Exercising Your Rights</h3>
+                    <p class="text-ink-600">To exercise any of these rights, please contact us at <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a>. We will respond to your request within 30 days (or as required by applicable law). We may need to verify your identity before processing your request.</p>
                 </section>
 
                 <!-- International Data Transfers -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">9. International Data Transfers</h2>
-                    <p class="text-gray-300 mb-4">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">9. International Data Transfers</h2>
+                    <p class="text-ink-600 mb-4">
                         Your information may be transferred to and processed in countries other than your country of residence. These countries may have different data protection laws.
                     </p>
-                    <p class="text-gray-300">
+                    <p class="text-ink-600">
                         When we transfer data internationally, we use appropriate safeguards including:
                     </p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2 mt-2">
+                    <ul class="list-disc list-inside text-ink-600 space-y-2 mt-2">
                         <li>Standard Contractual Clauses approved by the European Commission</li>
                         <li>Ensuring recipients are in countries with adequate data protection (adequacy decisions)</li>
                         <li>Other legally approved transfer mechanisms</li>
@@ -313,64 +328,64 @@
                 </section>
 
                 <!-- Data Security -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">10. Data Security</h2>
-                    <p class="text-gray-300 mb-4">We implement appropriate technical and organizational measures to protect your personal data:</p>
-                    <ul class="list-disc list-inside text-gray-300 space-y-2">
-                        <li><strong>Encryption:</strong> OAuth tokens are encrypted using AES-256-GCM; passwords are hashed using bcrypt</li>
-                        <li><strong>Secure Transmission:</strong> All data is transmitted over HTTPS/TLS</li>
-                        <li><strong>Access Controls:</strong> Strict access controls and authentication requirements</li>
-                        <li><strong>Security Headers:</strong> Implementation of security headers (CSP, HSTS, etc.)</li>
-                        <li><strong>Rate Limiting:</strong> Protection against brute force and abuse</li>
-                        <li><strong>Regular Updates:</strong> Regular security patches and updates</li>
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">10. Data Security</h2>
+                    <p class="text-ink-600 mb-4">We implement appropriate technical and organizational measures to protect your personal data:</p>
+                    <ul class="list-disc list-inside text-ink-600 space-y-2">
+                        <li><strong class="text-ink-800">Encryption:</strong> OAuth tokens are encrypted using AES-256-GCM; passwords are hashed using bcrypt</li>
+                        <li><strong class="text-ink-800">Secure Transmission:</strong> All data is transmitted over HTTPS/TLS</li>
+                        <li><strong class="text-ink-800">Access Controls:</strong> Strict access controls and authentication requirements</li>
+                        <li><strong class="text-ink-800">Security Headers:</strong> Implementation of security headers (CSP, HSTS, etc.)</li>
+                        <li><strong class="text-ink-800">Rate Limiting:</strong> Protection against brute force and abuse</li>
+                        <li><strong class="text-ink-800">Regular Updates:</strong> Regular security patches and updates</li>
                     </ul>
-                    <p class="text-gray-300 mt-4">
+                    <p class="text-ink-600 mt-4">
                         While we strive to protect your personal data, no method of transmission over the Internet or electronic storage is 100% secure. We cannot guarantee absolute security.
                     </p>
                 </section>
 
                 <!-- Children's Privacy -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">11. Children's Privacy</h2>
-                    <p class="text-gray-300">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">11. Children's Privacy</h2>
+                    <p class="text-ink-600">
                         Our Service is not intended for individuals under the age of 16. We do not knowingly collect personal information from children under 16. If we become aware that we have collected personal data from a child under 16 without parental consent, we will take steps to delete that information promptly.
                     </p>
-                    <p class="text-gray-300 mt-4">
-                        If you are a parent or guardian and believe your child has provided us with personal information, please contact us at <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a>.
+                    <p class="text-ink-600 mt-4">
+                        If you are a parent or guardian and believe your child has provided us with personal information, please contact us at <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a>.
                     </p>
                 </section>
 
                 <!-- Do Not Track -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">12. Do Not Track Signals</h2>
-                    <p class="text-gray-300">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">12. Do Not Track Signals</h2>
+                    <p class="text-ink-600">
                         Some browsers have a "Do Not Track" feature that signals to websites that you do not want your online activity tracked. Our Service currently does not respond to "Do Not Track" signals. However, you can manage your cookie preferences through our cookie consent banner.
                     </p>
                 </section>
 
                 <!-- Changes to Privacy Policy -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">13. Changes to This Privacy Policy</h2>
-                    <p class="text-gray-300">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">13. Changes to This Privacy Policy</h2>
+                    <p class="text-ink-600">
                         We may update this Privacy Policy from time to time. We will notify you of any material changes by posting the new Privacy Policy on this page and updating the "Last updated" date. For significant changes, we may also send you an email notification.
                     </p>
-                    <p class="text-gray-300 mt-4">
+                    <p class="text-ink-600 mt-4">
                         We encourage you to review this Privacy Policy periodically for any changes. Your continued use of our Service after any modifications indicates your acceptance of the updated Privacy Policy.
                     </p>
                 </section>
 
                 <!-- Contact Us -->
-                <section class="bg-gray-900/50 rounded-xl p-6 border border-purple-500/20">
-                    <h2 class="text-2xl font-semibold text-purple-400 mb-4">14. Contact Us</h2>
-                    <p class="text-gray-300 mb-4">
+                <section class="card-static p-6">
+                    <h2 class="text-xl font-semibold text-ink-800 mb-4">14. Contact Us</h2>
+                    <p class="text-ink-600 mb-4">
                         If you have any questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us:
                     </p>
-                    <div class="bg-black/50 rounded-lg p-4 border border-purple-500/30">
-                        <p class="text-gray-300"><strong class="text-white">News Agent</strong></p>
-                        <p class="text-gray-300">Email: <a href="mailto:or@ailead.work" class="text-purple-400 hover:text-purple-300">or@ailead.work</a></p>
-                        <p class="text-gray-300">Website: <a href="https://configure.news" class="text-purple-400 hover:text-purple-300">https://configure.news</a></p>
+                    <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                        <p class="text-ink-600"><strong class="text-ink-800">News Agent</strong></p>
+                        <p class="text-ink-600">Email: <a href="mailto:or@ailead.work" class="text-brand-600 hover:text-brand-700">or@ailead.work</a></p>
+                        <p class="text-ink-600">Website: <a href="https://configure.news" class="text-brand-600 hover:text-brand-700">https://configure.news</a></p>
                     </div>
-                    <p class="text-gray-300 mt-4">
+                    <p class="text-ink-600 mt-4">
                         We will respond to your inquiry within 30 days or as required by applicable law.
                     </p>
                 </section>
@@ -380,44 +395,46 @@
     </main>
 
     <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto">
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
                 <div>
-                    <div class="text-2xl font-bold glow-text mb-4">News Agent</div>
-                    <p class="text-gray-400 text-sm">AI-powered social media automation platform.</p>
+                    <div class="text-xl font-bold gradient-text mb-4" style="font-family: 'Satoshi', sans-serif;">News Agent</div>
+                    <p class="text-ink-400 text-sm">AI-powered social media automation platform.</p>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Product</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/#features" class="hover:text-white transition">Features</a></li>
-                        <li><a href="/#pricing" class="hover:text-white transition">Pricing</a></li>
-                        <li><a href="/demo.html" class="hover:text-white transition">Try Demo</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Product</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/#features" class="hover:text-brand-600 transition-colors">Features</a></li>
+                        <li><a href="/#pricing" class="hover:text-brand-600 transition-colors">Pricing</a></li>
+                        <li><a href="/demo.html" class="hover:text-brand-600 transition-colors">Try Demo</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Resources</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/blog/" class="hover:text-white transition">Blog</a></li>
-                        <li><a href="/#faq" class="hover:text-white transition">FAQ</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Resources</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/blog/" class="hover:text-brand-600 transition-colors">Blog</a></li>
+                        <li><a href="/#faq" class="hover:text-brand-600 transition-colors">FAQ</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Legal</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/privacy.html" class="hover:text-white transition">Privacy Policy</a></li>
-                        <li><a href="/terms.html" class="hover:text-white transition">Terms of Service</a></li>
-                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-white transition">Cookie Settings</a></li>
-                        <li><a href="mailto:or@ailead.work" class="hover:text-white transition">Contact</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Legal</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/privacy.html" class="hover:text-brand-600 transition-colors">Privacy Policy</a></li>
+                        <li><a href="/terms.html" class="hover:text-brand-600 transition-colors">Terms of Service</a></li>
+                        <li><a href="#" onclick="window.CookieConsent && window.CookieConsent.showSettings(); return false;" class="hover:text-brand-600 transition-colors">Cookie Settings</a></li>
+                        <li><a href="mailto:or@ailead.work" class="hover:text-brand-600 transition-colors">Contact</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="border-t border-purple-500/20 pt-8 text-center text-sm text-gray-500">
+            <div class="border-t border-surface-200 pt-8 text-center text-sm text-ink-400">
                 <p>&copy; 2024-2025 News Agent. All rights reserved.</p>
             </div>
         </div>
     </footer>
 
+    <script src="/js/animations.js"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

@@ -14,7 +14,7 @@ const PLATFORMS = {
     telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     facebook: { name: 'Facebook', icon: '📘', available: ['starter', 'growth', 'professional', 'business'] },
     threads: { name: 'Threads', icon: '@', available: [], disabled: true, disabledReason: 'Coming Soon' },
-    whatsapp: { name: 'WhatsApp', icon: '💬', available: [], disabled: true, disabledReason: 'Coming Soon' },
+    whatsapp: { name: 'WhatsApp', icon: '💬', available: ['growth', 'professional', 'business'] },
     instagram: { name: 'Instagram', icon: '📸', available: ['growth', 'professional', 'business'] },
     tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] },
     youtube: { name: 'YouTube', icon: '▶️', available: ['business'] }
@@ -132,8 +132,8 @@ function setupPlatformOptions() {
         const label = document.createElement('label');
         label.className = `flex items-center gap-2 px-4 py-2 rounded-lg border ${
             isAvailable
-                ? 'border-purple-500/50 hover:bg-purple-500/20 cursor-pointer'
-                : 'border-gray-700 opacity-50 cursor-not-allowed'
+                ? 'border-surface-300 hover:border-brand-300 hover:bg-brand-50 cursor-pointer'
+                : 'border-surface-200 opacity-50 cursor-not-allowed'
         }`;
 
         const checkbox = document.createElement('input');
@@ -141,7 +141,7 @@ function setupPlatformOptions() {
         checkbox.name = 'platforms';
         checkbox.value = platform;
         checkbox.disabled = !isAvailable;
-        checkbox.className = 'rounded text-purple-500';
+        checkbox.className = 'checkbox';
 
         label.appendChild(checkbox);
         label.appendChild(document.createTextNode(`${config.icon} ${config.name}`));
@@ -149,14 +149,14 @@ function setupPlatformOptions() {
         if (isDisabled) {
             // Platform is globally disabled (e.g., integration not set up)
             const disabledText = document.createElement('span');
-            disabledText.className = 'text-xs text-gray-500 ml-2';
+            disabledText.className = 'text-xs text-ink-400 ml-2';
             disabledText.textContent = `(${config.disabledReason || 'Unavailable'})`;
             label.appendChild(disabledText);
         } else if (!isAvailable) {
             // Platform requires higher tier
             const tier = config.available[0];
             const tierText = document.createElement('span');
-            tierText.className = 'text-xs text-gray-500 ml-2';
+            tierText.className = 'text-xs text-ink-400 ml-2';
             tierText.textContent = `(${tier}+)`;
             label.appendChild(tierText);
         }
@@ -279,7 +279,7 @@ function displayGeneratedPost(post) {
     
     post.platforms.forEach(platform => {
         const badge = document.createElement('span');
-        badge.className = `platform-badge platform-${platform}`;
+        badge.className = 'badge-primary text-xs';
         badge.textContent = PLATFORMS[platform]?.name || platform;
         platformsContainer.appendChild(badge);
     });
@@ -315,24 +315,24 @@ function displayPosts(posts) {
     const container = document.getElementById('postsList');
     
     if (posts.length === 0) {
-        container.innerHTML = '<p class="text-gray-400">No posts yet. Generate your first post!</p>';
+        container.innerHTML = '<p class="text-ink-400">No posts yet. Generate your first post!</p>';
         return;
     }
     
     container.innerHTML = posts.map(post => `
-        <div class="neon-border p-6">
+        <div class="card-static p-6">
             <div class="flex justify-between items-start mb-4">
                 <div>
-                    <h3 class="text-lg font-semibold">${post.topic}</h3>
-                    <p class="text-gray-400 text-sm">${new Date(post.createdAt).toLocaleString()}</p>
+                    <h3 class="text-lg font-semibold text-ink-800">${post.topic}</h3>
+                    <p class="text-ink-400 text-sm">${new Date(post.createdAt).toLocaleString()}</p>
                 </div>
                 <div class="flex gap-2">
                     ${post.platforms.map(p => `
-                        <span class="platform-badge platform-${p}">${PLATFORMS[p]?.name || p}</span>
+                        <span class="badge-primary text-xs">${PLATFORMS[p]?.name || p}</span>
                     `).join('')}
                 </div>
             </div>
-            <p class="text-gray-300">${post.content.substring(0, 200)}...</p>
+            <p class="text-ink-600">${post.content.substring(0, 200)}...</p>
         </div>
     `).join('');
 }
@@ -368,9 +368,9 @@ function displayAnalytics(analytics) {
     // Platform breakdown
     const breakdownContainer = document.getElementById('platformBreakdown');
     breakdownContainer.innerHTML = platforms.map(([platform, count]) => `
-        <div class="flex justify-between items-center py-2">
-            <span>${PLATFORMS[platform]?.icon} ${PLATFORMS[platform]?.name || platform}</span>
-            <span class="text-purple-400">${count} posts</span>
+        <div class="flex justify-between items-center py-3">
+            <span class="text-ink-700">${PLATFORMS[platform]?.icon} ${PLATFORMS[platform]?.name || platform}</span>
+            <span class="text-brand-600 font-medium">${count} posts</span>
         </div>
     `).join('');
 }
@@ -446,21 +446,27 @@ function copyApiKey() {
 
 // Utility functions
 function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-4 right-4 bg-red-500/20 border border-red-500 text-red-400 px-6 py-3 rounded-lg z-50';
-    errorDiv.textContent = message;
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => errorDiv.remove(), 3000);
+    if (window.showToast) {
+        window.showToast(message, 'error', 5000);
+    } else {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'fixed top-4 right-4 bg-surface-0 border border-red-200 border-l-4 border-l-red-500 text-red-700 px-6 py-3 rounded-xl z-50 shadow-lg text-sm';
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 3000);
+    }
 }
 
 function showSuccess(message) {
-    const successDiv = document.createElement('div');
-    successDiv.className = 'fixed top-4 right-4 bg-green-500/20 border border-green-500 text-green-400 px-6 py-3 rounded-lg z-50';
-    successDiv.textContent = message;
-    document.body.appendChild(successDiv);
-    
-    setTimeout(() => successDiv.remove(), 3000);
+    if (window.showToast) {
+        window.showToast(message, 'success');
+    } else {
+        const successDiv = document.createElement('div');
+        successDiv.className = 'fixed top-4 right-4 bg-surface-0 border border-green-200 border-l-4 border-l-green-500 text-green-700 px-6 py-3 rounded-xl z-50 shadow-lg text-sm';
+        successDiv.textContent = message;
+        document.body.appendChild(successDiv);
+        setTimeout(() => successDiv.remove(), 3000);
+    }
 }
 
 function logout() {

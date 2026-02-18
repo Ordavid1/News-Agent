@@ -7,25 +7,27 @@ let selectedPlatforms = [];
 
 // Utility functions - define early
 function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-4 right-4 bg-red-500/20 border border-red-500 text-red-400 px-6 py-3 rounded-lg z-50';
-    errorDiv.textContent = message;
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => {
-        errorDiv.remove();
-    }, 3000);
+    if (window.showToast) {
+        window.showToast(message, 'error', 4000);
+    } else {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'fixed top-4 right-4 bg-surface-0 border border-red-200 border-l-4 border-l-red-500 text-red-700 px-6 py-3 rounded-xl z-50 shadow-lg text-sm';
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 4000);
+    }
 }
 
 function showSuccess(message) {
-    const successDiv = document.createElement('div');
-    successDiv.className = 'fixed top-4 right-4 bg-green-500/20 border border-green-500 text-green-400 px-6 py-3 rounded-lg z-50';
-    successDiv.textContent = message;
-    document.body.appendChild(successDiv);
-    
-    setTimeout(() => {
-        successDiv.remove();
-    }, 3000);
+    if (window.showToast) {
+        window.showToast(message, 'success', 3000);
+    } else {
+        const successDiv = document.createElement('div');
+        successDiv.className = 'fixed top-4 right-4 bg-surface-0 border border-emerald-200 border-l-4 border-l-emerald-500 text-emerald-700 px-6 py-3 rounded-xl z-50 shadow-lg text-sm';
+        successDiv.textContent = message;
+        document.body.appendChild(successDiv);
+        setTimeout(() => successDiv.remove(), 3000);
+    }
 }
 
 // Platform availability by tier
@@ -309,8 +311,8 @@ async function generatePreview() {
     // }
     
     // Show loading state
-    const generateBtn = document.querySelector('button[onclick*="generatePreview"]') || 
-                        document.querySelector('button.bg-gradient-to-r');
+    const generateBtn = document.querySelector('button[onclick*="generatePreview"]') ||
+                        document.getElementById('generatePreviewBtn');
     const generateBtnText = document.getElementById('generateBtnText');
     const loadingSpinner = document.getElementById('loadingSpinner');
     
@@ -496,23 +498,23 @@ function showRedditPreview(content) {
 
 // Show upgrade prompt
 function showUpgradePrompt(platform) {
-    const requiredPlan = platformTiers[platform].find(tier => 
+    const requiredPlan = platformTiers[platform].find(tier =>
         tier !== 'free' && tier !== 'starter'
     ) || 'growth';
-    
+
     const modal = `
-        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
-            <div class="neon-border p-8 max-w-md w-full" onclick="event.stopPropagation()">
-                <h2 class="text-2xl font-bold mb-4 glow-text">Upgrade Required 🚀</h2>
-                <p class="text-gray-300 mb-6">
-                    ${platform.charAt(0).toUpperCase() + platform.slice(1)} is available in the 
-                    <span class="text-purple-400 font-semibold">${requiredPlan}</span> plan and above.
+        <div class="fixed inset-0 bg-ink-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+            <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full" onclick="event.stopPropagation()">
+                <h2 class="text-2xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Upgrade Required</h2>
+                <p class="text-ink-500 mb-6">
+                    ${platform.charAt(0).toUpperCase() + platform.slice(1)} is available in the
+                    <span class="text-brand-600 font-semibold">${requiredPlan}</span> plan and above.
                 </p>
-                <div class="flex gap-4">
-                    <button onclick="selectPlan('${requiredPlan}'); closeModal();" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 py-3 rounded-full font-semibold hover:scale-105 transition">
+                <div class="flex gap-3">
+                    <button onclick="selectPlan('${requiredPlan}'); closeModal();" class="btn-primary flex-1 py-3">
                         Upgrade to ${requiredPlan}
                     </button>
-                    <button onclick="closeModal()" class="flex-1 border border-gray-600 py-3 rounded-full hover:bg-gray-900 transition">
+                    <button onclick="closeModal()" class="btn-outline flex-1 py-3">
                         Cancel
                     </button>
                 </div>

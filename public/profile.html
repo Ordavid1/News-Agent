@@ -5,218 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile - News Agent</title>
     <meta name="description" content="Manage your News Agent profile and social media connections.">
-    <!-- Prevent indexing of authenticated pages -->
     <meta name="robots" content="noindex, nofollow">
     <meta name="googlebot" content="noindex, nofollow">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
-        }
-
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
-        }
-
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 16px;
-            border: 1px solid rgba(168, 85, 247, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .neon-border:hover {
-            border-color: rgba(168, 85, 247, 0.6);
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
-        }
-
-        .magic-button {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
-            transition: all 0.3s ease;
-        }
-
-        .magic-button:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
-        }
-
-        .magic-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .tab-active {
-            background: linear-gradient(to right, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
-            border-color: var(--glow-purple) !important;
-            color: white !important;
-        }
-
-        .platform-card {
-            background: rgba(20, 20, 30, 0.8);
-            border: 1px solid rgba(100, 100, 120, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .platform-card:hover {
-            border-color: rgba(168, 85, 247, 0.5);
-        }
-
-        .platform-card.connected {
-            border-color: rgba(34, 197, 94, 0.5);
-            background: rgba(34, 197, 94, 0.05);
-        }
-
-        .pulse-dot {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-        }
-
-        .connect-btn {
-            background: linear-gradient(to right, #3b82f6, #6366f1);
-        }
-
-        .disconnect-btn {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid rgba(239, 68, 68, 0.5);
-            color: #ef4444;
-        }
-
-        .plan-card {
-            background: rgba(20, 20, 30, 0.8);
-            border: 1px solid rgba(100, 100, 120, 0.3);
-        }
-
-        .plan-card.current {
-            border-color: var(--glow-purple);
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
-        }
-
-        .loading-spinner {
-            border: 2px solid rgba(168, 85, 247, 0.3);
-            border-top-color: var(--glow-purple);
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Mobile tab scroll indicator */
-        .tabs-container {
-            position: relative;
-        }
-
-        .tabs-scroll-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            scrollbar-width: none; /* Firefox */
-            -ms-overflow-style: none; /* IE and Edge */
-        }
-
-        .tabs-scroll-wrapper::-webkit-scrollbar {
-            display: none; /* Chrome, Safari, Opera */
-        }
-
-        /* Fade gradient indicators for more content */
-        .tabs-container::after {
-            content: '';
-            position: absolute;
-            right: 0;
-            top: 0;
-            bottom: 4px; /* Account for border-bottom padding */
-            width: 60px;
-            background: linear-gradient(to right, transparent, #0a0a0a);
-            pointer-events: none;
-            opacity: 1;
-            transition: opacity 0.3s ease;
-        }
-
-        .tabs-container.scrolled-end::after {
-            opacity: 0;
-        }
-
-        /* Scroll hint animation on mobile */
-        @media (max-width: 768px) {
-            .scroll-hint {
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                font-size: 12px;
-                color: rgba(168, 85, 247, 0.7);
-                margin-bottom: 8px;
-                animation: pulse-hint 2s ease-in-out infinite;
-            }
-
-            .scroll-hint svg {
-                animation: bounce-x 1.5s ease-in-out infinite;
-            }
-
-            @keyframes pulse-hint {
-                0%, 100% { opacity: 0.7; }
-                50% { opacity: 1; }
-            }
-
-            @keyframes bounce-x {
-                0%, 100% { transform: translateX(0); }
-                50% { transform: translateX(4px); }
-            }
-        }
-
-        @media (min-width: 769px) {
-            .scroll-hint {
-                display: none;
-            }
-
-            .tabs-container::after {
-                display: none;
-            }
-        }
-    </style>
 </head>
-<body class="bg-black text-white min-h-screen">
+<body class="min-h-screen">
+
     <!-- Header -->
-    <header class="gradient-bg border-b border-purple-500/30">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center">
-                    <a href="/" class="text-xl font-bold glow-text">AI News Agent</a>
-                </div>
-                <div class="flex items-center gap-4">
-                    <span id="userEmail" class="text-sm text-gray-400"></span>
-                    <span id="subscriptionBadge" class="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 hidden">PRO</span>
-                    <button id="logoutBtn" class="text-gray-400 hover:text-purple-400 transition-colors">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-3">
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <span id="subscriptionBadge" class="badge-primary hidden">PRO</span>
+                    <span id="userEmail" class="text-sm text-ink-500 hidden sm:inline"></span>
+                    <button id="logoutBtn" class="text-sm text-ink-500 hover:text-brand-600 transition-colors font-medium">
                         Sign Out
                     </button>
                 </div>
@@ -225,135 +44,142 @@
     </header>
 
     <!-- Main Content -->
-    <main class="pb-12">
+    <main class="pb-16">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+
             <!-- Welcome Section -->
             <div class="mb-8">
-                <h2 class="text-3xl font-bold mb-2">Welcome back, <span id="userName" class="glow-text">User</span>!</h2>
-                <p class="text-gray-400">Manage your AI News Agent and social connections</p>
+                <h2 class="text-3xl font-bold mb-2" style="font-family: 'Satoshi', sans-serif;">Welcome back, <span id="userName" class="gradient-text">User</span>!</h2>
+                <p class="text-ink-500">Manage your AI News Agent and social connections</p>
             </div>
 
-            <!-- Tab Navigation -->
-            <div class="scroll-hint" id="tabScrollHint">
+            <!-- Tab Scroll Hint (mobile) -->
+            <div class="hidden items-center gap-1.5 text-xs text-brand-500 mb-2 md:hidden" id="tabScrollHint">
                 <span>Swipe for more</span>
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
                 </svg>
             </div>
-            <div class="tabs-container mb-8" id="tabsContainer">
-                <div class="tabs-scroll-wrapper flex gap-2 border-b border-gray-800 pb-4" id="tabsScrollWrapper">
-                    <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all tab-active whitespace-nowrap">
+
+            <!-- Tab Navigation -->
+            <div class="mb-8 relative" id="tabsContainer">
+                <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto" id="tabsScrollWrapper">
+                    <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-btn tab-active whitespace-nowrap">
                         <span class="flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
                             </svg>
                             Dashboard
                         </span>
                     </button>
-                    <button onclick="showTab('agents')" id="tab-agents" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <button onclick="showTab('agents')" id="tab-agents" class="tab-btn whitespace-nowrap">
                         <span class="flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                             </svg>
                             Agents
-                            <span id="agentCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/1</span>
+                            <span id="agentCount" class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded-full">0/1</span>
                         </span>
                     </button>
-                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap">
                         <span class="flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
                             </svg>
                             Connections
-                            <span id="connectionCount" class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">0/7</span>
+                            <span id="connectionCount" class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded-full">0/7</span>
                         </span>
                     </button>
-                    <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-400 hover:text-white transition-all whitespace-nowrap">
+                    <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn whitespace-nowrap">
                         <span class="flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
                             </svg>
                             Subscription
                         </span>
                     </button>
-                    <button disabled id="tab-analytics" class="tab-btn px-6 py-3 rounded-lg border border-transparent text-gray-500 transition-all whitespace-nowrap opacity-50 cursor-not-allowed">
+                    <button disabled id="tab-analytics" class="tab-btn whitespace-nowrap opacity-50 cursor-not-allowed">
                         <span class="flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                             </svg>
                             Analytics
-                            <span class="text-xs bg-gray-700 px-2 py-0.5 rounded-full">Soon</span>
+                            <span class="text-xs bg-surface-200 text-ink-500 px-2 py-0.5 rounded-full">Soon</span>
                         </span>
                     </button>
                 </div>
+                <!-- Mobile fade gradient -->
+                <div class="absolute right-0 top-0 bottom-0 w-16 pointer-events-none transition-opacity duration-300 md:hidden" id="tabsFadeGradient" style="background: linear-gradient(to right, transparent, var(--bg-secondary));"></div>
             </div>
 
-            <!-- Dashboard Tab -->
+            <!-- ======================== -->
+            <!-- DASHBOARD TAB           -->
+            <!-- ======================== -->
             <div id="content-dashboard" class="tab-content">
-                <!-- Agent Status Card -->
-                <div class="neon-border p-8 mb-8">
+                <div class="card-gradient p-8 mb-8">
                     <div id="agentStatusSection">
                         <!-- Free User State -->
                         <div id="freeUserState" class="text-center">
                             <div class="mb-6">
-                                <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
+                                <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 shadow-glow" style="background: var(--gradient-primary);">
                                     <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                                     </svg>
                                 </div>
-                                <h3 class="text-2xl font-bold mb-2 glow-text">Launch Your News Agent</h3>
-                                <p class="text-gray-400">Transform trending news into viral social media content</p>
+                                <h3 class="text-2xl font-bold mb-2 gradient-text" style="font-family: 'Satoshi', sans-serif;">Launch Your News Agent</h3>
+                                <p class="text-ink-500">Transform trending news into viral social media content</p>
                             </div>
-                            <button id="launchAgentBtn" class="magic-button text-white rounded-full px-8 py-3 font-semibold text-lg">
+                            <button id="launchAgentBtn" class="btn-primary rounded-full px-8 py-3 text-lg">
                                 Launch News Agent
                             </button>
-                            <p class="text-sm text-gray-500 mt-4" id="launchHint">Connect a social platform and upgrade to get started</p>
+                            <p class="text-sm text-ink-400 mt-4" id="launchHint">Connect a social platform and upgrade to get started</p>
                         </div>
 
                         <!-- Active User State (hidden by default) -->
                         <div id="activeUserState" class="hidden">
                             <div class="flex items-center justify-between mb-6">
                                 <div>
-                                    <h3 class="text-2xl font-bold mb-1 glow-text">Agent Status</h3>
-                                    <p class="text-gray-400">Your news agent is active and posting</p>
+                                    <h3 class="text-2xl font-bold mb-1 gradient-text" style="font-family: 'Satoshi', sans-serif;">Agent Status</h3>
+                                    <p class="text-ink-500">Your news agent is active and posting</p>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 bg-green-500 rounded-full pulse-dot"></div>
-                                    <span class="text-green-500 font-medium">Active</span>
+                                    <div class="status-dot status-dot-active"></div>
+                                    <span class="text-green-600 font-medium">Active</span>
                                 </div>
                             </div>
-                            <div class="grid grid-cols-3 gap-4 mb-6">
-                                <div class="bg-gray-900/50 rounded-xl p-4">
-                                    <p class="text-gray-400 text-sm mb-1">Posts Today</p>
-                                    <p class="text-2xl font-bold glow-text" id="postsToday">0</p>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
+                                    <p class="text-ink-500 text-sm mb-1">Posts Today</p>
+                                    <p class="text-2xl font-bold gradient-text" id="postsToday">0</p>
                                 </div>
-                                <div class="bg-gray-900/50 rounded-xl p-4">
-                                    <p class="text-gray-400 text-sm mb-1">Connected</p>
-                                    <p class="text-2xl font-bold glow-text" id="connectedPlatforms">0</p>
+                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
+                                    <p class="text-ink-500 text-sm mb-1">Connected</p>
+                                    <p class="text-2xl font-bold gradient-text" id="connectedPlatforms">0</p>
                                 </div>
-                                <div class="bg-gray-900/50 rounded-xl p-4">
-                                    <p class="text-gray-400 text-sm mb-1">Posts Left</p>
-                                    <p class="text-2xl font-bold glow-text" id="postsLeftToday">5</p>
+                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
+                                    <p class="text-ink-500 text-sm mb-1">Posts Left</p>
+                                    <p class="text-2xl font-bold gradient-text" id="postsLeftToday">5</p>
                                 </div>
                             </div>
-                            <button onclick="window.location.href='/settings.html'" class="w-full magic-button text-white rounded-lg px-6 py-3 font-semibold">
+                            <button onclick="window.location.href='/settings.html'" class="btn-primary w-full py-3">
                                 Configure Agent Settings
                             </button>
                         </div>
                     </div>
                 </div>
-
             </div>
 
-            <!-- Agents Tab -->
+            <!-- ======================== -->
+            <!-- AGENTS TAB              -->
+            <!-- ======================== -->
             <div id="content-agents" class="tab-content hidden">
                 <div class="flex items-center justify-between mb-6">
                     <div>
-                        <h3 class="text-xl font-semibold mb-2">Your News Agents</h3>
-                        <p class="text-gray-400">Each agent posts to a specific platform with its own settings</p>
+                        <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Your News Agents</h3>
+                        <p class="text-ink-500 text-sm">Each agent posts to a specific platform with its own settings</p>
                     </div>
-                    <button onclick="window.location.href='/settings.html'" id="createAgentBtn" class="magic-button px-6 py-2 rounded-lg text-white font-medium flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button onclick="window.location.href='/settings.html'" id="createAgentBtn" class="btn-primary btn-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                         </svg>
                         Create Agent
@@ -362,26 +188,26 @@
 
                 <!-- Agents Grid -->
                 <div id="agentsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Agent cards will be dynamically inserted here -->
+                    <!-- Agent cards dynamically inserted -->
                 </div>
 
                 <!-- Empty State -->
-                <div id="agentsEmptyState" class="text-center py-12">
-                    <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
-                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div id="agentsEmptyState" class="empty-state">
+                    <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-6 bg-brand-50">
+                        <svg class="w-10 h-10 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                         </svg>
                     </div>
-                    <h4 class="text-xl font-semibold mb-2 glow-text">No Agents Yet</h4>
-                    <p class="text-gray-400 mb-6" id="agentsEmptyMessage">Connect a social platform first, then create an agent to start posting</p>
-                    <button onclick="window.location.href='/settings.html'" id="createFirstAgentBtn" class="magic-button px-8 py-3 rounded-lg text-white font-medium">
+                    <h4 class="text-xl font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Agents Yet</h4>
+                    <p class="text-ink-400 mb-6 max-w-md" id="agentsEmptyMessage">Connect a social platform first, then create an agent to start posting</p>
+                    <button onclick="window.location.href='/settings.html'" id="createFirstAgentBtn" class="btn-primary">
                         Create Your First Agent
                     </button>
                 </div>
 
                 <!-- Upgrade Hint -->
-                <div id="agentLimitHint" class="mt-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30 hidden">
-                    <p class="text-purple-400 text-sm flex items-center gap-2">
+                <div id="agentLimitHint" class="mt-6 p-4 rounded-xl bg-brand-50 border border-brand-200 hidden">
+                    <p class="text-brand-600 text-sm flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
                         </svg>
@@ -390,186 +216,190 @@
                 </div>
             </div>
 
-            <!-- Connections Tab -->
+            <!-- ======================== -->
+            <!-- CONNECTIONS TAB          -->
+            <!-- ======================== -->
             <div id="content-connections" class="tab-content hidden">
                 <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-2">Social Media Connections</h3>
-                    <p class="text-gray-400">Connect your social media accounts to enable automatic posting</p>
+                    <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Social Media Connections</h3>
+                    <p class="text-ink-500 text-sm">Connect your social media accounts to enable automatic posting</p>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="platformsGrid">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5" id="platformsGrid">
+
                     <!-- Twitter -->
                     <div class="platform-card rounded-xl p-6" id="platform-twitter">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#1DA1F2]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#1DA1F2]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#1DA1F2]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#1DA1F2]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Twitter / X</h4>
+                                    <h4 class="font-semibold text-ink-800">Twitter / X</h4>
                                     <p class="text-sm text-gray-400" id="twitter-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="connectPlatform('twitter')" id="twitter-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="connectPlatform('twitter')" id="twitter-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Post tweets and threads automatically</p>
+                        <p class="text-xs text-ink-400">Post tweets and threads automatically</p>
                     </div>
 
                     <!-- LinkedIn -->
                     <div class="platform-card rounded-xl p-6" id="platform-linkedin">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#0A66C2]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#0A66C2]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">LinkedIn</h4>
+                                    <h4 class="font-semibold text-ink-800">LinkedIn</h4>
                                     <p class="text-sm text-gray-400" id="linkedin-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="connectPlatform('linkedin')" id="linkedin-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="connectPlatform('linkedin')" id="linkedin-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Share professional content to your network</p>
+                        <p class="text-xs text-ink-400">Share professional content to your network</p>
                     </div>
 
                     <!-- Reddit -->
                     <div class="platform-card rounded-xl p-6" id="platform-reddit">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#FF4500]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#FF4500]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#FF4500]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#FF4500]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Reddit</h4>
+                                    <h4 class="font-semibold text-ink-800">Reddit</h4>
                                     <p class="text-sm text-gray-400" id="reddit-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="connectPlatform('reddit')" id="reddit-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="connectPlatform('reddit')" id="reddit-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Post to relevant subreddits</p>
+                        <p class="text-xs text-ink-400">Post to relevant subreddits</p>
                     </div>
 
                     <!-- Telegram -->
                     <div class="platform-card rounded-xl p-6" id="platform-telegram">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#0088cc]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#0088cc]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Telegram</h4>
+                                    <h4 class="font-semibold text-ink-800">Telegram</h4>
                                     <p class="text-sm text-gray-400" id="telegram-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="openTelegramModal()" id="telegram-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="openTelegramModal()" id="telegram-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Post to channels and groups</p>
+                        <p class="text-xs text-ink-400">Post to channels and groups</p>
                     </div>
 
                     <!-- Instagram -->
                     <div class="platform-card rounded-xl p-6" id="platform-instagram">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#E4405F]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#E4405F]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#E4405F]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#E4405F]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Instagram</h4>
+                                    <h4 class="font-semibold text-ink-800">Instagram</h4>
                                     <p class="text-sm text-gray-400" id="instagram-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="connectPlatform('instagram')" id="instagram-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="connectPlatform('instagram')" id="instagram-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Share photos and reels</p>
+                        <p class="text-xs text-ink-400">Share photos and reels</p>
                     </div>
 
                     <!-- Threads (Coming Soon) -->
-                    <div class="platform-card rounded-xl p-6 opacity-50" id="platform-threads">
-                        <div class="flex items-center justify-between mb-4">
+                    <div class="platform-card rounded-xl p-6 opacity-60" id="platform-threads">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#000000]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-ink-900/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-ink-800" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12.186 24h-.007c-3.581-.024-6.334-1.205-8.184-3.509C2.35 18.44 1.5 15.586 1.472 12.01v-.017c.03-3.579.879-6.43 2.525-8.482C5.845 1.205 8.6.024 12.18 0h.014c2.746.02 5.043.725 6.826 2.098 1.677 1.29 2.858 3.13 3.509 5.467l-2.04.569c-1.104-3.96-3.898-5.984-8.304-6.015-2.91.022-5.11.936-6.54 2.717C4.307 6.504 3.616 8.914 3.589 12c.027 3.086.718 5.496 2.057 7.164 1.43 1.783 3.631 2.698 6.54 2.717 2.623-.02 4.358-.631 5.8-2.045 1.647-1.613 1.618-3.593 1.09-4.798-.31-.71-.873-1.3-1.634-1.75-.192 1.352-.622 2.446-1.284 3.272-.886 1.102-2.14 1.704-3.73 1.79-1.202.065-2.361-.218-3.259-.801-1.063-.689-1.685-1.74-1.752-2.96-.065-1.182.408-2.256 1.332-3.023.899-.746 2.13-1.109 3.79-1.083 1.03.016 1.98.108 2.855.27-.025-.996-.085-1.871-.478-2.59-.437-.798-1.182-1.186-2.275-1.186h-.039c-.844.008-1.54.263-2.07.759l-1.391-1.545c.857-.77 2.008-1.18 3.424-1.22h.062c1.734 0 3.088.587 4.024 1.746.838 1.035 1.241 2.474 1.2 4.28l.006.406c1.063.571 1.9 1.376 2.457 2.385.786 1.427.903 3.503-.487 5.869-1.837 3.122-5.139 4.039-8.478 4.057zm-1.391-8.23c-.936-.016-1.674.152-2.198.498-.46.303-.681.693-.66 1.16.037.794.759 1.399 1.867 1.338 1.112-.06 1.926-.478 2.42-1.241.364-.563.597-1.33.677-2.294-.668-.117-1.38-.18-2.106-.18v.72z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Threads</h4>
-                                    <p class="text-sm text-gray-500" id="threads-status">Coming Soon</p>
+                                    <h4 class="font-semibold text-ink-800">Threads</h4>
+                                    <p class="text-sm text-ink-400" id="threads-status">Coming Soon</p>
                                 </div>
                             </div>
-                            <button disabled class="px-4 py-2 rounded-lg bg-gray-700 text-gray-400 text-sm font-medium cursor-not-allowed">
+                            <button disabled id="threads-btn" class="px-4 py-2 rounded-lg bg-surface-200 text-ink-400 text-sm font-medium cursor-not-allowed">
                                 Coming Soon
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Text-based conversations</p>
+                        <p class="text-xs text-ink-400">Text-based conversations</p>
                     </div>
 
-                    <!-- WhatsApp (Coming Soon) -->
-                    <div class="platform-card rounded-xl p-6 opacity-50" id="platform-whatsapp">
-                        <div class="flex items-center justify-between mb-4">
+                    <!-- WhatsApp -->
+                    <div class="platform-card rounded-xl p-6" id="platform-whatsapp">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#25D366]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#25D366]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">WhatsApp</h4>
-                                    <p class="text-sm text-gray-500" id="whatsapp-status">Coming Soon</p>
+                                    <h4 class="font-semibold text-ink-800">WhatsApp</h4>
+                                    <p class="text-sm text-gray-400" id="whatsapp-status">Not connected</p>
                                 </div>
                             </div>
-                            <button disabled class="px-4 py-2 rounded-lg bg-gray-700 text-gray-400 text-sm font-medium cursor-not-allowed">
-                                Coming Soon
+                            <button onclick="openWhatsAppModal()" id="whatsapp-btn" class="connect-btn">
+                                Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Post to WhatsApp groups</p>
+                        <p class="text-xs text-ink-400">Post to WhatsApp groups</p>
                     </div>
 
                     <!-- Facebook -->
                     <div class="platform-card rounded-xl p-6" id="platform-facebook">
-                        <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 rounded-xl bg-[#1877F2]/20 flex items-center justify-center">
-                                    <svg class="w-6 h-6 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-11 h-11 rounded-xl bg-[#1877F2]/10 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <h4 class="font-semibold">Facebook</h4>
+                                    <h4 class="font-semibold text-ink-800">Facebook</h4>
                                     <p class="text-sm text-gray-400" id="facebook-status">Not connected</p>
                                 </div>
                             </div>
-                            <button onclick="connectPlatform('facebook')" id="facebook-btn" class="connect-btn px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90">
+                            <button onclick="connectPlatform('facebook')" id="facebook-btn" class="connect-btn">
                                 Connect
                             </button>
                         </div>
-                        <p class="text-xs text-gray-500">Share to pages and groups</p>
+                        <p class="text-xs text-ink-400">Share to pages and groups</p>
                     </div>
                 </div>
 
-                <div class="mt-8 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30" id="connectionsHint">
-                    <p class="text-blue-400 text-sm flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <!-- Connections Hint -->
+                <div class="mt-8 p-4 rounded-xl bg-blue-50 border border-blue-200" id="connectionsHint">
+                    <p class="text-blue-700 text-sm flex items-center gap-2">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Connect at least one platform to start using the AI News Agent
@@ -577,237 +407,205 @@
                 </div>
             </div>
 
-            <!-- Subscription Tab -->
+            <!-- ======================== -->
+            <!-- SUBSCRIPTION TAB         -->
+            <!-- ======================== -->
             <div id="content-subscription" class="tab-content hidden">
                 <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-2">Subscription & Billing</h3>
-                    <p class="text-gray-400">Manage your plan and payment settings</p>
+                    <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Subscription & Billing</h3>
+                    <p class="text-ink-500 text-sm">Manage your plan and payment settings</p>
                 </div>
 
                 <!-- Current Plan -->
-                <div class="neon-border p-6 mb-8">
+                <div class="card-static p-6 mb-8">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-gray-400 text-sm mb-1">Current Plan</p>
-                            <h4 class="text-2xl font-bold glow-text" id="currentPlanName">Free</h4>
+                            <p class="text-ink-500 text-sm mb-1">Current Plan</p>
+                            <h4 class="text-2xl font-bold gradient-text" id="currentPlanName" style="font-family: 'Satoshi', sans-serif;">Free</h4>
                         </div>
                         <div class="text-right">
-                            <p class="text-gray-400 text-sm mb-1">Posts Remaining</p>
-                            <p class="text-2xl font-bold" id="postsRemaining">1/1</p>
+                            <p class="text-ink-500 text-sm mb-1">Posts Remaining</p>
+                            <p class="text-2xl font-bold text-ink-800" id="postsRemaining">1/1</p>
                         </div>
                     </div>
-                    <div class="mt-4 pt-4 border-t border-gray-800">
-                        <p class="text-sm text-gray-400" id="subscriptionStatus">Upgrade to unlock unlimited posts and advanced features</p>
+                    <div class="mt-4 pt-4 border-t border-surface-200">
+                        <p class="text-sm text-ink-500" id="subscriptionStatus">Upgrade to unlock unlimited posts and advanced features</p>
                     </div>
 
-                    <!-- Subscription Management Actions (shown for paid users) -->
-                    <div id="subscriptionActions" class="hidden mt-4 pt-4 border-t border-gray-800">
+                    <!-- Subscription Management Actions -->
+                    <div id="subscriptionActions" class="hidden mt-4 pt-4 border-t border-surface-200">
                         <div class="flex flex-wrap gap-3">
                             <button id="manageBillingBtn" onclick="openCustomerPortal()"
-                                class="px-4 py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all text-sm">
+                                class="btn-outline btn-sm">
                                 Manage Billing
                             </button>
                             <button id="cancelSubscriptionBtn" onclick="cancelSubscription()"
-                                class="px-4 py-2 rounded-lg border border-orange-500 text-orange-400 hover:bg-orange-500/20 transition-all text-sm">
+                                class="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 transition-all text-sm font-medium">
                                 Cancel Subscription
                             </button>
                             <button id="resumeSubscriptionBtn" onclick="resumeSubscription()"
-                                class="hidden px-4 py-2 rounded-lg border border-green-500 text-green-400 hover:bg-green-500/20 transition-all text-sm">
+                                class="hidden px-4 py-2 rounded-lg border border-green-300 text-green-700 hover:bg-green-50 transition-all text-sm font-medium">
                                 Resume Subscription
                             </button>
                             <button id="downgradeToFreeBtn" onclick="downgradeToFree()"
-                                class="px-4 py-2 rounded-lg border border-red-500 text-red-400 hover:bg-red-500/20 transition-all text-sm">
+                                class="px-4 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition-all text-sm font-medium">
                                 Downgrade to Free
                             </button>
                         </div>
-                        <p id="subscriptionEndDate" class="hidden text-sm text-orange-400 mt-3"></p>
+                        <p id="subscriptionEndDate" class="hidden text-sm text-amber-600 mt-3"></p>
                     </div>
                 </div>
 
                 <!-- Available Plans -->
-                <h4 class="text-lg font-semibold mb-4">Available Plans</h4>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <h4 class="text-lg font-semibold mb-4 text-ink-800" style="font-family: 'Satoshi', sans-serif;">Available Plans</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+
                     <!-- Starter Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-starter">
-                        <h5 class="font-semibold text-lg mb-2">Starter</h5>
-                        <p class="text-3xl font-bold mb-4">$49<span class="text-sm text-gray-400">/mo</span></p>
-                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                        <h5 class="font-semibold text-lg mb-2 text-ink-800">Starter</h5>
+                        <p class="text-3xl font-bold text-ink-900 mb-4">$49<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 10 posts/day (300/mo)
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 3 platforms
                             </li>
-                            <li class="text-xs text-gray-500 ml-6">LinkedIn, Reddit, Telegram</li>
+                            <li class="text-xs text-ink-400 ml-6">LinkedIn, Reddit, Telegram</li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Basic analytics
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Email support
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Scheduling
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
-                                POSTS WITH IMAGES
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                Posts with images
                             </li>
                         </ul>
-                        <button onclick="selectPlan('starter')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all">
+                        <button onclick="selectPlan('starter')" class="btn-secondary w-full py-2.5">
                             Select Plan
                         </button>
                     </div>
 
                     <!-- Growth Plan -->
-                    <div class="plan-card rounded-xl p-6 border-purple-500" id="plan-card-growth">
+                    <div class="plan-card rounded-xl p-6 border-brand-400 ring-2 ring-brand-100" id="plan-card-growth">
                         <div class="flex items-center justify-between mb-2">
-                            <h5 class="font-semibold text-lg">Growth</h5>
-                            <span class="text-xs bg-purple-500 px-2 py-1 rounded-full">Popular</span>
+                            <h5 class="font-semibold text-lg text-ink-800">Growth</h5>
+                            <span class="badge-primary text-xs">Popular</span>
                         </div>
-                        <p class="text-3xl font-bold mb-4">$149<span class="text-sm text-gray-400">/mo</span></p>
-                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                        <p class="text-3xl font-bold text-ink-900 mb-4">$149<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 20 posts/day (600/mo)
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 4 platforms
                             </li>
-                            <li class="text-xs text-gray-500 ml-6">+ Twitter, Whatsapp</li>
+                            <li class="text-xs text-ink-400 ml-6">+ Twitter, WhatsApp</li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Advanced analytics
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Scheduling
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Priority support
                             </li>
                         </ul>
-                        <button onclick="openBetaPlanModal('growth')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all opacity-75">
+                        <button onclick="openBetaPlanModal('growth')" class="btn-outline w-full py-2.5 opacity-75">
                             Coming Soon
                         </button>
                     </div>
 
                     <!-- Professional Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-professional">
-                        <h5 class="font-semibold text-lg mb-2">Professional</h5>
-                        <p class="text-3xl font-bold mb-4">$399<span class="text-sm text-gray-400">/mo</span></p>
-                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                        <h5 class="font-semibold text-lg mb-2 text-ink-800">Professional</h5>
+                        <p class="text-3xl font-bold text-ink-900 mb-4">$399<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 30 posts/day (900/mo)
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 5 platforms
                             </li>
-                            <li class="text-xs text-gray-500 ml-6">+ Instagram</li>
+                            <li class="text-xs text-ink-400 ml-6">+ Instagram</li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Scheduling
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Dedicated support
                             </li>
                         </ul>
-                        <button onclick="openBetaPlanModal('professional')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all opacity-75">
+                        <button onclick="openBetaPlanModal('professional')" class="btn-outline w-full py-2.5 opacity-75">
                             Coming Soon
                         </button>
                     </div>
 
                     <!-- Business Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-business">
-                        <h5 class="font-semibold text-lg mb-2">Business</h5>
-                        <p class="text-3xl font-bold mb-4">$799<span class="text-sm text-gray-400">/mo</span></p>
-                        <ul class="space-y-2 mb-6 text-sm text-gray-400">
+                        <h5 class="font-semibold text-lg mb-2 text-ink-800">Business</h5>
+                        <p class="text-3xl font-bold text-ink-900 mb-4">$799<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 45 posts/day (1,350/mo)
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 All platforms
                             </li>
-                            <li class="text-xs text-gray-500 ml-6">+ Telegram, TikTok, YouTube</li>
+                            <li class="text-xs text-ink-400 ml-6">+ Telegram, TikTok, YouTube</li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Custom analytics
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Scheduling
                             </li>
                             <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                </svg>
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 24/7 Phone support
                             </li>
                         </ul>
-                        <button onclick="openBetaPlanModal('business')" class="w-full py-2 rounded-lg border border-purple-500 text-purple-400 hover:bg-purple-500/20 transition-all opacity-75">
+                        <button onclick="openBetaPlanModal('business')" class="btn-outline w-full py-2.5 opacity-75">
                             Coming Soon
                         </button>
                     </div>
                 </div>
             </div>
+
         </div>
     </main>
 
+    <!-- ======================== -->
+    <!-- MODALS                   -->
+    <!-- ======================== -->
+
     <!-- Test Result Modal -->
-    <div id="testResultModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
-        <div class="neon-border p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+    <div id="testResultModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center p-4">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold glow-text" id="testModalTitle">Test Results</h3>
-                <button onclick="closeTestModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                <h3 class="text-2xl font-bold gradient-text" id="testModalTitle" style="font-family: 'Satoshi', sans-serif;">Test Results</h3>
+                <button onclick="closeTestModal()" class="text-ink-400 hover:text-ink-700 transition-colors text-2xl">&times;</button>
             </div>
             <div id="testResultContent">
                 <!-- Results will be inserted here -->
@@ -816,11 +614,11 @@
     </div>
 
     <!-- Telegram Connection Modal -->
-    <div id="telegramModal" class="fixed inset-0 bg-black/80 items-center justify-center z-50 hidden">
-        <div class="neon-border p-8 max-w-md w-full mx-4">
+    <div id="telegramModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold">Connect Telegram Channel</h3>
-                <button onclick="closeTelegramModal()" class="text-gray-400 hover:text-white">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Connect Telegram Channel</h3>
+                <button onclick="closeTelegramModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -829,12 +627,12 @@
 
             <!-- Step 1: Instructions -->
             <div id="telegramStep1" class="mb-6">
-                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
-                    <h4 class="font-semibold text-blue-400 mb-2">Step 1: Add our bot to your channel</h4>
-                    <ol class="text-sm text-gray-300 space-y-2 list-decimal list-inside">
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <h4 class="font-semibold text-blue-700 mb-2">Step 1: Add our bot to your channel</h4>
+                    <ol class="text-sm text-ink-600 space-y-2 list-decimal list-inside">
                         <li>Open your Telegram channel settings</li>
                         <li>Go to Administrators</li>
-                        <li>Add <span id="botUsernameDisplay" class="text-blue-400 font-mono">@loading...</span> as admin</li>
+                        <li>Add <span id="botUsernameDisplay" class="text-blue-600 font-mono">@loading...</span> as admin</li>
                         <li>Grant permission to "Post Messages"</li>
                     </ol>
                 </div>
@@ -842,27 +640,27 @@
 
             <!-- Step 2: Enter channel -->
             <div id="telegramStep2">
-                <label class="block text-sm text-gray-400 mb-2">Channel Username or Chat ID</label>
+                <label class="label">Channel Username or Chat ID</label>
                 <input type="text"
                        id="telegramChannelInput"
                        placeholder="@yourchannel or -1001234567890"
-                       class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none mb-4">
-                <p class="text-xs text-gray-500 mb-6">
+                       class="input mb-2">
+                <p class="helper-text mb-4">
                     For public channels, use @username. For private channels/groups, use the chat ID.
                 </p>
             </div>
 
             <!-- Error display -->
-            <div id="telegramError" class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 hidden">
-                <p class="text-red-400 text-sm" id="telegramErrorText"></p>
+            <div id="telegramError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="telegramErrorText"></p>
             </div>
 
             <!-- Action buttons -->
             <div class="flex gap-3">
-                <button onclick="closeTelegramModal()" class="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all">
+                <button onclick="closeTelegramModal()" class="btn-outline flex-1 py-3">
                     Cancel
                 </button>
-                <button onclick="connectTelegram()" id="telegramConnectBtn" class="flex-1 magic-button py-3 rounded-lg text-white font-medium">
+                <button onclick="connectTelegram()" id="telegramConnectBtn" class="btn-primary flex-1 py-3">
                     Connect Channel
                 </button>
             </div>
@@ -870,96 +668,96 @@
     </div>
 
     <!-- WhatsApp Connection Modal -->
-    <div id="whatsappModal" class="fixed inset-0 bg-black/80 items-center justify-center z-50 hidden">
-        <div class="neon-border p-8 max-w-md w-full mx-4">
+    <div id="whatsappModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold">Connect WhatsApp Group</h3>
-                <button onclick="closeWhatsAppModal()" class="text-gray-400 hover:text-white">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Connect WhatsApp Group</h3>
+                <button onclick="closeWhatsAppModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
                 </button>
             </div>
 
-            <!-- Initial State: Get Code Button -->
+            <!-- Initial State -->
             <div id="whatsappInitial">
-                <div class="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
-                    <h4 class="font-semibold text-green-400 mb-2">How it works</h4>
-                    <ol class="text-sm text-gray-300 space-y-2 list-decimal list-inside">
+                <div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                    <h4 class="font-semibold text-green-700 mb-2">How it works</h4>
+                    <ol class="text-sm text-ink-600 space-y-2 list-decimal list-inside">
                         <li>Get a unique verification code</li>
                         <li>Add our WhatsApp number to your group</li>
                         <li>Send the code in your group</li>
                         <li>Click "Check Status" to complete</li>
                     </ol>
                 </div>
-                <button onclick="getWhatsAppCode()" id="whatsappGetCodeBtn" class="w-full magic-button py-3 rounded-lg text-white font-medium">
+                <button onclick="getWhatsAppCode()" id="whatsappGetCodeBtn" class="btn-primary w-full py-3">
                     Get Verification Code
                 </button>
             </div>
 
             <!-- Code Display State -->
             <div id="whatsappCodeSection" class="hidden">
-                <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 mb-4">
-                    <p class="text-sm text-gray-400 mb-2">Our WhatsApp Number:</p>
-                    <p class="text-lg font-mono text-green-400 mb-4" id="whatsappPhoneNumber">Loading...</p>
+                <div class="bg-surface-50 border border-surface-200 rounded-xl p-4 mb-4">
+                    <p class="text-sm text-ink-500 mb-2">Our WhatsApp Number:</p>
+                    <p class="text-lg font-mono text-green-600 mb-4" id="whatsappPhoneNumber">Loading...</p>
 
-                    <p class="text-sm text-gray-400 mb-2">Your Verification Code:</p>
+                    <p class="text-sm text-ink-500 mb-2">Your Verification Code:</p>
                     <div class="flex items-center gap-2">
-                        <code class="flex-1 text-2xl font-bold text-purple-400 bg-gray-800 px-4 py-2 rounded" id="whatsappVerificationCode">NA-XXXXXXXX</code>
-                        <button onclick="copyWhatsAppCode(event)" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-all" title="Copy code">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <code class="flex-1 text-2xl font-bold text-brand-600 bg-brand-50 px-4 py-2 rounded-lg border border-brand-200" id="whatsappVerificationCode">NA-XXXXXXXX</code>
+                        <button onclick="copyWhatsAppCode(event)" class="px-3 py-2 bg-surface-100 hover:bg-surface-200 rounded-lg transition-all" title="Copy code">
+                            <svg class="w-5 h-5 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                             </svg>
                         </button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">Code expires in <span id="whatsappCodeExpiry">30 minutes</span></p>
+                    <p class="text-xs text-ink-400 mt-2">Code expires in <span id="whatsappCodeExpiry">30 minutes</span></p>
                 </div>
 
-                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
-                    <h4 class="font-semibold text-blue-400 mb-2">Next Steps:</h4>
-                    <ol class="text-sm text-gray-300 space-y-2 list-decimal list-inside">
-                        <li>Add <span id="whatsappPhoneNumberInstructions" class="text-green-400 font-mono">the number above</span> to your WhatsApp group</li>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <h4 class="font-semibold text-blue-700 mb-2">Next Steps:</h4>
+                    <ol class="text-sm text-ink-600 space-y-2 list-decimal list-inside">
+                        <li>Add <span id="whatsappPhoneNumberInstructions" class="text-green-600 font-mono">the number above</span> to your WhatsApp group</li>
                         <li>Send the verification code as a message in the group</li>
                         <li>Click "Check Status" below</li>
                     </ol>
                 </div>
 
-                <button onclick="checkWhatsAppStatus()" id="whatsappCheckStatusBtn" class="w-full magic-button py-3 rounded-lg text-white font-medium mb-3">
+                <button onclick="checkWhatsAppStatus()" id="whatsappCheckStatusBtn" class="btn-primary w-full py-3 mb-3">
                     Check Status
                 </button>
             </div>
 
             <!-- Detected Groups Section -->
             <div id="whatsappGroupsSection" class="hidden">
-                <p class="text-sm text-gray-400 mb-3">Detected Groups:</p>
+                <p class="text-sm text-ink-500 mb-3">Detected Groups:</p>
                 <div id="whatsappGroupsList" class="space-y-2 max-h-48 overflow-y-auto mb-4">
                     <!-- Groups will be inserted here -->
                 </div>
             </div>
 
             <!-- Success message -->
-            <div id="whatsappSuccess" class="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4 hidden">
-                <p class="text-green-400 text-sm" id="whatsappSuccessText"></p>
+            <div id="whatsappSuccess" class="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-green-600 text-sm" id="whatsappSuccessText"></p>
             </div>
 
             <!-- Error display -->
-            <div id="whatsappError" class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 hidden">
-                <p class="text-red-400 text-sm" id="whatsappErrorText"></p>
+            <div id="whatsappError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="whatsappErrorText"></p>
             </div>
 
-            <!-- Cancel button (always visible) -->
-            <button onclick="closeWhatsAppModal()" class="w-full py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all mt-2">
+            <!-- Cancel button -->
+            <button onclick="closeWhatsAppModal()" class="btn-outline w-full py-3 mt-2">
                 Cancel
             </button>
         </div>
     </div>
 
     <!-- Create Agent Modal -->
-    <div id="createAgentModal" class="fixed inset-0 bg-black/80 items-center justify-center z-50 hidden">
-        <div class="neon-border p-8 max-w-md w-full mx-4">
+    <div id="createAgentModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold">Create News Agent</h3>
-                <button onclick="closeCreateAgentModal()" class="text-gray-400 hover:text-white">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Create News Agent</h3>
+                <button onclick="closeCreateAgentModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -968,43 +766,42 @@
 
             <!-- Platform Selection -->
             <div class="mb-4">
-                <label class="block text-sm text-gray-400 mb-2">Select Platform</label>
-                <select id="agentPlatformSelect" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-purple-500 focus:outline-none">
+                <label class="label">Select Platform</label>
+                <select id="agentPlatformSelect" class="select">
                     <option value="">Select a connected platform...</option>
-                    <!-- Options will be dynamically added -->
                 </select>
-                <p class="text-xs text-gray-500 mt-2" id="platformSelectHint">Only platforms without existing agents are shown</p>
+                <p class="helper-text" id="platformSelectHint">Only platforms without existing agents are shown</p>
             </div>
 
             <!-- Agent Name -->
             <div class="mb-6">
-                <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
+                <label class="label">Agent Name</label>
                 <input type="text"
                        id="agentNameInput"
                        placeholder="e.g., Tech News Bot"
-                       class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none">
-                <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
+                       class="input">
+                <p class="helper-text">Give your agent a memorable name</p>
             </div>
 
             <!-- Error display -->
-            <div id="createAgentError" class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 hidden">
-                <p class="text-red-400 text-sm" id="createAgentErrorText"></p>
+            <div id="createAgentError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="createAgentErrorText"></p>
             </div>
 
             <!-- No platforms warning -->
-            <div id="noPlatformsWarning" class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-4 hidden">
-                <p class="text-yellow-400 text-sm">No available platforms. Either connect a platform first, or all your platforms already have agents.</p>
-                <button onclick="closeCreateAgentModal(); showTab('connections');" class="mt-2 text-purple-400 text-sm hover:underline">
-                    Go to Connections →
+            <div id="noPlatformsWarning" class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 hidden">
+                <p class="text-amber-700 text-sm">No available platforms. Either connect a platform first, or all your platforms already have agents.</p>
+                <button onclick="closeCreateAgentModal(); showTab('connections');" class="mt-2 text-brand-600 text-sm hover:underline font-medium">
+                    Go to Connections &rarr;
                 </button>
             </div>
 
             <!-- Action buttons -->
             <div class="flex gap-3">
-                <button onclick="closeCreateAgentModal()" class="flex-1 py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all">
+                <button onclick="closeCreateAgentModal()" class="btn-outline flex-1 py-3">
                     Cancel
                 </button>
-                <button onclick="createAgent()" id="createAgentSubmitBtn" class="flex-1 magic-button py-3 rounded-lg text-white font-medium">
+                <button onclick="createAgent()" id="createAgentSubmitBtn" class="btn-primary flex-1 py-3">
                     Create Agent
                 </button>
             </div>
@@ -1012,11 +809,11 @@
     </div>
 
     <!-- Agent Test Result Modal -->
-    <div id="agentTestResultModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
-        <div class="neon-border p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+    <div id="agentTestResultModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center p-4">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold glow-text" id="agentTestModalTitle">Test Results</h3>
-                <button onclick="closeAgentTestModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                <h3 class="text-2xl font-bold gradient-text" id="agentTestModalTitle" style="font-family: 'Satoshi', sans-serif;">Test Results</h3>
+                <button onclick="closeAgentTestModal()" class="text-ink-400 hover:text-ink-700 transition-colors text-2xl">&times;</button>
             </div>
             <div id="agentTestResultContent">
                 <!-- Results will be inserted here -->
@@ -1025,78 +822,69 @@
     </div>
 
     <!-- Beta Plan Unavailable Modal -->
-    <div id="betaPlanModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
-        <div class="neon-border p-8 max-w-md w-full text-center">
+    <div id="betaPlanModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center p-4">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
             <div class="mb-6">
-                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style="background: linear-gradient(135deg, var(--glow-purple), var(--glow-pink));">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style="background: var(--gradient-primary);">
                     <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
                 </div>
-                <h3 class="text-2xl font-bold glow-text mb-2">Beta Version</h3>
-                <p class="text-xl text-gray-300">Coming Soon.</p>
+                <h3 class="text-2xl font-bold gradient-text mb-2" style="font-family: 'Satoshi', sans-serif;">Beta Version</h3>
+                <p class="text-xl text-ink-600">Coming Soon.</p>
             </div>
 
-            <div class="mb-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
-                <p class="text-gray-400 mb-3">Must have it now?</p>
-                <button onclick="trackPlanInterest()" id="planInterestBtn" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold hover:opacity-90 transition-all">
+            <div class="mb-6 p-4 rounded-xl bg-brand-50 border border-brand-200">
+                <p class="text-ink-500 mb-3">Must have it now?</p>
+                <button onclick="trackPlanInterest()" id="planInterestBtn" class="btn-primary px-6 py-3 inline-flex items-center gap-2">
                     <span class="text-xl">+1</span>
                     <span>I want this!</span>
                 </button>
-                <p id="planInterestConfirmation" class="hidden text-green-400 text-sm mt-3">Thank you! We've noted your interest.</p>
+                <p id="planInterestConfirmation" class="hidden text-green-600 text-sm mt-3">Thank you! We've noted your interest.</p>
             </div>
 
-            <button onclick="closeBetaPlanModal()" class="w-full py-3 rounded-lg border border-gray-700 text-gray-400 hover:text-white transition-all">
+            <button onclick="closeBetaPlanModal()" class="btn-outline w-full py-3">
                 Close
             </button>
         </div>
     </div>
 
+    <!-- Scripts -->
+    <script src="/js/animations.js"></script>
     <script src="js/profile.js?v=5"></script>
     <script src="/js/cookieConsent.js"></script>
     <script>
         // Tab scroll indicator logic
         (function() {
-            const tabsContainer = document.getElementById('tabsContainer');
             const tabsScrollWrapper = document.getElementById('tabsScrollWrapper');
             const scrollHint = document.getElementById('tabScrollHint');
+            const fadeGradient = document.getElementById('tabsFadeGradient');
 
-            if (!tabsScrollWrapper || !tabsContainer || !scrollHint) return;
+            if (!tabsScrollWrapper || !scrollHint) return;
 
             function checkScrollState() {
                 const isScrollable = tabsScrollWrapper.scrollWidth > tabsScrollWrapper.clientWidth;
                 const isAtEnd = tabsScrollWrapper.scrollLeft + tabsScrollWrapper.clientWidth >= tabsScrollWrapper.scrollWidth - 10;
 
-                // Hide hint if not scrollable or user has scrolled
                 if (!isScrollable || tabsScrollWrapper.scrollLeft > 20) {
                     scrollHint.style.display = 'none';
                 } else {
-                    // Only show on mobile
                     if (window.innerWidth <= 768) {
                         scrollHint.style.display = 'flex';
                     }
                 }
 
-                // Toggle fade gradient based on scroll position
-                if (isAtEnd) {
-                    tabsContainer.classList.add('scrolled-end');
-                } else {
-                    tabsContainer.classList.remove('scrolled-end');
+                if (fadeGradient) {
+                    fadeGradient.style.opacity = (isAtEnd || !isScrollable) ? '0' : '1';
                 }
             }
 
-            // Check on scroll
             tabsScrollWrapper.addEventListener('scroll', checkScrollState);
-
-            // Check on resize
             window.addEventListener('resize', checkScrollState);
-
-            // Initial check
             checkScrollState();
-
-            // Re-check after fonts load (may affect tab widths)
             document.fonts.ready.then(checkScrollState);
         })();
     </script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

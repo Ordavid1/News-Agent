@@ -135,9 +135,9 @@ function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
     starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'tiktok', 'youtube']
+    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp', 'tiktok', 'youtube']
   };
 
   return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];

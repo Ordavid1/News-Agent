@@ -33,7 +33,10 @@
     <!-- App Icons -->
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -62,41 +65,11 @@
         "value": "0"
       },
       "step": [
-        {
-          "@type": "HowToStep",
-          "position": 1,
-          "name": "Choose Your Plan",
-          "text": "Select a subscription plan that fits your posting needs - from Starter to Business.",
-          "url": "https://configure.news/demo.html#step1"
-        },
-        {
-          "@type": "HowToStep",
-          "position": 2,
-          "name": "Select Your Topic",
-          "text": "Choose from topics like AI, Technology, Crypto, Business, Marketing, and more.",
-          "url": "https://configure.news/demo.html#step2"
-        },
-        {
-          "@type": "HowToStep",
-          "position": 3,
-          "name": "Choose Platforms",
-          "text": "Select which social media platforms to generate content for - Twitter, LinkedIn, Reddit.",
-          "url": "https://configure.news/demo.html#step3"
-        },
-        {
-          "@type": "HowToStep",
-          "position": 4,
-          "name": "Set Posting Schedule",
-          "text": "Configure how many posts per day and what times work best for your audience.",
-          "url": "https://configure.news/demo.html#step4"
-        },
-        {
-          "@type": "HowToStep",
-          "position": 5,
-          "name": "Generate Content",
-          "text": "Click generate to see AI create platform-optimized content in seconds.",
-          "url": "https://configure.news/demo.html#step5"
-        }
+        { "@type": "HowToStep", "position": 1, "name": "Choose Your Plan", "text": "Select a subscription plan that fits your posting needs.", "url": "https://configure.news/demo.html#step1" },
+        { "@type": "HowToStep", "position": 2, "name": "Select Your Topic", "text": "Choose from topics like AI, Technology, Crypto, Business, and more.", "url": "https://configure.news/demo.html#step2" },
+        { "@type": "HowToStep", "position": 3, "name": "Choose Platforms", "text": "Select which social media platforms to generate content for.", "url": "https://configure.news/demo.html#step3" },
+        { "@type": "HowToStep", "position": 4, "name": "Set Posting Schedule", "text": "Configure how many posts per day.", "url": "https://configure.news/demo.html#step4" },
+        { "@type": "HowToStep", "position": 5, "name": "Generate Content", "text": "Click generate to see AI create platform-optimized content.", "url": "https://configure.news/demo.html#step5" }
       ]
     }
     </script>
@@ -107,333 +80,232 @@
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
       "itemListElement": [
-        {
-          "@type": "ListItem",
-          "position": 1,
-          "name": "Home",
-          "item": "https://configure.news/"
-        },
-        {
-          "@type": "ListItem",
-          "position": 2,
-          "name": "Demo",
-          "item": "https://configure.news/demo.html"
-        }
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://configure.news/" },
+        { "@type": "ListItem", "position": 2, "name": "Demo", "item": "https://configure.news/demo.html" }
       ]
     }
     </script>
 
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-        
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-        
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.5));
-        }
-        
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: all 0.3s ease;
-        }
-        
-        .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5),
-                       0 0 50px rgba(236, 72, 153, 0.3);
-        }
-        
-        .topic-card {
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
+        /* Demo-specific interactive states */
+        .topic-card { cursor: pointer; transition: all 0.2s ease; }
+        .topic-card:hover { border-color: var(--accent-primary); }
         .topic-card.selected {
-            border-color: var(--glow-purple);
-            background: rgba(168, 85, 247, 0.1);
-            transform: scale(1.05);
+            border-color: var(--accent-primary);
+            background: var(--accent-primary-light);
+            box-shadow: 0 0 0 2px var(--accent-primary);
         }
-        
-        .platform-card {
-            cursor: pointer;
-            transition: all 0.3s ease;
-            opacity: 0.6;
+        .demo-platform-card { cursor: pointer; transition: all 0.2s ease; opacity: 0.5; }
+        .demo-platform-card.available { opacity: 1; }
+        .demo-platform-card.available:hover { border-color: var(--accent-primary); }
+        .demo-platform-card.selected {
+            border-color: var(--accent-secondary);
+            background: rgba(236, 72, 153, 0.05);
+            box-shadow: 0 0 0 2px var(--accent-secondary);
         }
-        
-        .platform-card.available {
-            opacity: 1;
-        }
-        
-        .platform-card.selected {
-            border-color: var(--glow-pink);
-            background: rgba(236, 72, 153, 0.1);
-            transform: scale(1.05);
-        }
-        
-        .platform-card.unavailable {
-            opacity: 0.3;
-            cursor: not-allowed;
-        }
-        
-        .preview-post {
-            animation: slideIn 0.5s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .typing-animation {
-            overflow: hidden;
-            border-right: 2px solid var(--glow-purple);
-            animation: typing 2s steps(40, end), blink-caret 0.75s step-end infinite;
-        }
-        
-        @keyframes typing {
-            from { width: 0 }
-            to { width: 100% }
-        }
-        
-        @keyframes blink-caret {
-            from, to { border-color: transparent }
-            50% { border-color: var(--glow-purple) }
-        }
+        .demo-platform-card.unavailable { opacity: 0.35; cursor: not-allowed; }
+        .preview-post { animation: slideIn 0.5s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        input[type="range"] { accent-color: var(--accent-primary); }
     </style>
 </head>
-<body class="min-h-screen bg-black text-white">
+<body class="min-h-screen">
+
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex justify-between items-center">
-                <div class="text-2xl font-bold glow-text">News Agent Demo ✨</div>
-                <div class="flex gap-4">
-                    <a href="/" class="hover:text-purple-400 transition">Back to Home</a>
-                    <button onclick="showSignup()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition">
-                        Start Free Trial
-                    </button>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent Demo</a>
+                <div class="flex items-center gap-4">
+                    <div class="theme-toggle hidden sm:inline-flex" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/" class="text-sm text-ink-500 hover:text-brand-600 transition-colors font-medium hidden sm:inline">Back to Home</a>
+                    <a href="/auth.html" class="btn-primary btn-sm">Start Free Trial</a>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Demo Section -->
-    <section class="pt-24 pb-20 px-6">
-        <div class="container mx-auto max-w-6xl">
-            <h1 class="text-5xl font-bold text-center mb-4 glow-text">
-                Configure Your AI Social Media Bot 🤖
-            </h1>
-            <p class="text-center text-gray-400 mb-12 text-lg">
-                See how easy it is to set up your personalized content generation
-            </p>
+    <section class="py-12 sm:py-16 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-12">
+                <h1 class="text-3xl sm:text-5xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">
+                    Configure Your AI Social Media Agent
+                </h1>
+                <p class="text-ink-500 text-lg max-w-2xl mx-auto">
+                    See how easy it is to set up your personalized content generation
+                </p>
+            </div>
 
             <!-- Step 1: Choose Your Plan -->
             <div class="mb-12">
-                <h2 class="text-3xl font-bold mb-6 flex items-center">
-                    <span class="text-purple-400 mr-3">1</span> Choose Your Plan
+                <h2 class="text-2xl font-bold mb-6 flex items-center text-ink-800" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold mr-3">1</span>
+                    Choose Your Plan
                 </h2>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div id="plan-starter" class="topic-card neon-border p-6 text-center" style="cursor: pointer;">
-                        <div class="text-2xl mb-2">🚀</div>
-                        <h3 class="font-bold mb-1">Starter</h3>
-                        <p class="text-gray-400 text-sm">10 posts/day</p>
-                        <p class="text-2xl font-bold text-purple-400">$49/mo</p>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div id="plan-starter" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-bold text-ink-800 mb-1">Starter</h3>
+                        <p class="text-ink-400 text-sm">10 posts/day</p>
+                        <p class="text-xl font-bold text-brand-600 mt-2">$49/mo</p>
                     </div>
-                    <div onclick="selectPlan('growth')" id="plan-growth" class="topic-card neon-border p-6 text-center selected">
-                        <div class="text-2xl mb-2">📈</div>
-                        <h3 class="font-bold mb-1">Growth</h3>
-                        <p class="text-gray-400 text-sm">20 posts/day</p>
-                        <p class="text-2xl font-bold text-purple-400">$149/mo</p>
+                    <div id="plan-growth" class="topic-card card-static p-5 text-center selected">
+                        <h3 class="font-bold text-ink-800 mb-1">Growth</h3>
+                        <p class="text-ink-400 text-sm">20 posts/day</p>
+                        <p class="text-xl font-bold text-brand-600 mt-2">$149/mo</p>
                     </div>
-                    <div onclick="selectPlan('professional')" id="plan-professional" class="topic-card neon-border p-6 text-center">
-                        <div class="text-2xl mb-2">💼</div>
-                        <h3 class="font-bold mb-1">Professional</h3>
-                        <p class="text-gray-400 text-sm">30 posts/day</p>
-                        <p class="text-2xl font-bold text-purple-400">$399/mo</p>
+                    <div id="plan-professional" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-bold text-ink-800 mb-1">Professional</h3>
+                        <p class="text-ink-400 text-sm">30 posts/day</p>
+                        <p class="text-xl font-bold text-brand-600 mt-2">$399/mo</p>
                     </div>
-                    <div onclick="selectPlan('business')" id="plan-business" class="topic-card neon-border p-6 text-center">
-                        <div class="text-2xl mb-2">🏢</div>
-                        <h3 class="font-bold mb-1">Business</h3>
-                        <p class="text-gray-400 text-sm">45 posts/day</p>
-                        <p class="text-2xl font-bold text-purple-400">$799/mo</p>
+                    <div id="plan-business" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-bold text-ink-800 mb-1">Business</h3>
+                        <p class="text-ink-400 text-sm">45 posts/day</p>
+                        <p class="text-xl font-bold text-brand-600 mt-2">$799/mo</p>
                     </div>
                 </div>
             </div>
 
             <!-- Step 2: Select Topics -->
             <div class="mb-12">
-                <h2 class="text-3xl font-bold mb-6 flex items-center">
-                    <span class="text-purple-400 mr-3">2</span> Select Your Topic of Interest
+                <h2 class="text-2xl font-bold mb-6 flex items-center text-ink-800" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold mr-3">2</span>
+                    Select Your Topic of Interest
                 </h2>
-                <p class="text-gray-400 mb-4">Choose one topic to generate content about</p>
+                <p class="text-ink-400 mb-4">Choose one topic to generate content about</p>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div onclick="toggleTopic('ai')" id="topic-ai" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">🤖</div>
-                        <h3 class="font-semibold">AI & Machine Learning</h3>
+                    <div id="topic-ai" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">AI & Machine Learning</h3>
                     </div>
-                    <div onclick="toggleTopic('tech')" id="topic-tech" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">💻</div>
-                        <h3 class="font-semibold">Tech News</h3>
+                    <div id="topic-tech" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Tech News</h3>
                     </div>
-                    <div onclick="toggleTopic('startup')" id="topic-startup" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">🚀</div>
-                        <h3 class="font-semibold">Startups</h3>
+                    <div id="topic-startup" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Startups</h3>
                     </div>
-                    <div onclick="toggleTopic('crypto')" id="topic-crypto" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">₿</div>
-                        <h3 class="font-semibold">Crypto & Web3</h3>
+                    <div id="topic-crypto" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Crypto & Web3</h3>
                     </div>
-                    <div onclick="toggleTopic('productivity')" id="topic-productivity" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">⚡</div>
-                        <h3 class="font-semibold">Productivity</h3>
+                    <div id="topic-productivity" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Productivity</h3>
                     </div>
-                    <div onclick="toggleTopic('design')" id="topic-design" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">🎨</div>
-                        <h3 class="font-semibold">Design & UX</h3>
+                    <div id="topic-design" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Design & UX</h3>
                     </div>
-                    <div onclick="toggleTopic('business')" id="topic-business" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">💼</div>
-                        <h3 class="font-semibold">Business</h3>
+                    <div id="topic-business" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Business</h3>
                     </div>
-                    <div onclick="toggleTopic('marketing')" id="topic-marketing" class="topic-card neon-border p-6 text-center">
-                        <div class="text-3xl mb-2">📈</div>
-                        <h3 class="font-semibold">Marketing</h3>
+                    <div id="topic-marketing" class="topic-card card-static p-5 text-center">
+                        <h3 class="font-semibold text-ink-700">Marketing</h3>
                     </div>
                 </div>
             </div>
 
             <!-- Step 3: Choose Platforms -->
             <div class="mb-12">
-                <h2 class="text-3xl font-bold mb-6 flex items-center">
-                    <span class="text-purple-400 mr-3">3</span> Choose Your Platforms (Optional)
+                <h2 class="text-2xl font-bold mb-6 flex items-center text-ink-800" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold mr-3">3</span>
+                    Choose Your Platforms (Optional)
                 </h2>
-                <p class="text-gray-400 mb-4">Demo will show all 3 platforms. In the full version, content is posted only to your selected platforms.</p>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                    <div onclick="togglePlatform('linkedin')" id="platform-linkedin" class="platform-card neon-border p-8 text-center available">
-                        <div class="text-4xl mb-3">💼</div>
-                        <h3 class="text-xl font-semibold mb-2">LinkedIn</h3>
-                        <p class="text-gray-400 text-sm">Professional content</p>
-                        <p class="text-xs text-green-400 mt-2">All plans</p>
+                <p class="text-ink-400 mb-4">Demo will show all 3 platforms. In the full version, content is posted only to your selected platforms.</p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                    <div id="platform-linkedin" class="demo-platform-card card-static p-5 text-center available">
+                        <h3 class="font-semibold text-ink-800 mb-1">LinkedIn</h3>
+                        <p class="text-ink-400 text-xs">Professional content</p>
+                        <p class="text-xs text-green-600 mt-2 font-medium">All plans</p>
                     </div>
-                    <div onclick="togglePlatform('reddit')" id="platform-reddit" class="platform-card neon-border p-8 text-center available">
-                        <div class="text-4xl mb-3">🔴</div>
-                        <h3 class="text-xl font-semibold mb-2">Reddit</h3>
-                        <p class="text-gray-400 text-sm">Community posts</p>
-                        <p class="text-xs text-green-400 mt-2">All plans</p>
+                    <div id="platform-reddit" class="demo-platform-card card-static p-5 text-center available">
+                        <h3 class="font-semibold text-ink-800 mb-1">Reddit</h3>
+                        <p class="text-ink-400 text-xs">Community posts</p>
+                        <p class="text-xs text-green-600 mt-2 font-medium">All plans</p>
                     </div>
-                    <div onclick="togglePlatform('telegram')" id="platform-telegram" class="platform-card neon-border p-8 text-center available">
-                        <div class="text-4xl mb-3">✈️</div>
-                        <h3 class="text-xl font-semibold mb-2">Telegram</h3>
-                        <p class="text-gray-400 text-sm">Channel posts</p>
-                        <p class="text-xs text-green-400 mt-2">All plans</p>
+                    <div id="platform-telegram" class="demo-platform-card card-static p-5 text-center available">
+                        <h3 class="font-semibold text-ink-800 mb-1">Telegram</h3>
+                        <p class="text-ink-400 text-xs">Channel posts</p>
+                        <p class="text-xs text-green-600 mt-2 font-medium">All plans</p>
                     </div>
-                    <div onclick="togglePlatform('twitter')" id="platform-twitter" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">🐦</div>
-                        <h3 class="text-xl font-semibold mb-2">Twitter/X</h3>
-                        <p class="text-gray-400 text-sm">280 character posts</p>
-                        <p class="text-xs text-purple-400 mt-2">Growth+</p>
+                    <div id="platform-twitter" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">Twitter/X</h3>
+                        <p class="text-ink-400 text-xs">280 char posts</p>
+                        <p class="text-xs text-brand-600 mt-2 font-medium">Growth+</p>
                     </div>
-                    <div onclick="togglePlatform('facebook')" id="platform-facebook" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">📘</div>
-                        <h3 class="text-xl font-semibold mb-2">Facebook</h3>
-                        <p class="text-gray-400 text-sm">Social updates</p>
-                        <p class="text-xs text-gray-500 mt-2">Coming Soon</p>
+                    <div id="platform-facebook" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">Facebook</h3>
+                        <p class="text-ink-400 text-xs">Social updates</p>
+                        <p class="text-xs text-ink-400 mt-2">Coming Soon</p>
                     </div>
-                    <div onclick="togglePlatform('threads')" id="platform-threads" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">@</div>
-                        <h3 class="text-xl font-semibold mb-2">Threads</h3>
-                        <p class="text-gray-400 text-sm">Text conversations</p>
-                        <p class="text-xs text-gray-500 mt-2">Coming Soon</p>
+                    <div id="platform-threads" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">Threads</h3>
+                        <p class="text-ink-400 text-xs">Text conversations</p>
+                        <p class="text-xs text-ink-400 mt-2">Coming Soon</p>
                     </div>
-                    <div onclick="togglePlatform('whatsapp')" id="platform-whatsapp" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">💬</div>
-                        <h3 class="text-xl font-semibold mb-2">WhatsApp</h3>
-                        <p class="text-gray-400 text-sm">Channel broadcasts</p>
-                        <p class="text-xs text-gray-500 mt-2">Coming Soon</p>
+                    <div id="platform-whatsapp" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">WhatsApp</h3>
+                        <p class="text-ink-400 text-xs">Channel broadcasts</p>
+                        <p class="text-xs text-ink-400 mt-2">Coming Soon</p>
                     </div>
-                    <div onclick="togglePlatform('instagram')" id="platform-instagram" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">📸</div>
-                        <h3 class="text-xl font-semibold mb-2">Instagram</h3>
-                        <p class="text-gray-400 text-sm">Visual stories</p>
-                        <p class="text-xs text-orange-400 mt-2">Professional+</p>
+                    <div id="platform-instagram" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">Instagram</h3>
+                        <p class="text-ink-400 text-xs">Visual stories</p>
+                        <p class="text-xs text-amber-600 mt-2 font-medium">Professional+</p>
                     </div>
-                    <div onclick="togglePlatform('tiktok')" id="platform-tiktok" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">🎵</div>
-                        <h3 class="text-xl font-semibold mb-2">TikTok</h3>
-                        <p class="text-gray-400 text-sm">Short videos</p>
-                        <p class="text-xs text-red-400 mt-2">Business only</p>
+                    <div id="platform-tiktok" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">TikTok</h3>
+                        <p class="text-ink-400 text-xs">Short videos</p>
+                        <p class="text-xs text-red-500 mt-2 font-medium">Business only</p>
                     </div>
-                    <div onclick="togglePlatform('youtube')" id="platform-youtube" class="platform-card neon-border p-8 text-center unavailable">
-                        <div class="text-4xl mb-3">▶️</div>
-                        <h3 class="text-xl font-semibold mb-2">YouTube</h3>
-                        <p class="text-gray-400 text-sm">Video content</p>
-                        <p class="text-xs text-red-400 mt-2">Business only</p>
+                    <div id="platform-youtube" class="demo-platform-card card-static p-5 text-center unavailable">
+                        <h3 class="font-semibold text-ink-800 mb-1">YouTube</h3>
+                        <p class="text-ink-400 text-xs">Video content</p>
+                        <p class="text-xs text-red-500 mt-2 font-medium">Business only</p>
                     </div>
                 </div>
             </div>
 
             <!-- Step 4: Set Posting Schedule -->
             <div class="mb-12">
-                <h2 class="text-3xl font-bold mb-6 flex items-center">
-                    <span class="text-purple-400 mr-3">4</span> Set Your Posting Schedule
+                <h2 class="text-2xl font-bold mb-6 flex items-center text-ink-800" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold mr-3">4</span>
+                    Set Your Posting Schedule
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="neon-border p-6">
-                        <h3 class="text-xl font-semibold mb-4">Posts Per Day</h3>
-                        <input type="range" id="postsPerDay" min="1" max="20" value="5" class="w-full mb-2" onchange="updatePostsPerDay()">
-                        <p class="text-center text-2xl font-bold text-purple-400">
+                    <div class="card-static p-6">
+                        <h3 class="text-lg font-semibold mb-4 text-ink-800">Posts Per Day</h3>
+                        <input type="range" id="postsPerDay" min="1" max="20" value="5" class="w-full mb-3">
+                        <p class="text-center text-2xl font-bold text-brand-600">
                             <span id="postsPerDayValue">5</span> posts/day
                         </p>
-                        <p class="text-center text-sm text-gray-400 mt-2">
+                        <p class="text-center text-sm text-ink-400 mt-2">
                             Out of your <span id="dailyLimit">20</span> daily limit
                         </p>
                     </div>
-                    <div class="neon-border p-6">
-                        <h3 class="text-xl font-semibold mb-4">Best Times to Post</h3>
-                        <div class="space-y-2">
-                            <label class="flex items-center">
-                                <input type="checkbox" checked class="mr-2 rounded text-purple-500">
-                                <span>Morning (9-11 AM)</span>
+                    <div class="card-static p-6">
+                        <h3 class="text-lg font-semibold mb-4 text-ink-800">Best Times to Post</h3>
+                        <div class="space-y-3">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" checked class="checkbox">
+                                <span class="text-sm text-ink-700">Morning (9-11 AM)</span>
                             </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" checked class="mr-2 rounded text-purple-500">
-                                <span>Lunch (12-2 PM)</span>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" checked class="checkbox">
+                                <span class="text-sm text-ink-700">Lunch (12-2 PM)</span>
                             </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" class="mr-2 rounded text-purple-500">
-                                <span>Evening (5-7 PM)</span>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" class="checkbox">
+                                <span class="text-sm text-ink-700">Evening (5-7 PM)</span>
                             </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" class="mr-2 rounded text-purple-500">
-                                <span>Night (8-10 PM)</span>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" class="checkbox">
+                                <span class="text-sm text-ink-700">Night (8-10 PM)</span>
                             </label>
                         </div>
                     </div>
@@ -441,14 +313,15 @@
             </div>
 
             <!-- Live Preview -->
-            <div class="mb-12">
-                <h2 class="text-3xl font-bold mb-6 flex items-center">
-                    <span class="text-purple-400 mr-3">5</span> See It In Action
+            <div class="mb-16">
+                <h2 class="text-2xl font-bold mb-6 flex items-center text-ink-800" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold mr-3">5</span>
+                    See It In Action
                 </h2>
-                <div class="neon-border p-8">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-xl font-semibold">Live Post Generation Preview</h3>
-                        <button onclick="generatePreview()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition inline-flex items-center gap-2">
+                <div class="card-static p-6 sm:p-8">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                        <h3 class="text-lg font-semibold text-ink-800">Live Post Generation Preview</h3>
+                        <button id="generatePreviewBtn" class="btn-primary inline-flex items-center gap-2">
                             <span id="generateBtnText">Generate Sample Post</span>
                             <div id="loadingSpinner" class="hidden">
                                 <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -458,45 +331,39 @@
                             </div>
                         </button>
                     </div>
-                    
+
                     <div id="previewContainer" class="hidden">
                         <div class="preview-post space-y-4">
-                            <div class="text-gray-400 text-sm mb-4">
-                                <div>Generated for topic: <span id="previewTopic" class="text-purple-400 font-semibold"></span></div>
+                            <div class="text-ink-400 text-sm mb-4">
+                                <div>Generated for topic: <span id="previewTopic" class="text-brand-600 font-semibold"></span></div>
                                 <div class="text-xs mt-1">Preview shows how your content will appear on all platforms</div>
                             </div>
-                            
+
                             <!-- Twitter Preview -->
                             <div id="twitterPreview" class="hidden">
-                                <h4 class="text-lg font-semibold mb-2 flex items-center">
-                                    <span class="mr-2">🐦</span> Twitter/X
-                                </h4>
-                                <div class="bg-gray-900 rounded-lg p-4">
-                                    <p id="twitterContent" class="text-lg mb-2"></p>
-                                    <p class="text-gray-500 text-sm">
+                                <h4 class="text-base font-semibold mb-2 text-ink-800">Twitter/X</h4>
+                                <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                                    <p id="twitterContent" class="text-ink-700 mb-2"></p>
+                                    <p class="text-ink-400 text-sm">
                                         <span id="twitterChars">0</span>/280 characters
                                     </p>
                                 </div>
                             </div>
-                            
+
                             <!-- LinkedIn Preview -->
                             <div id="linkedinPreview" class="hidden">
-                                <h4 class="text-lg font-semibold mb-2 flex items-center">
-                                    <span class="mr-2">💼</span> LinkedIn
-                                </h4>
-                                <div class="bg-gray-900 rounded-lg p-4">
-                                    <p id="linkedinContent" class="text-base whitespace-pre-line"></p>
+                                <h4 class="text-base font-semibold mb-2 text-ink-800">LinkedIn</h4>
+                                <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                                    <p id="linkedinContent" class="text-ink-700 whitespace-pre-line"></p>
                                 </div>
                             </div>
-                            
+
                             <!-- Reddit Preview -->
                             <div id="redditPreview" class="hidden">
-                                <h4 class="text-lg font-semibold mb-2 flex items-center">
-                                    <span class="mr-2">🔴</span> Reddit
-                                </h4>
-                                <div class="bg-gray-900 rounded-lg p-4">
-                                    <h5 id="redditTitle" class="font-bold mb-2"></h5>
-                                    <p id="redditContent" class="text-base"></p>
+                                <h4 class="text-base font-semibold mb-2 text-ink-800">Reddit</h4>
+                                <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                                    <h5 id="redditTitle" class="font-bold text-ink-800 mb-2"></h5>
+                                    <p id="redditContent" class="text-ink-700"></p>
                                 </div>
                             </div>
                         </div>
@@ -505,13 +372,13 @@
             </div>
 
             <!-- CTA Section -->
-            <div class="text-center">
-                <h2 class="text-3xl font-bold mb-4 glow-text">Ready to Automate Your Social Media?</h2>
-                <p class="text-gray-400 mb-8 text-lg">Join thousands of creators who save hours every week</p>
-                <button onclick="startFreeTrial()" class="bg-gradient-to-r from-purple-500 to-pink-500 px-12 py-4 rounded-full text-xl font-semibold hover:scale-105 transition">
+            <div class="text-center card-gradient p-10 sm:p-14 rounded-2xl">
+                <h2 class="text-2xl sm:text-3xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Ready to Automate Your Social Media?</h2>
+                <p class="text-ink-500 mb-8 text-lg">Join thousands of creators who save hours every week</p>
+                <a href="/auth.html" class="btn-primary btn-lg">
                     Start Your Free Trial
-                </button>
-                <p class="text-gray-500 mt-4">No credit card required • 5 free posts daily</p>
+                </a>
+                <p class="text-ink-400 mt-4 text-sm">No credit card required</p>
             </div>
         </div>
     </section>
@@ -519,18 +386,18 @@
     <!-- Modal Container -->
     <div id="modalContainer"></div>
 
+    <script src="/js/animations.js"></script>
     <script src="/js/demo.js"></script>
-    
+
     <!-- Debug info -->
-    <div id="debug" style="position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.8); padding: 10px; border: 1px solid #666; display: none;">
-        <h4 style="margin: 0 0 10px 0;">Debug Info</h4>
-        <pre id="debugOutput" style="margin: 0; font-size: 12px;"></pre>
+    <div id="debug" style="position: fixed; bottom: 10px; right: 10px; background: rgba(255,255,255,0.95); padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; display: none; z-index: 9999;">
+        <h4 style="margin: 0 0 10px 0; font-size: 12px; font-weight: 600;">Debug Info</h4>
+        <pre id="debugOutput" style="margin: 0; font-size: 11px;"></pre>
     </div>
-    
+
     <script>
         // Debug mode
         window.addEventListener('DOMContentLoaded', () => {
-            // Show debug info with keyboard shortcut
             document.addEventListener('keydown', (e) => {
                 if (e.ctrlKey && e.key === 'd') {
                     const debug = document.getElementById('debug');
@@ -538,7 +405,7 @@
                     updateDebugInfo();
                 }
             });
-            
+
             function updateDebugInfo() {
                 const debugOutput = document.getElementById('debugOutput');
                 debugOutput.textContent = JSON.stringify({
@@ -552,15 +419,9 @@
                     }
                 }, null, 2);
             }
-            
-            // Override console.error to show alerts
-            const originalError = console.error;
-            console.error = function(...args) {
-                originalError.apply(console, args);
-                alert('Error: ' + args.join(' '));
-            };
         });
     </script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

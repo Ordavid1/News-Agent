@@ -32,7 +32,10 @@
     <!-- App Icons -->
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -111,108 +114,69 @@
     }
     </script>
 
+    <!-- Fonts -->
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="/styles/output.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .neon-border:hover {
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
-            transform: translateY(-5px);
-        }
-
-        .article-card {
-            transition: all 0.3s ease;
-        }
-
-        .article-card:hover {
-            transform: translateY(-8px);
-        }
-    </style>
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
 </head>
-<body class="min-h-screen bg-black text-white">
+<body class="min-h-screen bg-surface-50">
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex justify-between items-center">
-                <a href="/" class="text-2xl font-bold glow-text">News Agent</a>
-                <div class="hidden md:flex space-x-8">
-                    <a href="/#features" class="hover:text-purple-400 transition">Features</a>
-                    <a href="/#pricing" class="hover:text-purple-400 transition">Pricing</a>
-                    <a href="/blog/" class="text-purple-400">Blog</a>
-                    <a href="/auth.html" class="hover:text-purple-400 transition">Login</a>
-                    <a href="/auth.html" class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full hover:scale-105 transition">
-                        Get Started
-                    </a>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="hidden md:flex items-center gap-6">
+                    <a href="/#features" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Features</a>
+                    <a href="/#pricing" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Pricing</a>
+                    <a href="/blog/" class="text-brand-600 text-sm font-medium">Blog</a>
+                    <a href="/auth.html" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Login</a>
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/auth.html" class="btn-primary btn-sm">Get Started</a>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Hero Section -->
-    <section class="pt-32 pb-16 px-6">
-        <div class="container mx-auto text-center max-w-4xl">
-            <h1 class="text-5xl md:text-6xl font-bold mb-6 glow-text">
+    <section class="pt-16 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto text-center">
+            <h1 class="text-4xl sm:text-5xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">
                 News Agent Blog
             </h1>
-            <p class="text-xl text-gray-400 mb-8">
+            <p class="text-lg text-ink-400 max-w-2xl mx-auto">
                 Expert insights on AI-powered social media automation, content generation strategies, and growing your online presence.
             </p>
         </div>
     </section>
 
     <!-- Featured Article -->
-    <section class="pb-16 px-6">
-        <div class="container mx-auto max-w-6xl">
-            <h2 class="text-2xl font-bold mb-8 text-purple-400">Featured Article</h2>
+    <section class="pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
+            <h2 class="text-xl font-bold mb-6 text-ink-800">Featured Article</h2>
             <a href="/blog/ai-social-media-automation-guide.html" class="block">
-                <article class="neon-border p-8 md:flex gap-8 article-card">
+                <article class="card-interactive p-6 sm:p-8 md:flex gap-8">
                     <div class="md:w-1/3 mb-6 md:mb-0">
-                        <div class="bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg h-48 flex items-center justify-center text-6xl">
-                            🤖
+                        <div class="bg-gradient-to-br from-brand-500 to-rose-500 rounded-xl h-48 flex items-center justify-center">
+                            <svg class="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                         </div>
                     </div>
                     <div class="md:w-2/3">
-                        <span class="text-purple-400 text-sm font-medium">GUIDE</span>
-                        <h3 class="text-2xl md:text-3xl font-bold mt-2 mb-4 hover:text-purple-400 transition">
+                        <span class="text-brand-600 text-sm font-semibold uppercase tracking-wide">Guide</span>
+                        <h3 class="text-2xl md:text-3xl font-bold mt-2 mb-4 text-ink-800">
                             The Complete Guide to AI Social Media Automation in 2024
                         </h3>
-                        <p class="text-gray-400 mb-4">
+                        <p class="text-ink-500 mb-4">
                             Learn everything you need to know about using AI to automate your social media presence. From choosing the right tools to implementing effective strategies, this comprehensive guide covers it all.
                         </p>
-                        <div class="flex items-center text-sm text-gray-500">
+                        <div class="flex items-center text-sm text-ink-400">
                             <span>December 1, 2024</span>
-                            <span class="mx-2">•</span>
+                            <span class="mx-2">&middot;</span>
                             <span>15 min read</span>
                         </div>
                     </div>
@@ -222,120 +186,120 @@
     </section>
 
     <!-- All Articles -->
-    <section class="pb-20 px-6">
-        <div class="container mx-auto max-w-6xl">
-            <h2 class="text-2xl font-bold mb-8 text-purple-400">All Articles</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+    <section class="pb-16 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
+            <h2 class="text-xl font-bold mb-6 text-ink-800">All Articles</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <!-- Article 1 -->
                 <a href="/blog/how-to-automate-social-media-posting.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            ⚡
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-sky-500 to-cyan-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                         </div>
-                        <span class="text-cyan-400 text-sm font-medium">TUTORIAL</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-cyan-600 text-sm font-semibold">TUTORIAL</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             How to Automate Social Media Posting: Step-by-Step Tutorial
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             A practical step-by-step guide to setting up automated social media posting using AI tools.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 28, 2024 • 10 min read
+                        <div class="text-xs text-ink-400">
+                            November 28, 2024 &middot; 10 min read
                         </div>
                     </article>
                 </a>
 
                 <!-- Article 2 -->
                 <a href="/blog/best-ai-content-generators-2024.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-pink-600 to-rose-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            🏆
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-rose-500 to-pink-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path></svg>
                         </div>
-                        <span class="text-pink-400 text-sm font-medium">COMPARISON</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-rose-600 text-sm font-semibold">COMPARISON</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             Best AI Content Generators for Social Media in 2024
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             Compare the top AI content generation tools and find the perfect one for your social media strategy.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 25, 2024 • 12 min read
+                        <div class="text-xs text-ink-400">
+                            November 25, 2024 &middot; 12 min read
                         </div>
                     </article>
                 </a>
 
                 <!-- Article 3 -->
                 <a href="/blog/multi-platform-social-media-strategy.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-green-600 to-emerald-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            📱
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         </div>
-                        <span class="text-green-400 text-sm font-medium">STRATEGY</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-emerald-600 text-sm font-semibold">STRATEGY</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             Multi-Platform Social Media Strategy: Post Everywhere at Once
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             Learn how to efficiently manage and post to multiple social media platforms simultaneously.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 22, 2024 • 8 min read
+                        <div class="text-xs text-ink-400">
+                            November 22, 2024 &middot; 8 min read
                         </div>
                     </article>
                 </a>
 
                 <!-- Article 4 -->
                 <a href="/blog/news-aggregation-content-creation.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-orange-600 to-amber-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            📰
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-amber-500 to-orange-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path></svg>
                         </div>
-                        <span class="text-orange-400 text-sm font-medium">INSIGHTS</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-amber-600 text-sm font-semibold">INSIGHTS</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             Using News Aggregation for Content Creation: A Modern Approach
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             Discover how to leverage trending news to create engaging social media content automatically.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 18, 2024 • 9 min read
+                        <div class="text-xs text-ink-400">
+                            November 18, 2024 &middot; 9 min read
                         </div>
                     </article>
                 </a>
 
                 <!-- Article 5 -->
                 <a href="/blog/viral-content-strategies-ai.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-violet-600 to-purple-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            🚀
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
                         </div>
-                        <span class="text-violet-400 text-sm font-medium">GROWTH</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-violet-600 text-sm font-semibold">GROWTH</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             Viral Content Strategies: How AI Can Boost Your Reach
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             Learn the science behind viral content and how AI can help you create posts that get shared.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 15, 2024 • 11 min read
+                        <div class="text-xs text-ink-400">
+                            November 15, 2024 &middot; 11 min read
                         </div>
                     </article>
                 </a>
 
                 <!-- Article 6 -->
                 <a href="/blog/social-media-analytics-ai.html" class="block">
-                    <article class="neon-border p-6 h-full article-card">
-                        <div class="bg-gradient-to-br from-red-600 to-rose-600 rounded-lg h-32 flex items-center justify-center text-4xl mb-4">
-                            📊
+                    <article class="card-interactive p-6 h-full">
+                        <div class="bg-gradient-to-br from-red-500 to-rose-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                         </div>
-                        <span class="text-red-400 text-sm font-medium">ANALYTICS</span>
-                        <h3 class="text-xl font-bold mt-2 mb-3 hover:text-purple-400 transition">
+                        <span class="text-red-600 text-sm font-semibold">ANALYTICS</span>
+                        <h3 class="text-lg font-bold mt-2 mb-3 text-ink-800">
                             Understanding Social Media Analytics with AI Insights
                         </h3>
-                        <p class="text-gray-400 text-sm mb-4">
+                        <p class="text-ink-500 text-sm mb-4">
                             How to use AI-powered analytics to understand your audience and optimize your content strategy.
                         </p>
-                        <div class="text-xs text-gray-500">
-                            November 10, 2024 • 10 min read
+                        <div class="text-xs text-ink-400">
+                            November 10, 2024 &middot; 10 min read
                         </div>
                     </article>
                 </a>
@@ -344,54 +308,58 @@
     </section>
 
     <!-- Newsletter CTA -->
-    <section class="py-16 px-6 bg-gradient-to-r from-purple-900/50 to-pink-900/50">
-        <div class="container mx-auto max-w-2xl text-center">
-            <h2 class="text-3xl font-bold mb-4 glow-text">Stay Updated</h2>
-            <p class="text-gray-400 mb-6">Get the latest AI social media tips and strategies delivered to your inbox.</p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <input type="email" placeholder="Enter your email" class="px-6 py-3 bg-black/50 border border-purple-500/30 rounded-full focus:border-purple-500 focus:outline-none text-center sm:text-left">
-                <button class="bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
-                    Subscribe
-                </button>
+    <section class="py-16 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-2xl mx-auto">
+            <div class="card-gradient p-10 sm:p-14 rounded-2xl text-center">
+                <h2 class="text-2xl sm:text-3xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Stay Updated</h2>
+                <p class="text-ink-500 mb-6">Get the latest AI social media tips and strategies delivered to your inbox.</p>
+                <div class="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
+                    <input type="email" placeholder="Enter your email" class="input flex-1">
+                    <button class="btn-primary whitespace-nowrap">Subscribe</button>
+                </div>
             </div>
         </div>
     </section>
 
     <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto">
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
                 <div>
-                    <div class="text-2xl font-bold glow-text mb-4">News Agent</div>
-                    <p class="text-gray-400 text-sm">AI-powered social media automation platform.</p>
+                    <div class="text-xl font-bold gradient-text mb-4" style="font-family: 'Satoshi', sans-serif;">News Agent</div>
+                    <p class="text-ink-400 text-sm">AI-powered social media automation platform.</p>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Product</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/#features" class="hover:text-white transition">Features</a></li>
-                        <li><a href="/#pricing" class="hover:text-white transition">Pricing</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Product</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/#features" class="hover:text-brand-600 transition-colors">Features</a></li>
+                        <li><a href="/#pricing" class="hover:text-brand-600 transition-colors">Pricing</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Resources</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="/blog/" class="hover:text-white transition">Blog</a></li>
-                        <li><a href="/blog/ai-social-media-automation-guide.html" class="hover:text-white transition">Guides</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Resources</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/blog/" class="hover:text-brand-600 transition-colors">Blog</a></li>
+                        <li><a href="/blog/ai-social-media-automation-guide.html" class="hover:text-brand-600 transition-colors">Guides</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h4 class="font-semibold mb-4 text-purple-400">Company</h4>
-                    <ul class="space-y-2 text-sm text-gray-400">
-                        <li><a href="mailto:support@aipostgenerator.dev" class="hover:text-white transition">Contact</a></li>
-                        <li><a href="/privacy.html" class="hover:text-white transition">Privacy</a></li>
-                        <li><a href="/terms.html" class="hover:text-white transition">Terms</a></li>
+                    <h4 class="font-semibold mb-4 text-ink-800">Company</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="mailto:support@aipostgenerator.dev" class="hover:text-brand-600 transition-colors">Contact</a></li>
+                        <li><a href="/privacy.html" class="hover:text-brand-600 transition-colors">Privacy</a></li>
+                        <li><a href="/terms.html" class="hover:text-brand-600 transition-colors">Terms</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="border-t border-purple-500/20 pt-8 text-center text-sm text-gray-500">
+            <div class="border-t border-surface-200 pt-8 text-center text-sm text-ink-400">
                 <p>&copy; 2024 News Agent. All rights reserved.</p>
             </div>
         </div>
     </footer>
+
+    <script src="/js/animations.js"></script>
+    <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

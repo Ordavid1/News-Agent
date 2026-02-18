@@ -33,7 +33,10 @@
     <!-- App Icons -->
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
 
     <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -127,58 +130,63 @@
     </script>
 
     <link rel="stylesheet" href="/styles/output.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --glow-purple: #a855f7; --glow-pink: #ec4899; --glow-blue: #3b82f6; }
-        body { font-family: 'Space Grotesk', sans-serif; background: #0a0a0a; }
-        .glow-text { background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .neon-border { background: rgba(0, 0, 0, 0.8); border-radius: 20px; border: 2px solid transparent; background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue)); background-origin: border-box; background-clip: padding-box, border-box; }
-        .prose h2 { color: #a855f7; font-size: 1.75rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
-        .prose h3 { color: #ec4899; font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
-        .prose p { color: #d1d5db; line-height: 1.8; margin-bottom: 1.25rem; }
-        .prose ul, .prose ol { color: #d1d5db; margin-bottom: 1.25rem; padding-left: 1.5rem; }
-        .prose li { margin-bottom: 0.5rem; }
-        .prose strong { color: #fff; }
-        .step-card { background: rgba(168, 85, 247, 0.1); border-left: 4px solid #a855f7; padding: 1.5rem; margin: 1.5rem 0; border-radius: 0 12px 12px 0; }
-        .step-number { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: linear-gradient(to right, #a855f7, #ec4899); border-radius: 50%; font-weight: bold; margin-right: 12px; }
+    .prose h2 { color: rgb(var(--color-ink-800)); font-size: 1.75rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
+    .prose h3 { color: rgb(var(--color-ink-700)); font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
+    .prose p { color: rgb(var(--color-ink-600)); line-height: 1.8; margin-bottom: 1.25rem; }
+    .prose ul, .prose ol { color: rgb(var(--color-ink-600)); margin-bottom: 1.25rem; padding-left: 1.5rem; }
+    .prose li { margin-bottom: 0.5rem; }
+    .prose strong { color: rgb(var(--color-ink-800)); }
+    .prose a { color: rgb(var(--color-brand-500)); text-decoration: underline; }
+    .prose blockquote { border-left: 4px solid rgb(var(--color-brand-500)); padding-left: 1rem; margin: 1.5rem 0; color: rgb(var(--color-ink-400)); font-style: italic; }
+    .step-card { background: rgb(var(--color-brand-50)); border-left: 4px solid rgb(var(--color-brand-500)); padding: 1.5rem; margin: 1.5rem 0; border-radius: 0 12px 12px 0; }
+    .step-number { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: linear-gradient(135deg, rgb(var(--color-brand-500)), rgb(var(--color-accent-500))); border-radius: 50%; font-weight: bold; margin-right: 12px; color: white; }
     </style>
 </head>
-<body class="min-h-screen bg-black text-white">
+<body class="min-h-screen bg-surface-50">
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full z-50 backdrop-blur-lg bg-black/70 border-b border-purple-500/20">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex justify-between items-center">
-                <a href="/" class="text-2xl font-bold glow-text">News Agent</a>
-                <div class="hidden md:flex space-x-8">
-                    <a href="/#features" class="hover:text-purple-400 transition">Features</a>
-                    <a href="/#pricing" class="hover:text-purple-400 transition">Pricing</a>
-                    <a href="/blog/" class="text-purple-400">Blog</a>
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="hidden md:flex items-center gap-6">
+                    <a href="/#features" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Features</a>
+                    <a href="/#pricing" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Pricing</a>
+                    <a href="/blog/" class="text-brand-600 text-sm font-medium">Blog</a>
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Article -->
-    <article class="pt-28 pb-20 px-6">
+    <article class="pt-12 pb-16 px-4 sm:px-6 lg:px-8">
         <div class="container mx-auto max-w-3xl">
             <!-- Breadcrumb -->
-            <nav class="text-sm text-gray-400 mb-8">
-                <a href="/" class="hover:text-purple-400">Home</a>
+            <nav class="text-sm text-ink-400 mb-8">
+                <a href="/" class="hover:text-brand-600">Home</a>
                 <span class="mx-2">/</span>
-                <a href="/blog/" class="hover:text-purple-400">Blog</a>
+                <a href="/blog/" class="hover:text-brand-600">Blog</a>
                 <span class="mx-2">/</span>
-                <span class="text-gray-300">How to Automate Social Media Posting</span>
+                <span class="text-ink-600">How to Automate Social Media Posting</span>
             </nav>
 
             <!-- Header -->
             <header class="mb-12">
-                <span class="text-cyan-400 text-sm font-medium uppercase tracking-wide">Tutorial</span>
-                <h1 class="text-4xl md:text-5xl font-bold mt-4 mb-6 glow-text leading-tight">
+                <span class="text-cyan-600 text-sm font-medium uppercase tracking-wide">Tutorial</span>
+                <h1 class="text-4xl md:text-5xl font-bold mt-4 mb-6 gradient-text leading-tight" style="font-family: 'Satoshi', sans-serif;">
                     How to Automate Social Media Posting: Step-by-Step Tutorial
                 </h1>
-                <div class="flex items-center text-gray-400 text-sm">
+                <div class="flex items-center text-ink-400 text-sm">
                     <span>November 28, 2024</span>
-                    <span class="mx-3">•</span>
+                    <span class="mx-3">&bull;</span>
                     <span>10 min read</span>
                 </div>
             </header>
@@ -190,7 +198,7 @@
 
             <!-- Content -->
             <div class="prose max-w-none">
-                <p class="text-xl text-gray-300 mb-8">
+                <p class="text-xl text-ink-600 mb-8">
                     Automating your social media posting can save you hours every week while maintaining a consistent online presence. In this tutorial, we'll walk you through exactly how to set up AI-powered social media automation from scratch.
                 </p>
 
@@ -204,22 +212,22 @@
 
                 <h2>Step 1: Create Your News Agent Account</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">1</span>
                         Sign Up and Complete Onboarding
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Visit <a href="/auth.html">aipostgenerator.dev</a> and create your account. You can start with the free tier which gives you 1 post per week to test the platform.
                     </p>
                 </div>
 
                 <h2>Step 2: Connect Your Social Media Platforms</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">2</span>
                         Link Your Social Accounts
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Navigate to the Connections tab in your dashboard. Click "Connect" next to each platform you want to automate. You'll be redirected to authorize News Agent to post on your behalf. Currently supported platforms include:
                     </p>
                 </div>
@@ -233,22 +241,22 @@
 
                 <h2>Step 3: Configure Your Topic Preferences</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">3</span>
                         Select Topics to Monitor
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Choose the topics you want the AI to track. The more specific you are, the more relevant your automated content will be. Popular categories include Technology, Business, AI/ML, Crypto, Marketing, and more.
                     </p>
                 </div>
 
                 <h2>Step 4: Set Your Posting Schedule</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">4</span>
                         Configure Frequency and Timing
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Decide how many posts per day you want and during which hours. The AI will distribute posts throughout your active hours for optimal engagement.
                     </p>
                 </div>
@@ -258,22 +266,22 @@
 
                 <h2>Step 5: Customize Your Content Style</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">5</span>
                         Define Your Brand Voice
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Choose your preferred tone: Professional, Casual, Humorous, or Educational. Enable or disable hashtags based on your platform preferences.
                     </p>
                 </div>
 
                 <h2>Step 6: Activate and Monitor</h2>
                 <div class="step-card">
-                    <p class="flex items-center font-bold text-white mb-2">
+                    <p class="flex items-center font-bold text-ink-800 mb-2">
                         <span class="step-number">6</span>
                         Launch Your Automation
                     </p>
-                    <p class="text-gray-300 mb-0">
+                    <p class="text-ink-600 mb-0">
                         Click "Launch News Agent" from your dashboard to activate automation. Monitor the first few posts to ensure everything is working as expected.
                     </p>
                 </div>
@@ -296,12 +304,12 @@
                 </ul>
 
                 <!-- CTA Box -->
-                <div class="neon-border p-8 mt-12 text-center">
-                    <h3 class="text-2xl font-bold mb-4 glow-text">Ready to Start Automating?</h3>
-                    <p class="text-gray-400 mb-6">
+                <div class="card-gradient p-8 mt-12 text-center">
+                    <h3 class="text-2xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Ready to Start Automating?</h3>
+                    <p class="text-ink-500 mb-6">
                         Try News Agent free and set up your automation in minutes.
                     </p>
-                    <a href="/auth.html" class="inline-block bg-gradient-to-r from-purple-500 to-pink-500 px-8 py-3 rounded-full font-semibold hover:scale-105 transition">
+                    <a href="/auth.html" class="btn-primary">
                         Get Started Free
                     </a>
                 </div>
@@ -310,10 +318,13 @@
     </article>
 
     <!-- Footer -->
-    <footer class="border-t border-purple-500/20 py-12 px-6">
-        <div class="container mx-auto text-center text-sm text-gray-500">
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-6">
+        <div class="container mx-auto text-center text-sm text-ink-400">
             <p>&copy; 2024 News Agent. All rights reserved.</p>
         </div>
     </footer>
+
+    <script src="/js/animations.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

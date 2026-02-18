@@ -7,25 +7,32 @@
     <!-- Prevent indexing of test pages -->
     <meta name="robots" content="noindex, nofollow">
     <meta name="googlebot" content="noindex, nofollow">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
+    <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
 </head>
-<body>
-    <h1>Test Demo Functions</h1>
-    
-    <button onclick="console.log('Direct onclick works')">Test Direct onClick</button>
-    <button onclick="testFunction()">Test Function Call</button>
-    <button onclick="selectPlan('starter')">Test selectPlan</button>
-    
-    <div id="output"></div>
-    
+<body class="min-h-screen bg-surface-50 p-8">
+    <h1 class="text-2xl font-bold text-ink-800 mb-6">Test Demo Functions</h1>
+
+    <div class="flex flex-wrap gap-3 mb-6">
+        <button onclick="console.log('Direct onclick works')" class="btn-primary btn-sm">Test Direct onClick</button>
+        <button onclick="testFunction()" class="btn-outline btn-sm">Test Function Call</button>
+        <button onclick="selectPlan('starter')" class="btn-secondary btn-sm">Test selectPlan</button>
+    </div>
+
+    <div id="output" class="card-static p-4 text-ink-600"></div>
+
     <script>
         console.log('Inline script loaded');
-        
+
         function testFunction() {
             console.log('testFunction called');
             document.getElementById('output').innerHTML = 'Function called!';
         }
-        
+
         // Check if demo.js functions are available
         setTimeout(() => {
             console.log('Checking for demo.js functions...');
@@ -34,8 +41,9 @@
             console.log('togglePlatform:', typeof window.togglePlatform);
         }, 1000);
     </script>
-    
+
     <script src="/js/demo.js"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

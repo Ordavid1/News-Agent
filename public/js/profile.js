@@ -1346,9 +1346,9 @@ function renderAgentsGrid() {
 
     grid.innerHTML = agents.map(agent => {
         const icon = platformIcons[agent.platform] || '';
-        const bgColor = platformColors[agent.platform] || 'bg-gray-700';
-        const statusColor = agent.status === 'active' ? 'text-green-400' : 'text-yellow-400';
-        const statusBg = agent.status === 'active' ? 'bg-green-500/20' : 'bg-yellow-500/20';
+        const bgColor = platformColors[agent.platform] || 'bg-surface-200';
+        const statusColor = agent.status === 'active' ? 'text-green-700' : 'text-amber-700';
+        const statusBg = agent.status === 'active' ? 'bg-green-50' : 'bg-amber-50';
         const lastPosted = agent.last_posted_at
             ? new Date(agent.last_posted_at).toLocaleDateString()
             : 'Never';
@@ -1357,8 +1357,8 @@ function renderAgentsGrid() {
         const testUsed = !!agent.test_used_at;
         const testDisabled = agent.status !== 'active' || testUsed;
         const testButtonClass = testUsed
-            ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
-            : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30';
+            ? 'bg-surface-200 text-ink-400 cursor-not-allowed'
+            : 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200';
         const testButtonText = testUsed ? 'Used' : 'Test';
 
         return `
@@ -1369,8 +1369,8 @@ function renderAgentsGrid() {
                             ${icon}
                         </div>
                         <div>
-                            <h4 class="font-semibold">${escapeHtml(agent.name)}</h4>
-                            <p class="text-sm text-gray-400 capitalize">${agent.platform}</p>
+                            <h4 class="font-semibold text-ink-800">${escapeHtml(agent.name)}</h4>
+                            <p class="text-sm text-ink-500 capitalize">${agent.platform}</p>
                         </div>
                     </div>
                     <span class="${statusBg} ${statusColor} px-3 py-1 rounded-full text-xs font-medium capitalize">
@@ -1380,12 +1380,12 @@ function renderAgentsGrid() {
 
                 <div class="grid grid-cols-2 gap-4 mb-4 text-sm">
                     <div>
-                        <p class="text-gray-500">Posts Today</p>
-                        <p class="font-medium">${agent.posts_today || 0}</p>
+                        <p class="text-ink-500">Posts Today</p>
+                        <p class="font-medium text-ink-800">${agent.posts_today || 0}</p>
                     </div>
                     <div>
-                        <p class="text-gray-500">Last Posted</p>
-                        <p class="font-medium">${lastPosted}</p>
+                        <p class="text-ink-500">Last Posted</p>
+                        <p class="font-medium text-ink-800">${lastPosted}</p>
                     </div>
                 </div>
 
@@ -1397,11 +1397,11 @@ function renderAgentsGrid() {
                         <span>${testButtonText}</span>
                     </button>
                     <button onclick="window.location.href='/settings.html?agent=${agent.id}'"
-                            class="flex-1 py-2 rounded-lg bg-purple-500/20 text-purple-400 text-sm font-medium hover:bg-purple-500/30 transition-all">
+                            class="flex-1 py-2 rounded-lg bg-brand-50 text-brand-600 text-sm font-medium hover:bg-brand-100 border border-brand-200 transition-all">
                         Configure
                     </button>
                     <button onclick="toggleAgentStatus('${agent.id}', '${agent.status}')"
-                            class="px-3 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm hover:text-white transition-all"
+                            class="px-3 py-2 rounded-lg border border-surface-300 text-ink-500 text-sm hover:text-ink-700 hover:bg-surface-100 transition-all"
                             title="${agent.status === 'active' ? 'Pause' : 'Resume'}">
                         ${agent.status === 'active'
                             ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
@@ -1409,7 +1409,7 @@ function renderAgentsGrid() {
                         }
                     </button>
                     <button onclick="deleteAgent('${agent.id}', '${escapeHtml(agent.name)}')"
-                            class="px-3 py-2 rounded-lg border border-red-500/50 text-red-400 text-sm hover:bg-red-500/20 transition-all"
+                            class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-sm hover:bg-red-50 transition-all"
                             title="Delete">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -1757,27 +1757,28 @@ function getPlanIndex(tier) {
 function showPlanChangeNotification(message, isUpgrade) {
     const notification = document.createElement('div');
     notification.id = 'planChangeNotification';
-    const colorClass = isUpgrade ? 'from-blue-500/20 to-purple-500/20 border-blue-500/50' : 'from-orange-500/20 to-yellow-500/20 border-orange-500/50';
-    const iconColor = isUpgrade ? 'text-blue-400' : 'text-orange-400';
-    const titleColor = isUpgrade ? 'text-blue-400' : 'text-orange-400';
+    const borderColor = isUpgrade ? 'border-l-blue-500 border-blue-200' : 'border-l-amber-500 border-amber-200';
+    const iconColor = isUpgrade ? 'text-blue-600' : 'text-amber-600';
+    const iconBg = isUpgrade ? 'bg-blue-50' : 'bg-amber-50';
+    const titleColor = isUpgrade ? 'text-blue-700' : 'text-amber-700';
     const title = isUpgrade ? 'Plan Upgrade Scheduled' : 'Plan Change Scheduled';
 
-    notification.className = `fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r ${colorClass} border shadow-2xl animate-slide-in`;
+    notification.className = `fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-surface-0 border border-l-4 ${borderColor} shadow-2xl animate-slide-in`;
     notification.innerHTML = `
         <div class="flex items-start gap-4">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-${isUpgrade ? 'blue' : 'orange'}-500/20 flex items-center justify-center">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full ${iconBg} flex items-center justify-center">
                 <svg class="w-6 h-6 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                 </svg>
             </div>
             <div class="flex-1">
                 <h3 class="text-lg font-semibold ${titleColor} mb-1">${title}</h3>
-                <p class="text-gray-300 text-sm mb-3">${message}</p>
+                <p class="text-ink-600 text-sm mb-3">${message}</p>
                 <button onclick="closePlanChangeNotification()" class="text-sm ${titleColor} hover:opacity-80 transition-colors">
                     Got it
                 </button>
             </div>
-            <button onclick="closePlanChangeNotification()" class="text-gray-500 hover:text-white transition-colors">
+            <button onclick="closePlanChangeNotification()" class="text-ink-400 hover:text-ink-700 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -1808,22 +1809,22 @@ function showPaymentSuccessMessage() {
     // Create and show success notification
     const notification = document.createElement('div');
     notification.id = 'paymentSuccessNotification';
-    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/50 shadow-2xl animate-slide-in';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-surface-0 border border-l-4 border-l-green-500 border-green-200 shadow-2xl animate-slide-in';
     notification.innerHTML = `
         <div class="flex items-start gap-4">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-                <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
             </div>
             <div class="flex-1">
-                <h3 class="text-lg font-semibold text-green-400 mb-1">Payment Successful!</h3>
-                <p class="text-gray-300 text-sm mb-3" id="paymentSuccessText">Your subscription has been activated. Enjoy your new features!</p>
-                <button onclick="closePaymentNotification()" class="text-sm text-green-400 hover:text-green-300 transition-colors">
+                <h3 class="text-lg font-semibold text-green-700 mb-1">Payment Successful!</h3>
+                <p class="text-ink-600 text-sm mb-3" id="paymentSuccessText">Your subscription has been activated. Enjoy your new features!</p>
+                <button onclick="closePaymentNotification()" class="text-sm text-green-600 hover:text-green-700 transition-colors">
                     Dismiss
                 </button>
             </div>
-            <button onclick="closePaymentNotification()" class="text-gray-500 hover:text-white transition-colors">
+            <button onclick="closePaymentNotification()" class="text-ink-400 hover:text-ink-700 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -1910,22 +1911,22 @@ function showPaymentCancelledMessage() {
     // Create and show cancelled notification
     const notification = document.createElement('div');
     notification.id = 'paymentCancelledNotification';
-    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/50 shadow-2xl animate-slide-in';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-surface-0 border border-l-4 border-l-amber-500 border-amber-200 shadow-2xl animate-slide-in';
     notification.innerHTML = `
         <div class="flex items-start gap-4">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+                <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                 </svg>
             </div>
             <div class="flex-1">
-                <h3 class="text-lg font-semibold text-yellow-400 mb-1">Payment Cancelled</h3>
-                <p class="text-gray-300 text-sm mb-3">No worries! You can upgrade anytime when you're ready.</p>
-                <button onclick="closePaymentCancelledNotification()" class="text-sm text-yellow-400 hover:text-yellow-300 transition-colors">
+                <h3 class="text-lg font-semibold text-amber-700 mb-1">Payment Cancelled</h3>
+                <p class="text-ink-600 text-sm mb-3">No worries! You can upgrade anytime when you're ready.</p>
+                <button onclick="closePaymentCancelledNotification()" class="text-sm text-amber-600 hover:text-amber-700 transition-colors">
                     Dismiss
                 </button>
             </div>
-            <button onclick="closePaymentCancelledNotification()" class="text-gray-500 hover:text-white transition-colors">
+            <button onclick="closePaymentCancelledNotification()" class="text-ink-400 hover:text-ink-700 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -1972,22 +1973,22 @@ function showConnectionSuccessMessage(platform, username) {
 
     const notification = document.createElement('div');
     notification.id = 'connectionSuccessNotification';
-    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/50 shadow-2xl animate-slide-in';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-surface-0 border border-l-4 border-l-green-500 border-green-200 shadow-2xl animate-slide-in';
     notification.innerHTML = `
         <div class="flex items-start gap-4">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-                <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
             </div>
             <div class="flex-1">
-                <h3 class="text-lg font-semibold text-green-400 mb-1">${displayName} Connected!</h3>
-                <p class="text-gray-300 text-sm mb-3">Successfully connected to ${displayName}${usernameText}.</p>
-                <button onclick="closeConnectionNotification()" class="text-sm text-green-400 hover:text-green-300 transition-colors">
+                <h3 class="text-lg font-semibold text-green-700 mb-1">${displayName} Connected!</h3>
+                <p class="text-ink-600 text-sm mb-3">Successfully connected to ${displayName}${usernameText}.</p>
+                <button onclick="closeConnectionNotification()" class="text-sm text-green-600 hover:text-green-700 transition-colors">
                     Dismiss
                 </button>
             </div>
-            <button onclick="closeConnectionNotification()" class="text-gray-500 hover:text-white transition-colors">
+            <button onclick="closeConnectionNotification()" class="text-ink-400 hover:text-ink-700 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -2008,22 +2009,22 @@ function showConnectionErrorMessage(platform, error) {
 
     const notification = document.createElement('div');
     notification.id = 'connectionErrorNotification';
-    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-gradient-to-r from-red-500/20 to-rose-500/20 border border-red-500/50 shadow-2xl animate-slide-in';
+    notification.className = 'fixed top-4 right-4 z-50 max-w-md p-6 rounded-xl bg-surface-0 border border-l-4 border-l-red-500 border-red-200 shadow-2xl animate-slide-in';
     notification.innerHTML = `
         <div class="flex items-start gap-4">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-                <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                 </svg>
             </div>
             <div class="flex-1">
-                <h3 class="text-lg font-semibold text-red-400 mb-1">${displayName} Connection Failed</h3>
-                <p class="text-gray-300 text-sm mb-3">${errorMessage}</p>
-                <button onclick="closeConnectionNotification()" class="text-sm text-red-400 hover:text-red-300 transition-colors">
+                <h3 class="text-lg font-semibold text-red-700 mb-1">${displayName} Connection Failed</h3>
+                <p class="text-ink-600 text-sm mb-3">${errorMessage}</p>
+                <button onclick="closeConnectionNotification()" class="text-sm text-red-600 hover:text-red-700 transition-colors">
                     Dismiss
                 </button>
             </div>
-            <button onclick="closeConnectionNotification()" class="text-gray-500 hover:text-white transition-colors">
+            <button onclick="closeConnectionNotification()" class="text-ink-400 hover:text-ink-700 transition-colors">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -2335,8 +2336,8 @@ async function trackPlanInterest() {
         }
         if (interestBtn) {
             interestBtn.innerHTML = '<span class="text-xl">+1</span><span>Noted!</span>';
-            interestBtn.classList.remove('from-purple-500', 'to-pink-500');
-            interestBtn.classList.add('from-green-500', 'to-emerald-500');
+            interestBtn.disabled = true;
+            interestBtn.style.opacity = '0.7';
         }
 
         console.log(`[PLAN-INTEREST] Tracked interest for plan: ${currentBetaPlan}`);

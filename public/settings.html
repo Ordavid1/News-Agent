@@ -5,225 +5,185 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - News Agent</title>
     <meta name="description" content="Configure your News Agent settings and automation preferences.">
-    <!-- Prevent indexing of authenticated pages -->
     <meta name="robots" content="noindex, nofollow">
     <meta name="googlebot" content="noindex, nofollow">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#a855f7">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="/styles/output.css?v=1.1.0">
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles/output.css">
     <link rel="stylesheet" href="/styles/cookieConsent.css">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --glow-purple: #a855f7;
-            --glow-pink: #ec4899;
-            --glow-blue: #3b82f6;
-            --glow-cyan: #06b6d4;
-        }
-        
-        body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: #0a0a0a;
-        }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
-        }
-        
-        .glow-text {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink), var(--glow-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
-        }
-        
-        .neon-border {
-            position: relative;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 20px;
-            border: 2px solid transparent;
-            background-image: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),
-                              linear-gradient(45deg, var(--glow-purple), var(--glow-pink), var(--glow-blue), var(--glow-cyan));
-            background-origin: border-box;
-            background-clip: padding-box, border-box;
-            box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-        }
-        
-        .magic-button {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
-            transition: all 0.3s ease;
-        }
-        
-        .magic-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 30px rgba(168, 85, 247, 0.5);
-        }
-        
-        input[type="checkbox"]:checked {
-            background: linear-gradient(to right, var(--glow-purple), var(--glow-pink));
-            border-color: var(--glow-purple);
-        }
-    </style>
 </head>
-<body class="bg-black text-white min-h-screen">
+<body class="min-h-screen">
+
     <!-- Header -->
-    <header class="gradient-bg border-b border-purple-500/30">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <div class="flex items-center">
-                    <h1 class="text-xl font-bold glow-text">AI News Agent</h1>
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-3">
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a id="backLink" href="/profile.html" class="text-sm text-ink-500 hover:text-brand-600 transition-colors font-medium">
+                        Back to Dashboard
+                    </a>
                 </div>
-                <a id="backLink" href="/profile.html" class="text-gray-400 hover:text-purple-400 transition-colors">
-                    ← Back to Dashboard
-                </a>
             </div>
         </div>
     </header>
 
     <!-- Main Content -->
-    <main class="pb-12">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+    <main class="pb-16">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+
             <!-- Agent Mode Header (shown when editing an agent) -->
-            <div id="agentModeHeader" class="hidden mb-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
+            <div id="agentModeHeader" class="hidden mb-6 card-static p-5 border-l-4 border-l-brand-500">
                 <div class="flex items-center gap-4">
                     <div id="agentPlatformIcon" class="w-12 h-12 rounded-xl flex items-center justify-center">
                         <!-- Platform icon will be inserted here -->
                     </div>
                     <div>
-                        <p class="text-sm text-gray-400">Configuring Agent</p>
-                        <h3 id="agentNameDisplay" class="text-xl font-bold text-white">Agent Name</h3>
-                        <p id="agentPlatformDisplay" class="text-sm text-purple-400 capitalize">Platform</p>
+                        <p class="text-sm text-ink-400">Configuring Agent</p>
+                        <h3 id="agentNameDisplay" class="text-xl font-bold text-ink-800">Agent Name</h3>
+                        <p id="agentPlatformDisplay" class="text-sm text-brand-600 capitalize">Platform</p>
                     </div>
                 </div>
             </div>
 
             <div class="mb-8">
-                <h2 id="settingsTitle" class="text-4xl font-bold mb-2 glow-text">Configure Your News Agent</h2>
-                <p id="settingsSubtitle" class="text-gray-400">Customize how your AI agent discovers and posts trending content</p>
+                <h2 id="settingsTitle" class="text-3xl sm:text-4xl font-bold mb-2 gradient-text" style="font-family: 'Satoshi', sans-serif;">Configure Your News Agent</h2>
+                <p id="settingsSubtitle" class="text-ink-500">Customize how your AI agent discovers and posts trending content</p>
             </div>
 
-            <form id="settingsForm" class="space-y-8">
+            <form id="settingsForm" class="space-y-6">
+
                 <!-- Agent Identity Section -->
-                <div class="neon-border p-6">
-                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🤖 Agent Identity</h3>
-                    <p class="text-gray-400 text-sm mb-4">Name your agent - select target platforms in the Platform Settings section below</p>
+                <div class="card-static p-6">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Agent Identity</h3>
+                    <p class="text-ink-400 text-sm mb-5">Name your agent - select target platforms in the Platform Settings section below</p>
 
                     <div>
-                        <label class="block text-sm text-gray-400 mb-2">Agent Name</label>
+                        <label class="label" for="agentName">Agent Name</label>
                         <input type="text"
                                id="agentName"
                                name="agentName"
                                placeholder="e.g., Tech News Bot"
-                               class="w-full md:w-1/2 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
-                        <p class="text-xs text-gray-500 mt-2">Give your agent a memorable name</p>
+                               class="input w-full md:w-1/2">
+                        <p class="helper-text">Give your agent a memorable name</p>
                     </div>
 
                     <!-- Validation message -->
-                    <div id="agentIdentityError" class="hidden mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                        <p class="text-red-400 text-sm" id="agentIdentityErrorText"></p>
+                    <div id="agentIdentityError" class="hidden mt-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                        <p class="text-red-600 text-sm" id="agentIdentityErrorText"></p>
                     </div>
                 </div>
 
                 <!-- Topic Categories -->
-                <div class="neon-border p-6">
-                    <h3 class="text-xl font-semibold mb-4 text-purple-400">📰 Topic Categories</h3>
-                    <p class="text-gray-400 text-sm mb-4">Select the topics your agent will track</p>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="technology" class="rounded bg-black/50 border-purple-500/30">
-                            <span>💻 Technology</span>
+                <div class="card-static p-6">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Topic Categories</h3>
+                    <p class="text-ink-400 text-sm mb-5">Select the topics your agent will track</p>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="technology" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Technology</span>
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="business" class="rounded bg-black/50 border-purple-500/30">
-                            <span>💼 Business</span>
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="business" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Business</span>
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="entertainment" class="rounded bg-black/50 border-purple-500/30">
-                            <span>🎬 Entertainment</span>
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="entertainment" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Entertainment</span>
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="sports" class="rounded bg-black/50 border-purple-500/30">
-                            <span>⚽ Sports</span>
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="sports" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Sports</span>
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="health" class="rounded bg-black/50 border-purple-500/30">
-                            <span>🏥 Health</span>
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="health" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Health</span>
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                            <input type="checkbox" name="topics" value="science" class="rounded bg-black/50 border-purple-500/30">
-                            <span>🔬 Science</span>
+                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
+                            <input type="checkbox" name="topics" value="science" class="checkbox">
+                            <span class="text-sm font-medium text-ink-700">Science</span>
                         </label>
                     </div>
                 </div>
 
                 <!-- Keyword Filter -->
-                <div class="neon-border p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-xl font-semibold text-purple-400">#️⃣ Keyword Filter</h3>
-                        <span id="keywordCounter" class="text-gray-500 text-sm">0/10</span>
+                <div class="card-static p-6">
+                    <div class="flex justify-between items-center mb-1">
+                        <h3 class="text-lg font-semibold text-ink-800">Keyword Filter</h3>
+                        <span id="keywordCounter" class="text-ink-400 text-sm">0/10</span>
                     </div>
-                    <p class="text-gray-400 text-sm mb-4">Add keywords to filter news articles. Separate multiple keywords with commas. These work alongside topic categories for more precise content discovery.</p>
-                    <div class="space-y-4">
+                    <p class="text-ink-400 text-sm mb-5">Add keywords to filter news articles. Separate multiple keywords with commas. These work alongside topic categories for more precise content discovery.</p>
+                    <div class="space-y-3">
                         <div class="flex gap-2">
                             <input type="text" id="keywordInput" placeholder="e.g., AI, crypto, startup, innovation"
-                                class="flex-1 px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
-                            <button type="button" id="addKeywordBtn" class="px-4 py-3 bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors">
+                                class="input flex-1">
+                            <button type="button" id="addKeywordBtn" class="btn-secondary btn-sm whitespace-nowrap">
                                 Add
                             </button>
                         </div>
                         <div id="keywordTags" class="flex flex-wrap gap-2">
                             <!-- Keywords will be rendered here as tags -->
                         </div>
-                        <p class="text-gray-500 text-xs">Type keywords separated by commas, or press Enter to add. Click the X on a tag to remove it.</p>
+                        <p class="helper-text">Type keywords separated by commas, or press Enter to add. Click the X on a tag to remove it.</p>
                     </div>
                 </div>
 
                 <!-- Geographic Filter -->
-                <div class="neon-border p-6">
-                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🌍 Geographic Filter</h3>
-                    <p class="text-gray-400 text-sm mb-4">Filter news articles by geographic region. Select a region to focus on news from specific areas.</p>
+                <div class="card-static p-6">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Geographic Filter</h3>
+                    <p class="text-ink-400 text-sm mb-5">Filter news articles by geographic region. Select a region to focus on news from specific areas.</p>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Primary Region</label>
-                            <select name="geoRegion" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
-                                <option value="">🌐 Global (No Filter)</option>
-                                <option value="us">🇺🇸 United States</option>
-                                <option value="gb">🇬🇧 United Kingdom</option>
-                                <option value="eu">🇪🇺 Europe</option>
-                                <option value="ca">🇨🇦 Canada</option>
-                                <option value="au">🇦🇺 Australia</option>
-                                <option value="in">🇮🇳 India</option>
-                                <option value="de">🇩🇪 Germany</option>
-                                <option value="fr">🇫🇷 France</option>
-                                <option value="jp">🇯🇵 Japan</option>
-                                <option value="br">🇧🇷 Brazil</option>
-                                <option value="mx">🇲🇽 Mexico</option>
-                                <option value="za">🇿🇦 South Africa</option>
-                                <option value="sg">🇸🇬 Singapore</option>
-                                <option value="ae">🇦🇪 United Arab Emirates</option>
-                                <option value="il">🇮🇱 Israel</option>
+                            <label class="label">Primary Region</label>
+                            <select name="geoRegion" class="select">
+                                <option value="">Global (No Filter)</option>
+                                <option value="us">United States</option>
+                                <option value="gb">United Kingdom</option>
+                                <option value="eu">Europe</option>
+                                <option value="ca">Canada</option>
+                                <option value="au">Australia</option>
+                                <option value="in">India</option>
+                                <option value="de">Germany</option>
+                                <option value="fr">France</option>
+                                <option value="jp">Japan</option>
+                                <option value="br">Brazil</option>
+                                <option value="mx">Mexico</option>
+                                <option value="za">South Africa</option>
+                                <option value="sg">Singapore</option>
+                                <option value="ae">United Arab Emirates</option>
+                                <option value="il">Israel</option>
                             </select>
                         </div>
                         <div>
-                            <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                                <input type="checkbox" name="includeGlobalNews" checked class="rounded bg-black/50 border-purple-500/30">
-                                <span>Include global/international news alongside regional news</span>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" name="includeGlobalNews" checked class="checkbox">
+                                <span class="text-sm text-ink-700">Include global/international news alongside regional news</span>
                             </label>
                         </div>
                     </div>
                 </div>
 
                 <!-- Posting Schedule -->
-                <div class="neon-border p-6">
-                    <h3 class="text-xl font-semibold mb-4 text-pink-400">⏰ Posting Schedule</h3>
+                <div class="card-static p-6">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Posting Schedule</h3>
+                    <p class="text-ink-400 text-sm mb-5">Configure when and how often your agent posts</p>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Posts per day</label>
-                            <select name="postsPerDay" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                            <label class="label">Posts per day</label>
+                            <select name="postsPerDay" class="select">
                                 <option value="3">3 posts</option>
                                 <option value="5">5 posts</option>
                                 <option value="10">10 posts</option>
@@ -232,187 +192,200 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Active hours</label>
+                            <label class="label">Active hours</label>
                             <div class="grid grid-cols-2 gap-4">
-                                <input type="time" name="startTime" value="09:00" class="px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
-                                <input type="time" name="endTime" value="21:00" class="px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
+                                <input type="time" name="startTime" value="09:00" class="input">
+                                <input type="time" name="endTime" value="21:00" class="input">
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Content Style -->
-                <div class="neon-border p-6">
-                    <h3 class="text-xl font-semibold mb-4 text-cyan-400">✨ Content Style</h3>
+                <div class="card-static p-6">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Content Style</h3>
+                    <p class="text-ink-400 text-sm mb-5">Define the tone and format of generated content</p>
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Tone of voice</label>
-                            <select name="tone" class="w-full px-4 py-3 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500">
-                                <option value="professional">🎩 Professional</option>
-                                <option value="casual">😎 Casual</option>
-                                <option value="humorous">😄 Humorous</option>
-                                <option value="educational">📚 Educational</option>
+                            <label class="label">Tone of voice</label>
+                            <select name="tone" class="select">
+                                <option value="professional">Professional</option>
+                                <option value="casual">Casual</option>
+                                <option value="humorous">Humorous</option>
+                                <option value="educational">Educational</option>
                             </select>
                         </div>
                         <div>
-                            <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                                <input type="checkbox" name="includeHashtags" checked class="rounded bg-black/50 border-purple-500/30">
-                                <span>Include trending hashtags #️⃣</span>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" name="includeHashtags" checked class="checkbox">
+                                <span class="text-sm text-ink-700">Include trending hashtags</span>
                             </label>
                         </div>
                     </div>
                 </div>
 
                 <!-- Platform Settings (hidden in agent mode) -->
-                <div class="neon-border p-6" data-section="platforms">
-                    <h3 class="text-xl font-semibold mb-4 text-purple-400">🌐 Platform Settings</h3>
-                    <p class="text-gray-400 text-sm mb-4">Select which connected platforms to post to</p>
-                    <div class="space-y-4">
-                        <div class="neon-border p-4">
+                <div class="card-static p-6" data-section="platforms">
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Platform Settings</h3>
+                    <p class="text-ink-400 text-sm mb-5">Select which connected platforms to post to</p>
+                    <div class="space-y-3">
+
+                        <!-- Twitter/X -->
+                        <div class="border border-surface-200 rounded-xl p-4 hover:border-brand-200 transition-colors">
                             <label class="flex items-center justify-between cursor-pointer">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #1DA1F2, #14171A);">
-                                        <span class="text-white font-bold">𝕏</span>
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#1DA1F2]/10">
+                                        <span class="text-[#1DA1F2] font-bold text-lg">&#x1D54F;</span>
                                     </div>
                                     <div>
-                                        <p class="font-medium">Twitter/X</p>
-                                        <p class="text-sm text-gray-400">Post trending content</p>
+                                        <p class="font-medium text-ink-800">Twitter/X</p>
+                                        <p class="text-sm text-ink-400">Post trending content</p>
                                     </div>
                                 </div>
-                                <input type="checkbox" name="platforms" value="twitter" class="rounded bg-black/50 border-purple-500/30">
+                                <input type="checkbox" name="platforms" value="twitter" class="checkbox">
                             </label>
-                            <!-- Twitter Premium option (shown when Twitter is enabled) -->
-                            <div id="twitterPremiumConfig" class="mt-4 pt-4 border-t border-purple-500/20 hidden">
-                                <label class="flex items-center gap-2 cursor-pointer hover:text-purple-400 transition-colors">
-                                    <input type="checkbox" name="twitterPremium" id="twitterPremium" class="rounded bg-black/50 border-purple-500/30">
-                                    <span>I have Twitter/X Premium</span>
+                            <div id="twitterPremiumConfig" class="mt-4 pt-4 border-t border-surface-200 hidden">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" name="twitterPremium" id="twitterPremium" class="checkbox">
+                                    <span class="text-sm text-ink-700">I have Twitter/X Premium</span>
                                 </label>
-                                <p class="text-xs text-gray-500 mt-2">Premium users can post up to 4,000 characters. Standard accounts are limited to 280 characters.</p>
+                                <p class="helper-text mt-2">Premium users can post up to 4,000 characters. Standard accounts are limited to 280 characters.</p>
                             </div>
                         </div>
-                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+
+                        <!-- LinkedIn -->
+                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #0077B5, #00A0DC);">
-                                    <span class="text-white font-bold">in</span>
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#0077B5]/10">
+                                    <span class="text-[#0077B5] font-bold">in</span>
                                 </div>
                                 <div>
-                                    <p class="font-medium">LinkedIn</p>
-                                    <p class="text-sm text-gray-400">Professional content</p>
+                                    <p class="font-medium text-ink-800">LinkedIn</p>
+                                    <p class="text-sm text-ink-400">Professional content</p>
                                 </div>
                             </div>
-                            <input type="checkbox" name="platforms" value="linkedin" class="rounded bg-black/50 border-purple-500/30">
+                            <input type="checkbox" name="platforms" value="linkedin" class="checkbox">
                         </label>
-                        <div class="neon-border p-4">
+
+                        <!-- Reddit -->
+                        <div class="border border-surface-200 rounded-xl p-4 hover:border-brand-200 transition-colors">
                             <label class="flex items-center justify-between cursor-pointer">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #FF4500, #FF5700);">
-                                        <span class="text-white font-bold">r/</span>
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#FF4500]/10">
+                                        <span class="text-[#FF4500] font-bold">r/</span>
                                     </div>
                                     <div>
-                                        <p class="font-medium">Reddit</p>
-                                        <p class="text-sm text-gray-400">Post to subreddits</p>
+                                        <p class="font-medium text-ink-800">Reddit</p>
+                                        <p class="text-sm text-ink-400">Post to subreddits</p>
                                     </div>
                                 </div>
-                                <input type="checkbox" name="platforms" value="reddit" class="rounded bg-black/50 border-purple-500/30">
+                                <input type="checkbox" name="platforms" value="reddit" class="checkbox">
                             </label>
                             <!-- Subreddit selection (shown when Reddit is enabled) -->
-                            <div id="redditSubredditConfig" class="mt-4 pt-4 border-t border-purple-500/20 hidden">
-                                <label class="block text-sm text-gray-400 mb-2">Target Subreddit <span class="text-red-400">*</span> <span class="text-gray-600">(required)</span></label>
+                            <div id="redditSubredditConfig" class="mt-4 pt-4 border-t border-surface-200 hidden">
+                                <label class="label">Target Subreddit <span class="text-red-500">*</span> <span class="text-ink-400 font-normal">(required)</span></label>
                                 <div class="flex items-center gap-2">
-                                    <span class="text-gray-500">r/</span>
+                                    <span class="text-ink-400">r/</span>
                                     <input type="text"
                                            id="redditSubreddit"
                                            name="redditSubreddit"
                                            placeholder="e.g., technology"
                                            pattern="^[a-zA-Z0-9_]{1,21}$"
                                            maxlength="21"
-                                           class="flex-1 px-4 py-2 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white placeholder-gray-500">
+                                           class="input flex-1">
                                     <!-- Loading spinner -->
                                     <div id="redditSubredditLoading" class="hidden">
-                                        <svg class="animate-spin h-5 w-5 text-purple-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <svg class="animate-spin h-5 w-5 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
                                     </div>
                                     <!-- Success checkmark -->
-                                    <div id="redditSubredditSuccess" class="hidden text-green-500" title="No special requirements">
+                                    <div id="redditSubredditSuccess" class="hidden text-green-600" title="No special requirements">
                                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                         </svg>
                                     </div>
                                     <!-- Warning icon (has requirements) -->
-                                    <div id="redditSubredditWarning" class="hidden text-yellow-500 cursor-pointer" title="Click to configure requirements">
+                                    <div id="redditSubredditWarning" class="hidden text-amber-500 cursor-pointer" title="Click to configure requirements">
                                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                                         </svg>
                                     </div>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-2">Press Enter after typing the subreddit name to check requirements.</p>
-                                <p id="redditSubredditError" class="text-xs text-red-400 mt-1 hidden">Please enter a subreddit name</p>
+                                <p class="helper-text">Press Enter after typing the subreddit name to check requirements.</p>
+                                <p id="redditSubredditError" class="text-xs text-red-500 mt-1 hidden">Please enter a subreddit name</p>
                                 <!-- Flair selection (shown when subreddit requires flair) -->
                                 <div id="redditFlairConfig" class="mt-3 hidden">
-                                    <label class="block text-sm text-gray-400 mb-2">Post Flair <span class="text-red-400">*</span></label>
-                                    <select id="redditFlairSelect" class="w-full px-4 py-2 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white">
+                                    <label class="label">Post Flair <span class="text-red-500">*</span></label>
+                                    <select id="redditFlairSelect" class="select">
                                         <option value="">Select a flair...</option>
                                     </select>
-                                    <p class="text-xs text-gray-500 mt-1">This subreddit requires a flair for all posts.</p>
+                                    <p class="helper-text">This subreddit requires a flair for all posts.</p>
                                 </div>
                             </div>
                         </div>
-                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+
+                        <!-- Facebook -->
+                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #1877F2, #3b5998);">
-                                    <span class="text-white font-bold">f</span>
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#1877F2]/10">
+                                    <span class="text-[#1877F2] font-bold">f</span>
                                 </div>
                                 <div>
-                                    <p class="font-medium">Facebook</p>
-                                    <p class="text-sm text-gray-400">Share to pages and groups</p>
+                                    <p class="font-medium text-ink-800">Facebook</p>
+                                    <p class="text-sm text-ink-400">Share to pages and groups</p>
                                 </div>
                             </div>
-                            <input type="checkbox" name="platforms" value="facebook" class="rounded bg-black/50 border-purple-500/30">
+                            <input type="checkbox" name="platforms" value="facebook" class="checkbox">
                         </label>
-                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+
+                        <!-- Instagram -->
+                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #E4405F, #C13584, #833AB4);">
-                                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(228,64,95,0.1), rgba(131,58,180,0.1));">
+                                    <svg class="w-5 h-5 text-[#E4405F]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <p class="font-medium">Instagram</p>
-                                    <p class="text-sm text-gray-400">Share photos and reels</p>
+                                    <p class="font-medium text-ink-800">Instagram</p>
+                                    <p class="text-sm text-ink-400">Share photos and reels</p>
                                 </div>
                             </div>
-                            <input type="checkbox" name="platforms" value="instagram" class="rounded bg-black/50 border-purple-500/30">
+                            <input type="checkbox" name="platforms" value="instagram" class="checkbox">
                         </label>
-                        <label class="flex items-center justify-between p-4 neon-border cursor-pointer">
+
+                        <!-- Telegram -->
+                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: #0088cc;">
-                                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#0088cc]/10">
+                                    <svg class="w-5 h-5 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
                                     </svg>
                                 </div>
                                 <div>
-                                    <p class="font-medium">Telegram</p>
-                                    <p class="text-sm text-gray-400">Post to channels and groups</p>
+                                    <p class="font-medium text-ink-800">Telegram</p>
+                                    <p class="text-sm text-ink-400">Post to channels and groups</p>
                                 </div>
                             </div>
-                            <input type="checkbox" name="platforms" value="telegram" class="rounded bg-black/50 border-purple-500/30">
+                            <input type="checkbox" name="platforms" value="telegram" class="checkbox">
                         </label>
                     </div>
+
                     <!-- Connection status hint -->
-                    <div id="connectionHint" class="mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 hidden">
-                        <p class="text-yellow-400 text-sm" id="connectionHintText"></p>
+                    <div id="connectionHint" class="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 hidden">
+                        <p class="text-amber-700 text-sm" id="connectionHintText"></p>
                     </div>
                 </div>
 
                 <!-- Save Button -->
-                <div class="flex justify-end gap-4">
-                    <button type="button" onclick="window.location.href='/profile.html'" class="px-8 py-3 border border-purple-500/30 text-gray-400 rounded-full font-semibold hover:border-purple-500 hover:text-white transition-all duration-200">
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="window.location.href='/profile.html'" class="btn-outline">
                         Cancel
                     </button>
-                    <button type="submit" class="magic-button px-8 py-3 text-white rounded-full font-semibold">
-                        💾 Save Settings
+                    <button type="submit" class="btn-primary">
+                        Save Settings
                     </button>
                 </div>
             </form>
@@ -422,26 +395,26 @@
     <!-- Subreddit Requirements Modal -->
     <div id="subredditRequirementsModal" class="fixed inset-0 z-50 hidden">
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeSubredditModal()"></div>
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeSubredditModal()"></div>
 
         <!-- Modal Content -->
         <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md">
-            <div class="neon-border p-6 mx-4">
+            <div class="bg-surface-0 rounded-2xl shadow-2xl p-6 mx-4 border border-surface-200">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-semibold text-purple-400">
+                    <h3 class="text-lg font-semibold text-ink-800">
                         <span id="modalSubredditName">r/subreddit</span> - Post Requirements
                     </h3>
-                    <button onclick="closeSubredditModal()" class="text-gray-400 hover:text-white">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button onclick="closeSubredditModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
                     </button>
                 </div>
 
                 <!-- Flair Required Warning -->
-                <div id="modalFlairWarning" class="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 hidden">
-                    <p class="text-yellow-400 text-sm flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div id="modalFlairWarning" class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 hidden">
+                    <p class="text-amber-700 text-sm flex items-center gap-2">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                         </svg>
                         This subreddit requires post flair
@@ -450,32 +423,32 @@
 
                 <!-- Flair Selection -->
                 <div id="modalFlairSection" class="mb-4 hidden">
-                    <label class="block text-sm text-gray-400 mb-2">Select Flair <span class="text-red-400">*</span></label>
-                    <select id="modalFlairSelect" class="w-full px-4 py-2 bg-black/50 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500 text-white">
+                    <label class="label">Select Flair <span class="text-red-500">*</span></label>
+                    <select id="modalFlairSelect" class="select">
                         <option value="">Choose a flair...</option>
                     </select>
                 </div>
 
                 <!-- Other Requirements Info -->
                 <div id="modalRequirementsInfo" class="mb-4">
-                    <h4 class="text-sm font-medium text-gray-300 mb-2">Other Requirements:</h4>
-                    <ul id="modalRequirementsList" class="text-sm text-gray-400 space-y-1">
+                    <h4 class="text-sm font-medium text-ink-700 mb-2">Other Requirements:</h4>
+                    <ul id="modalRequirementsList" class="text-sm text-ink-500 space-y-1">
                         <!-- Requirements will be populated here -->
                     </ul>
                 </div>
 
                 <!-- Guidelines (if any) -->
                 <div id="modalGuidelines" class="mb-4 hidden">
-                    <h4 class="text-sm font-medium text-gray-300 mb-2">Submission Guidelines:</h4>
-                    <p id="modalGuidelinesText" class="text-sm text-gray-500 bg-black/30 p-3 rounded-lg max-h-32 overflow-y-auto"></p>
+                    <h4 class="text-sm font-medium text-ink-700 mb-2">Submission Guidelines:</h4>
+                    <p id="modalGuidelinesText" class="text-sm text-ink-500 bg-surface-50 p-3 rounded-lg max-h-32 overflow-y-auto border border-surface-200"></p>
                 </div>
 
                 <!-- Actions -->
                 <div class="flex justify-end gap-3 mt-6">
-                    <button onclick="closeSubredditModal()" class="px-4 py-2 border border-purple-500/30 text-gray-400 rounded-lg hover:border-purple-500 hover:text-white transition-all">
+                    <button onclick="closeSubredditModal()" class="btn-outline btn-sm">
                         Cancel
                     </button>
-                    <button onclick="saveSubredditSettings()" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors">
+                    <button onclick="saveSubredditSettings()" class="btn-primary btn-sm">
                         Save Settings
                     </button>
                 </div>
@@ -483,7 +456,9 @@
         </div>
     </div>
 
+    <script src="/js/animations.js"></script>
     <script src="js/settings.js?v=1.1.1"></script>
     <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
 </body>
 </html>

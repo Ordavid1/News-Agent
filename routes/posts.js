@@ -5,7 +5,7 @@ import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
+import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 // SECURITY: Input validation
@@ -236,9 +236,9 @@ function getAllowedPlatforms(tier) {
   const platformsByTier = {
     free: ['linkedin', 'reddit', 'telegram'],
     starter: ['linkedin', 'reddit', 'facebook', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'tiktok', 'youtube']
+    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
+    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
+    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp', 'tiktok', 'youtube']
   };
 
   return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
@@ -505,6 +505,9 @@ router.post('/test', async (req, res) => {
             break;
           case 'threads':
             result = await publishToThreads(content, userId);
+            break;
+          case 'whatsapp':
+            result = await publishToWhatsApp(content, userId);
             break;
           default:
             console.log(`[Test Post] Platform ${platform} not yet supported for publishing`);
