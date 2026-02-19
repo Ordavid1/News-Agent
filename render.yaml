@@ -101,6 +101,24 @@ services:
       - key: WHAPI_API_TOKEN
         sync: false
 
+      # Lemon Squeezy (Payments)
+      - key: LEMON_SQUEEZY_API_KEY
+        sync: false
+      - key: LEMON_SQUEEZY_STORE_ID
+        sync: false
+      - key: LEMON_SQUEEZY_PRODUCT_ID
+        sync: false
+      - key: LEMON_SQUEEZY_WEBHOOK_SECRET
+        sync: false
+      - key: LEMON_SQUEEZY_49_VARIANT_ID
+        sync: false
+      - key: LEMON_SQUEEZY_149_VARIANT_ID
+        sync: false
+      - key: LEMON_SQUEEZY_499_VARIANT_ID
+        sync: false
+      - key: LEMON_SQUEEZY_MARKETING_VARIANT_ID
+        sync: false
+
       # News API Keys
       - key: NEWSAPI_KEY
         sync: false

@@ -408,15 +408,20 @@ function highlightCurrentPlan(tier) {
 
 // Tab navigation
 function showTab(tabName) {
-    // Hide all tab contents
+    // Scope to profile-level tabs only (exclude marketing sub-tabs)
+    const tabsWrapper = document.getElementById('tabsScrollWrapper');
+
+    // Hide all profile-level tab contents
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.add('hidden');
     });
 
-    // Remove active class from all tabs
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('tab-active');
-    });
+    // Remove active class from profile-level tab buttons only
+    if (tabsWrapper) {
+        tabsWrapper.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('tab-active');
+        });
+    }
 
     // Show selected tab content
     const selectedContent = document.getElementById(`content-${tabName}`);

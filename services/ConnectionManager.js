@@ -756,6 +756,198 @@ function getCallbackUrl(platform) {
   return `${baseUrl}/api/connections/${platform}/callback`;
 }
 
+// ============================================
+// MARKETING SCOPE UPGRADE
+// ============================================
+
+// Additional scopes required for Meta Marketing API
+const MARKETING_SCOPES = ['ads_management', 'ads_read'];
+
+/**
+ * Get OAuth authorization URL for marketing scope upgrade.
+ * This re-authorizes the user's Facebook connection with additional ads scopes.
+ * Uses auth_type=rerequest to force re-prompting for the new permissions.
+ */
+export function getMarketingAuthorizationUrl(userId, redirectUrl = null) {
+  const config = PLATFORM_CONFIGS.facebook;
+  const clientId = getClientId('facebook');
+
+  if (!clientId) {
+    throw new Error('Missing Facebook App ID');
+  }
+
+  // Combine existing scopes with marketing scopes
+  const allScopes = [...new Set([...config.scopes, ...MARKETING_SCOPES])];
+
+  const state = generateStateToken(userId, 'facebook_marketing', redirectUrl);
+  const callbackUrl = getMarketingCallbackUrl();
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: callbackUrl,
+    response_type: 'code',
+    scope: allScopes.join(','),
+    state,
+    auth_type: 'rerequest' // Force re-prompt for new scopes
+  });
+
+  return `${config.authUrl}?${params.toString()}`;
+}
+
+/**
+ * Exchange marketing authorization code for tokens and discover ad accounts.
+ * Reuses the existing Facebook token exchange flow, then discovers ad accounts.
+ */
+export async function exchangeMarketingCode(code, state) {
+  const stateData = verifyStateToken(state);
+  if (!stateData) {
+    throw new Error('Invalid or expired state token');
+  }
+
+  const config = PLATFORM_CONFIGS.facebook;
+  const clientId = getClientId('facebook');
+  const clientSecret = getClientSecret('facebook');
+  const callbackUrl = getMarketingCallbackUrl();
+
+  // Exchange code for tokens
+  const tokenParams = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: callbackUrl,
+    client_id: clientId,
+    client_secret: clientSecret
+  });
+
+  const response = await fetch(config.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: tokenParams.toString()
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error('Marketing token exchange failed:', errorText);
+    throw new Error(`Failed to exchange marketing code: ${errorText}`);
+  }
+
+  const tokens = await response.json();
+
+  // Exchange for long-lived token
+  const accessToken = await exchangeForLongLivedToken(tokens.access_token);
+
+  // Verify that ads scopes were granted
+  const grantedScopes = await checkGrantedScopes(accessToken);
+  const hasAdsManagement = grantedScopes.includes('ads_management');
+  const hasAdsRead = grantedScopes.includes('ads_read');
+
+  if (!hasAdsManagement || !hasAdsRead) {
+    logger.warn(`Marketing scopes not fully granted. ads_management: ${hasAdsManagement}, ads_read: ${hasAdsRead}`);
+    throw new Error('Required marketing permissions were not granted. Please authorize both ads_management and ads_read.');
+  }
+
+  // Update the existing Facebook connection with the upgraded token and scopes
+  const allScopes = [...new Set([...config.scopes, ...MARKETING_SCOPES])];
+  await TokenManager.storeTokens({
+    userId: stateData.userId,
+    platform: 'facebook',
+    accessToken,
+    refreshToken: tokens.refresh_token,
+    expiresIn: tokens.expires_in,
+    scopes: allScopes
+  });
+
+  // Also re-fetch page info with the upgraded token
+  const pageInfo = await fetchFacebookPageInfo(accessToken);
+  if (pageInfo) {
+    await supabaseAdmin
+      .from('social_connections')
+      .update({
+        platform_metadata: {
+          pageId: pageInfo.id,
+          pageAccessToken: pageInfo.accessToken,
+          pageName: pageInfo.name,
+          pictureUrl: pageInfo.pictureUrl,
+          marketingEnabled: true
+        },
+        scopes: allScopes,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', stateData.userId)
+      .eq('platform', 'facebook');
+  }
+
+  // Discover ad accounts
+  const adAccounts = await discoverAdAccounts(accessToken);
+
+  return {
+    userId: stateData.userId,
+    adAccounts,
+    redirectUrl: stateData.redirectUrl,
+    scopesGranted: allScopes
+  };
+}
+
+/**
+ * Check which scopes were actually granted by the user
+ */
+async function checkGrantedScopes(accessToken) {
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/permissions?access_token=${accessToken}`
+    );
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    return (data.data || [])
+      .filter(p => p.status === 'granted')
+      .map(p => p.permission);
+  } catch (error) {
+    logger.warn('Failed to check granted scopes:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Discover the user's Facebook Ad Accounts
+ */
+export async function discoverAdAccounts(accessToken) {
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/adaccounts?fields=id,name,account_status,currency,timezone_name,business,amount_spent&access_token=${accessToken}`
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error('Failed to discover ad accounts:', errorText);
+      return [];
+    }
+
+    const data = await response.json();
+    const accounts = data.data || [];
+
+    logger.info(`Discovered ${accounts.length} ad accounts`);
+
+    return accounts.map(acc => ({
+      accountId: acc.id,                  // Format: act_XXXX
+      accountName: acc.name || 'Unnamed Ad Account',
+      accountStatus: acc.account_status,  // 1=active, 2=disabled, 3=unsettled
+      currency: acc.currency || 'USD',
+      timezoneName: acc.timezone_name,
+      businessId: acc.business?.id || null,
+      amountSpent: acc.amount_spent
+    }));
+  } catch (error) {
+    logger.error('Error discovering ad accounts:', error);
+    return [];
+  }
+}
+
+function getMarketingCallbackUrl() {
+  const baseUrl = process.env.BACKEND_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  return `${baseUrl}/api/connections/facebook/marketing/callback`;
+}
+
 export default {
   getAuthorizationUrl,
   exchangeCodeForTokens,
@@ -763,5 +955,9 @@ export default {
   getUserConnections,
   disconnectPlatform,
   checkConnections,
-  PLATFORM_CONFIGS
+  PLATFORM_CONFIGS,
+  // Marketing
+  getMarketingAuthorizationUrl,
+  exchangeMarketingCode,
+  discoverAdAccounts
 };

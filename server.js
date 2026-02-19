@@ -36,6 +36,7 @@ import testRoutes from './routes/test.js';
 import connectionsRoutes from './routes/connections.js';
 import agentsRoutes from './routes/agents.js';
 import redditRoutes from './routes/reddit.js';
+import marketingRoutes from './routes/marketing.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -87,11 +88,9 @@ const logger = winston.createLogger({
 // Initialize Express app
 const app = express();
 
-// Trust proxy - required for Render/Heroku/etc. which use reverse proxies
+// Trust proxy - required for reverse proxies (Render, Heroku, ngrok, etc.)
 // This enables correct client IP detection for rate limiting and logging
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
-}
+app.set('trust proxy', 1);
 
 // CRITICAL: Health check endpoint MUST be BEFORE any middleware that requires Origin header
 // Render's internal health checker doesn't send Origin headers
@@ -116,8 +115,8 @@ app.use(helmet({
       // SECURITY: Removed 'unsafe-eval', kept 'unsafe-inline' for now (requires frontend refactor to fully remove)
       scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com"],
       scriptSrcAttr: ["'unsafe-inline'"], // TODO: Remove after refactoring inline event handlers
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com", "https://api.fontshare.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.fontshare.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", "https://api.stripe.com", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
       frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"],
@@ -204,6 +203,78 @@ app.use(cookieParser());
 // SECURITY: CSRF token setter - sets token cookie for all requests
 app.use(csrfTokenSetter);
 
+// Marketing add-on webhook handler (shared by the main webhook endpoint)
+async function handleMarketingAddonWebhook(eventName, payload, customData, existingAddon, db) {
+  const subscriptionData = payload.data.attributes;
+  const subscriptionId = payload.data.id;
+
+  switch (eventName) {
+    case 'subscription_created': {
+      const userId = customData?.user_id;
+      if (!userId) {
+        console.error('[WEBHOOK] No user_id in custom_data for marketing addon creation');
+        return;
+      }
+
+      console.log(`[WEBHOOK] Creating marketing addon for user ${userId}`);
+
+      await db.upsertMarketingAddon({
+        userId,
+        status: 'active',
+        lsSubscriptionId: String(subscriptionId),
+        lsVariantId: String(subscriptionData.variant_id),
+        plan: 'standard',
+        monthlyPrice: 9900,
+        currentPeriodStart: subscriptionData.created_at,
+        currentPeriodEnd: subscriptionData.renews_at
+      });
+
+      console.log(`[WEBHOOK] Marketing addon created successfully for user ${userId}`);
+      break;
+    }
+
+    case 'subscription_updated':
+    case 'subscription_payment_success': {
+      if (!existingAddon) {
+        console.error(`[WEBHOOK] Marketing addon not found for LS ID: ${subscriptionId}`);
+        return;
+      }
+      const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+      await db.updateMarketingAddon(existingAddon.user_id, {
+        status,
+        current_period_start: subscriptionData.created_at,
+        current_period_end: subscriptionData.renews_at
+      });
+      console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}`);
+      break;
+    }
+
+    case 'subscription_cancelled': {
+      if (!existingAddon) return;
+      await db.updateMarketingAddon(existingAddon.user_id, { status: 'cancelled' });
+      console.log(`[WEBHOOK] Marketing addon cancelled for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    case 'subscription_expired': {
+      if (!existingAddon) return;
+      await db.updateMarketingAddon(existingAddon.user_id, { status: 'expired' });
+      console.log(`[WEBHOOK] Marketing addon expired for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    case 'subscription_payment_failed': {
+      if (!existingAddon) return;
+      await db.updateMarketingAddon(existingAddon.user_id, { status: 'past_due' });
+      console.log(`[WEBHOOK] Marketing addon payment failed for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    default:
+      console.log(`[WEBHOOK] Unhandled marketing addon event: ${eventName}`);
+  }
+}
+
 // Lemon Squeezy webhook endpoint - MUST be before express.json() to access raw body
 // This route is mounted separately to handle raw body for signature verification
 app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -256,7 +327,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   console.log('[WEBHOOK] Custom data user_id:', customData?.user_id ? 'present' : 'missing');
 
   // Import database functions dynamically
-  const { createSubscription, getSubscriptionByLsId, updateUser } = await import('./services/database-wrapper.js');
+  const { createSubscription, getSubscriptionByLsId, updateUser, upsertMarketingAddon, getMarketingAddonByLsId, updateMarketingAddon } = await import('./services/database-wrapper.js');
 
   // Helper to get post limit by tier (free = 1 post/week, others = posts/day)
   const getTierPostLimit = (tier) => {
@@ -273,6 +344,21 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   };
 
   try {
+    // Check if this event is for a marketing add-on
+    const isMarketingAddon = customData?.addon_type === 'marketing';
+
+    // For non-creation events, also check if the subscription ID belongs to an existing marketing addon
+    const subscriptionIdForLookup = payload.data?.id;
+    const existingMarketingAddon = (!isMarketingAddon && subscriptionIdForLookup)
+      ? await getMarketingAddonByLsId(String(subscriptionIdForLookup))
+      : null;
+
+    if (isMarketingAddon || existingMarketingAddon) {
+      // ── MARKETING ADD-ON EVENTS ──
+      await handleMarketingAddonWebhook(eventName, payload, customData, existingMarketingAddon, { upsertMarketingAddon, updateMarketingAddon });
+      return res.status(200).json({ received: true });
+    }
+
     switch (eventName) {
       case 'subscription_created': {
         const { user_id, tier } = customData;
@@ -610,6 +696,7 @@ app.use('/api/automation', authenticateToken, csrfProtection, automationRoutes);
 app.use('/api/agents', authenticateToken, csrfProtection, agentsRoutes); // Agent management (each agent = platform + settings)
 app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route, OAuth callbacks exempt)
 app.use('/api/reddit', authenticateToken, csrfProtection, redditRoutes); // Reddit-specific API (subreddit requirements, flairs)
+app.use('/api/marketing', marketingRoutes); // Marketing API (auth + CSRF + marketing addon handled in router)
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

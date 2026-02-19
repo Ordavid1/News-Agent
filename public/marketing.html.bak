@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing - News Agent</title>
+    <meta name="description" content="Manage your Meta ad campaigns, boost posts, and track performance.">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex, nofollow">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles/output.css">
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
+</head>
+<body class="min-h-screen">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center gap-4">
+                    <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                    <span class="text-ink-300">|</span>
+                    <span class="text-sm font-medium text-ink-500">Marketing</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                    <a href="/profile.html" class="text-sm text-ink-500 hover:text-brand-600 transition-colors font-medium">Profile</a>
+                    <span id="userEmail" class="text-sm text-ink-500 hidden sm:inline"></span>
+                    <button id="logoutBtn" class="text-sm text-ink-500 hover:text-brand-600 transition-colors font-medium">
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pb-16">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+
+            <!-- Page Title -->
+            <div class="mb-8">
+                <h2 class="text-3xl font-bold mb-2" style="font-family: 'Satoshi', sans-serif;">
+                    <span class="gradient-text">Ad Marketing</span>
+                </h2>
+                <p class="text-ink-500">Boost posts, manage campaigns, and track ad performance across Facebook & Instagram</p>
+            </div>
+
+            <!-- Ad Account Setup Banner -->
+            <div id="adAccountBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-amber-500">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-ink-800">Ad Account Setup Required</h4>
+                            <p class="text-sm text-ink-500" id="adAccountBannerMessage">Connect your Facebook account with marketing permissions to get started.</p>
+                        </div>
+                    </div>
+                    <button onclick="setupAdAccount()" id="setupAdAccountBtn" class="btn-primary btn-sm whitespace-nowrap">
+                        Set Up Now
+                    </button>
+                </div>
+            </div>
+
+            <!-- Marketing Add-on Banner (inactive state: purchase prompt) -->
+            <div id="addonRequiredBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-brand-500">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-ink-800">Marketing Add-on</h4>
+                            <p class="text-sm text-ink-500">Unlock ad boosting, campaign management, and performance analytics for $299/mo</p>
+                        </div>
+                    </div>
+                    <button onclick="purchaseAddon()" class="btn-primary btn-sm whitespace-nowrap">
+                        Get Marketing
+                    </button>
+                </div>
+            </div>
+
+            <!-- Marketing Add-on Banner (active state: subscription info) -->
+            <div id="addonActiveBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-green-500">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-green-700">Marketing Add-on Active</h4>
+                            <p class="text-sm text-ink-600 mt-1 mb-2">Your marketing tools are ready. Here's what you can do:</p>
+                            <ul class="text-sm text-ink-500 space-y-1" id="addonFeaturesList">
+                                <!-- Populated dynamically from config -->
+                            </ul>
+                        </div>
+                    </div>
+                    <button onclick="cancelAddon()" id="cancelAddonBtn" class="text-sm text-red-500 hover:text-red-700 border border-red-300 hover:border-red-500 rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex-shrink-0">
+                        Cancel Subscription
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="mb-8 relative" id="tabsContainer">
+                <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto" id="tabsScrollWrapper">
+                    <button onclick="showMarketingTab('overview')" id="mkt-tab-overview" class="mkt-tab-btn tab-btn tab-active whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                            Overview
+                        </span>
+                    </button>
+                    <button onclick="showMarketingTab('boost')" id="mkt-tab-boost" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                            </svg>
+                            Boost Posts
+                        </span>
+                    </button>
+                    <button onclick="showMarketingTab('campaigns')" id="mkt-tab-campaigns" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                            Campaigns
+                            <span id="campaignCount" class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded-full hidden">0</span>
+                        </span>
+                    </button>
+                    <button onclick="showMarketingTab('audiences')" id="mkt-tab-audiences" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            Audiences
+                        </span>
+                    </button>
+                    <button onclick="showMarketingTab('rules')" id="mkt-tab-rules" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            Auto-Boost Rules
+                        </span>
+                    </button>
+                </div>
+                <div class="absolute right-0 top-0 bottom-0 w-16 pointer-events-none transition-opacity duration-300 md:hidden" id="tabsFadeGradient" style="background: linear-gradient(to right, transparent, var(--bg-secondary));"></div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- OVERVIEW TAB             -->
+            <!-- ======================== -->
+            <div id="mkt-content-overview" class="mkt-tab-content">
+                <!-- Date Range Selector -->
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-xl font-semibold" style="font-family: 'Satoshi', sans-serif;">Performance Overview</h3>
+                    <div class="flex items-center gap-2">
+                        <select id="overviewDateRange" onchange="loadOverview()" class="select text-sm py-2 px-3">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <button onclick="syncMetrics()" id="syncMetricsBtn" class="btn-outline btn-sm flex items-center gap-1" title="Sync latest metrics from Meta">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Sync
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Metric Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Total Spend</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewSpend">$0.00</p>
+                        <p class="text-xs text-ink-400 mt-1" id="overviewSpendPeriod">Last 30 days</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Total Reach</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewReach">0</p>
+                        <p class="text-xs text-ink-400 mt-1">People reached</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Total Clicks</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewClicks">0</p>
+                        <p class="text-xs text-ink-400 mt-1" id="overviewCTR">0% CTR</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Active Campaigns</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewActiveCampaigns">0</p>
+                        <p class="text-xs text-ink-400 mt-1" id="overviewTotalCampaigns">0 total</p>
+                    </div>
+                </div>
+
+                <!-- Additional Metrics Row -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Impressions</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewImpressions">0</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Avg. CPC</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewCPC">$0.00</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Avg. CPM</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewCPM">$0.00</p>
+                    </div>
+                    <div class="card-static p-5">
+                        <p class="text-ink-400 text-sm mb-1">Active Ads</p>
+                        <p class="text-2xl font-bold text-ink-800" id="overviewActiveAds">0</p>
+                    </div>
+                </div>
+
+                <!-- Active Campaigns Summary -->
+                <div class="card-static p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="font-semibold text-ink-800">Active Campaigns</h4>
+                        <button onclick="showMarketingTab('campaigns')" class="text-sm text-brand-600 hover:underline">View all</button>
+                    </div>
+                    <div id="overviewCampaignsList" class="divide-y divide-surface-200">
+                        <!-- Active campaigns loaded here -->
+                    </div>
+                    <div id="overviewCampaignsEmpty" class="text-center py-8 hidden">
+                        <p class="text-ink-400 text-sm">No active campaigns. Boost a post or create a campaign to get started.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- BOOST TAB                -->
+            <!-- ======================== -->
+            <div id="mkt-content-boost" class="mkt-tab-content hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Boost Posts</h3>
+                        <p class="text-ink-500 text-sm">Turn your best organic posts into paid ads</p>
+                    </div>
+                </div>
+
+                <!-- Active Boosts -->
+                <div id="activeBoostsSection" class="mb-8 hidden">
+                    <h4 class="font-semibold text-ink-800 mb-4">Active Boosts</h4>
+                    <div id="activeBoostsList" class="space-y-4">
+                        <!-- Active boosts rendered here -->
+                    </div>
+                </div>
+
+                <!-- Boostable Posts -->
+                <h4 class="font-semibold text-ink-800 mb-4">Published Posts</h4>
+                <div id="boostablePostsList" class="space-y-4">
+                    <!-- Loading state -->
+                    <div id="boostablePostsLoading" class="text-center py-8">
+                        <div class="loader mx-auto mb-3"></div>
+                        <p class="text-ink-400 text-sm">Loading published posts...</p>
+                    </div>
+                </div>
+                <div id="boostablePostsEmpty" class="hidden text-center py-12">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-brand-50">
+                        <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Posts to Boost</h4>
+                    <p class="text-ink-400 text-sm max-w-md mx-auto">Publish posts to Facebook or Instagram first, then come back here to boost them as paid ads.</p>
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- CAMPAIGNS TAB            -->
+            <!-- ======================== -->
+            <div id="mkt-content-campaigns" class="mkt-tab-content hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Campaigns</h3>
+                        <p class="text-ink-500 text-sm">Manage your ad campaigns, ad sets, and ads</p>
+                    </div>
+                    <button onclick="openCreateCampaignModal()" class="btn-primary btn-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        New Campaign
+                    </button>
+                </div>
+
+                <!-- Campaign Filter -->
+                <div class="flex items-center gap-3 mb-4">
+                    <select id="campaignStatusFilter" onchange="loadCampaigns()" class="select text-sm py-2 px-3">
+                        <option value="">All statuses</option>
+                        <option value="active">Active</option>
+                        <option value="paused">Paused</option>
+                        <option value="draft">Draft</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+
+                <!-- Campaign List -->
+                <div id="campaignsList" class="space-y-4">
+                    <div id="campaignsLoading" class="text-center py-8">
+                        <div class="loader mx-auto mb-3"></div>
+                        <p class="text-ink-400 text-sm">Loading campaigns...</p>
+                    </div>
+                </div>
+                <div id="campaignsEmpty" class="hidden text-center py-12">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-brand-50">
+                        <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Campaigns Yet</h4>
+                    <p class="text-ink-400 text-sm mb-4">Create your first campaign or boost a published post to get started.</p>
+                    <button onclick="openCreateCampaignModal()" class="btn-primary">Create Campaign</button>
+                </div>
+
+                <!-- Campaign Detail View (shown when a campaign is clicked) -->
+                <div id="campaignDetail" class="hidden">
+                    <button onclick="closeCampaignDetail()" class="flex items-center gap-2 text-sm text-brand-600 hover:underline mb-4">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        Back to Campaigns
+                    </button>
+                    <div id="campaignDetailContent">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- AUDIENCES TAB            -->
+            <!-- ======================== -->
+            <div id="mkt-content-audiences" class="mkt-tab-content hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Audience Library</h3>
+                        <p class="text-ink-500 text-sm">Save reusable targeting templates for your ads</p>
+                    </div>
+                    <button onclick="openAudienceModal()" class="btn-primary btn-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        New Audience
+                    </button>
+                </div>
+
+                <div id="audiencesList" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div id="audiencesLoading" class="col-span-full text-center py-8">
+                        <div class="loader mx-auto mb-3"></div>
+                        <p class="text-ink-400 text-sm">Loading audiences...</p>
+                    </div>
+                </div>
+                <div id="audiencesEmpty" class="hidden text-center py-12">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-brand-50">
+                        <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Audience Templates</h4>
+                    <p class="text-ink-400 text-sm mb-4">Create reusable audience templates to quickly target your ads.</p>
+                    <button onclick="openAudienceModal()" class="btn-primary">Create Audience</button>
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- RULES TAB                -->
+            <!-- ======================== -->
+            <div id="mkt-content-rules" class="mkt-tab-content hidden">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Auto-Boost Rules</h3>
+                        <p class="text-ink-500 text-sm">Automatically boost posts when they hit engagement targets</p>
+                    </div>
+                    <button onclick="openRuleModal()" class="btn-primary btn-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        New Rule
+                    </button>
+                </div>
+
+                <!-- How it works info -->
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                    <div class="flex items-start gap-3">
+                        <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <div class="text-sm text-ink-600">
+                            <p class="font-medium text-blue-700 mb-1">How Auto-Boost Works</p>
+                            <p>Rules are evaluated every 5 minutes. When a published post meets your conditions (e.g., organic reach exceeds a threshold), it will automatically be boosted with your configured budget and audience settings.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="rulesList" class="space-y-4">
+                    <div id="rulesLoading" class="text-center py-8">
+                        <div class="loader mx-auto mb-3"></div>
+                        <p class="text-ink-400 text-sm">Loading rules...</p>
+                    </div>
+                </div>
+                <div id="rulesEmpty" class="hidden text-center py-12">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-brand-50">
+                        <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Auto-Boost Rules</h4>
+                    <p class="text-ink-400 text-sm mb-4">Create rules to automatically boost your best-performing posts.</p>
+                    <button onclick="openRuleModal()" class="btn-primary">Create Rule</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ======================== -->
+    <!-- MODALS                   -->
+    <!-- ======================== -->
+
+    <!-- Boost Post Modal -->
+    <div id="boostModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Boost Post</h3>
+                <button onclick="closeBoostModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Post Preview -->
+            <div class="bg-surface-50 rounded-xl p-4 mb-6 border border-surface-200">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="badge-primary text-xs" id="boostPostPlatform">Facebook</span>
+                    <span class="text-xs text-ink-400" id="boostPostDate"></span>
+                </div>
+                <p class="text-sm text-ink-700 line-clamp-3" id="boostPostContent"></p>
+            </div>
+
+            <!-- Budget -->
+            <div class="mb-5">
+                <label class="label">Budget</label>
+                <div class="flex gap-3 mb-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="budgetType" value="daily" checked class="radio">
+                        <span class="text-sm text-ink-600">Daily</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="budgetType" value="lifetime" class="radio">
+                        <span class="text-sm text-ink-600">Lifetime</span>
+                    </label>
+                </div>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400">$</span>
+                    <input type="number" id="boostBudget" min="1" step="0.01" value="10" class="input pl-7">
+                </div>
+                <p class="helper-text mt-1">Minimum $1.00 per day</p>
+            </div>
+
+            <!-- Duration -->
+            <div class="mb-5">
+                <label class="label">Duration</label>
+                <div class="flex gap-2 mb-3">
+                    <button onclick="setBoostDuration(7)" class="boost-duration-btn btn-outline btn-sm" data-days="7">7 days</button>
+                    <button onclick="setBoostDuration(14)" class="boost-duration-btn btn-outline btn-sm" data-days="14">14 days</button>
+                    <button onclick="setBoostDuration(30)" class="boost-duration-btn btn-outline btn-sm" data-days="30">30 days</button>
+                    <button onclick="setBoostDuration(0)" class="boost-duration-btn btn-outline btn-sm" data-days="0">Custom</button>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-ink-400">Start</label>
+                        <input type="date" id="boostStartDate" class="input text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-ink-400">End</label>
+                        <input type="date" id="boostEndDate" class="input text-sm">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audience -->
+            <div class="mb-5">
+                <label class="label">Audience</label>
+                <select id="boostAudienceSelect" onchange="handleAudienceSelect()" class="select mb-3">
+                    <option value="new">Create new audience</option>
+                </select>
+                <!-- Inline audience builder (shown when "Create new audience" selected) -->
+                <div id="boostAudienceBuilder">
+                    <!-- Location -->
+                    <div class="mb-3">
+                        <label class="text-xs text-ink-500 font-medium">Locations</label>
+                        <div class="relative">
+                            <input type="text" id="boostLocationSearch" placeholder="Search locations..." class="input text-sm" oninput="searchLocations(this.value)">
+                            <div id="boostLocationResults" class="absolute z-10 w-full bg-surface-0 border border-surface-200 rounded-lg shadow-lg mt-1 hidden max-h-40 overflow-y-auto"></div>
+                        </div>
+                        <div id="boostSelectedLocations" class="flex flex-wrap gap-1 mt-2"></div>
+                    </div>
+                    <!-- Age Range -->
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="text-xs text-ink-500 font-medium">Min Age</label>
+                            <input type="number" id="boostAgeMin" min="18" max="65" value="18" class="input text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-ink-500 font-medium">Max Age</label>
+                            <input type="number" id="boostAgeMax" min="18" max="65" value="65" class="input text-sm">
+                        </div>
+                    </div>
+                    <!-- Gender -->
+                    <div class="mb-3">
+                        <label class="text-xs text-ink-500 font-medium">Gender</label>
+                        <div class="flex gap-3 mt-1">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="boostGender" value="all" checked class="radio">
+                                <span class="text-sm text-ink-600">All</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="boostGender" value="male" class="radio">
+                                <span class="text-sm text-ink-600">Male</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="boostGender" value="female" class="radio">
+                                <span class="text-sm text-ink-600">Female</span>
+                            </label>
+                        </div>
+                    </div>
+                    <!-- Interests -->
+                    <div class="mb-3">
+                        <label class="text-xs text-ink-500 font-medium">Interests</label>
+                        <div class="relative">
+                            <input type="text" id="boostInterestSearch" placeholder="Search interests..." class="input text-sm" oninput="searchInterests(this.value)">
+                            <div id="boostInterestResults" class="absolute z-10 w-full bg-surface-0 border border-surface-200 rounded-lg shadow-lg mt-1 hidden max-h-40 overflow-y-auto"></div>
+                        </div>
+                        <div id="boostSelectedInterests" class="flex flex-wrap gap-1 mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- Estimated Reach -->
+                <div id="boostReachEstimate" class="bg-brand-50 border border-brand-200 rounded-xl p-3 hidden">
+                    <p class="text-sm text-brand-700">
+                        Estimated reach: <span id="boostReachValue" class="font-bold">--</span> people
+                    </p>
+                </div>
+            </div>
+
+            <!-- Cost Summary -->
+            <div class="bg-surface-50 rounded-xl p-4 mb-6 border border-surface-200">
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-ink-500">Estimated total cost</span>
+                    <span class="text-lg font-bold text-ink-800" id="boostTotalCost">$70.00</span>
+                </div>
+                <p class="text-xs text-ink-400 mt-1" id="boostCostBreakdown">$10.00/day x 7 days</p>
+            </div>
+
+            <!-- Error display -->
+            <div id="boostError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="boostErrorText"></p>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-3">
+                <button onclick="closeBoostModal()" class="btn-outline flex-1 py-3">Cancel</button>
+                <button onclick="submitBoost()" id="submitBoostBtn" class="btn-primary flex-1 py-3">
+                    Start Boost
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Campaign Modal -->
+    <div id="createCampaignModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Create Campaign</h3>
+                <button onclick="closeCreateCampaignModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Campaign Name</label>
+                <input type="text" id="campaignName" placeholder="e.g., Summer Sale Promotion" class="input">
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Objective</label>
+                <select id="campaignObjective" class="select">
+                    <option value="OUTCOME_ENGAGEMENT">Engagement</option>
+                    <option value="OUTCOME_TRAFFIC">Traffic</option>
+                    <option value="OUTCOME_AWARENESS">Awareness</option>
+                </select>
+                <p class="helper-text mt-1">Choose what you want to achieve with this campaign</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Platforms</label>
+                <div class="flex gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="campaignPlatform" value="facebook" checked class="checkbox">
+                        <span class="text-sm text-ink-600">Facebook</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="campaignPlatform" value="instagram" checked class="checkbox">
+                        <span class="text-sm text-ink-600">Instagram</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Budget Type</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-ink-500">Daily Budget ($)</label>
+                        <input type="number" id="campaignDailyBudget" min="1" step="0.01" placeholder="e.g., 20" class="input text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-ink-500">Or Lifetime Budget ($)</label>
+                        <input type="number" id="campaignLifetimeBudget" min="1" step="0.01" placeholder="e.g., 500" class="input text-sm">
+                    </div>
+                </div>
+                <p class="helper-text mt-1">Set either daily or lifetime budget</p>
+            </div>
+
+            <div class="mb-6">
+                <label class="label">Schedule</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-ink-500">Start Date</label>
+                        <input type="datetime-local" id="campaignStartTime" class="input text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-ink-500">End Date</label>
+                        <input type="datetime-local" id="campaignEndTime" class="input text-sm">
+                    </div>
+                </div>
+            </div>
+
+            <div id="createCampaignError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="createCampaignErrorText"></p>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeCreateCampaignModal()" class="btn-outline flex-1 py-3">Cancel</button>
+                <button onclick="submitCreateCampaign()" id="submitCampaignBtn" class="btn-primary flex-1 py-3">Create Campaign</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audience Builder Modal -->
+    <div id="audienceModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" id="audienceModalTitle" style="font-family: 'Satoshi', sans-serif;">Create Audience</h3>
+                <button onclick="closeAudienceModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Audience Name</label>
+                <input type="text" id="audienceName" placeholder="e.g., Tech Professionals 25-44" class="input">
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Description</label>
+                <input type="text" id="audienceDescription" placeholder="Brief description..." class="input">
+            </div>
+
+            <!-- Location Search -->
+            <div class="mb-4">
+                <label class="label">Locations</label>
+                <div class="relative">
+                    <input type="text" id="audienceLocationSearch" placeholder="Search countries, cities..." class="input text-sm" oninput="searchLocationsForAudience(this.value)">
+                    <div id="audienceLocationResults" class="absolute z-10 w-full bg-surface-0 border border-surface-200 rounded-lg shadow-lg mt-1 hidden max-h-40 overflow-y-auto"></div>
+                </div>
+                <div id="audienceSelectedLocations" class="flex flex-wrap gap-1 mt-2"></div>
+            </div>
+
+            <!-- Age Range -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                    <label class="label">Min Age</label>
+                    <input type="number" id="audienceAgeMin" min="18" max="65" value="18" class="input text-sm">
+                </div>
+                <div>
+                    <label class="label">Max Age</label>
+                    <input type="number" id="audienceAgeMax" min="18" max="65" value="65" class="input text-sm">
+                </div>
+            </div>
+
+            <!-- Gender -->
+            <div class="mb-4">
+                <label class="label">Gender</label>
+                <div class="flex gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="audienceGender" value="all" checked class="radio">
+                        <span class="text-sm text-ink-600">All</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="audienceGender" value="male" class="radio">
+                        <span class="text-sm text-ink-600">Male</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="audienceGender" value="female" class="radio">
+                        <span class="text-sm text-ink-600">Female</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Interest Search -->
+            <div class="mb-4">
+                <label class="label">Interests</label>
+                <div class="relative">
+                    <input type="text" id="audienceInterestSearch" placeholder="Search interests..." class="input text-sm" oninput="searchInterestsForAudience(this.value)">
+                    <div id="audienceInterestResults" class="absolute z-10 w-full bg-surface-0 border border-surface-200 rounded-lg shadow-lg mt-1 hidden max-h-40 overflow-y-auto"></div>
+                </div>
+                <div id="audienceSelectedInterests" class="flex flex-wrap gap-1 mt-2"></div>
+            </div>
+
+            <!-- Platforms -->
+            <div class="mb-4">
+                <label class="label">Platforms</label>
+                <div class="flex gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="audiencePlatform" value="facebook" checked class="checkbox">
+                        <span class="text-sm text-ink-600">Facebook</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="audiencePlatform" value="instagram" checked class="checkbox">
+                        <span class="text-sm text-ink-600">Instagram</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Estimated Reach -->
+            <div id="audienceReachEstimate" class="bg-brand-50 border border-brand-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-sm text-brand-700">
+                    Estimated reach: <span id="audienceReachValue" class="font-bold">--</span> people
+                </p>
+            </div>
+
+            <button onclick="estimateAudienceReach()" class="btn-outline btn-sm w-full mb-4">
+                Estimate Reach
+            </button>
+
+            <div id="audienceError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="audienceErrorText"></p>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeAudienceModal()" class="btn-outline flex-1 py-3">Cancel</button>
+                <button onclick="submitAudience()" id="submitAudienceBtn" class="btn-primary flex-1 py-3">Save Audience</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Rule Modal -->
+    <div id="ruleModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" id="ruleModalTitle" style="font-family: 'Satoshi', sans-serif;">Create Auto-Boost Rule</h3>
+                <button onclick="closeRuleModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Rule Name</label>
+                <input type="text" id="ruleName" placeholder="e.g., Boost high-reach posts" class="input">
+            </div>
+
+            <div class="mb-4">
+                <label class="label">Rule Type</label>
+                <select id="ruleType" class="select" onchange="updateRuleForm()">
+                    <option value="auto_boost">Auto-Boost (boost when condition met)</option>
+                    <option value="pause_if">Pause If (pause ad when underperforming)</option>
+                </select>
+            </div>
+
+            <!-- Condition Builder -->
+            <div class="mb-4">
+                <label class="label">When this condition is met</label>
+                <div class="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <select id="ruleMetric" class="select text-sm">
+                            <option value="organic_reach">Organic Reach</option>
+                            <option value="likes">Likes</option>
+                            <option value="comments">Comments</option>
+                            <option value="shares">Shares</option>
+                            <option value="impressions">Impressions</option>
+                        </select>
+                        <select id="ruleOperator" class="select text-sm">
+                            <option value=">">is greater than</option>
+                            <option value=">=">is at least</option>
+                            <option value="<">is less than</option>
+                            <option value="<=">is at most</option>
+                        </select>
+                        <input type="number" id="ruleValue" placeholder="500" min="0" class="input text-sm">
+                    </div>
+                    <div id="ruleWithinHoursSection">
+                        <label class="text-xs text-ink-500">Within (hours after publishing)</label>
+                        <input type="number" id="ruleWithinHours" value="24" min="1" max="168" class="input text-sm">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action: Budget & Duration (for auto_boost) -->
+            <div id="ruleBoostAction">
+                <div class="mb-4">
+                    <label class="label">Boost Budget ($/day)</label>
+                    <input type="number" id="ruleBoostBudget" min="1" step="0.01" value="10" class="input">
+                </div>
+                <div class="mb-4">
+                    <label class="label">Boost Duration (days)</label>
+                    <input type="number" id="ruleBoostDuration" min="1" max="90" value="7" class="input">
+                </div>
+                <div class="mb-4">
+                    <label class="label">Audience Template</label>
+                    <select id="ruleAudienceSelect" class="select">
+                        <option value="">Default audience (broad)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Cooldown -->
+            <div class="mb-4">
+                <label class="label">Cooldown (hours between triggers for same post)</label>
+                <input type="number" id="ruleCooldown" min="1" max="168" value="24" class="input">
+            </div>
+
+            <div id="ruleError" class="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 hidden">
+                <p class="text-red-600 text-sm" id="ruleErrorText"></p>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeRuleModal()" class="btn-outline flex-1 py-3">Cancel</button>
+                <button onclick="submitRule()" id="submitRuleBtn" class="btn-primary flex-1 py-3">Create Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-6 right-6 z-[60] space-y-3"></div>
+
+    <!-- Scripts -->
+    <script src="/js/animations.js"></script>
+    <script>
+        // Shared variables and CSRF functions for standalone marketing page.
+        // In profile.html, these are provided by profile.js instead.
+        let csrfToken = null;
+        let currentUser = null;
+
+        async function initCsrf() {
+            try {
+                const existingToken = getCsrfTokenFromCookie();
+                if (existingToken) { csrfToken = existingToken; return csrfToken; }
+                const response = await fetch('/api/csrf-token', { credentials: 'include' });
+                if (response.ok) { const data = await response.json(); csrfToken = data.csrfToken; return csrfToken; }
+            } catch (error) { console.error('Error initializing CSRF:', error); }
+            return null;
+        }
+
+        function getCsrfTokenFromCookie() {
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) { const [name, value] = cookie.trim().split('='); if (name === 'csrfToken') return value; }
+            return null;
+        }
+
+        function getCsrfToken() { return csrfToken || getCsrfTokenFromCookie(); }
+    </script>
+    <script src="/js/marketing.js"></script>
+    <script src="/js/cookieConsent.js"></script>
+    <script>
+        // Tab scroll indicator logic
+        (function() {
+            const tabsScrollWrapper = document.getElementById('tabsScrollWrapper');
+            const fadeGradient = document.getElementById('tabsFadeGradient');
+
+            if (!tabsScrollWrapper) return;
+
+            function checkScrollState() {
+                const isScrollable = tabsScrollWrapper.scrollWidth > tabsScrollWrapper.clientWidth;
+                const isAtEnd = tabsScrollWrapper.scrollLeft + tabsScrollWrapper.clientWidth >= tabsScrollWrapper.scrollWidth - 10;
+
+                if (fadeGradient) {
+                    fadeGradient.style.opacity = (isAtEnd || !isScrollable) ? '0' : '1';
+                }
+            }
+
+            tabsScrollWrapper.addEventListener('scroll', checkScrollState);
+            window.addEventListener('resize', checkScrollState);
+            checkScrollState();
+            document.fonts.ready.then(checkScrollState);
+        })();
+    </script>
+    <script src="/js/themeManager.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 // routes/posts.js
 import express from 'express';
-import { createPost, getUserPosts, logUsage, getUserById } from '../services/database-wrapper.js';
+import { createPost, getUserPosts, logUsage, getUserById, createPublishedPost } from '../services/database-wrapper.js';
 import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
@@ -540,7 +540,26 @@ router.post('/test', async (req, res) => {
       }
     }
 
-    // Step 6: Save post record
+    // Step 6: Record each successfully published platform in published_posts
+    // This enables the Marketing tab's Boost Posts to find manual test posts
+    for (const success of results.success) {
+      try {
+        await createPublishedPost({
+          userId,
+          platform: success.platform,
+          platformPostId: success.postId || null,
+          platformUrl: success.url || null,
+          content: generatedContent.text,
+          trendTopic: trendData.title,
+          topic: selectedTopic,
+          success: true
+        });
+      } catch (ppErr) {
+        console.error(`[Test Post] Failed to record published_post for ${success.platform}:`, ppErr.message);
+      }
+    }
+
+    // Step 7: Save post record
     const post = await createPost(userId, {
       topic: selectedTopic,
       content: generatedContent.text,

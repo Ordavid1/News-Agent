@@ -1185,6 +1185,1129 @@ export async function logAgentAutomation(agentId, userId, eventType, details = {
   }
 }
 
+// ============================================
+// MARKETING - ADD-ON MANAGEMENT
+// ============================================
+
+/**
+ * Get marketing add-on for a user
+ */
+export async function getMarketingAddon(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_addons')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting marketing addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get marketing add-on by Lemon Squeezy subscription ID
+ */
+export async function getMarketingAddonByLsId(lsSubscriptionId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_addons')
+    .select('*')
+    .eq('ls_subscription_id', lsSubscriptionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting marketing addon by LS ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create or update marketing add-on for a user
+ */
+export async function upsertMarketingAddon(addonData) {
+  const { userId, ...rest } = addonData;
+
+  const record = {
+    user_id: userId,
+    status: rest.status || 'active',
+    ls_subscription_id: rest.lsSubscriptionId,
+    ls_variant_id: rest.lsVariantId,
+    plan: rest.plan || 'standard',
+    monthly_price: rest.monthlyPrice || 0,
+    max_ad_accounts: rest.maxAdAccounts || 1,
+    max_active_campaigns: rest.maxActiveCampaigns || 10,
+    max_audience_templates: rest.maxAudienceTemplates || 20,
+    max_auto_boost_rules: rest.maxAutoBoostRules || 10,
+    monthly_ad_budget_cap: rest.monthlyAdBudgetCap || null,
+    current_period_start: rest.currentPeriodStart,
+    current_period_end: rest.currentPeriodEnd,
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_addons')
+    .upsert(record, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting marketing addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update marketing add-on status
+ */
+export async function updateMarketingAddon(userId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_addons')
+    .update(updateData)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating marketing addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+// ============================================
+// MARKETING - AD ACCOUNTS
+// ============================================
+
+/**
+ * Get all ad accounts for a user
+ */
+export async function getUserAdAccounts(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('ad_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user ad accounts:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get the user's selected (active) ad account
+ */
+export async function getSelectedAdAccount(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('ad_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_selected', true)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting selected ad account:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get ad account by ID
+ */
+export async function getAdAccountById(adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('ad_accounts')
+    .select('*')
+    .eq('id', adAccountId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting ad account by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Upsert an ad account (create or update by user_id + account_id)
+ */
+export async function upsertAdAccount(accountData) {
+  const { userId, ...rest } = accountData;
+
+  const record = {
+    user_id: userId,
+    platform: rest.platform || 'facebook',
+    account_id: rest.accountId,
+    account_name: rest.accountName,
+    account_status: rest.accountStatus || 1,
+    currency: rest.currency || 'USD',
+    timezone_name: rest.timezoneName,
+    business_id: rest.businessId,
+    is_selected: rest.isSelected || false,
+    metadata: rest.metadata || {},
+    status: rest.status || 'active',
+    last_synced_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('ad_accounts')
+    .upsert(record, { onConflict: 'user_id,account_id' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting ad account:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Select an ad account (deselect all others for user, select this one)
+ */
+export async function selectAdAccount(userId, adAccountId) {
+  // Deselect all accounts for this user
+  await supabaseAdmin
+    .from('ad_accounts')
+    .update({ is_selected: false, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+
+  // Select the specified account
+  const { data, error } = await supabaseAdmin
+    .from('ad_accounts')
+    .update({ is_selected: true, updated_at: new Date().toISOString() })
+    .eq('id', adAccountId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error selecting ad account:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete an ad account
+ */
+export async function deleteAdAccount(adAccountId) {
+  const { error } = await supabaseAdmin
+    .from('ad_accounts')
+    .delete()
+    .eq('id', adAccountId);
+
+  if (error) {
+    logger.error('Error deleting ad account:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+// ============================================
+// MARKETING - CAMPAIGNS
+// ============================================
+
+/**
+ * Get all campaigns for a user
+ */
+export async function getUserCampaigns(userId, filters = {}) {
+  let query = supabaseAdmin
+    .from('marketing_campaigns')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+  if (filters.adAccountId) {
+    query = query.eq('ad_account_id', filters.adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user campaigns:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get campaign by ID
+ */
+export async function getCampaignById(campaignId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting campaign by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a marketing campaign
+ */
+export async function createCampaign(campaignData) {
+  const { userId, adAccountId, ...rest } = campaignData;
+
+  const record = {
+    user_id: userId,
+    ad_account_id: adAccountId,
+    fb_campaign_id: rest.fbCampaignId || null,
+    name: rest.name,
+    objective: rest.objective,
+    status: rest.status || 'draft',
+    fb_status: rest.fbStatus || null,
+    platforms: rest.platforms || ['facebook'],
+    daily_budget: rest.dailyBudget || null,
+    lifetime_budget: rest.lifetimeBudget || null,
+    start_time: rest.startTime || null,
+    end_time: rest.endTime || null,
+    metadata: rest.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating campaign:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update a marketing campaign
+ */
+export async function updateCampaign(campaignId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .update(updateData)
+    .eq('id', campaignId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating campaign:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a marketing campaign
+ */
+export async function deleteCampaign(campaignId) {
+  const { error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .delete()
+    .eq('id', campaignId);
+
+  if (error) {
+    logger.error('Error deleting campaign:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count active campaigns for a user
+ */
+export async function countUserActiveCampaigns(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .in('status', ['draft', 'active', 'paused']);
+
+  if (error) {
+    logger.error('Error counting user campaigns:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+// ============================================
+// MARKETING - AD SETS
+// ============================================
+
+/**
+ * Get ad sets for a campaign
+ */
+export async function getCampaignAdSets(campaignId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting campaign ad sets:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get ad set by ID
+ */
+export async function getAdSetById(adSetId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .select('*')
+    .eq('id', adSetId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting ad set by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create an ad set
+ */
+export async function createAdSet(adSetData) {
+  const { userId, campaignId, ...rest } = adSetData;
+
+  const record = {
+    user_id: userId,
+    campaign_id: campaignId,
+    fb_adset_id: rest.fbAdsetId || null,
+    name: rest.name,
+    status: rest.status || 'draft',
+    fb_status: rest.fbStatus || null,
+    targeting: rest.targeting || {},
+    placements: rest.placements || {},
+    billing_event: rest.billingEvent || 'IMPRESSIONS',
+    bid_strategy: rest.bidStrategy || 'LOWEST_COST_WITHOUT_CAP',
+    bid_amount: rest.bidAmount || null,
+    daily_budget: rest.dailyBudget || null,
+    lifetime_budget: rest.lifetimeBudget || null,
+    start_time: rest.startTime || null,
+    end_time: rest.endTime || null,
+    metadata: rest.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating ad set:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update an ad set
+ */
+export async function updateAdSet(adSetId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .update(updateData)
+    .eq('id', adSetId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating ad set:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete an ad set
+ */
+export async function deleteAdSet(adSetId) {
+  const { error } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .delete()
+    .eq('id', adSetId);
+
+  if (error) {
+    logger.error('Error deleting ad set:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+// ============================================
+// MARKETING - ADS
+// ============================================
+
+/**
+ * Get ads for an ad set
+ */
+export async function getAdSetAds(adSetId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ads')
+    .select('*')
+    .eq('ad_set_id', adSetId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting ad set ads:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get all ads for a user (across all campaigns)
+ */
+export async function getUserAds(userId, filters = {}) {
+  let query = supabaseAdmin
+    .from('marketing_ads')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user ads:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get ad by ID
+ */
+export async function getAdById(adId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ads')
+    .select('*')
+    .eq('id', adId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting ad by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create an ad
+ */
+export async function createAd(adData) {
+  const { userId, adSetId, ...rest } = adData;
+
+  const record = {
+    user_id: userId,
+    ad_set_id: adSetId,
+    fb_ad_id: rest.fbAdId || null,
+    fb_creative_id: rest.fbCreativeId || null,
+    name: rest.name,
+    status: rest.status || 'draft',
+    fb_status: rest.fbStatus || null,
+    source_published_post_id: rest.sourcePublishedPostId || null,
+    platform_post_id: rest.platformPostId || null,
+    source_platform: rest.sourcePlatform || 'facebook',
+    creative_type: rest.creativeType || 'existing_post',
+    creative_data: rest.creativeData || {},
+    metadata: rest.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ads')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating ad:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update an ad
+ */
+export async function updateAd(adId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_ads')
+    .update(updateData)
+    .eq('id', adId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating ad:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete an ad
+ */
+export async function deleteAd(adId) {
+  const { error } = await supabaseAdmin
+    .from('marketing_ads')
+    .delete()
+    .eq('id', adId);
+
+  if (error) {
+    logger.error('Error deleting ad:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+// ============================================
+// MARKETING - AUDIENCE TEMPLATES
+// ============================================
+
+/**
+ * Get all audience templates for a user
+ */
+export async function getUserAudienceTemplates(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('audience_templates')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user audience templates:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get audience template by ID
+ */
+export async function getAudienceTemplateById(templateId) {
+  const { data, error } = await supabaseAdmin
+    .from('audience_templates')
+    .select('*')
+    .eq('id', templateId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting audience template by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create an audience template
+ */
+export async function createAudienceTemplate(templateData) {
+  const { userId, ...rest } = templateData;
+
+  const record = {
+    user_id: userId,
+    name: rest.name,
+    description: rest.description || null,
+    targeting: rest.targeting,
+    platforms: rest.platforms || ['facebook', 'instagram'],
+    estimated_reach: rest.estimatedReach || null,
+    is_default: rest.isDefault || false,
+    metadata: rest.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('audience_templates')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating audience template:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update an audience template
+ */
+export async function updateAudienceTemplate(templateId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('audience_templates')
+    .update(updateData)
+    .eq('id', templateId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating audience template:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete an audience template
+ */
+export async function deleteAudienceTemplate(templateId) {
+  const { error } = await supabaseAdmin
+    .from('audience_templates')
+    .delete()
+    .eq('id', templateId);
+
+  if (error) {
+    logger.error('Error deleting audience template:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count audience templates for a user
+ */
+export async function countUserAudienceTemplates(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('audience_templates')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error counting audience templates:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+// ============================================
+// MARKETING - RULES
+// ============================================
+
+/**
+ * Get all marketing rules for a user
+ */
+export async function getUserMarketingRules(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting user marketing rules:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get all active marketing rules (for the rules worker)
+ */
+export async function getActiveMarketingRules() {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .select('*')
+    .eq('status', 'active');
+
+  if (error) {
+    logger.error('Error getting active marketing rules:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get marketing rule by ID
+ */
+export async function getMarketingRuleById(ruleId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .select('*')
+    .eq('id', ruleId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting marketing rule by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a marketing rule
+ */
+export async function createMarketingRule(ruleData) {
+  const { userId, ...rest } = ruleData;
+
+  const record = {
+    user_id: userId,
+    name: rest.name,
+    rule_type: rest.ruleType,
+    conditions: rest.conditions,
+    actions: rest.actions,
+    applies_to: rest.appliesTo || {},
+    status: rest.status || 'active',
+    cooldown_hours: rest.cooldownHours || 24,
+    metadata: rest.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating marketing rule:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update a marketing rule
+ */
+export async function updateMarketingRule(ruleId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .update(updateData)
+    .eq('id', ruleId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating marketing rule:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a marketing rule
+ */
+export async function deleteMarketingRule(ruleId) {
+  const { error } = await supabaseAdmin
+    .from('marketing_rules')
+    .delete()
+    .eq('id', ruleId);
+
+  if (error) {
+    logger.error('Error deleting marketing rule:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count active marketing rules for a user
+ */
+export async function countUserMarketingRules(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('marketing_rules')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (error) {
+    logger.error('Error counting marketing rules:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+/**
+ * Log a marketing rule trigger
+ */
+export async function logRuleTrigger(triggerData) {
+  const { ruleId, userId, ...rest } = triggerData;
+
+  const record = {
+    rule_id: ruleId,
+    user_id: userId,
+    published_post_id: rest.publishedPostId || null,
+    platform: rest.platform || null,
+    action_taken: rest.actionTaken || {},
+    result: rest.result || {},
+    success: rest.success !== undefined ? rest.success : true,
+    error_message: rest.errorMessage || null
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rule_triggers')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    // Log but don't throw - this is non-critical
+    logger.warn('Failed to log rule trigger:', error.message);
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Get rule trigger history
+ */
+export async function getRuleTriggerHistory(ruleId, limit = 50) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_rule_triggers')
+    .select('*')
+    .eq('rule_id', ruleId)
+    .order('triggered_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    logger.error('Error getting rule trigger history:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+// ============================================
+// MARKETING - METRICS HISTORY
+// ============================================
+
+/**
+ * Upsert daily metrics for a marketing entity
+ */
+export async function upsertMarketingMetrics(metricsData) {
+  const { userId, entityType, entityId, fbEntityId, date, ...metrics } = metricsData;
+
+  const record = {
+    user_id: userId,
+    entity_type: entityType,
+    entity_id: entityId,
+    fb_entity_id: fbEntityId,
+    date: date,
+    spend: metrics.spend || 0,
+    impressions: metrics.impressions || 0,
+    reach: metrics.reach || 0,
+    clicks: metrics.clicks || 0,
+    ctr: metrics.ctr || 0,
+    cpc: metrics.cpc || 0,
+    cpm: metrics.cpm || 0,
+    additional_metrics: metrics.additionalMetrics || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('marketing_metrics_history')
+    .upsert(record, { onConflict: 'entity_id,date' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting marketing metrics:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get metrics history for an entity within a date range
+ */
+export async function getMarketingMetricsHistory(entityId, startDate, endDate) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_metrics_history')
+    .select('*')
+    .eq('entity_id', entityId)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date', { ascending: true });
+
+  if (error) {
+    const errorMsg = typeof error.message === 'string' && error.message.includes('<!DOCTYPE')
+      ? 'Supabase returned an HTML error page (possible infrastructure issue or missing table)'
+      : error.message;
+    logger.error(`Error getting marketing metrics history: ${errorMsg}`, { code: error.code, details: error.details });
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get aggregated marketing overview for a user
+ */
+export async function getMarketingOverview(userId, startDate, endDate) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_metrics_history')
+    .select('spend, impressions, reach, clicks')
+    .eq('user_id', userId)
+    .gte('date', startDate)
+    .lte('date', endDate);
+
+  if (error) {
+    // Truncate error message if it contains HTML (e.g. Cloudflare error pages)
+    const errorMsg = typeof error.message === 'string' && error.message.includes('<!DOCTYPE')
+      ? 'Supabase returned an HTML error page (possible infrastructure issue or missing table)'
+      : error.message;
+    logger.error(`Error getting marketing overview: ${errorMsg}`, { code: error.code, details: error.details });
+    throw error;
+  }
+
+  // Aggregate the metrics
+  const overview = (data || []).reduce((acc, row) => {
+    acc.totalSpend += parseFloat(row.spend) || 0;
+    acc.totalImpressions += parseInt(row.impressions) || 0;
+    acc.totalReach += parseInt(row.reach) || 0;
+    acc.totalClicks += parseInt(row.clicks) || 0;
+    return acc;
+  }, { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0 });
+
+  overview.avgCtr = overview.totalImpressions > 0
+    ? (overview.totalClicks / overview.totalImpressions * 100).toFixed(2)
+    : 0;
+  overview.avgCpc = overview.totalClicks > 0
+    ? (overview.totalSpend / overview.totalClicks).toFixed(2)
+    : 0;
+  overview.avgCpm = overview.totalImpressions > 0
+    ? (overview.totalSpend / overview.totalImpressions * 1000).toFixed(2)
+    : 0;
+
+  return overview;
+}
+
+/**
+ * Create a published post record
+ * Used by both automation (via DatabaseManager) and manual test posts (via routes/posts.js)
+ */
+export async function createPublishedPost(postData) {
+  const record = {
+    user_id: postData.userId,
+    platform: postData.platform,
+    platform_post_id: postData.platformPostId || null,
+    platform_url: postData.platformUrl || null,
+    content: postData.content || null,
+    trend_topic: postData.trendTopic || null,
+    topic: postData.topic || null,
+    success: postData.success !== false,
+    error_message: postData.errorMessage || null,
+    agent_id: postData.agentId || null,
+    engagement: postData.engagement || {},
+    published_at: postData.publishedAt || new Date().toISOString()
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('published_posts')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating published post:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get boostable published posts (Facebook/Instagram posts that can be promoted)
+ */
+export async function getBoostablePublishedPosts(userId, limit = 50) {
+  const { data, error } = await supabaseAdmin
+    .from('published_posts')
+    .select('*')
+    .eq('user_id', userId)
+    .in('platform', ['facebook', 'instagram'])
+    .eq('success', true)
+    .not('platform_post_id', 'is', null)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    logger.error('Error getting boostable posts:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -1220,5 +2343,60 @@ export default {
   getAgentsReadyForPosting,
   getAgentsReadyForPlatform,
   resetDailyAgentPosts,
-  logAgentAutomation
+  logAgentAutomation,
+  // Marketing add-on functions
+  getMarketingAddon,
+  getMarketingAddonByLsId,
+  upsertMarketingAddon,
+  updateMarketingAddon,
+  // Marketing ad account functions
+  getUserAdAccounts,
+  getSelectedAdAccount,
+  getAdAccountById,
+  upsertAdAccount,
+  selectAdAccount,
+  deleteAdAccount,
+  // Marketing campaign functions
+  getUserCampaigns,
+  getCampaignById,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  countUserActiveCampaigns,
+  // Marketing ad set functions
+  getCampaignAdSets,
+  getAdSetById,
+  createAdSet,
+  updateAdSet,
+  deleteAdSet,
+  // Marketing ad functions
+  getAdSetAds,
+  getUserAds,
+  getAdById,
+  createAd,
+  updateAd,
+  deleteAd,
+  // Marketing audience template functions
+  getUserAudienceTemplates,
+  getAudienceTemplateById,
+  createAudienceTemplate,
+  updateAudienceTemplate,
+  deleteAudienceTemplate,
+  countUserAudienceTemplates,
+  // Marketing rule functions
+  getUserMarketingRules,
+  getActiveMarketingRules,
+  getMarketingRuleById,
+  createMarketingRule,
+  updateMarketingRule,
+  deleteMarketingRule,
+  countUserMarketingRules,
+  logRuleTrigger,
+  getRuleTriggerHistory,
+  // Marketing metrics functions
+  upsertMarketingMetrics,
+  getMarketingMetricsHistory,
+  getMarketingOverview,
+  createPublishedPost,
+  getBoostablePublishedPosts
 };

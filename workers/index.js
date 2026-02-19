@@ -6,6 +6,8 @@
 
 import tokenRefreshWorker from './tokenRefreshWorker.js';
 import postingWorker from './postingWorker.js';
+import marketingMetricsWorker from './marketingMetricsWorker.js';
+import marketingRulesWorker from './marketingRulesWorker.js';
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -25,6 +27,8 @@ export function startAllWorkers() {
 
   tokenRefreshWorker.startWorker();
   postingWorker.startWorker();
+  marketingMetricsWorker.startWorker();
+  marketingRulesWorker.startWorker();
 
   logger.info('All background workers started');
 }
@@ -37,6 +41,8 @@ export function stopAllWorkers() {
 
   tokenRefreshWorker.stopWorker();
   postingWorker.stopWorker();
+  marketingMetricsWorker.stopWorker();
+  marketingRulesWorker.stopWorker();
 
   logger.info('All background workers stopped');
 }
@@ -47,17 +53,21 @@ export function stopAllWorkers() {
 export function getWorkersStatus() {
   return {
     tokenRefreshWorker: tokenRefreshWorker.isWorkerRunning(),
-    postingWorker: postingWorker.isWorkerRunning()
+    postingWorker: postingWorker.isWorkerRunning(),
+    marketingMetricsWorker: marketingMetricsWorker.isWorkerRunning(),
+    marketingRulesWorker: marketingRulesWorker.isWorkerRunning()
   };
 }
 
 // Re-export individual workers
-export { tokenRefreshWorker, postingWorker };
+export { tokenRefreshWorker, postingWorker, marketingMetricsWorker, marketingRulesWorker };
 
 export default {
   startAllWorkers,
   stopAllWorkers,
   getWorkersStatus,
   tokenRefreshWorker,
-  postingWorker
+  postingWorker,
+  marketingMetricsWorker,
+  marketingRulesWorker
 };

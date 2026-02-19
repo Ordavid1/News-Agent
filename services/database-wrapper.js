@@ -44,5 +44,60 @@ export {
   getAgentsReadyForPosting,
   getAgentsReadyForPlatform,
   resetDailyAgentPosts,
-  logAgentAutomation
+  logAgentAutomation,
+  // Marketing add-on functions
+  getMarketingAddon,
+  getMarketingAddonByLsId,
+  upsertMarketingAddon,
+  updateMarketingAddon,
+  // Marketing ad account functions
+  getUserAdAccounts,
+  getSelectedAdAccount,
+  getAdAccountById,
+  upsertAdAccount,
+  selectAdAccount,
+  deleteAdAccount,
+  // Marketing campaign functions
+  getUserCampaigns,
+  getCampaignById,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  countUserActiveCampaigns,
+  // Marketing ad set functions
+  getCampaignAdSets,
+  getAdSetById,
+  createAdSet,
+  updateAdSet,
+  deleteAdSet,
+  // Marketing ad functions
+  getAdSetAds,
+  getUserAds,
+  getAdById,
+  createAd,
+  updateAd,
+  deleteAd,
+  // Marketing audience template functions
+  getUserAudienceTemplates,
+  getAudienceTemplateById,
+  createAudienceTemplate,
+  updateAudienceTemplate,
+  deleteAudienceTemplate,
+  countUserAudienceTemplates,
+  // Marketing rule functions
+  getUserMarketingRules,
+  getActiveMarketingRules,
+  getMarketingRuleById,
+  createMarketingRule,
+  updateMarketingRule,
+  deleteMarketingRule,
+  countUserMarketingRules,
+  logRuleTrigger,
+  getRuleTriggerHistory,
+  // Marketing metrics functions
+  upsertMarketingMetrics,
+  getMarketingMetricsHistory,
+  getMarketingOverview,
+  createPublishedPost,
+  getBoostablePublishedPosts
 } from './database.js';

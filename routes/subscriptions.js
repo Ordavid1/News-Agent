@@ -1,7 +1,7 @@
 // routes/subscriptions.js - Lemon Squeezy Integration
 import express from 'express';
 import crypto from 'crypto';
-import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId } from '../services/database-wrapper.js';
+import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
 // Supabase for plan interest tracking
@@ -585,6 +585,190 @@ router.get('/plan-interest/summary', async (req, res) => {
 });
 
 // ============================================
+// MARKETING ADD-ON
+// ============================================
+
+const MARKETING_ADDON_CONFIG = {
+  standard: {
+    name: 'Marketing Add-on',
+    monthlyPrice: 29900, // $299 in cents
+    variantId: process.env.LEMON_SQUEEZY_MARKETING_VARIANT_ID,
+    maxAdAccounts: 1,
+    features: [
+      'Post boosting (Facebook & Instagram)',
+      'Campaign management',
+      'Audience library with reach estimator',
+      'Auto-boost rules engine',
+      'Performance dashboard & analytics'
+    ]
+  }
+};
+
+// Get marketing add-on status
+router.get('/marketing-addon', async (req, res) => {
+  try {
+    const addon = await getMarketingAddon(req.user.id);
+    res.json({
+      addon: addon || null,
+      config: MARKETING_ADDON_CONFIG,
+      isActive: addon?.status === 'active'
+    });
+  } catch (error) {
+    console.error('[MARKETING-ADDON] Error fetching addon:', error);
+    res.status(500).json({ error: 'Failed to fetch marketing add-on status' });
+  }
+});
+
+// Create marketing add-on checkout
+router.post('/marketing-checkout', async (req, res) => {
+  console.log('[MARKETING-CHECKOUT] POST /marketing-checkout - User:', req.user?.id);
+  try {
+    // Verify user has at least starter tier
+    const tierHierarchy = { free: 0, starter: 1, growth: 2, professional: 3, business: 4 };
+    const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
+
+    if (userTierLevel < 1) {
+      return res.status(403).json({
+        error: 'Marketing add-on requires a paid subscription (Starter or higher)'
+      });
+    }
+
+    // Check if already has active addon
+    const existingAddon = await getMarketingAddon(req.user.id);
+    if (existingAddon?.status === 'active') {
+      return res.status(400).json({ error: 'Marketing add-on is already active' });
+    }
+
+    const addonConfig = MARKETING_ADDON_CONFIG.standard;
+
+    if (!addonConfig.variantId) {
+      console.error('[MARKETING-CHECKOUT] Missing marketing variant ID');
+      return res.status(500).json({ error: 'Marketing add-on configuration error' });
+    }
+
+    const checkoutPayload = {
+      data: {
+        type: 'checkouts',
+        attributes: {
+          checkout_data: {
+            email: req.user.email,
+            name: req.user.name || req.user.email.split('@')[0],
+            custom: {
+              user_id: req.user.id,
+              addon_type: 'marketing'
+            }
+          },
+          product_options: {
+            name: addonConfig.name,
+            description: addonConfig.features.join(', '),
+            redirect_url: `${process.env.FRONTEND_URL}/profile.html?tab=marketing&payment=marketing_success`,
+            receipt_thank_you_note: 'Thank you for activating Marketing! Your campaigns dashboard is now available.'
+          },
+          checkout_options: {
+            embed: false,
+            media: false,
+            subscription_preview: true
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: 'stores',
+              id: process.env.LEMON_SQUEEZY_STORE_ID
+            }
+          },
+          variant: {
+            data: {
+              type: 'variants',
+              id: addonConfig.variantId
+            }
+          }
+        }
+      }
+    };
+
+    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+      },
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[MARKETING-CHECKOUT] Lemon Squeezy error:', data);
+      return res.status(500).json({ error: 'Failed to create marketing checkout session' });
+    }
+
+    const checkoutUrl = data.data.attributes.url;
+    console.log('[MARKETING-CHECKOUT] Success! Checkout URL created');
+
+    res.json({
+      checkoutUrl,
+      expiresAt: data.data.attributes.expires_at
+    });
+  } catch (error) {
+    console.error('[MARKETING-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create marketing checkout session' });
+  }
+});
+
+// Cancel marketing add-on
+router.post('/marketing-cancel', async (req, res) => {
+  console.log('[MARKETING-CANCEL] POST /marketing-cancel - User:', req.user?.id);
+  try {
+    const addon = await getMarketingAddon(req.user.id);
+
+    if (!addon || !addon.ls_subscription_id) {
+      return res.status(404).json({ error: 'No active marketing add-on found' });
+    }
+
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Content-Type': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        },
+        body: JSON.stringify({
+          data: {
+            type: 'subscriptions',
+            id: addon.ls_subscription_id,
+            attributes: { cancelled: true }
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[MARKETING-CANCEL] LS API Error:', errorData);
+      return res.status(500).json({ error: 'Failed to cancel marketing add-on' });
+    }
+
+    const data = await response.json();
+
+    await updateMarketingAddon(req.user.id, {
+      status: 'cancelled'
+    });
+
+    res.json({
+      message: 'Marketing add-on will be cancelled at the end of the billing period',
+      endsAt: data.data.attributes.ends_at
+    });
+  } catch (error) {
+    console.error('[MARKETING-CANCEL] Error:', error);
+    res.status(500).json({ error: 'Failed to cancel marketing add-on' });
+  }
+});
+
+// ============================================
 // WEBHOOK HANDLER
 // ============================================
 
@@ -632,42 +816,75 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   console.log('Custom data:', customData);
 
   try {
-    switch (eventName) {
-      case 'subscription_created':
-        await handleSubscriptionCreated(payload, customData);
-        break;
+    // Route marketing add-on events vs main subscription events
+    const isMarketingAddon = customData?.addon_type === 'marketing';
 
-      case 'subscription_updated':
-        await handleSubscriptionUpdated(payload);
-        break;
+    if (isMarketingAddon && eventName === 'subscription_created') {
+      await handleMarketingAddonCreated(payload, customData);
+    } else if (!isMarketingAddon) {
+      // Check if this is a marketing addon update (by checking existing record)
+      const subscriptionId = payload.data?.id;
+      const existingMarketingAddon = subscriptionId ? await getMarketingAddonByLsId(String(subscriptionId)) : null;
 
-      case 'subscription_cancelled':
-        await handleSubscriptionCancelled(payload);
-        break;
+      if (existingMarketingAddon) {
+        // This is a marketing addon event
+        switch (eventName) {
+          case 'subscription_updated':
+          case 'subscription_payment_success':
+            await handleMarketingAddonUpdated(payload, existingMarketingAddon);
+            break;
+          case 'subscription_cancelled':
+            await handleMarketingAddonCancelled(existingMarketingAddon);
+            break;
+          case 'subscription_expired':
+            await handleMarketingAddonExpired(existingMarketingAddon);
+            break;
+          case 'subscription_payment_failed':
+            await updateMarketingAddon(existingMarketingAddon.user_id, { status: 'past_due' });
+            console.log(`[WEBHOOK] Marketing addon payment failed for user ${existingMarketingAddon.user_id}`);
+            break;
+          default:
+            console.log(`[WEBHOOK] Unhandled marketing addon event: ${eventName}`);
+        }
+      } else {
+        // Standard subscription events
+        switch (eventName) {
+          case 'subscription_created':
+            await handleSubscriptionCreated(payload, customData);
+            break;
 
-      case 'subscription_resumed':
-        await handleSubscriptionResumed(payload);
-        break;
+          case 'subscription_updated':
+            await handleSubscriptionUpdated(payload);
+            break;
 
-      case 'subscription_expired':
-        await handleSubscriptionExpired(payload);
-        break;
+          case 'subscription_cancelled':
+            await handleSubscriptionCancelled(payload);
+            break;
 
-      case 'subscription_payment_success':
-        await handlePaymentSuccess(payload);
-        break;
+          case 'subscription_resumed':
+            await handleSubscriptionResumed(payload);
+            break;
 
-      case 'subscription_payment_failed':
-        await handlePaymentFailed(payload);
-        break;
+          case 'subscription_expired':
+            await handleSubscriptionExpired(payload);
+            break;
 
-      case 'order_created':
-        // Initial order - subscription_created will follow
-        console.log('Order created:', payload.data.id);
-        break;
+          case 'subscription_payment_success':
+            await handlePaymentSuccess(payload);
+            break;
 
-      default:
-        console.log(`Unhandled webhook event: ${eventName}`);
+          case 'subscription_payment_failed':
+            await handlePaymentFailed(payload);
+            break;
+
+          case 'order_created':
+            console.log('Order created:', payload.data.id);
+            break;
+
+          default:
+            console.log(`Unhandled webhook event: ${eventName}`);
+        }
+      }
     }
 
     res.status(200).json({ received: true });
@@ -908,6 +1125,67 @@ async function handlePaymentFailed(payload) {
   });
 
   console.log(`Payment failed - subscription marked as past_due for user ${subscription.userId}`);
+}
+
+// ============================================
+// MARKETING ADD-ON WEBHOOK HANDLERS
+// ============================================
+
+async function handleMarketingAddonCreated(payload, customData) {
+  const { user_id } = customData;
+  const subscriptionData = payload.data.attributes;
+  const subscriptionId = payload.data.id;
+
+  if (!user_id) {
+    console.error('[WEBHOOK] No user_id in custom_data for marketing addon creation');
+    return;
+  }
+
+  console.log(`[WEBHOOK] Creating marketing addon for user ${user_id}`);
+
+  await upsertMarketingAddon({
+    userId: user_id,
+    status: 'active',
+    lsSubscriptionId: String(subscriptionId),
+    lsVariantId: String(subscriptionData.variant_id),
+    plan: 'standard',
+    monthlyPrice: MARKETING_ADDON_CONFIG.standard.monthlyPrice,
+    maxAdAccounts: MARKETING_ADDON_CONFIG.standard.maxAdAccounts,
+    currentPeriodStart: subscriptionData.created_at,
+    currentPeriodEnd: subscriptionData.renews_at
+  });
+
+  console.log(`[WEBHOOK] Marketing addon created successfully for user ${user_id}`);
+}
+
+async function handleMarketingAddonUpdated(payload, existingAddon) {
+  const subscriptionData = payload.data.attributes;
+
+  const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+
+  await updateMarketingAddon(existingAddon.user_id, {
+    status,
+    current_period_start: subscriptionData.created_at,
+    current_period_end: subscriptionData.renews_at
+  });
+
+  console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}`);
+}
+
+async function handleMarketingAddonCancelled(existingAddon) {
+  await updateMarketingAddon(existingAddon.user_id, {
+    status: 'cancelled'
+  });
+
+  console.log(`[WEBHOOK] Marketing addon cancelled for user ${existingAddon.user_id}`);
+}
+
+async function handleMarketingAddonExpired(existingAddon) {
+  await updateMarketingAddon(existingAddon.user_id, {
+    status: 'expired'
+  });
+
+  console.log(`[WEBHOOK] Marketing addon expired for user ${existingAddon.user_id}`);
 }
 
 export default router;
