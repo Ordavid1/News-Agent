@@ -20,6 +20,7 @@ import {
   getSelectedAdAccount,
   selectAdAccount,
   deleteAdAccount,
+  deleteAllUserAdAccounts,
   getUserCampaigns,
   getCampaignById,
   updateCampaign,
@@ -77,6 +78,16 @@ router.use(requireMarketingAddon());
  */
 router.get('/ad-accounts', async (req, res) => {
   try {
+    // Verify user has an active Facebook connection before returning ad accounts
+    const TokenManager = (await import('../services/TokenManager.js')).default;
+    const connection = await TokenManager.getTokens(req.user.id, 'facebook');
+
+    if (!connection || connection.status !== 'active') {
+      // Clean up stale accounts from a previous connection
+      await deleteAllUserAdAccounts(req.user.id);
+      return res.json({ success: true, accounts: [], needsConnection: true });
+    }
+
     const accounts = await getUserAdAccounts(req.user.id);
     res.json({ success: true, accounts });
   } catch (error) {
@@ -228,7 +239,9 @@ router.post('/boost', async (req, res) => {
  */
 router.get('/boosts', async (req, res) => {
   try {
-    const campaigns = await getUserCampaigns(req.user.id);
+    const filters = {};
+    if (req.query.adAccountId) filters.adAccountId = req.query.adAccountId;
+    const campaigns = await getUserCampaigns(req.user.id, filters);
     // Filter to boost campaigns only
     const boosts = campaigns.filter(c => c.metadata?.boostType === true);
     res.json({ success: true, boosts });
@@ -314,6 +327,7 @@ router.get('/campaigns', async (req, res) => {
   try {
     const filters = {};
     if (req.query.status) filters.status = req.query.status;
+    if (req.query.adAccountId) filters.adAccountId = req.query.adAccountId;
     const campaigns = await getUserCampaigns(req.user.id, filters);
     res.json({ success: true, campaigns });
   } catch (error) {
@@ -792,13 +806,18 @@ router.get('/analytics/overview', async (req, res) => {
   try {
     const startDate = req.query.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const endDate = req.query.endDate || new Date().toISOString().split('T')[0];
+    const adAccountId = req.query.adAccountId || null;
 
-    const overview = await marketingService.getAnalyticsOverview(req.user.id, startDate, endDate);
+    const overview = await marketingService.getAnalyticsOverview(req.user.id, startDate, endDate, adAccountId);
 
-    // Also get active campaign count and total ads
-    const campaigns = await getUserCampaigns(req.user.id);
+    // Also get active campaign count and total ads, filtered by ad account
+    const filters = {};
+    if (adAccountId) filters.adAccountId = adAccountId;
+    const campaigns = await getUserCampaigns(req.user.id, filters);
     const activeCampaigns = campaigns.filter(c => c.status === 'active').length;
-    const ads = await getUserAds(req.user.id, { status: 'active' });
+    const adFilters = { status: 'active' };
+    if (adAccountId) adFilters.adAccountId = adAccountId;
+    const ads = await getUserAds(req.user.id, adFilters);
 
     res.json({
       success: true,

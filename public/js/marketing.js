@@ -249,20 +249,25 @@ async function cancelAddon() {
 // ============================================
 
 async function loadAdAccounts() {
-    const token = localStorage.getItem('token');
     try {
         const response = await apiGet('/api/marketing/ad-accounts');
         if (response.success) {
             adAccounts = response.accounts || [];
             selectedAdAccount = adAccounts.find(a => a.is_selected);
 
-            if (!selectedAdAccount && adAccounts.length === 0) {
+            if (response.needsConnection) {
+                // Facebook is not connected — prompt to connect
+                showAdAccountBanner('Connect your Facebook account with marketing permissions to get started.', true);
+            } else if (!selectedAdAccount && adAccounts.length === 0) {
                 showAdAccountBanner('No ad account found. Connect your Facebook account with marketing permissions.', true);
             } else if (!selectedAdAccount && adAccounts.length > 0) {
                 showAdAccountBanner('Please select an ad account to use for marketing.', false);
             } else {
                 document.getElementById('adAccountBanner').classList.add('hidden');
             }
+
+            // Update dropdown to reflect current state
+            populateAdAccountDropdown();
         }
     } catch (error) {
         console.error('Error loading ad accounts:', error);
@@ -504,7 +509,8 @@ async function loadOverview() {
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     try {
-        const response = await apiGet(`/api/marketing/analytics/overview?startDate=${startDate}&endDate=${endDate}`);
+        const acctParam = selectedAdAccount ? `&adAccountId=${selectedAdAccount.id}` : '';
+        const response = await apiGet(`/api/marketing/analytics/overview?startDate=${startDate}&endDate=${endDate}${acctParam}`);
         if (response.success) {
             overviewData = response.overview;
             renderOverview(response.overview, days);
@@ -670,7 +676,8 @@ function renderBoostablePost(post) {
 
 async function loadActiveBoosts() {
     try {
-        const response = await apiGet('/api/marketing/boosts');
+        const acctParam = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
+        const response = await apiGet(`/api/marketing/boosts${acctParam}`);
         if (response.success && response.boosts && response.boosts.length > 0) {
             const section = document.getElementById('activeBoostsSection');
             const list = document.getElementById('activeBoostsList');
@@ -932,9 +939,11 @@ async function loadCampaigns() {
     empty.classList.add('hidden');
 
     try {
-        const url = statusFilter
-            ? `/api/marketing/campaigns?status=${statusFilter}`
-            : '/api/marketing/campaigns';
+        const params = new URLSearchParams();
+        if (statusFilter) params.set('status', statusFilter);
+        if (selectedAdAccount) params.set('adAccountId', selectedAdAccount.id);
+        const qs = params.toString();
+        const url = `/api/marketing/campaigns${qs ? '?' + qs : ''}`;
         const response = await apiGet(url);
 
         if (response.success) {
@@ -1440,7 +1449,8 @@ async function loadRules() {
     empty.classList.add('hidden');
 
     try {
-        const response = await apiGet('/api/marketing/rules');
+        const acctParam = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
+        const response = await apiGet(`/api/marketing/rules${acctParam}`);
         if (response.success) {
             rules = response.rules || [];
             if (loading) loading.classList.add('hidden');

@@ -1410,6 +1410,21 @@ export async function selectAdAccount(userId, adAccountId) {
 }
 
 /**
+ * Delete all ad accounts for a user (used when Facebook is disconnected)
+ */
+export async function deleteAllUserAdAccounts(userId) {
+  const { error } = await supabaseAdmin
+    .from('ad_accounts')
+    .delete()
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting all user ad accounts:', error);
+    throw error;
+  }
+}
+
+/**
  * Delete an ad account
  */
 export async function deleteAdAccount(adAccountId) {
@@ -1718,6 +1733,28 @@ export async function getUserAds(userId, filters = {}) {
 
   if (filters.status) {
     query = query.eq('status', filters.status);
+  }
+
+  // Filter by ad account: resolve through campaign → ad_set hierarchy
+  if (filters.adAccountId) {
+    const { data: campaigns } = await supabaseAdmin
+      .from('marketing_campaigns')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('ad_account_id', filters.adAccountId);
+
+    const campaignIds = (campaigns || []).map(c => c.id);
+    if (campaignIds.length === 0) return [];
+
+    const { data: adSets } = await supabaseAdmin
+      .from('marketing_ad_sets')
+      .select('id')
+      .in('campaign_id', campaignIds);
+
+    const adSetIds = (adSets || []).map(s => s.id);
+    if (adSetIds.length === 0) return [];
+
+    query = query.in('ad_set_id', adSetIds);
   }
 
   const { data, error } = await query.order('created_at', { ascending: false });
@@ -2212,14 +2249,52 @@ export async function getMarketingMetricsHistory(entityId, startDate, endDate) {
 
 /**
  * Get aggregated marketing overview for a user
+ * Optionally filtered by ad account (resolves entity hierarchy: campaigns → ad_sets → ads)
  */
-export async function getMarketingOverview(userId, startDate, endDate) {
-  const { data, error } = await supabaseAdmin
+export async function getMarketingOverview(userId, startDate, endDate, adAccountId = null) {
+  const emptyOverview = { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0, avgCtr: 0, avgCpc: 0, avgCpm: 0 };
+
+  let query = supabaseAdmin
     .from('marketing_metrics_history')
     .select('spend, impressions, reach, clicks')
     .eq('user_id', userId)
     .gte('date', startDate)
     .lte('date', endDate);
+
+  // If filtering by ad account, resolve entity IDs through the campaign hierarchy
+  if (adAccountId) {
+    const { data: campaigns } = await supabaseAdmin
+      .from('marketing_campaigns')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('ad_account_id', adAccountId);
+
+    const campaignIds = (campaigns || []).map(c => c.id);
+    if (campaignIds.length === 0) return emptyOverview;
+
+    const { data: adSets } = await supabaseAdmin
+      .from('marketing_ad_sets')
+      .select('id')
+      .in('campaign_id', campaignIds);
+
+    const adSetIds = (adSets || []).map(s => s.id);
+
+    let adIds = [];
+    if (adSetIds.length > 0) {
+      const { data: ads } = await supabaseAdmin
+        .from('marketing_ads')
+        .select('id')
+        .in('ad_set_id', adSetIds);
+      adIds = (ads || []).map(a => a.id);
+    }
+
+    const allEntityIds = [...campaignIds, ...adSetIds, ...adIds];
+    if (allEntityIds.length === 0) return emptyOverview;
+
+    query = query.in('entity_id', allEntityIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     // Truncate error message if it contains HTML (e.g. Cloudflare error pages)
@@ -2356,6 +2431,7 @@ export default {
   upsertAdAccount,
   selectAdAccount,
   deleteAdAccount,
+  deleteAllUserAdAccounts,
   // Marketing campaign functions
   getUserCampaigns,
   getCampaignById,

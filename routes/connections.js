@@ -168,6 +168,17 @@ router.delete('/:platform', authenticateToken, async (req, res) => {
 
     await ConnectionManager.disconnectPlatform(req.user.id, platform);
 
+    // Clean up associated ad accounts when Facebook is disconnected
+    if (platform === 'facebook') {
+      try {
+        const { deleteAllUserAdAccounts } = await import('../services/database-wrapper.js');
+        await deleteAllUserAdAccounts(req.user.id);
+        logger.info(`[DISCONNECT] Cleaned up ad accounts for user ${req.user.id} after Facebook disconnect`);
+      } catch (cleanupErr) {
+        logger.error('[DISCONNECT] Failed to clean up ad accounts:', cleanupErr);
+      }
+    }
+
     res.json({
       success: true,
       message: `Disconnected from ${platform}`

@@ -57,6 +57,7 @@ export {
   upsertAdAccount,
   selectAdAccount,
   deleteAdAccount,
+  deleteAllUserAdAccounts,
   // Marketing campaign functions
   getUserCampaigns,
   getCampaignById,

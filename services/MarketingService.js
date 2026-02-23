@@ -807,8 +807,8 @@ class MarketingService {
   /**
    * Get analytics overview for a user
    */
-  async getAnalyticsOverview(userId, startDate, endDate) {
-    return getMarketingOverview(userId, startDate, endDate);
+  async getAnalyticsOverview(userId, startDate, endDate, adAccountId = null) {
+    return getMarketingOverview(userId, startDate, endDate, adAccountId);
   }
 
   /**
