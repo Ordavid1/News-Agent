@@ -97,7 +97,14 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
 
-      # WhatsApp (Whapi.Cloud) API
+      # WhatsApp - Bridge Service (replaces Whapi.Cloud)
+      - key: WHATSAPP_SERVICE_URL
+        sync: false
+      - key: WHATSAPP_SERVICE_KEY
+        sync: false
+      - key: WHATSAPP_WEBHOOK_SECRET
+        sync: false
+      # WhatsApp - Legacy Whapi.Cloud (fallback during migration)
       - key: WHAPI_API_TOKEN
         sync: false
 

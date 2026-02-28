@@ -2,7 +2,15 @@
 import axios from 'axios';
 import winston from 'winston';
 
-const WHAPI_API_BASE = 'https://gate.whapi.cloud';
+const WHAPI_API_BASE = process.env.WHATSAPP_SERVICE_URL || 'https://gate.whapi.cloud';
+
+/**
+ * Get the WhatsApp API token.
+ * Prefers the new WHATSAPP_SERVICE_KEY (Baileys bridge) with fallback to WHAPI_API_TOKEN (Whapi.cloud).
+ */
+function getApiToken() {
+  return process.env.WHATSAPP_SERVICE_KEY || process.env.WHAPI_API_TOKEN;
+}
 
 const logger = winston.createLogger({
   level: 'debug',
@@ -25,8 +33,8 @@ class WhatsAppPublisher {
    * @param {Object} credentials.metadata - Platform metadata
    */
   constructor(credentials = null) {
-    // API token comes from environment (master account)
-    this.apiToken = process.env.WHAPI_API_TOKEN;
+    // API token comes from environment (master account or bridge service)
+    this.apiToken = getApiToken();
 
     if (!this.apiToken) {
       logger.warn('WhatsApp API token not configured');
@@ -57,7 +65,7 @@ class WhatsAppPublisher {
    * @returns {Object} Account info including phone number and name
    */
   static async getAccountInfo() {
-    const apiToken = process.env.WHAPI_API_TOKEN;
+    const apiToken = getApiToken();
     if (!apiToken) {
       throw new Error('WhatsApp API token not configured');
     }
@@ -90,7 +98,7 @@ class WhatsAppPublisher {
    * @returns {Object} Group info including id, name, participant count
    */
   static async validateGroupAccess(groupId) {
-    const apiToken = process.env.WHAPI_API_TOKEN;
+    const apiToken = getApiToken();
     if (!apiToken) {
       throw new Error('WhatsApp API token not configured');
     }
@@ -128,7 +136,7 @@ class WhatsAppPublisher {
    * @returns {Array} List of groups with id, name, participant count
    */
   static async listGroups() {
-    const apiToken = process.env.WHAPI_API_TOKEN;
+    const apiToken = getApiToken();
     if (!apiToken) {
       throw new Error('WhatsApp API token not configured');
     }

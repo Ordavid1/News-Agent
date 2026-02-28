@@ -417,7 +417,7 @@ import crypto from 'crypto';
  */
 router.get('/whatsapp/bot-info', async (req, res) => {
   try {
-    if (!process.env.WHAPI_API_TOKEN) {
+    if (!(process.env.WHATSAPP_SERVICE_KEY || process.env.WHAPI_API_TOKEN)) {
       return res.status(503).json({
         success: false,
         configured: false,
@@ -461,7 +461,7 @@ router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
       });
     }
 
-    if (!process.env.WHAPI_API_TOKEN) {
+    if (!(process.env.WHATSAPP_SERVICE_KEY || process.env.WHAPI_API_TOKEN)) {
       return res.status(503).json({
         success: false,
         error: 'WhatsApp integration not configured'
@@ -685,6 +685,16 @@ router.post('/whatsapp/claim', authenticateToken, async (req, res) => {
  * This endpoint detects verification codes in group messages
  */
 router.post('/whatsapp/webhook', async (req, res) => {
+  // Validate webhook secret if configured (used by Baileys bridge service)
+  const expectedSecret = process.env.WHATSAPP_WEBHOOK_SECRET;
+  if (expectedSecret) {
+    const receivedSecret = req.headers['x-webhook-secret'];
+    if (receivedSecret !== expectedSecret) {
+      logger.warn('WhatsApp webhook received with invalid secret');
+      return res.status(401).json({ success: false, error: 'Invalid webhook secret' });
+    }
+  }
+
   // Always return 200 OK for webhooks
   res.status(200).json({ success: true });
 
