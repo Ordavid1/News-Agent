@@ -153,6 +153,12 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     params.append('code_challenge_method', 'S256');
   }
 
+  // Facebook Login for Business: attach config_id for Meta platforms that use Facebook OAuth
+  // This is required for page/business permissions (pages_manage_posts, business_management, etc.)
+  if ((platform === 'facebook' || platform === 'instagram') && process.env.META_LOGIN_CONFIG_ID) {
+    params.append('config_id', process.env.META_LOGIN_CONFIG_ID);
+  }
+
   // Platform-specific parameters
   if (platform === 'reddit') {
     params.append('duration', 'permanent'); // For refresh tokens
