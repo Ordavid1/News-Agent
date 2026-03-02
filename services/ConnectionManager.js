@@ -154,10 +154,6 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     // Facebook Login for Business: config_id replaces scope — all permissions are
     // defined in the Login Configuration in the Meta Developer Console
     params.append('config_id', metaConfigId);
-    // Force re-consent so the user always sees the page selection screen.
-    // Without this, Facebook caches the previous authorization and the user
-    // cannot change which pages they share with the app.
-    params.append('auth_type', 'rerequest');
   } else {
     // Standard OAuth: pass scopes directly
     params.append('scope', config.scopes.join(' '));
