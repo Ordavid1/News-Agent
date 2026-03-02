@@ -132,14 +132,28 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
 
   const state = generateStateToken(userId, platform, redirectUrl);
   const callbackUrl = getCallbackUrl(platform);
+  const metaConfigId = process.env.META_LOGIN_CONFIG_ID;
+
+  // Facebook Login for Business: when config_id is available, permissions are defined
+  // in the Meta Developer Console configuration — do NOT pass them via scope parameter.
+  // The scope parameter would cause "Invalid Scopes" errors for page/business permissions.
+  const useMetaBusinessLogin = (platform === 'facebook' || platform === 'instagram') && metaConfigId;
 
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: callbackUrl,
     response_type: 'code',
-    scope: config.scopes.join(' '),
     state
   });
+
+  if (useMetaBusinessLogin) {
+    // Facebook Login for Business: config_id replaces scope — all permissions are
+    // defined in the Login Configuration in the Meta Developer Console
+    params.append('config_id', metaConfigId);
+  } else {
+    // Standard OAuth: pass scopes directly
+    params.append('scope', config.scopes.join(' '));
+  }
 
   // Add PKCE if required
   if (config.usePKCE) {
@@ -151,12 +165,6 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
 
     params.append('code_challenge', pkce.challenge);
     params.append('code_challenge_method', 'S256');
-  }
-
-  // Facebook Login for Business: attach config_id for Meta platforms that use Facebook OAuth
-  // This is required for page/business permissions (pages_manage_posts, business_management, etc.)
-  if ((platform === 'facebook' || platform === 'instagram') && process.env.META_LOGIN_CONFIG_ID) {
-    params.append('config_id', process.env.META_LOGIN_CONFIG_ID);
   }
 
   // Platform-specific parameters
