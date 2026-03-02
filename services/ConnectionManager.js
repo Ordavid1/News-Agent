@@ -154,6 +154,10 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     // Facebook Login for Business: config_id replaces scope — all permissions are
     // defined in the Login Configuration in the Meta Developer Console
     params.append('config_id', metaConfigId);
+    // Force re-consent so the user always sees the page selection screen.
+    // Without this, Facebook caches the previous authorization and the user
+    // cannot change which pages they share with the app.
+    params.append('auth_type', 'rerequest');
   } else {
     // Standard OAuth: pass scopes directly
     params.append('scope', config.scopes.join(' '));
@@ -324,23 +328,26 @@ async function fetchUserInfo(platform, accessToken) {
   // Normalize user info across platforms
   const userInfo = normalizeUserInfo(platform, data);
 
-  // For Facebook, also discover and store the user's Page info during initial connection
-  // so that publishing can later use direct page ID fetching instead of /me/accounts
+  // For Facebook, discover and store the user's Page info during initial connection.
+  // This is CRITICAL — without page info, publishing will fail.
   if (platform === 'facebook') {
-    try {
-      const pageInfo = await fetchFacebookPageInfo(accessToken);
-      if (pageInfo) {
-        userInfo.metadata = {
-          ...userInfo.metadata,
-          pageId: pageInfo.id,
-          pageAccessToken: pageInfo.accessToken,
-          pageName: pageInfo.name
-        };
-        logger.info(`Stored Facebook page info: ${pageInfo.name} (${pageInfo.id})`);
-      }
-    } catch (pageError) {
-      logger.warn('Could not fetch Facebook page info during connection:', pageError.message);
-      // Non-fatal — user can still reconnect or page token will be fetched at publish time
+    const pageInfo = await fetchFacebookPageInfo(accessToken);
+    if (pageInfo) {
+      userInfo.metadata = {
+        ...userInfo.metadata,
+        pageId: pageInfo.id,
+        pageAccessToken: pageInfo.accessToken,
+        pageName: pageInfo.name
+      };
+      logger.info(`Stored Facebook page info: ${pageInfo.name} (${pageInfo.id})`);
+    } else {
+      // Page discovery failed — this means the user didn't grant page access
+      // or /me/accounts returned empty. Throw so the user sees the error and can retry.
+      logger.error('Facebook page discovery failed during connection — no pages returned');
+      throw new Error(
+        'No Facebook Pages found. During the Facebook authorization, make sure you select ' +
+        'the Facebook Page you want to publish to. Please try connecting again and grant page access.'
+      );
     }
   }
 
