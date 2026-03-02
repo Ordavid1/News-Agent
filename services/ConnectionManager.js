@@ -132,12 +132,16 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
 
   const state = generateStateToken(userId, platform, redirectUrl);
   const callbackUrl = getCallbackUrl(platform);
-  const metaConfigId = process.env.META_LOGIN_CONFIG_ID;
 
-  // Facebook Login for Business: when config_id is available, permissions are defined
-  // in the Meta Developer Console configuration — do NOT pass them via scope parameter.
-  // The scope parameter would cause "Invalid Scopes" errors for page/business permissions.
-  const useMetaBusinessLogin = (platform === 'facebook' || platform === 'instagram') && metaConfigId;
+  // Facebook Login for Business: each Meta platform can have its own config_id.
+  // When config_id is available, permissions are defined in the Meta Developer Console
+  // configuration — do NOT pass them via scope parameter (causes "Invalid Scopes" errors).
+  const metaConfigMap = {
+    facebook: process.env.META_LOGIN_CONFIG_ID,
+    instagram: process.env.META_INSTAGRAM_LOGIN_CONFIG_ID || process.env.META_LOGIN_CONFIG_ID
+  };
+  const metaConfigId = metaConfigMap[platform];
+  const useMetaBusinessLogin = metaConfigId && (platform === 'facebook' || platform === 'instagram');
 
   const params = new URLSearchParams({
     client_id: clientId,
