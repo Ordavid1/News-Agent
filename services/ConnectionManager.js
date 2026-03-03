@@ -33,7 +33,7 @@ const PLATFORM_CONFIGS = {
     authUrl: 'https://twitter.com/i/oauth2/authorize',
     tokenUrl: 'https://api.twitter.com/2/oauth2/token',
     userInfoUrl: 'https://api.twitter.com/2/users/me',
-    scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+    scopes: ['tweet.read', 'tweet.write', 'users.read', 'media.write', 'offline.access'],
     usePKCE: true
   },
   linkedin: {
@@ -268,6 +268,37 @@ export async function exchangeCodeForTokens(platform, code, state) {
 }
 
 /**
+ * Retry a fetch call with exponential backoff for transient HTTP errors.
+ * Retries on 500, 502, 503, and 429 (rate limit) status codes.
+ * @param {Function} fetchFn - Async function that returns a fetch Response
+ * @param {Object} options - Retry configuration
+ * @param {number} options.maxRetries - Maximum number of retry attempts (default: 3)
+ * @param {number} options.baseDelayMs - Base delay in milliseconds (default: 1000)
+ * @param {string} options.context - Descriptive label for log messages
+ * @returns {Response} The successful fetch response
+ */
+async function fetchWithRetry(fetchFn, { maxRetries = 3, baseDelayMs = 1000, context = 'API call' } = {}) {
+  const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503]);
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const response = await fetchFn();
+
+    if (response.ok || !RETRYABLE_STATUS_CODES.has(response.status)) {
+      return response;
+    }
+
+    if (attempt < maxRetries) {
+      const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+      logger.warn(`${context} returned ${response.status}, retrying in ${delayMs}ms (attempt ${attempt}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    } else {
+      logger.error(`${context} returned ${response.status} after ${maxRetries} attempts`);
+      return response;
+    }
+  }
+}
+
+/**
  * Fetch user info from platform API
  */
 async function fetchUserInfo(platform, accessToken) {
@@ -301,7 +332,10 @@ async function fetchUserInfo(platform, accessToken) {
     url += '?fields=id,name,picture';
   }
 
-  const response = await fetch(url, { headers });
+  const response = await fetchWithRetry(
+    () => fetch(url, { headers }),
+    { context: `${platform} user info fetch` }
+  );
 
   if (!response.ok) {
     const errorText = await response.text();

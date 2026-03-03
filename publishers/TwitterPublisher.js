@@ -91,9 +91,8 @@ async publishPost(content, mediaUrl = null) {
         const mimeType = this.detectMediaMimeType(mediaUrl);
         logger.debug(`Detected mime type: ${mimeType}`);
 
-        mediaId = await this.client.v1.uploadMedia(mediaBuffer, {
-          mimeType,
-          target: 'tweet'
+        mediaId = await this.client.v2.uploadMedia(mediaBuffer, {
+          media_type: mimeType
         });
         logger.debug(`Media uploaded with ID: ${mediaId}`);
       } catch (mediaError) {
@@ -109,27 +108,48 @@ async publishPost(content, mediaUrl = null) {
     // Log first 100 chars of the tweet for debugging
     logger.debug(`Tweet preview: "${formattedText.substring(0, 100)}${formattedText.length > 100 ? '...' : ''}"`);
     
-    // Publish tweet with better error handling
+    // Publish tweet with retry for transient errors and specific error handling
+    const MAX_TWEET_RETRIES = 3;
+    const RETRYABLE_CODES = new Set([500, 502, 503]);
     let tweet;
-    try {
-      tweet = await this.client.v2.tweet({
-        text: formattedText,
-        ...(mediaId && { media: { media_ids: [mediaId] } })
-      });
-    } catch (tweetError) {
-      // Check if it's a duplicate content error
-      if (tweetError.code === 403 && tweetError.data?.detail?.includes('duplicate')) {
-        logger.warn('Twitter rejected as duplicate content');
-        throw new Error('Twitter rejected this as duplicate content. Try varying your post.');
+    let lastError;
+
+    for (let attempt = 1; attempt <= MAX_TWEET_RETRIES; attempt++) {
+      try {
+        tweet = await this.client.v2.tweet({
+          text: formattedText,
+          ...(mediaId && { media: { media_ids: [mediaId] } })
+        });
+        break;
+      } catch (tweetError) {
+        lastError = tweetError;
+
+        // Check if it's a duplicate content error — not retryable
+        if (tweetError.code === 403 && tweetError.data?.detail?.includes('duplicate')) {
+          logger.warn('Twitter rejected as duplicate content');
+          throw new Error('Twitter rejected this as duplicate content. Try varying your post.');
+        }
+
+        // Check if it's a rate limit error — not retryable here
+        if (tweetError.code === 429) {
+          logger.error('Twitter rate limit exceeded');
+          throw new Error('Twitter rate limit exceeded. Please try again later.');
+        }
+
+        // Retry on transient server errors (500, 502, 503)
+        if (RETRYABLE_CODES.has(tweetError.code) && attempt < MAX_TWEET_RETRIES) {
+          const delayMs = 1000 * Math.pow(2, attempt - 1);
+          logger.warn(`Tweet post returned ${tweetError.code}, retrying in ${delayMs}ms (attempt ${attempt}/${MAX_TWEET_RETRIES})`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        throw tweetError;
       }
-      
-      // Check if it's a rate limit error
-      if (tweetError.code === 429) {
-        logger.error('Twitter rate limit exceeded');
-        throw new Error('Twitter rate limit exceeded. Please try again later.');
-      }
-      
-      throw tweetError;
+    }
+
+    if (!tweet) {
+      throw lastError || new Error('Failed to post tweet after retries');
     }
     
     const tweetId = tweet.data.id;
