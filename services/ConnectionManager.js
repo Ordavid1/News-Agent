@@ -133,17 +133,12 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
   const state = generateStateToken(userId, platform, redirectUrl);
   const callbackUrl = getCallbackUrl(platform);
 
-  // Facebook Login for Business: each Meta platform can have its own config_id.
-  // When config_id is available, permissions are defined in the Meta Developer Console
-  // configuration — do NOT pass them via scope parameter (causes "Invalid Scopes" errors).
-  const metaConfigMap = {
-    // Facebook uses standard OAuth with scope parameter — NOT config_id.
-    // config_id triggers Meta Business Portfolio selection which blocks pages
-    // owned by the same portfolio as the app.
-    instagram: process.env.META_INSTAGRAM_LOGIN_CONFIG_ID || process.env.META_LOGIN_CONFIG_ID
-  };
-  const metaConfigId = metaConfigMap[platform];
-  const useMetaBusinessLogin = metaConfigId && platform === 'instagram';
+  // Meta platforms (Facebook, Instagram) use standard OAuth with scope parameter.
+  // config_id (Facebook Login for Business) is NOT used because:
+  // - Facebook: config_id triggers Business Portfolio selection which blocks pages
+  //   owned by the same portfolio as the app.
+  // - Instagram: config_id routes through instagram.com/oauth/oidc/ which has separate
+  //   redirect URI validation from the Facebook Login product settings.
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -152,14 +147,7 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     state
   });
 
-  if (useMetaBusinessLogin) {
-    // Facebook Login for Business: config_id replaces scope — all permissions are
-    // defined in the Login Configuration in the Meta Developer Console
-    params.append('config_id', metaConfigId);
-  } else {
-    // Standard OAuth: pass scopes directly
-    params.append('scope', config.scopes.join(' '));
-  }
+  params.append('scope', config.scopes.join(' '));
 
   // Add PKCE if required
   if (config.usePKCE) {
