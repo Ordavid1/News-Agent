@@ -7,8 +7,9 @@ const logger = winston.createLogger({
   format: winston.format.combine(
     winston.format.colorize(),
     winston.format.timestamp(),
-    winston.format.printf(({ timestamp, level, message }) => {
-      return `[InstagramPublisher] ${timestamp} [${level}]: ${message}`;
+    winston.format.printf(({ timestamp, level, message, ...meta }) => {
+      const metaStr = Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
+      return `[InstagramPublisher] ${timestamp} [${level}]: ${message}${metaStr}`;
     })
   ),
   transports: [new winston.transports.Console()]
@@ -17,9 +18,12 @@ const logger = winston.createLogger({
 const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
-// Video processing polling configuration
-const VIDEO_POLL_MAX_ATTEMPTS = 30;
-const VIDEO_POLL_INTERVAL_MS = 2000;
+// Container processing polling configuration
+// Instagram requires ALL containers (images AND videos) to reach FINISHED status before publishing
+const CONTAINER_POLL_MAX_ATTEMPTS = 30;
+const CONTAINER_POLL_INTERVAL_MS = 2000;
+// Images typically process in 1-5 seconds; cap image polling at a lower max
+const IMAGE_POLL_MAX_ATTEMPTS = 10;
 
 class InstagramPublisher {
   /**
@@ -84,10 +88,11 @@ class InstagramPublisher {
       const containerId = await this.createMediaContainer(mediaUrl, caption, isVideo);
       logger.debug(`Created media container: ${containerId}`);
 
-      // Step 2: For videos, wait for processing to complete
-      if (isVideo) {
-        await this.waitForContainerReady(containerId);
-      }
+      // Step 2: Wait for container processing to complete
+      // Instagram requires ALL containers (images AND videos) to reach FINISHED status
+      // before they can be published. Videos take longer; images usually 1-5 seconds.
+      const maxAttempts = isVideo ? CONTAINER_POLL_MAX_ATTEMPTS : IMAGE_POLL_MAX_ATTEMPTS;
+      await this.waitForContainerReady(containerId, maxAttempts);
 
       // Step 3: Publish the container
       const result = await this.publishMediaContainer(containerId);
@@ -102,11 +107,12 @@ class InstagramPublisher {
         igUserId: this.igUserId
       };
     } catch (error) {
-      logger.error('Instagram publishing error:', {
+      const errorDetails = {
         status: error.response?.status,
-        data: error.response?.data,
+        apiError: error.response?.data?.error || error.response?.data,
         message: error.message
-      });
+      };
+      logger.error(`Instagram publishing error: ${JSON.stringify(errorDetails)}`);
 
       if (error.response?.status === 401 || error.response?.data?.error?.code === 190) {
         logger.error('Instagram token appears to be invalid or expired');
@@ -149,47 +155,53 @@ class InstagramPublisher {
   }
 
   /**
-   * Wait for a video container to finish processing
-   * Instagram processes videos asynchronously; we must poll until ready.
+   * Wait for a media container to finish processing.
+   * Instagram processes ALL containers asynchronously — both images and videos
+   * must reach FINISHED status before they can be published.
    * @param {string} containerId - Container ID to check
+   * @param {number} maxAttempts - Maximum polling attempts (default: CONTAINER_POLL_MAX_ATTEMPTS)
    */
-  async waitForContainerReady(containerId) {
-    for (let attempt = 0; attempt < VIDEO_POLL_MAX_ATTEMPTS; attempt++) {
-      const status = await this.checkContainerStatus(containerId);
+  async waitForContainerReady(containerId, maxAttempts = CONTAINER_POLL_MAX_ATTEMPTS) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const { statusCode, errorMessage } = await this.checkContainerStatus(containerId);
 
-      if (status === 'FINISHED') {
-        logger.debug(`Video container ${containerId} ready after ${attempt + 1} polls`);
+      if (statusCode === 'FINISHED') {
+        logger.debug(`Media container ${containerId} ready after ${attempt + 1} poll(s)`);
         return;
       }
 
-      if (status === 'ERROR') {
-        throw new Error('Instagram video processing failed. The video may be in an unsupported format or too large.');
+      if (statusCode === 'ERROR') {
+        const detail = errorMessage ? `: ${errorMessage}` : '';
+        throw new Error(`Instagram media processing failed${detail}. The media may be in an unsupported format, too large, or the URL may be inaccessible.`);
       }
 
-      logger.debug(`Video container status: ${status} (attempt ${attempt + 1}/${VIDEO_POLL_MAX_ATTEMPTS})`);
-      await new Promise(resolve => setTimeout(resolve, VIDEO_POLL_INTERVAL_MS));
+      logger.debug(`Media container status: ${statusCode} (attempt ${attempt + 1}/${maxAttempts})`);
+      await new Promise(resolve => setTimeout(resolve, CONTAINER_POLL_INTERVAL_MS));
     }
 
-    throw new Error(`Instagram video processing timed out after ${VIDEO_POLL_MAX_ATTEMPTS * VIDEO_POLL_INTERVAL_MS / 1000} seconds`);
+    throw new Error(`Instagram media processing timed out after ${maxAttempts * CONTAINER_POLL_INTERVAL_MS / 1000} seconds`);
   }
 
   /**
    * Check the processing status of a media container
    * @param {string} containerId - Container ID
-   * @returns {string} Status code: IN_PROGRESS, FINISHED, or ERROR
+   * @returns {Object} { statusCode, errorMessage } - Status code (IN_PROGRESS, FINISHED, ERROR) and optional error message
    */
   async checkContainerStatus(containerId) {
     const response = await axios.get(
       `${GRAPH_API_BASE}/${containerId}`,
       {
         params: {
-          fields: 'status_code',
+          fields: 'status_code,status',
           access_token: this.accessToken
         }
       }
     );
 
-    return response.data.status_code;
+    return {
+      statusCode: response.data.status_code,
+      errorMessage: response.data.status
+    };
   }
 
   /**

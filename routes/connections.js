@@ -37,22 +37,285 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      connections: connections.map(conn => ({
-        id: conn.id,
-        platform: conn.platform,
-        username: conn.platform_username,
-        displayName: conn.platform_display_name,
-        avatarUrl: conn.platform_avatar_url,
-        status: conn.status,
-        lastUsed: conn.last_used_at,
-        connectedAt: conn.created_at
-      }))
+      connections: connections.map(conn => {
+        const response = {
+          id: conn.id,
+          platform: conn.platform,
+          username: conn.platform_username,
+          displayName: conn.platform_display_name,
+          avatarUrl: conn.platform_avatar_url,
+          status: conn.status,
+          lastUsed: conn.last_used_at,
+          connectedAt: conn.created_at
+        };
+
+        // For Meta platforms, expose active page/account info (never tokens)
+        const meta = conn.platform_metadata || {};
+        if (conn.platform === 'facebook' && meta.pageId) {
+          response.activePage = { id: meta.pageId, name: meta.pageName };
+        } else if (conn.platform === 'instagram' && meta.igUserId) {
+          response.activePage = { id: meta.linkedPageId, name: meta.linkedPageName, igUsername: conn.platform_username };
+        }
+
+        return response;
+      })
     });
   } catch (error) {
     logger.error('Error getting connections:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get connections'
+    });
+  }
+});
+
+/**
+ * GET /api/connections/:platform/pages
+ * Fetch available Facebook Pages (for Facebook) or Instagram Business Accounts (for Instagram).
+ * Returns fresh data from the Facebook Graph API for dropdown population.
+ */
+router.get('/:platform/pages', authenticateToken, async (req, res) => {
+  const { platform } = req.params;
+
+  if (!['facebook', 'instagram'].includes(platform)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Page selection is only available for Facebook and Instagram'
+    });
+  }
+
+  try {
+    // Get the connection's stored token for API calls
+    const connection = await TokenManager.getTokens(req.user.id, platform);
+
+    if (!connection || connection.status !== 'active') {
+      return res.status(404).json({
+        success: false,
+        error: `No active ${platform} connection found. Please connect ${platform} first.`
+      });
+    }
+
+    const GRAPH_API_VERSION = 'v24.0';
+    const accessToken = connection.access_token;
+    const currentMetadata = connection.platform_metadata || {};
+
+    if (platform === 'facebook') {
+      // Fetch all pages the user manages via Graph API
+      const FacebookPublisher = (await import('../publishers/FacebookPublisher.js')).default;
+      const publisher = FacebookPublisher.withCredentials({ accessToken });
+      const pages = await publisher.getUserPages();
+
+      if (!pages || pages.length === 0) {
+        return res.json({
+          success: true,
+          pages: [],
+          message: 'No Facebook Pages found. Ensure you granted page access during authorization.'
+        });
+      }
+
+      // Return pages WITHOUT access tokens (security), with isActive flag
+      res.json({
+        success: true,
+        pages: pages.map(p => ({
+          id: p.id,
+          name: p.name,
+          pictureUrl: p.pictureUrl,
+          isActive: p.id === currentMetadata.pageId
+        }))
+      });
+
+    } else {
+      // Instagram: fetch pages and enrich with linked IG Business Accounts
+      const pagesResponse = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/me/accounts?fields=id,name,picture,instagram_business_account&access_token=${accessToken}`
+      );
+
+      if (!pagesResponse.ok) {
+        const errorText = await pagesResponse.text();
+        logger.error('Failed to fetch pages for Instagram page selector:', errorText);
+        throw new Error('Failed to fetch Facebook Pages from Graph API');
+      }
+
+      const pagesData = await pagesResponse.json();
+      const pages = pagesData.data || [];
+
+      // Enrich each page that has a linked IG account
+      const pagesWithIG = [];
+      for (const page of pages) {
+        if (!page.instagram_business_account) continue;
+
+        try {
+          const igResponse = await fetch(
+            `https://graph.facebook.com/${GRAPH_API_VERSION}/${page.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
+          );
+
+          if (igResponse.ok) {
+            const igData = await igResponse.json();
+            pagesWithIG.push({
+              pageId: page.id,
+              pageName: page.name,
+              pagePictureUrl: page.picture?.data?.url,
+              igAccount: {
+                id: igData.id,
+                username: igData.username,
+                name: igData.name || igData.username,
+                profilePictureUrl: igData.profile_picture_url
+              },
+              isActive: igData.id === currentMetadata.igUserId
+            });
+          }
+        } catch (err) {
+          logger.warn(`Failed to fetch IG account for page ${page.id}:`, err.message);
+        }
+      }
+
+      if (pagesWithIG.length === 0) {
+        return res.json({
+          success: true,
+          pages: [],
+          message: 'No Instagram Business Accounts found linked to your Facebook Pages.'
+        });
+      }
+
+      res.json({ success: true, pages: pagesWithIG });
+    }
+  } catch (error) {
+    logger.error(`Error fetching pages for ${platform}:`, error.message);
+    res.status(500).json({
+      success: false,
+      error: `Failed to fetch pages: ${error.message}`
+    });
+  }
+});
+
+/**
+ * PATCH /api/connections/:platform/active-page
+ * Switch which Facebook Page (or Instagram Business Account) is used for publishing.
+ * Updates platform_metadata, platform_username, and platform_display_name.
+ */
+router.patch('/:platform/active-page', authenticateToken, async (req, res) => {
+  const { platform } = req.params;
+  const { pageId } = req.body;
+
+  if (!['facebook', 'instagram'].includes(platform)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Page selection is only available for Facebook and Instagram'
+    });
+  }
+
+  if (!pageId) {
+    return res.status(400).json({
+      success: false,
+      error: 'pageId is required'
+    });
+  }
+
+  try {
+    const connection = await TokenManager.getTokens(req.user.id, platform);
+    if (!connection || connection.status !== 'active') {
+      return res.status(404).json({
+        success: false,
+        error: `No active ${platform} connection found`
+      });
+    }
+
+    const accessToken = connection.access_token;
+    const GRAPH_API_VERSION = 'v24.0';
+
+    // Validate the page exists and get fresh page data (including page access token)
+    const FacebookPublisher = (await import('../publishers/FacebookPublisher.js')).default;
+    const publisher = FacebookPublisher.withCredentials({ accessToken });
+    const pageData = await publisher.getPageById(pageId);
+
+    if (platform === 'facebook') {
+      const existingMetadata = connection.platform_metadata || {};
+      const newMetadata = {
+        ...existingMetadata,
+        pageId: pageData.id,
+        pageAccessToken: pageData.accessToken,
+        pageName: pageData.name,
+        pictureUrl: pageData.pictureUrl
+      };
+
+      const { error: updateError } = await supabaseAdmin
+        .from('social_connections')
+        .update({
+          platform_metadata: newMetadata,
+          platform_username: pageData.name,
+          platform_display_name: pageData.name,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', req.user.id)
+        .eq('platform', 'facebook');
+
+      if (updateError) throw updateError;
+
+      logger.info(`User ${req.user.id} switched Facebook active page to ${pageData.name} (${pageData.id})`);
+
+      res.json({
+        success: true,
+        activePage: { id: pageData.id, name: pageData.name }
+      });
+
+    } else {
+      // Instagram: derive the IG Business Account linked to this page
+      const igResponse = await fetch(
+        `https://graph.facebook.com/${GRAPH_API_VERSION}/${pageId}?fields=instagram_business_account{id,username,name,profile_picture_url}&access_token=${accessToken}`
+      );
+
+      if (!igResponse.ok) {
+        const errorText = await igResponse.text();
+        logger.error('Failed to fetch IG account for page switch:', errorText);
+        throw new Error('Failed to fetch Instagram account for this page');
+      }
+
+      const igPageData = await igResponse.json();
+      if (!igPageData.instagram_business_account) {
+        return res.status(400).json({
+          success: false,
+          error: 'This Facebook Page has no linked Instagram Business Account. Please link an Instagram account to this page first.'
+        });
+      }
+
+      const igAccount = igPageData.instagram_business_account;
+      const newMetadata = {
+        igUserId: igAccount.id,
+        linkedPageId: pageId,
+        linkedPageName: pageData.name
+      };
+
+      const { error: updateError } = await supabaseAdmin
+        .from('social_connections')
+        .update({
+          platform_user_id: igAccount.id,
+          platform_username: igAccount.username,
+          platform_display_name: igAccount.name || igAccount.username,
+          platform_avatar_url: igAccount.profile_picture_url,
+          platform_metadata: newMetadata,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', req.user.id)
+        .eq('platform', 'instagram');
+
+      if (updateError) throw updateError;
+
+      logger.info(`User ${req.user.id} switched Instagram active account to @${igAccount.username} (via page ${pageData.name})`);
+
+      res.json({
+        success: true,
+        activePage: {
+          id: pageId,
+          name: pageData.name,
+          igUsername: igAccount.username
+        }
+      });
+    }
+  } catch (error) {
+    logger.error(`Error switching active page for ${platform}:`, error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to switch active page'
     });
   }
 });

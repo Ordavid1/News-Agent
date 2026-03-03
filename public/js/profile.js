@@ -240,13 +240,31 @@ function updateConnectionsUI() {
             connectedCount++;
             if (card) card.classList.add('connected');
             if (statusEl) {
-                // For WhatsApp, show group name instead of username
-                const displayName = platform === 'whatsapp'
-                    ? connection.displayName || connection.username || 'group'
-                    : `@${connection.username || connection.displayName || 'user'}`;
-                statusEl.textContent = `Connected${platform === 'whatsapp' ? ' to ' : ' as '}${displayName}`;
                 statusEl.classList.remove('text-gray-400');
                 statusEl.classList.add('text-green-400');
+
+                if (platform === 'whatsapp') {
+                    const displayName = connection.displayName || connection.username || 'group';
+                    statusEl.textContent = `Connected to ${displayName}`;
+                } else if (['facebook', 'instagram'].includes(platform)) {
+                    // For Meta platforms: show page/account name with clickable selector
+                    const pageName = connection.activePage?.name
+                        || connection.username || connection.displayName || 'Page';
+                    statusEl.innerHTML = '';
+                    statusEl.appendChild(document.createTextNode('Connected as '));
+                    const pageSpan = document.createElement('span');
+                    pageSpan.textContent = `@${pageName}`;
+                    pageSpan.className = 'cursor-pointer underline decoration-dotted hover:text-green-300 transition-colors';
+                    pageSpan.title = 'Click to switch page';
+                    pageSpan.onclick = (e) => {
+                        e.stopPropagation();
+                        openPageSelector(platform, connection);
+                    };
+                    statusEl.appendChild(pageSpan);
+                } else {
+                    const displayName = `@${connection.username || connection.displayName || 'user'}`;
+                    statusEl.textContent = `Connected as ${displayName}`;
+                }
             }
             if (btn) {
                 btn.textContent = 'Disconnect';
@@ -495,6 +513,212 @@ async function disconnectPlatform(platform, connectionId) {
     } catch (error) {
         console.error(`Error disconnecting ${platform}:`, error);
         alert(`Failed to disconnect ${platform}. Please try again.`);
+    }
+}
+
+// ============================================
+// Page Selector for Meta Platforms (Facebook/Instagram)
+// ============================================
+
+let pageSelectorActive = null;
+
+/**
+ * Open the page selector dropdown for a Meta platform connection.
+ * Fetches fresh page list from the Graph API and renders a dropdown.
+ */
+async function openPageSelector(platform, connection) {
+    // Close any existing selector
+    closePageSelector();
+
+    const statusEl = document.getElementById(`${platform}-status`);
+    if (!statusEl) return;
+
+    // Use the clickable page name span as anchor for positioning
+    const anchor = statusEl.querySelector('span') || statusEl;
+    const rect = anchor.getBoundingClientRect();
+
+    // Create dropdown as a fixed-position popover on document.body
+    // (platform-card has overflow:hidden which clips absolute children)
+    const dropdown = document.createElement('div');
+    dropdown.id = 'pageSelectorDropdown';
+    dropdown.style.cssText = `position:fixed; left:${rect.left}px; top:${rect.bottom + 6}px; z-index:9999;`;
+    dropdown.className = 'w-72 bg-white border border-surface-200 rounded-xl shadow-lg overflow-hidden';
+
+    const headerLabel = platform === 'facebook' ? 'Facebook Pages' : 'Instagram Accounts';
+    dropdown.innerHTML = `
+        <div class="px-3 py-2 border-b border-surface-100 bg-surface-50">
+            <p class="text-xs font-medium text-ink-400 uppercase tracking-wider">${headerLabel}</p>
+        </div>
+        <div id="pageSelectorContent" class="px-3 py-3 text-center">
+            <span class="text-sm text-ink-400 animate-pulse">Loading pages...</span>
+        </div>
+    `;
+
+    document.body.appendChild(dropdown);
+
+    // Ensure dropdown doesn't overflow below viewport
+    requestAnimationFrame(() => {
+        const dropdownRect = dropdown.getBoundingClientRect();
+        if (dropdownRect.bottom > window.innerHeight) {
+            // Position above the anchor instead
+            dropdown.style.top = `${rect.top - dropdownRect.height - 6}px`;
+        }
+        // Ensure it doesn't overflow right
+        if (dropdownRect.right > window.innerWidth) {
+            dropdown.style.left = `${window.innerWidth - dropdownRect.width - 12}px`;
+        }
+    });
+
+    pageSelectorActive = platform;
+
+    // Close on outside click (deferred so the current click doesn't close it)
+    setTimeout(() => {
+        document.addEventListener('click', handlePageSelectorOutsideClick);
+    }, 0);
+
+    // Close on scroll or resize (fixed-position dropdown would drift)
+    window.addEventListener('scroll', closePageSelector, true);
+    window.addEventListener('resize', closePageSelector);
+
+    // Fetch pages
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/connections/${platform}/pages`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        const contentEl = document.getElementById('pageSelectorContent');
+        if (!contentEl) return;
+
+        if (!data.success) {
+            contentEl.innerHTML = `<p class="text-sm text-red-500">${escapeHtml(data.error || 'Failed to load pages')}</p>`;
+            return;
+        }
+
+        if (!data.pages || data.pages.length === 0) {
+            contentEl.innerHTML = `<p class="text-sm text-ink-400">${escapeHtml(data.message || 'No pages found. Ensure you granted page access during authorization.')}</p>`;
+            return;
+        }
+
+        // Build the list
+        const list = document.createElement('div');
+        list.className = 'max-h-48 overflow-y-auto';
+
+        if (platform === 'facebook') {
+            list.innerHTML = data.pages.map(page => `
+                <button onclick="selectPage('facebook', '${escapeHtml(page.id)}')"
+                    class="w-full text-left px-3 py-2.5 hover:bg-surface-50 transition-colors flex items-center justify-between gap-2 ${page.isActive ? 'bg-brand-50' : ''}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        ${page.pictureUrl ? `<img src="${escapeHtml(page.pictureUrl)}" class="w-7 h-7 rounded-lg flex-shrink-0 object-cover" alt="">` : `<div class="w-7 h-7 rounded-lg bg-[#1877F2]/10 flex items-center justify-center flex-shrink-0"><span class="text-xs text-[#1877F2] font-bold">${escapeHtml(page.name.charAt(0))}</span></div>`}
+                        <p class="text-sm font-medium text-ink-700 truncate">${escapeHtml(page.name)}</p>
+                    </div>
+                    ${page.isActive ? '<svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                </button>
+            `).join('');
+        } else {
+            // Instagram: show IG username with page name subtitle
+            list.innerHTML = data.pages.map(page => `
+                <button onclick="selectPage('instagram', '${escapeHtml(page.pageId)}')"
+                    class="w-full text-left px-3 py-2.5 hover:bg-surface-50 transition-colors flex items-center justify-between gap-2 ${page.isActive ? 'bg-brand-50' : ''}">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        ${page.igAccount.profilePictureUrl ? `<img src="${escapeHtml(page.igAccount.profilePictureUrl)}" class="w-7 h-7 rounded-full flex-shrink-0 object-cover" alt="">` : `<div class="w-7 h-7 rounded-full bg-[#E4405F]/10 flex items-center justify-center flex-shrink-0"><span class="text-xs text-[#E4405F] font-bold">${escapeHtml((page.igAccount.username || '?').charAt(0))}</span></div>`}
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-ink-700 truncate">@${escapeHtml(page.igAccount.username)}</p>
+                            <p class="text-xs text-ink-400 truncate">via ${escapeHtml(page.pageName)}</p>
+                        </div>
+                    </div>
+                    ${page.isActive ? '<svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                </button>
+            `).join('');
+        }
+
+        contentEl.replaceWith(list);
+    } catch (error) {
+        console.error('Error loading pages:', error);
+        const contentEl = document.getElementById('pageSelectorContent');
+        if (contentEl) {
+            contentEl.innerHTML = `<p class="text-sm text-red-500">Failed to load pages. Please try again.</p>`;
+        }
+    }
+}
+
+function handlePageSelectorOutsideClick(e) {
+    const dropdown = document.getElementById('pageSelectorDropdown');
+    if (dropdown && !dropdown.contains(e.target) && !e.target.closest('.page-selector-trigger')) {
+        closePageSelector();
+    }
+}
+
+function closePageSelector() {
+    const dropdown = document.getElementById('pageSelectorDropdown');
+    if (dropdown) dropdown.remove();
+    pageSelectorActive = null;
+    document.removeEventListener('click', handlePageSelectorOutsideClick);
+    window.removeEventListener('scroll', closePageSelector, true);
+    window.removeEventListener('resize', closePageSelector);
+}
+
+/**
+ * Switch the active page for a Meta platform connection.
+ * Calls the PATCH endpoint and refreshes the UI on success.
+ */
+async function selectPage(platform, pageId) {
+    const token = localStorage.getItem('token');
+    const dropdown = document.getElementById('pageSelectorDropdown');
+
+    // Show loading state
+    if (dropdown) {
+        const list = dropdown.querySelector('.max-h-48') || dropdown.querySelector('#pageSelectorContent');
+        if (list) {
+            list.innerHTML = `
+                <div class="px-3 py-3 text-center">
+                    <span class="text-sm text-ink-400 animate-pulse">Switching page...</span>
+                </div>
+            `;
+        }
+    }
+
+    try {
+        const response = await fetch(`/api/connections/${platform}/active-page`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            },
+            body: JSON.stringify({ pageId })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            closePageSelector();
+            // Reload connections to reflect the change
+            await loadConnections();
+        } else {
+            if (dropdown) {
+                const list = dropdown.querySelector('.max-h-48') || dropdown.querySelector('#pageSelectorContent');
+                if (list) {
+                    list.innerHTML = `
+                        <div class="px-3 py-3">
+                            <p class="text-sm text-red-500">${escapeHtml(data.error || 'Failed to switch page')}</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error selecting page:', error);
+        if (dropdown) {
+            const list = dropdown.querySelector('.max-h-48') || dropdown.querySelector('#pageSelectorContent');
+            if (list) {
+                list.innerHTML = `
+                    <div class="px-3 py-3">
+                        <p class="text-sm text-red-500">Network error. Please try again.</p>
+                    </div>
+                `;
+            }
+        }
     }
 }
 
@@ -1421,6 +1645,16 @@ function renderAgentsGrid() {
                         </svg>
                     </button>
                 </div>
+
+                <!-- Test progress status line (hidden by default) -->
+                <div id="agent-progress-${agent.id}"
+                     class="test-progress-line mt-3 hidden"
+                     aria-live="polite" aria-atomic="true">
+                    <div class="flex items-center gap-2 px-1">
+                        <span class="test-progress-dot"></span>
+                        <span class="test-progress-text text-xs text-ink-500 font-medium"></span>
+                    </div>
+                </div>
             </div>
         `;
     }).join('');
@@ -1610,13 +1844,50 @@ async function testAgentPost(agentId) {
     const token = localStorage.getItem('token');
     const agentCard = document.getElementById(`agent-${agentId}`);
     const testBtn = agentCard?.querySelector('button');
+    const progressContainer = document.getElementById(`agent-progress-${agentId}`);
+    const progressText = progressContainer?.querySelector('.test-progress-text');
+    const progressDot = progressContainer?.querySelector('.test-progress-dot');
 
-    // Show loading state
+    // Show loading state on button
     if (testBtn) {
         testBtn.disabled = true;
         testBtn.innerHTML = '<span class="loading-spinner"></span>';
     }
 
+    // Show progress line with entrance animation
+    if (progressContainer) {
+        progressContainer.classList.remove('hidden', 'test-progress-exiting');
+        // Force reflow to trigger CSS transition from max-height:0 to active state
+        progressContainer.offsetHeight;
+        progressContainer.classList.add('test-progress-active');
+    }
+
+    // Open SSE connection for real-time progress updates
+    let eventSource = null;
+    try {
+        eventSource = new EventSource(`/api/agents/${agentId}/test/progress`);
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (progressText && data.message && data.phase !== 'connected') {
+                    updateProgressText(progressText, progressDot, data.message, data.phase);
+                }
+            } catch (e) {
+                console.warn('Failed to parse SSE event:', e);
+            }
+        };
+
+        eventSource.onerror = () => {
+            // Don't close immediately — the POST might still be in flight.
+            // SSE will auto-reconnect or we close it when POST completes.
+        };
+    } catch (sseError) {
+        console.warn('Failed to open SSE connection:', sseError);
+        // Graceful degradation: test still proceeds without live progress
+    }
+
+    // Fire the actual test POST request
     try {
         const response = await fetch(`/api/agents/${agentId}/test`, {
             method: 'POST',
@@ -1628,15 +1899,50 @@ async function testAgentPost(agentId) {
         });
 
         const result = await response.json();
+
+        // Close SSE connection
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        // Show final status briefly
+        if (progressText) {
+            const finalMessage = result.success
+                ? 'Post published successfully!'
+                : (result.error || 'Test completed');
+            const finalPhase = result.success ? 'complete' : 'error';
+            updateProgressText(progressText, progressDot, finalMessage, finalPhase);
+        }
+
+        // Show detailed results modal
         showAgentTestResults(result, response.ok);
+
+        // Fade out progress line after delay
+        setTimeout(() => {
+            hideProgressLine(progressContainer);
+        }, 3000);
 
     } catch (error) {
         console.error('Agent test error:', error);
+
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        if (progressText) {
+            updateProgressText(progressText, progressDot, 'Network error occurred', 'error');
+        }
+
         showAgentTestResults({
             success: false,
             error: 'Network error',
             message: error.message
         }, false);
+
+        setTimeout(() => {
+            hideProgressLine(progressContainer);
+        }, 3000);
+
     } finally {
         if (testBtn) {
             testBtn.disabled = false;
@@ -1645,6 +1951,55 @@ async function testAgentPost(agentId) {
         // Refresh agents to update post counts
         await loadAgents();
     }
+}
+
+/**
+ * Animate progress text transition with a slide-up carousel effect.
+ * Current text slides up and fades out, new text slides in from below.
+ */
+function updateProgressText(textElement, dotElement, newMessage, phase) {
+    // Phase-to-dot-color mapping
+    const phaseColors = {
+        validating: '#60a5fa',  // blue-400
+        trends:     '#818cf8',  // indigo-400
+        generating: '#a78bfa',  // purple-400
+        media:      '#f472b6',  // pink-400
+        publishing: '#22d3ee',  // cyan-400
+        saving:     '#2dd4bf',  // teal-400
+        complete:   '#22c55e',  // green-500
+        error:      '#ef4444',  // red-500
+        timeout:    '#f59e0b'   // amber-500
+    };
+
+    // Update dot color
+    if (dotElement) {
+        dotElement.style.backgroundColor = phaseColors[phase] || '';
+    }
+
+    // Animate text: slide out current, slide in new
+    textElement.classList.add('test-progress-text-exit');
+
+    setTimeout(() => {
+        textElement.textContent = newMessage;
+        textElement.classList.remove('test-progress-text-exit');
+        textElement.classList.add('test-progress-text-enter');
+
+        setTimeout(() => {
+            textElement.classList.remove('test-progress-text-enter');
+        }, 300);
+    }, 200);
+}
+
+/**
+ * Fade out and hide the progress line with exit animation.
+ */
+function hideProgressLine(container) {
+    if (!container) return;
+    container.classList.add('test-progress-exiting');
+    setTimeout(() => {
+        container.classList.remove('test-progress-active', 'test-progress-exiting');
+        container.classList.add('hidden');
+    }, 400);
 }
 
 function showAgentTestResults(result, isSuccess) {
@@ -2377,6 +2732,10 @@ document.addEventListener('click', (e) => {
 window.showTab = showTab;
 window.connectPlatform = connectPlatform;
 window.disconnectPlatform = disconnectPlatform;
+// Page selector functions (Facebook/Instagram)
+window.openPageSelector = openPageSelector;
+window.closePageSelector = closePageSelector;
+window.selectPage = selectPage;
 window.selectPlan = selectPlan;
 window.openTelegramModal = openTelegramModal;
 window.closeTelegramModal = closeTelegramModal;

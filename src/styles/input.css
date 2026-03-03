@@ -486,6 +486,51 @@
     @apply absolute left-0 top-0 bottom-0 w-1 rounded-l-card;
   }
 
+  /* ===== TEST PROGRESS LINE ===== */
+  .test-progress-line {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height var(--transition-base), opacity var(--transition-base), margin var(--transition-base);
+  }
+  .test-progress-line.test-progress-active {
+    max-height: 40px;
+    opacity: 1;
+  }
+  .test-progress-line.test-progress-exiting {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+  }
+
+  /* Pulsing dot indicator */
+  .test-progress-dot {
+    @apply inline-block w-2 h-2 rounded-full flex-shrink-0;
+    background-color: rgb(var(--color-brand-400));
+    animation: progressPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes progressPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  /* Text carousel animation */
+  .test-progress-text {
+    display: inline-block;
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+  }
+  .test-progress-text-exit {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  .test-progress-text-enter {
+    animation: progressTextEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes progressTextEnter {
+    0% { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
   /* ===== SECTION BACKGROUNDS ===== */
   .section-gradient {
     background: linear-gradient(135deg, rgb(var(--color-brand-50)) 0%, rgb(var(--color-accent-50)) 40%, rgba(6, 182, 212, 0.08) 100%);

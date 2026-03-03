@@ -25,6 +25,7 @@ import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
 import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
+import testProgressEmitter from '../services/TestProgressEmitter.js';
 import winston from 'winston';
 
 // Tiers that have access to image extraction feature (Starter and above)
@@ -470,6 +471,73 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 /**
+ * GET /api/agents/:id/test/progress
+ * SSE endpoint for real-time test progress streaming.
+ *
+ * Auth: httpOnly authToken cookie (automatic for same-origin SSE requests).
+ * CSRF: Skipped for GET by csrfProtection middleware.
+ */
+router.get('/:id/test/progress', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const agentId = req.params.id;
+
+  // Verify agent ownership (prevents subscribing to other users' agents)
+  const agent = await getAgentById(agentId);
+  if (!agent || agent.user_id !== userId) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no' // Disable nginx/proxy buffering on Render
+  });
+
+  // Send initial connection event
+  res.write(`data: ${JSON.stringify({ phase: 'connected', message: 'Connected to progress stream' })}\n\n`);
+
+  // Keep-alive heartbeat every 15 seconds (prevents proxy timeouts)
+  const heartbeat = setInterval(() => {
+    res.write(': heartbeat\n\n');
+  }, 15000);
+
+  // Subscribe to progress events for this user+agent
+  const unsubscribe = testProgressEmitter.subscribe(userId, agentId, (event) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch (writeError) {
+      // Connection may have closed
+      logger.warn(`[SSE] Write error for agent ${agentId}:`, writeError.message);
+    }
+
+    // Close connection on terminal events
+    if (event.phase === 'complete' || event.phase === 'error') {
+      setTimeout(() => {
+        clearInterval(heartbeat);
+        try { res.end(); } catch (e) { /* already closed */ }
+      }, 500);
+    }
+  });
+
+  // Safety timeout: close SSE connection after 60 seconds
+  const connectionTimeout = setTimeout(() => {
+    res.write(`data: ${JSON.stringify({ phase: 'timeout', message: 'Connection timed out' })}\n\n`);
+    clearInterval(heartbeat);
+    unsubscribe();
+    try { res.end(); } catch (e) { /* already closed */ }
+  }, 60000);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    clearTimeout(connectionTimeout);
+    unsubscribe();
+  });
+});
+
+/**
  * POST /api/agents/:id/test
  * Test post for a specific agent using its settings
  * NOTE: Each agent can only use the Test button ONCE. This is persisted server-side.
@@ -480,11 +548,16 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
   console.log(`[Agent Test] Starting test for agent ${agentId}, user ${userId}`);
 
+  // Start progress tracking session for SSE subscribers
+  testProgressEmitter.startSession(userId, agentId);
+  testProgressEmitter.emitProgress(userId, agentId, 'validating', 'Validating agent configuration...');
+
   try {
     // Get agent
     const agent = await getAgentById(agentId);
 
     if (!agent) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Agent not found');
       return res.status(404).json({
         success: false,
         error: 'Agent not found'
@@ -493,6 +566,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Verify ownership
     if (agent.user_id !== userId) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Access denied');
       return res.status(403).json({
         success: false,
         error: 'Access denied'
@@ -501,6 +575,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Check if test was already used (one-time test per agent)
     if (agent.test_used_at) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Test already used for this agent');
       return res.status(403).json({
         success: false,
         error: 'Test already used for this agent. Each agent can only be tested once.',
@@ -511,6 +586,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Check agent status
     if (agent.status !== 'active') {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Agent is paused');
       return res.status(400).json({
         success: false,
         error: 'Agent is paused. Activate it first to test.',
@@ -521,6 +597,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     // Check user's daily post limit
     const postsRemaining = req.user.subscription?.postsRemaining ?? 0;
     if (postsRemaining <= 0) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Daily post limit reached');
       return res.status(403).json({
         success: false,
         error: 'Daily post limit reached',
@@ -539,6 +616,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Validate agent has topics or keywords (should be caught by activation check, but double-check)
     if (topics.length === 0 && keywords.length === 0) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'No topics or keywords configured');
       return res.status(400).json({
         success: false,
         error: 'Agent has no topics or keywords configured. Please configure the agent settings first.',
@@ -555,6 +633,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const selectedTopic = searchTopics[0];
 
     console.log(`[Agent Test] Fetching trends for ${topics.length > 0 ? 'topic: ' + selectedTopic : 'keywords only'}`);
+    testProgressEmitter.emitProgress(userId, agentId, 'trends', 'Searching for trending news...');
 
     let trendData;
     try {
@@ -596,6 +675,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         const searchDescription = topics.length > 0
           ? `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`
           : `keywords "${keywords.join(', ')}"`;
+        testProgressEmitter.emitProgress(userId, agentId, 'error', 'No trending news found');
         return res.status(400).json({
           success: false,
           error: `No news found for ${searchDescription}. Try different topics or keywords in agent settings.`,
@@ -604,6 +684,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       }
     } catch (trendError) {
       console.error('[Agent Test] Trend fetch error:', trendError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Failed to fetch trends');
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch trends',
@@ -614,6 +695,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Step 2: Generate content
     console.log(`[Agent Test] Generating content for ${platform} with tone: ${tone}`);
+    testProgressEmitter.emitProgress(userId, agentId, 'generating', 'Generating AI content...');
 
     // Build agentSettings from agent's saved settings
     const agentSettings = {
@@ -634,6 +716,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     );
 
     if (!generatedContent || !generatedContent.text) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Failed to generate content');
       return res.status(500).json({
         success: false,
         error: 'Failed to generate content',
@@ -644,8 +727,10 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     // Step 2.5: Extract image from article (Growth tier and above only)
     let imageUrl = null;
     const userTier = req.user.subscription?.tier || 'free';
+    const platformDisplayName = platform.charAt(0).toUpperCase() + platform.slice(1);
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
+      testProgressEmitter.emitProgress(userId, agentId, 'media', 'Extracting media from article...');
       const isInstagramAgent = platform === 'instagram';
       console.log(`[Agent Test] User tier "${userTier}" - extracting image${isInstagramAgent ? ' [Instagram — retry enabled]' : ''}...`);
       try {
@@ -684,6 +769,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     // Step 3: Publish to the agent's platform
     console.log(`[Agent Test] Publishing to ${platform}...`);
+    testProgressEmitter.emitProgress(userId, agentId, 'publishing', `Publishing to ${platformDisplayName}...`);
 
     let publishResult;
     const content = {
@@ -721,6 +807,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           break;
         case 'instagram':
           if (!imageUrl) {
+            testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image — none found');
             return res.status(400).json({
               success: false,
               error: 'Instagram requires an image or video. No media was found for this article.',
@@ -733,6 +820,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           publishResult = await publishToThreads(content, userId, imageUrl);
           break;
         default:
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `Platform ${platform} not yet supported`);
           return res.status(400).json({
             success: false,
             error: `Platform ${platform} not yet supported for publishing`,
@@ -741,6 +829,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       }
     } catch (publishError) {
       console.error(`[Agent Test] Publishing error:`, publishError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', publishError.message || 'Publishing failed');
       return res.status(500).json({
         success: false,
         error: publishError.message || 'Publishing failed',
@@ -749,6 +838,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     }
 
     // Step 4: Record the post and update agent stats
+    testProgressEmitter.emitProgress(userId, agentId, 'saving', 'Saving results...');
     const post = await createPost(userId, {
       topic: selectedTopic,
       content: generatedContent.text,
@@ -790,6 +880,11 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       success: publishResult?.success || false
     });
 
+    // Emit completion event for SSE subscribers
+    testProgressEmitter.emitProgress(userId, agentId, 'complete',
+      publishResult?.success ? `Published to ${platformDisplayName}!` : `Publishing to ${platformDisplayName} failed`
+    );
+
     // Return result
     res.json({
       success: publishResult?.success || false,
@@ -820,6 +915,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('[Agent Test] Error:', error);
+    testProgressEmitter.emitProgress(userId, agentId, 'error', error.message || 'Test post failed');
     res.status(500).json({
       success: false,
       error: 'Test post failed',

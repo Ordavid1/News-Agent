@@ -137,11 +137,13 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
   // When config_id is available, permissions are defined in the Meta Developer Console
   // configuration — do NOT pass them via scope parameter (causes "Invalid Scopes" errors).
   const metaConfigMap = {
-    facebook: process.env.META_LOGIN_CONFIG_ID,
+    // Facebook uses standard OAuth with scope parameter — NOT config_id.
+    // config_id triggers Meta Business Portfolio selection which blocks pages
+    // owned by the same portfolio as the app.
     instagram: process.env.META_INSTAGRAM_LOGIN_CONFIG_ID || process.env.META_LOGIN_CONFIG_ID
   };
   const metaConfigId = metaConfigMap[platform];
-  const useMetaBusinessLogin = metaConfigId && (platform === 'facebook' || platform === 'instagram');
+  const useMetaBusinessLogin = metaConfigId && platform === 'instagram';
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -335,6 +337,9 @@ async function fetchUserInfo(platform, accessToken) {
         pageAccessToken: pageInfo.accessToken,
         pageName: pageInfo.name
       };
+      // Use page name as the display identity since we publish as the page, not the personal account
+      userInfo.username = pageInfo.name;
+      userInfo.displayName = pageInfo.name;
       logger.info(`Stored Facebook page info: ${pageInfo.name} (${pageInfo.id})`);
     } else {
       // Page discovery failed — this means the user didn't grant page access
@@ -702,7 +707,7 @@ export async function refreshTokens(connectionId) {
 export async function getUserConnections(userId) {
   const { data, error } = await supabaseAdmin
     .from('social_connections')
-    .select('id, platform, platform_username, platform_display_name, platform_avatar_url, status, last_used_at, created_at')
+    .select('id, platform, platform_username, platform_display_name, platform_avatar_url, platform_metadata, status, last_used_at, created_at')
     .eq('user_id', userId);
 
   if (error) {
