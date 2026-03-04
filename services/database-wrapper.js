@@ -19,6 +19,7 @@ export {
   createSubscription,
   getSubscription,
   getSubscriptionByLsId, // Lemon Squeezy lookup
+  updateSubscriptionRecord, // Update subscriptions table directly
   createPost,
   getUserPosts,
   updatePost,

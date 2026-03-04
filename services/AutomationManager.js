@@ -26,8 +26,10 @@ import {
   publishToTelegram,
   publishToWhatsApp,
   publishToInstagram,
-  publishToThreads
+  publishToThreads,
+  publishToTikTok
 } from './PublishingService.js';
+import testProgressEmitter from './TestProgressEmitter.js';
 import '../config/env.js';
 
 // Initialize logger
@@ -171,6 +173,12 @@ class AutomationManager {
         logger.info(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} agents)`);
 
         for (const agent of batch) {
+          // Skip agents currently being tested to avoid duplicate processing and wasted API credits
+          if (testProgressEmitter.isAgentBeingTested(agent.id)) {
+            logger.info(`⏭️ Skipping agent ${agent.id} — currently being tested`);
+            continue;
+          }
+
           try {
             const result = await this.processAgent(agent);
             totalProcessed++;
@@ -284,6 +292,38 @@ class AutomationManager {
         }
       } else {
         agentLog('info', `Image already available from trend data: ${content.imageUrl}`);
+      }
+    }
+
+    // 3.7 For TikTok: generate video from image + caption using AI video model
+    if (platform === 'tiktok') {
+      if (!content.imageUrl) {
+        agentLog('warn', 'TikTok requires an image for video generation but none available — post blocked');
+        return { success: false, error: 'tiktok_no_image_for_video' };
+      }
+
+      agentLog('info', 'TikTok — generating video from article image...');
+
+      try {
+        const videoPrompt = await this.contentGenerator.generateVideoPrompt(trend, content.text, settings);
+        agentLog('info', `Video prompt generated (${videoPrompt.length} chars)`);
+
+        const videoGenerationService = (await import('./VideoGenerationService.js')).default;
+        const videoResult = await videoGenerationService.generateVideo({
+          imageUrl: content.imageUrl,
+          prompt: videoPrompt
+        });
+
+        content.videoUrl = videoResult.videoUrl;
+        agentLog('info', `Video generated successfully — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
+      } catch (videoError) {
+        agentLog('error', `Video generation failed: ${videoError.message}`);
+        await logAgentAutomation(agent.id, userId, 'video_generation_failed', {
+          platform,
+          trend: trend.title || trend.topic,
+          error: videoError.message
+        });
+        return { success: false, error: `Video generation failed: ${videoError.message}` };
       }
     }
 
@@ -643,6 +683,19 @@ class AutomationManager {
 
         case 'threads':
           result = await publishToThreads(content, userId, imageUrl);
+          break;
+
+        case 'tiktok':
+          // TikTok requires a video URL — generated in step 3.7
+          if (!content.videoUrl) {
+            logger.warn(`Skipping TikTok for agent ${agent.id}: no video URL available`);
+            return {
+              success: false,
+              platform,
+              error: 'TikTok requires a video. Video generation must complete before publishing.'
+            };
+          }
+          result = await publishToTikTok(content, userId, content.videoUrl);
           break;
 
         default:

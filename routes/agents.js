@@ -23,7 +23,7 @@ import {
 import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
+import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToTikTok } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import winston from 'winston';
@@ -731,13 +731,13 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
       testProgressEmitter.emitProgress(userId, agentId, 'media', 'Extracting media from article...');
-      const isInstagramAgent = platform === 'instagram';
-      console.log(`[Agent Test] User tier "${userTier}" - extracting image${isInstagramAgent ? ' [Instagram — retry enabled]' : ''}...`);
+      const requiresMedia = ['instagram', 'tiktok'].includes(platform);
+      console.log(`[Agent Test] User tier "${userTier}" - extracting image${requiresMedia ? ` [${platform} — retry enabled]` : ''}...`);
       try {
         const imageExtractor = new ImageExtractor();
 
-        if (isInstagramAgent) {
-          // Instagram requires an image — use robust retry logic
+        if (requiresMedia) {
+          // Instagram/TikTok require an image — use robust retry logic with fallback to pre-existing image
           imageUrl = await imageExtractor.extractImageWithRetry({
             articleUrl: trendData.url,
             articleTitle: trendData.title,
@@ -757,7 +757,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         if (imageUrl) {
           console.log(`[Agent Test] Image extracted: ${imageUrl}`);
         } else {
-          console.log(`[Agent Test] No image found for article${isInstagramAgent ? ' — Instagram post will be blocked' : ', continuing without image'}`);
+          console.log(`[Agent Test] No image found for article${requiresMedia ? ` — ${platform} post will be blocked` : ', continuing without image'}`);
         }
       } catch (imageError) {
         console.warn(`[Agent Test] Image extraction failed, continuing without image:`, imageError.message);
@@ -765,6 +765,47 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       }
     } else {
       console.log(`[Agent Test] User tier "${userTier}" - image extraction not available (Growth+ required)`);
+    }
+
+    // Step 2.5: For TikTok — generate video from image + caption
+    if (platform === 'tiktok') {
+      if (!imageUrl) {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', 'TikTok requires an image for video generation — none found');
+        return res.status(400).json({
+          success: false,
+          error: 'TikTok requires an image to generate a video. No media was found for this article.',
+          step: 'video_generation'
+        });
+      }
+
+      testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Generating video from article image...');
+      console.log(`[Agent Test] Generating video for TikTok...`);
+
+      try {
+        const ContentGenerator = (await import('../services/ContentGenerator.js')).default;
+        const contentGen = new ContentGenerator();
+        const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings);
+
+        const videoGenerationService = (await import('../services/VideoGenerationService.js')).default;
+        const videoResult = await videoGenerationService.generateVideo({
+          imageUrl,
+          prompt: videoPrompt
+        });
+
+        imageUrl = null; // TikTok doesn't use image directly — use video instead
+        // Store video URL on the content object for the publisher
+        generatedContent.videoUrl = videoResult.videoUrl;
+        testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Video generated (${videoResult.model}, ${videoResult.duration}s)`);
+        console.log(`[Agent Test] Video generated — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
+      } catch (videoError) {
+        console.error(`[Agent Test] Video generation error:`, videoError);
+        testProgressEmitter.emitProgress(userId, agentId, 'error', videoError.message || 'Video generation failed');
+        return res.status(500).json({
+          success: false,
+          error: videoError.message || 'Video generation failed',
+          step: 'video_generation'
+        });
+      }
     }
 
     // Step 3: Publish to the agent's platform
@@ -818,6 +859,18 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           break;
         case 'threads':
           publishResult = await publishToThreads(content, userId, imageUrl);
+          break;
+        case 'tiktok':
+          if (!generatedContent.videoUrl) {
+            testProgressEmitter.emitProgress(userId, agentId, 'error', 'TikTok requires a video — generation failed');
+            return res.status(400).json({
+              success: false,
+              error: 'TikTok requires a video but video generation was not completed.',
+              step: 'publishing'
+            });
+          }
+          content.videoUrl = generatedContent.videoUrl;
+          publishResult = await publishToTikTok(content, userId, generatedContent.videoUrl);
           break;
         default:
           testProgressEmitter.emitProgress(userId, agentId, 'error', `Platform ${platform} not yet supported`);

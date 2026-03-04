@@ -286,7 +286,7 @@ export async function getSubscription(userId) {
     .from('subscriptions')
     .select('*')
     .eq('user_id', userId)
-    .eq('status', 'active')
+    .in('status', ['active', 'cancelled', 'past_due'])
     .order('created_at', { ascending: false })
     .limit(1)
     .single();
@@ -316,6 +316,37 @@ export async function getSubscriptionByLsId(lsSubscriptionId) {
   if (error) {
     if (error.code === 'PGRST116') return null; // Not found
     logger.error('Error getting subscription by LS ID:', error);
+    throw error;
+  }
+
+  return formatSubscriptionForLegacy(data);
+}
+
+/**
+ * Update subscription record in the subscriptions table
+ * Used by webhook handlers to keep subscriptions table in sync with LS events
+ */
+export async function updateSubscriptionRecord(lsSubscriptionId, updates) {
+  const supabaseUpdates = { updated_at: new Date().toISOString() };
+
+  if (updates.status !== undefined) supabaseUpdates.status = updates.status;
+  if (updates.cancelAtPeriodEnd !== undefined) supabaseUpdates.cancel_at_period_end = updates.cancelAtPeriodEnd;
+  if (updates.tier !== undefined) supabaseUpdates.tier = updates.tier;
+  if (updates.lsVariantId !== undefined) supabaseUpdates.ls_variant_id = updates.lsVariantId;
+  if (updates.currentPeriodStart !== undefined) supabaseUpdates.current_period_start = updates.currentPeriodStart;
+  if (updates.currentPeriodEnd !== undefined) supabaseUpdates.current_period_end = updates.currentPeriodEnd;
+  if (updates.lsSubscriptionId !== undefined) supabaseUpdates.ls_subscription_id = updates.lsSubscriptionId;
+
+  const { data, error } = await supabaseAdmin
+    .from('subscriptions')
+    .update(supabaseUpdates)
+    .eq('ls_subscription_id', String(lsSubscriptionId))
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error updating subscription record:', error);
     throw error;
   }
 
@@ -613,7 +644,11 @@ function formatUserForLegacy(profile) {
       status: profile.subscription_status,
       postsRemaining: profile.posts_remaining,
       dailyLimit: profile.daily_limit,
-      resetDate: profile.reset_date
+      resetDate: profile.reset_date,
+      cancelAtPeriodEnd: profile.cancel_at_period_end || false,
+      endsAt: profile.subscription_ends_at,
+      pendingTier: profile.pending_tier,
+      pendingChangeAt: profile.pending_change_at
     },
     settings: {
       defaultPlatforms: profile.default_platforms || [],
@@ -631,6 +666,8 @@ function formatUserForLegacy(profile) {
     },
     stripeCustomerId: profile.stripe_customer_id,
     stripeSubscriptionId: profile.stripe_subscription_id,
+    lsSubscriptionId: profile.ls_subscription_id,
+    lsCustomerId: profile.ls_customer_id,
     passwordResetToken: profile.password_reset_token,
     passwordResetExpiry: profile.password_reset_expiry
   };
@@ -649,6 +686,10 @@ function convertUpdatesToSupabase(updates) {
     if (updates.subscription.postsRemaining !== undefined) converted.posts_remaining = updates.subscription.postsRemaining;
     if (updates.subscription.dailyLimit !== undefined) converted.daily_limit = updates.subscription.dailyLimit;
     if (updates.subscription.resetDate !== undefined) converted.reset_date = updates.subscription.resetDate;
+    if (updates.subscription.cancelAtPeriodEnd !== undefined) converted.cancel_at_period_end = updates.subscription.cancelAtPeriodEnd;
+    if (updates.subscription.endsAt !== undefined) converted.subscription_ends_at = updates.subscription.endsAt;
+    if (updates.subscription.pendingTier !== undefined) converted.pending_tier = updates.subscription.pendingTier;
+    if (updates.subscription.pendingChangeAt !== undefined) converted.pending_change_at = updates.subscription.pendingChangeAt;
   }
 
   // Handle nested settings object
@@ -678,6 +719,8 @@ function convertUpdatesToSupabase(updates) {
   if (updates.passwordResetExpiry !== undefined) converted.password_reset_expiry = updates.passwordResetExpiry;
   if (updates.stripeCustomerId !== undefined) converted.stripe_customer_id = updates.stripeCustomerId;
   if (updates.stripeSubscriptionId !== undefined) converted.stripe_subscription_id = updates.stripeSubscriptionId;
+  if (updates.lsSubscriptionId !== undefined) converted.ls_subscription_id = updates.lsSubscriptionId;
+  if (updates.lsCustomerId !== undefined) converted.ls_customer_id = updates.lsCustomerId;
 
   // Handle dot-notation updates (e.g., 'subscription.postsRemaining')
   for (const [key, value] of Object.entries(updates)) {
@@ -688,7 +731,11 @@ function convertUpdatesToSupabase(updates) {
         status: 'subscription_status',
         postsRemaining: 'posts_remaining',
         dailyLimit: 'daily_limit',
-        resetDate: 'reset_date'
+        resetDate: 'reset_date',
+        cancelAtPeriodEnd: 'cancel_at_period_end',
+        endsAt: 'subscription_ends_at',
+        pendingTier: 'pending_tier',
+        pendingChangeAt: 'pending_change_at'
       };
       if (mapping[field]) converted[mapping[field]] = value;
     }

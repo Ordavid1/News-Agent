@@ -31,9 +31,9 @@ class TestProgressEmitter {
     // Track active sessions: Map<sessionKey, { phase, message, startedAt, timeoutId }>
     this.activeSessions = new Map();
 
-    // Safety timeout: auto-cleanup sessions older than 90 seconds
-    // (full test flow typically takes 15-45 seconds)
-    this.SESSION_TIMEOUT_MS = 90000;
+    // Safety timeout: auto-cleanup sessions after 5 minutes
+    // (text-only platforms: 15-45s, TikTok with video generation: 2-3 min)
+    this.SESSION_TIMEOUT_MS = 300000;
 
     logger.info('[TestProgressEmitter] Initialized');
   }
@@ -134,6 +134,17 @@ class TestProgressEmitter {
    */
   isSessionActive(userId, agentId) {
     return this.activeSessions.has(this._sessionKey(userId, agentId));
+  }
+
+  /**
+   * Check if any test session is active for a given agent ID.
+   * Used by AutomationManager to skip agents that are currently being tested.
+   */
+  isAgentBeingTested(agentId) {
+    for (const key of this.activeSessions.keys()) {
+      if (key.endsWith(`:${agentId}`)) return true;
+    }
+    return false;
   }
 
   /**

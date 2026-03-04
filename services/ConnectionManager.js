@@ -70,6 +70,13 @@ const PLATFORM_CONFIGS = {
     userInfoUrl: 'https://graph.threads.net/v1.0/me',
     scopes: ['threads_basic', 'threads_content_publish'],
     usePKCE: false
+  },
+  tiktok: {
+    authUrl: 'https://www.tiktok.com/v2/auth/authorize/',
+    tokenUrl: 'https://open.tiktokapis.com/v2/oauth/token/',
+    userInfoUrl: 'https://open.tiktokapis.com/v2/user/info/',
+    scopes: ['user.info.basic', 'video.upload', 'video.publish'],
+    usePKCE: true
   }
 };
 
@@ -147,7 +154,14 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     state
   });
 
-  params.append('scope', config.scopes.join(' '));
+  // TikTok uses 'client_key' (not 'client_id') and comma-separated scopes
+  if (platform === 'tiktok') {
+    params.delete('client_id');
+    params.set('client_key', clientId);
+    params.append('scope', config.scopes.join(','));
+  } else {
+    params.append('scope', config.scopes.join(' '));
+  }
 
   // Add PKCE if required
   if (config.usePKCE) {
@@ -190,8 +204,8 @@ export async function exchangeCodeForTokens(platform, code, state) {
     redirect_uri: callbackUrl
   });
 
-  // Add PKCE verifier if applicable
-  if (config.usePKCE) {
+  // Add PKCE verifier if applicable (skip for TikTok — it has its own JSON body handling below)
+  if (config.usePKCE && platform !== 'tiktok') {
     const verifier = pkceStore.get(state);
     if (verifier) {
       tokenParams.append('code_verifier', verifier);
@@ -203,28 +217,59 @@ export async function exchangeCodeForTokens(platform, code, state) {
   let headers = {
     'Content-Type': 'application/x-www-form-urlencoded'
   };
+  let requestBody;
 
-  if (platform === 'twitter') {
+  if (platform === 'tiktok') {
+    // TikTok requires application/x-www-form-urlencoded with client_key (not client_id)
+    const tiktokParams = new URLSearchParams({
+      client_key: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: callbackUrl
+    });
+    // Add PKCE code_verifier if applicable
+    if (config.usePKCE) {
+      const verifier = pkceStore.get(state);
+      if (verifier) {
+        tiktokParams.set('code_verifier', verifier);
+        pkceStore.delete(state);
+      }
+    }
+    requestBody = tiktokParams.toString();
+  } else if (platform === 'twitter') {
     // Twitter uses Basic Auth for token exchange
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     headers['Authorization'] = `Basic ${credentials}`;
+    requestBody = tokenParams.toString();
   } else if (platform === 'reddit') {
     // Reddit uses Basic Auth
     const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     headers['Authorization'] = `Basic ${credentials}`;
     headers['User-Agent'] = 'NewsAgentSaaS/1.0';
+    requestBody = tokenParams.toString();
   } else {
     // Other platforms use client credentials in body
     tokenParams.append('client_id', clientId);
     tokenParams.append('client_secret', clientSecret);
+    requestBody = tokenParams.toString();
   }
 
   logger.info(`Exchanging code for ${platform} tokens`);
+  if (platform === 'tiktok') {
+    const parsedParams = new URLSearchParams(requestBody);
+    logger.info(`TikTok token request — URL: ${config.tokenUrl}`);
+    logger.info(`TikTok token request — Content-Type: ${headers['Content-Type']}`);
+    logger.info(`TikTok token request — redirect_uri: ${parsedParams.get('redirect_uri')}`);
+    logger.info(`TikTok token request — has client_key: ${!!parsedParams.get('client_key')}, has client_secret: ${!!parsedParams.get('client_secret')}`);
+    logger.info(`TikTok token request — has code: ${!!parsedParams.get('code')}, code length: ${parsedParams.get('code')?.length}`);
+    logger.info(`TikTok token request — has code_verifier: ${!!parsedParams.get('code_verifier')}, verifier length: ${parsedParams.get('code_verifier')?.length}`);
+  }
 
   const response = await fetch(config.tokenUrl, {
     method: 'POST',
     headers,
-    body: tokenParams.toString()
+    body: requestBody
   });
 
   if (!response.ok) {
@@ -233,7 +278,23 @@ export async function exchangeCodeForTokens(platform, code, state) {
     throw new Error(`Failed to exchange code: ${errorText}`);
   }
 
-  const tokens = await response.json();
+  const rawTokens = await response.json();
+  logger.info(`Token exchange response for ${platform}: ${JSON.stringify(Object.keys(rawTokens))}`);
+
+  // TikTok may nest token data under 'data' key OR return flat; also check for errors
+  // TikTok can return HTTP 200 with an error object in the body
+  let tokens = rawTokens;
+  if (platform === 'tiktok') {
+    if (rawTokens.error || rawTokens.data?.error) {
+      const errCode = rawTokens.error || rawTokens.data?.error;
+      const errDesc = rawTokens.error_description || rawTokens.data?.error_description || '';
+      logger.error(`TikTok token error — code: ${errCode}, description: ${errDesc}, log_id: ${rawTokens.log_id || 'N/A'}`);
+      logger.error(`TikTok token request body (redacted secrets): ${JSON.stringify({ client_key: clientId, code: code?.slice(0, 10) + '...', grant_type: 'authorization_code', redirect_uri: callbackUrl, has_code_verifier: !!pkceStore.get(state) })}`);
+      throw new Error(`TikTok token exchange failed: ${errCode} — ${errDesc}`);
+    }
+    tokens = rawTokens.data?.access_token ? rawTokens.data : rawTokens;
+    logger.info(`TikTok token extracted — has access_token: ${!!tokens.access_token}, has open_id: ${!!tokens.open_id}`);
+  }
 
   // For Facebook/Instagram: exchange short-lived token for long-lived token (60 days)
   // Page tokens derived from long-lived user tokens are never-expiring
@@ -326,6 +387,11 @@ async function fetchUserInfo(platform, accessToken) {
   // Threads uses its own API endpoint
   if (platform === 'threads') {
     return fetchThreadsUserInfo(accessToken);
+  }
+
+  // TikTok uses its own API endpoint; open_id comes from token exchange
+  if (platform === 'tiktok') {
+    return fetchTikTokUserInfo(accessToken);
   }
 
   let url = config.userInfoUrl;
@@ -585,6 +651,59 @@ async function fetchThreadsUserInfo(accessToken) {
 }
 
 /**
+ * Fetch TikTok user info from TikTok API
+ */
+async function fetchTikTokUserInfo(accessToken, openId) {
+  logger.info(`Fetching TikTok user info — token starts with: ${accessToken ? accessToken.substring(0, 10) + '...' : 'EMPTY'}`);
+
+  const response = await fetch(
+    'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name',
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    logger.error('Failed to fetch TikTok user info:', responseText);
+    throw new Error(`Failed to fetch TikTok user info: ${responseText}`);
+  }
+
+  // TikTok returns 200 even for errors — check the response body
+  let parsed;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch {
+    throw new Error(`TikTok user info returned invalid JSON: ${responseText.substring(0, 200)}`);
+  }
+
+  if (parsed.error?.code && parsed.error.code !== 'ok') {
+    logger.error('TikTok user info API error:', JSON.stringify(parsed.error));
+    throw new Error(`TikTok user info failed: ${parsed.error.message || parsed.error.code}`);
+  }
+
+  const user = parsed?.data?.user;
+
+  if (!user) {
+    throw new Error('TikTok API returned no user data');
+  }
+
+  return {
+    id: user.open_id || openId,
+    username: user.display_name || 'TikTok User',
+    displayName: user.display_name || 'TikTok User',
+    avatarUrl: user.avatar_url,
+    metadata: {
+      openId: user.open_id || openId,
+      unionId: user.union_id
+    }
+  };
+}
+
+/**
  * Normalize user info from different platforms
  */
 function normalizeUserInfo(platform, data) {
@@ -680,30 +799,44 @@ export async function refreshTokens(connectionId) {
   const clientId = getClientId(platform);
   const clientSecret = getClientSecret(platform);
 
-  const tokenParams = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: connection.refresh_token
-  });
+  let headers;
+  let refreshBody;
 
-  let headers = {
-    'Content-Type': 'application/x-www-form-urlencoded'
-  };
-
-  if (platform === 'twitter' || platform === 'reddit') {
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    headers['Authorization'] = `Basic ${credentials}`;
-    if (platform === 'reddit') {
-      headers['User-Agent'] = 'NewsAgentSaaS/1.0';
-    }
+  if (platform === 'tiktok') {
+    // TikTok uses JSON body with client_key
+    headers = { 'Content-Type': 'application/json' };
+    refreshBody = JSON.stringify({
+      client_key: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: connection.refresh_token
+    });
   } else {
-    tokenParams.append('client_id', clientId);
-    tokenParams.append('client_secret', clientSecret);
+    const tokenParams = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: connection.refresh_token
+    });
+
+    headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+
+    if (platform === 'twitter' || platform === 'reddit') {
+      const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      headers['Authorization'] = `Basic ${credentials}`;
+      if (platform === 'reddit') {
+        headers['User-Agent'] = 'NewsAgentSaaS/1.0';
+      }
+    } else {
+      tokenParams.append('client_id', clientId);
+      tokenParams.append('client_secret', clientSecret);
+    }
+
+    refreshBody = tokenParams.toString();
   }
 
   const response = await fetch(config.tokenUrl, {
     method: 'POST',
     headers,
-    body: tokenParams.toString()
+    body: refreshBody
   });
 
   if (!response.ok) {
@@ -715,7 +848,9 @@ export async function refreshTokens(connectionId) {
     throw new Error(`Failed to refresh token: ${errorText}`);
   }
 
-  const tokens = await response.json();
+  const rawTokens = await response.json();
+  // TikTok nests refresh response under 'data'
+  const tokens = (platform === 'tiktok' && rawTokens.data) ? rawTokens.data : rawTokens;
 
   // Update stored tokens
   await TokenManager.updateTokens(connectionId, {
@@ -787,7 +922,8 @@ function getClientId(platform) {
     reddit: 'REDDIT_CLIENT_ID',
     facebook: 'FACEBOOK_APP_ID',
     instagram: 'FACEBOOK_APP_ID',    // Instagram uses the same Meta/Facebook App
-    threads: 'FACEBOOK_APP_ID'       // Threads uses the same Meta/Facebook App
+    threads: 'FACEBOOK_APP_ID',      // Threads uses the same Meta/Facebook App
+    tiktok: 'TIKTOK_CLIENT_KEY'
   };
   return process.env[envMap[platform]];
 }
@@ -799,7 +935,8 @@ function getClientSecret(platform) {
     reddit: 'REDDIT_CLIENT_SECRET',
     facebook: 'FACEBOOK_APP_SECRET',
     instagram: 'FACEBOOK_APP_SECRET', // Instagram uses the same Meta/Facebook App
-    threads: 'FACEBOOK_APP_SECRET'    // Threads uses the same Meta/Facebook App
+    threads: 'FACEBOOK_APP_SECRET',   // Threads uses the same Meta/Facebook App
+    tiktok: 'TIKTOK_CLIENT_SECRET'
   };
   return process.env[envMap[platform]];
 }

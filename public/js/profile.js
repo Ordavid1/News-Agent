@@ -204,7 +204,23 @@ function updateProfileUI() {
 
     if (subscriptionStatus) {
         if (isPaidUser) {
-            subscriptionStatus.textContent = `Your ${tier} plan is active. You have access to all features.`;
+            const sub = currentUser.subscription;
+            if (sub?.cancelAtPeriodEnd || sub?.status === 'cancelled') {
+                const endDate = sub.endsAt
+                    ? new Date(sub.endsAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                    : null;
+                subscriptionStatus.textContent = endDate
+                    ? `Your ${tier} plan is cancelled. Access continues until ${endDate}.`
+                    : `Your ${tier} plan is cancelled. You can resume anytime.`;
+            } else if (sub?.pendingTier) {
+                const changeTier = sub.pendingTier.charAt(0).toUpperCase() + sub.pendingTier.slice(1);
+                const changeDate = sub.pendingChangeAt
+                    ? new Date(sub.pendingChangeAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+                    : 'next billing cycle';
+                subscriptionStatus.textContent = `Your plan will change to ${changeTier} on ${changeDate}.`;
+            } else {
+                subscriptionStatus.textContent = `Your ${tier} plan is active. You have access to all features.`;
+            }
         } else {
             subscriptionStatus.textContent = 'Upgrade to unlock unlimited posts and advanced features';
         }
@@ -227,7 +243,7 @@ function updateProfileUI() {
 }
 
 function updateConnectionsUI() {
-    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp'];
+    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok'];
     let connectedCount = 0;
 
     platforms.forEach(platform => {
@@ -2532,6 +2548,10 @@ async function openCustomerPortal() {
         if (response.ok && data.portalUrl) {
             // Open customer portal in new tab
             window.open(data.portalUrl, '_blank');
+        } else if (data.stale) {
+            // Subscription record is outdated (e.g., from test mode)
+            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
+            await loadUserProfile(); // Refresh UI after stale data cleanup
         } else {
             alert(data.error || 'Unable to access billing portal. Please try again.');
         }
@@ -2575,6 +2595,9 @@ async function cancelSubscription() {
             alert(data.message || 'Your subscription has been cancelled. You will retain access until the end of your billing period.');
             // Reload profile to update UI
             await loadUserProfile();
+        } else if (data.stale) {
+            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
+            await loadUserProfile();
         } else {
             alert(data.error || 'Failed to cancel subscription. Please try again.');
         }
@@ -2614,6 +2637,10 @@ async function resumeSubscription() {
             alert(data.message || 'Your subscription has been resumed!');
             // Reload profile to update UI
             await loadUserProfile();
+        } else if (data.stale) {
+            // Subscription record is outdated (e.g., from test mode)
+            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
+            await loadUserProfile(); // Refresh UI after stale data cleanup
         } else {
             alert(data.error || 'Failed to resume subscription. Please try again.');
         }

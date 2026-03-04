@@ -8,6 +8,7 @@ import TelegramPublisher from '../publishers/TelegramPublisher.js';
 import WhatsAppPublisher from '../publishers/WhatsAppPublisher.js';
 import InstagramPublisher from '../publishers/InstagramPublisher.js';
 import ThreadsPublisher from '../publishers/ThreadsPublisher.js';
+import TikTokPublisher from '../publishers/TikTokPublisher.js';
 // MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import { createPost } from './database-wrapper.js';
 import TokenManager, { TokenDecryptionError } from './TokenManager.js';
@@ -181,6 +182,14 @@ class PublishingService {
         };
         logger.info(`  → Threads User ID: ${credentials.threadsUserId || 'unknown'}`);
         return ThreadsPublisher.withCredentials(credentials);
+
+      case 'tiktok':
+        credentials.openId = connection.platform_user_id || connection.platform_metadata?.openId;
+        credentials.metadata = {
+          openId: credentials.openId
+        };
+        logger.info(`  → TikTok Open ID: ${credentials.openId || 'unknown'}`);
+        return TikTokPublisher.withCredentials(credentials);
 
       default:
         logger.error(`Unknown platform: ${platform}`);
@@ -470,6 +479,38 @@ class PublishingService {
     }
   }
 
+  async publishToTikTok(content, userId, videoUrl = null) {
+    try {
+      const publisher = await this.getPublisherForUser(userId, 'tiktok');
+
+      if (!videoUrl && !content.videoUrl) {
+        throw new Error('TikTok requires a video URL. Video generation must complete before publishing.');
+      }
+
+      const mediaUrl = videoUrl || content.videoUrl;
+      const result = await publisher.publishPost(content.text, mediaUrl);
+
+      if (result.success) {
+        await this.savePostToDatabase(userId, 'tiktok', content, result, null);
+        await this.updateConnectionLastUsed(userId, 'tiktok');
+
+        logger.info(`Successfully published to TikTok for user ${userId}`);
+        return {
+          success: true,
+          platform: 'tiktok',
+          publishId: result.publishId,
+          postId: result.postId
+        };
+      }
+
+      throw new Error('TikTok publishing failed');
+
+    } catch (error) {
+      logger.error(`Failed to publish to TikTok for user ${userId}:`, error);
+      throw error;
+    }
+  }
+
   /**
    * Update the last_used_at timestamp for a connection
    * @param {string} userId - User ID
@@ -623,6 +664,7 @@ export const publishToInstagram = (content, userId, imageUrl = null) => publishi
 export const publishToThreads = (content, userId, imageUrl = null) => publishingService.publishToThreads(content, userId, imageUrl);
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
+export const publishToTikTok = (content, userId, videoUrl = null) => publishingService.publishToTikTok(content, userId, videoUrl);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
   publishingService.publishToMultiplePlatforms(content, platforms, userId, options);
 

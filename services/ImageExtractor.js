@@ -22,7 +22,7 @@ class ImageExtractor {
   /**
    * Platforms that require media (image/video) — text-only posts not supported
    */
-  static PLATFORMS_REQUIRING_MEDIA = ['instagram'];
+  static PLATFORMS_REQUIRING_MEDIA = ['instagram', 'tiktok'];
 
   constructor() {
     this.articleResolver = new ArticleResolver();

@@ -12,6 +12,7 @@ import { getTelegramSystemPrompt, getTelegramUserPrompt } from '../public/compon
 import { getInstagramSystemPrompt, getInstagramUserPrompt } from '../public/components/instagramPrompts.mjs';
 import { getThreadsSystemPrompt, getThreadsUserPrompt } from '../public/components/threadsPrompts.mjs';
 import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/components/whatsappPrompts.mjs';
+import { getTikTokSystemPrompt, getTikTokUserPrompt } from '../public/components/tiktokPrompts.mjs';
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -45,7 +46,8 @@ class ContentGenerator {
       instagram: this.getInstagramPrompt,
       telegram: this.getTelegramPrompt,
       threads: this.getThreadsPrompt,
-      whatsapp: this.getWhatsAppPrompt
+      whatsapp: this.getWhatsAppPrompt,
+      tiktok: this.getTikTokPrompt
     };
   }
 
@@ -122,6 +124,11 @@ class ContentGenerator {
         // Use WhatsApp-specific prompts (mobile-first, WhatsApp formatting)
         systemPrompt = getWhatsAppSystemPrompt(agentSettings);
         userPrompt = getWhatsAppUserPrompt(article, agentSettings);
+
+      } else if (platform === 'tiktok') {
+        // Use TikTok-specific prompts (short-form video captions, viral hooks)
+        systemPrompt = getTikTokSystemPrompt(agentSettings);
+        userPrompt = getTikTokUserPrompt(article, agentSettings);
 
       } else {
         // Fallback for unsupported platforms
@@ -382,6 +389,36 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
     }
 
     return results;
+  }
+
+  /**
+   * Generate a video generation prompt for TikTok.
+   * Uses VideoPromptEngine to convert article + caption + image into a
+   * precise cinematic prompt for Veo or Runway video models.
+   * @param {Object} trend - Article/trend data
+   * @param {string} caption - Generated TikTok caption text
+   * @param {Object} agentSettings - Agent settings
+   * @returns {Promise<string>} Video generation prompt
+   */
+  async generateVideoPrompt(trend, caption, agentSettings = {}) {
+    const { default: VideoPromptEngine } = await import('./VideoPromptEngine.js');
+
+    const model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
+
+    const prompt = VideoPromptEngine.generatePrompt({
+      article: {
+        title: trend.title,
+        summary: trend.summary || trend.description || '',
+        description: trend.description || trend.summary || '',
+        source: trend.source
+      },
+      caption,
+      imageUrl: trend.imageUrl || null,
+      model
+    });
+
+    logger.info(`Generated video prompt for ${model} (${prompt.length} chars)`);
+    return prompt;
   }
 }
 

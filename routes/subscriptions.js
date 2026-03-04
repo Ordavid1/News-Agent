@@ -1,7 +1,7 @@
 // routes/subscriptions.js - Lemon Squeezy Integration
 import express from 'express';
 import crypto from 'crypto';
-import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon } from '../services/database-wrapper.js';
+import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
 // Supabase for plan interest tracking
@@ -52,6 +52,138 @@ function getTierPostLimit(tier) {
     business: 45      // 45 posts/day
   };
   return limits[tier] || 1;
+}
+
+// ============================================
+// LS SUBSCRIPTION VALIDATION & RECOVERY
+// ============================================
+
+/**
+ * Validates the stored LS subscription ID and attempts recovery if stale.
+ * Returns { valid: true, lsData } on success, or { stale: true } if unrecoverable.
+ */
+async function validateOrRecoverLsSubscription(subscription, userId) {
+  const lsSubId = subscription.lsSubscriptionId;
+
+  if (!lsSubId) {
+    return { stale: true, reason: 'No Lemon Squeezy subscription ID stored' };
+  }
+
+  // Step 1: Validate the stored subscription ID
+  try {
+    const response = await fetch(`https://api.lemonsqueezy.com/v1/subscriptions/${lsSubId}`, {
+      headers: {
+        'Accept': 'application/vnd.api+json',
+        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return { valid: true, lsData: data };
+    }
+
+    if (response.status !== 404) {
+      console.error(`[LS-VALIDATE] Unexpected status ${response.status} for subscription ${lsSubId}`);
+      return { error: true, reason: `Lemon Squeezy API error (${response.status})` };
+    }
+  } catch (err) {
+    console.error('[LS-VALIDATE] Network error validating subscription:', err.message);
+    return { error: true, reason: 'Failed to reach Lemon Squeezy API' };
+  }
+
+  // Step 2: Stored ID returned 404 — attempt recovery by customer ID
+  console.log(`[LS-VALIDATE] Subscription ${lsSubId} not found in LS, attempting recovery...`);
+
+  const lsCustomerId = subscription.lsCustomerId;
+  if (lsCustomerId) {
+    try {
+      const searchUrl = `https://api.lemonsqueezy.com/v1/subscriptions?filter[store_id]=${process.env.LEMON_SQUEEZY_STORE_ID}&filter[customer_id]=${lsCustomerId}`;
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        }
+      });
+
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const activeSubs = (searchData.data || []).filter(
+          s => ['active', 'on_trial', 'paused', 'past_due', 'cancelled'].includes(s.attributes?.status)
+        );
+
+        if (activeSubs.length > 0) {
+          const recovered = activeSubs[0];
+          const recoveredId = recovered.id;
+          console.log(`[LS-VALIDATE] Recovered subscription: ${recoveredId} (was: ${lsSubId})`);
+
+          // Update stored IDs in both tables
+          await updateSubscriptionRecord(lsSubId, { lsSubscriptionId: String(recoveredId) });
+          await updateUser(userId, { lsSubscriptionId: String(recoveredId) });
+
+          return { valid: true, lsData: { data: recovered }, recovered: true };
+        }
+      }
+    } catch (err) {
+      console.error('[LS-VALIDATE] Recovery search error:', err.message);
+    }
+  }
+
+  // Step 3: Also try searching by store to find any subscription matching user email
+  // (handles case where customer ID is also from test mode)
+  try {
+    const storeSearchUrl = `https://api.lemonsqueezy.com/v1/subscriptions?filter[store_id]=${process.env.LEMON_SQUEEZY_STORE_ID}&filter[user_email]=${encodeURIComponent(subscription.userEmail || '')}`;
+    if (subscription.userEmail) {
+      const storeResponse = await fetch(storeSearchUrl, {
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        }
+      });
+
+      if (storeResponse.ok) {
+        const storeData = await storeResponse.json();
+        const activeSubs = (storeData.data || []).filter(
+          s => ['active', 'on_trial', 'paused', 'past_due', 'cancelled'].includes(s.attributes?.status)
+        );
+
+        if (activeSubs.length > 0) {
+          const recovered = activeSubs[0];
+          const recoveredId = recovered.id;
+          console.log(`[LS-VALIDATE] Recovered subscription by email: ${recoveredId} (was: ${lsSubId})`);
+
+          // Update stored IDs in both tables
+          const newCustomerId = String(recovered.attributes.customer_id);
+          await updateSubscriptionRecord(lsSubId, { lsSubscriptionId: String(recoveredId) });
+          await updateUser(userId, {
+            lsSubscriptionId: String(recoveredId),
+            lsCustomerId: newCustomerId
+          });
+
+          return { valid: true, lsData: { data: recovered }, recovered: true };
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[LS-VALIDATE] Email-based recovery error:', err.message);
+  }
+
+  // Step 4: No recovery possible — subscription is stale (e.g., test mode data)
+  console.warn(`[LS-VALIDATE] Subscription ${lsSubId} is stale and unrecoverable`);
+
+  // Clean up stale data
+  await updateSubscriptionRecord(lsSubId, { status: 'expired' });
+  await updateUser(userId, {
+    subscription: {
+      cancelAtPeriodEnd: false,
+      endsAt: null,
+      pendingTier: null,
+      pendingChangeAt: null
+    },
+    lsSubscriptionId: null
+  });
+
+  return { stale: true, reason: 'Subscription record is outdated (possibly from test mode). Please re-subscribe to activate your plan.' };
 }
 
 // Get current subscription
@@ -184,29 +316,21 @@ router.get('/portal', async (req, res) => {
       return res.status(404).json({ error: 'No active subscription found' });
     }
 
-    // Fetch fresh subscription data from Lemon Squeezy (portal URL is valid for 24h)
-    const lsUrl = `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`;
-    console.log('[PORTAL] Fetching from LS API:', lsUrl);
-
-    const response = await fetch(lsUrl, {
-        headers: {
-          'Accept': 'application/vnd.api+json',
-          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-        }
-      }
+    // Validate & recover the LS subscription ID if needed
+    const validation = await validateOrRecoverLsSubscription(
+      { ...subscription, userEmail: req.user.email },
+      req.user.id
     );
 
-    console.log('[PORTAL] LS API Response status:', response.status);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('[PORTAL] LS API Error:', JSON.stringify(errorData));
-      console.error('[PORTAL] This may indicate the subscription ID does not exist in Lemon Squeezy');
-      return res.status(500).json({ error: 'Failed to fetch portal URL', details: errorData });
+    if (validation.stale) {
+      return res.status(410).json({ error: validation.reason, stale: true });
     }
 
-    const data = await response.json();
-    const portalUrl = data.data.attributes.urls?.customer_portal;
+    if (validation.error) {
+      return res.status(502).json({ error: validation.reason });
+    }
+
+    const portalUrl = validation.lsData.data.attributes.urls?.customer_portal;
 
     if (!portalUrl) {
       return res.status(404).json({ error: 'Customer portal not available' });
@@ -233,11 +357,27 @@ router.post('/cancel', async (req, res) => {
       return res.status(404).json({ error: 'No active subscription found' });
     }
 
-    // Cancel subscription via Lemon Squeezy API
-    const lsUrl = `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`;
-    console.log('[CANCEL] Sending PATCH to LS API:', lsUrl);
+    // Validate & recover the LS subscription ID if needed
+    const validation = await validateOrRecoverLsSubscription(
+      { ...subscription, userEmail: req.user.email },
+      req.user.id
+    );
 
-    const response = await fetch(lsUrl, {
+    if (validation.stale) {
+      return res.status(410).json({ error: validation.reason, stale: true });
+    }
+
+    if (validation.error) {
+      return res.status(502).json({ error: validation.reason });
+    }
+
+    // Use the validated (possibly recovered) subscription ID
+    const validSubId = validation.lsData.data.id;
+
+    // Cancel subscription via Lemon Squeezy API
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
+      {
         method: 'PATCH',
         headers: {
           'Accept': 'application/vnd.api+json',
@@ -247,7 +387,7 @@ router.post('/cancel', async (req, res) => {
         body: JSON.stringify({
           data: {
             type: 'subscriptions',
-            id: subscription.lsSubscriptionId,
+            id: String(validSubId),
             attributes: {
               cancelled: true
             }
@@ -261,15 +401,22 @@ router.post('/cancel', async (req, res) => {
     if (!response.ok) {
       const errorData = await response.json();
       console.error('[CANCEL] LS API Error:', JSON.stringify(errorData));
-      console.error('[CANCEL] This may indicate the subscription ID does not exist in Lemon Squeezy');
-      return res.status(500).json({ error: 'Failed to cancel subscription', details: errorData });
+      return res.status(500).json({ error: 'Failed to cancel subscription' });
     }
 
     const data = await response.json();
 
-    // Update local record
+    // Update both tables
+    await updateSubscriptionRecord(String(validSubId), {
+      status: 'cancelled',
+      cancelAtPeriodEnd: true
+    });
+
     await updateUser(req.user.id, {
-      'subscription.cancelAtPeriodEnd': true
+      subscription: {
+        cancelAtPeriodEnd: true,
+        endsAt: data.data.attributes.ends_at
+      }
     });
 
     res.json({
@@ -302,6 +449,22 @@ router.post('/change-plan', changePlanValidation, async (req, res) => {
       return res.status(404).json({ error: 'No active subscription found. Please subscribe first.' });
     }
 
+    // Validate & recover the LS subscription ID if needed
+    const validation = await validateOrRecoverLsSubscription(
+      { ...subscription, userEmail: req.user.email },
+      req.user.id
+    );
+
+    if (validation.stale) {
+      return res.status(410).json({ error: validation.reason, stale: true });
+    }
+
+    if (validation.error) {
+      return res.status(502).json({ error: validation.reason });
+    }
+
+    const validSubId = validation.lsData.data.id;
+
     const currentTier = subscription.tier;
     if (currentTier === newTier) {
       return res.status(400).json({ error: 'You are already on this plan' });
@@ -314,9 +477,8 @@ router.post('/change-plan', changePlanValidation, async (req, res) => {
     console.log(`[CHANGE-PLAN] ${isUpgrade ? 'Upgrade' : 'Downgrade'} from ${currentTier} to ${newTier}`);
 
     // Change subscription variant via Lemon Squeezy API
-    // Using invoice_immediately: false ensures the change happens at the next billing cycle
     const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
+      `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
       {
         method: 'PATCH',
         headers: {
@@ -327,12 +489,9 @@ router.post('/change-plan', changePlanValidation, async (req, res) => {
         body: JSON.stringify({
           data: {
             type: 'subscriptions',
-            id: subscription.lsSubscriptionId,
+            id: String(validSubId),
             attributes: {
               variant_id: parseInt(newTierConfig.variantId),
-              // For downgrades: apply at end of billing period
-              // For upgrades: you may want to apply immediately with proration
-              // Setting invoice_immediately to false means change takes effect at renewal
               invoice_immediately: false
             }
           }
@@ -357,8 +516,10 @@ router.post('/change-plan', changePlanValidation, async (req, res) => {
 
     // Update local record with pending change info
     await updateUser(req.user.id, {
-      'subscription.pendingTier': newTier,
-      'subscription.pendingChangeAt': renewsAt
+      subscription: {
+        pendingTier: newTier,
+        pendingChangeAt: renewsAt
+      }
     });
 
     const message = isUpgrade
@@ -382,6 +543,7 @@ router.post('/change-plan', changePlanValidation, async (req, res) => {
 
 // Resume cancelled subscription
 router.post('/resume', async (req, res) => {
+  console.log('[RESUME] POST /resume - User:', req.user?.id);
   try {
     const subscription = await getSubscription(req.user.id);
 
@@ -389,9 +551,26 @@ router.post('/resume', async (req, res) => {
       return res.status(404).json({ error: 'No subscription found' });
     }
 
+    // Validate & recover the LS subscription ID if needed
+    const validation = await validateOrRecoverLsSubscription(
+      { ...subscription, userEmail: req.user.email },
+      req.user.id
+    );
+
+    if (validation.stale) {
+      return res.status(410).json({ error: validation.reason, stale: true });
+    }
+
+    if (validation.error) {
+      return res.status(502).json({ error: validation.reason });
+    }
+
+    // Use the validated (possibly recovered) subscription ID
+    const validSubId = validation.lsData.data.id;
+
     // Resume subscription via Lemon Squeezy API
     const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
+      `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
       {
         method: 'PATCH',
         headers: {
@@ -402,7 +581,7 @@ router.post('/resume', async (req, res) => {
         body: JSON.stringify({
           data: {
             type: 'subscriptions',
-            id: subscription.lsSubscriptionId,
+            id: String(validSubId),
             attributes: {
               cancelled: false
             }
@@ -413,13 +592,22 @@ router.post('/resume', async (req, res) => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('Lemon Squeezy resume error:', errorData);
+      console.error('[RESUME] Lemon Squeezy resume error:', errorData);
       return res.status(500).json({ error: 'Failed to resume subscription' });
     }
 
-    // Update local record
+    // Update both tables
+    await updateSubscriptionRecord(String(validSubId), {
+      status: 'active',
+      cancelAtPeriodEnd: false
+    });
+
     await updateUser(req.user.id, {
-      'subscription.cancelAtPeriodEnd': false
+      subscription: {
+        status: 'active',
+        cancelAtPeriodEnd: false,
+        endsAt: null
+      }
     });
 
     res.json({
@@ -449,28 +637,47 @@ router.post('/downgrade-to-free', async (req, res) => {
       console.log('[DOWNGRADE] Cancelling Lemon Squeezy subscription:', subscription.lsSubscriptionId);
 
       try {
-        const response = await fetch(
-          `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
-          {
-            method: 'DELETE',
-            headers: {
-              'Accept': 'application/vnd.api+json',
-              'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-            }
-          }
+        // Validate & find the correct LS subscription ID
+        const validation = await validateOrRecoverLsSubscription(
+          { ...subscription, userEmail: req.user.email },
+          req.user.id
         );
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('[DOWNGRADE] Lemon Squeezy cancel error:', errorData);
-          // Continue anyway - we'll still downgrade locally
+        if (validation.valid) {
+          const validSubId = validation.lsData.data.id;
+          const response = await fetch(
+            `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Accept': 'application/vnd.api+json',
+                'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+              }
+            }
+          );
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            console.error('[DOWNGRADE] Lemon Squeezy cancel error:', errorData);
+            // Continue anyway - we'll still downgrade locally
+          } else {
+            console.log('[DOWNGRADE] Lemon Squeezy subscription cancelled successfully');
+          }
         } else {
-          console.log('[DOWNGRADE] Lemon Squeezy subscription cancelled successfully');
+          console.log('[DOWNGRADE] LS subscription is stale, skipping remote cancel');
         }
       } catch (lsError) {
         console.error('[DOWNGRADE] Error cancelling Lemon Squeezy subscription:', lsError);
         // Continue anyway - we'll still downgrade locally
       }
+    }
+
+    // Mark the subscription record as expired
+    if (subscription.lsSubscriptionId) {
+      await updateSubscriptionRecord(subscription.lsSubscriptionId, {
+        status: 'expired',
+        cancelAtPeriodEnd: false
+      });
     }
 
     // Calculate weekly reset date for free tier
@@ -988,14 +1195,27 @@ async function handleSubscriptionUpdated(payload) {
     }
   }
 
+  const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+  const isCancelled = subscriptionData.cancelled || false;
+
+  // Update subscriptions table
+  await updateSubscriptionRecord(subscriptionId, {
+    tier: newTier,
+    status,
+    cancelAtPeriodEnd: isCancelled,
+    lsVariantId: variantId,
+    currentPeriodEnd: subscriptionData.renews_at
+  });
+
   // Update user profile
   await updateUser(subscription.userId, {
     subscription: {
       tier: newTier,
-      status: subscriptionData.status === 'active' ? 'active' : subscriptionData.status,
+      status,
       postsRemaining: getTierPostLimit(newTier),
       dailyLimit: getTierPostLimit(newTier),
-      cancelAtPeriodEnd: subscriptionData.cancelled || false
+      cancelAtPeriodEnd: isCancelled,
+      endsAt: isCancelled ? subscriptionData.ends_at : null
     }
   });
 
@@ -1014,6 +1234,12 @@ async function handleSubscriptionCancelled(payload) {
     console.error(`Subscription not found for LS ID: ${subscriptionId}`);
     return;
   }
+
+  // Update subscriptions table
+  await updateSubscriptionRecord(subscriptionId, {
+    status: 'cancelled',
+    cancelAtPeriodEnd: true
+  });
 
   // Mark as cancelled but keep access until period end
   await updateUser(subscription.userId, {
@@ -1040,6 +1266,12 @@ async function handleSubscriptionResumed(payload) {
     return;
   }
 
+  // Update subscriptions table
+  await updateSubscriptionRecord(subscriptionId, {
+    status: 'active',
+    cancelAtPeriodEnd: false
+  });
+
   await updateUser(subscription.userId, {
     subscription: {
       tier: subscription.tier,
@@ -1064,6 +1296,12 @@ async function handleSubscriptionExpired(payload) {
     return;
   }
 
+  // Update subscriptions table
+  await updateSubscriptionRecord(subscriptionId, {
+    status: 'expired',
+    cancelAtPeriodEnd: false
+  });
+
   // Downgrade to free tier (1 post per week)
   await updateUser(subscription.userId, {
     subscription: {
@@ -1071,7 +1309,10 @@ async function handleSubscriptionExpired(payload) {
       status: 'expired',
       postsRemaining: 1,
       dailyLimit: 1,
-      cancelAtPeriodEnd: false
+      cancelAtPeriodEnd: false,
+      endsAt: null,
+      pendingTier: null,
+      pendingChangeAt: null
     },
     lsSubscriptionId: null
   });
@@ -1091,13 +1332,21 @@ async function handlePaymentSuccess(payload) {
     return;
   }
 
+  // Update subscriptions table
+  await updateSubscriptionRecord(String(subscriptionId), {
+    status: 'active',
+    cancelAtPeriodEnd: false
+  });
+
   // Reset daily limits on successful renewal
   await updateUser(subscription.userId, {
     subscription: {
       tier: subscription.tier,
       status: 'active',
       postsRemaining: getTierPostLimit(subscription.tier),
-      dailyLimit: getTierPostLimit(subscription.tier)
+      dailyLimit: getTierPostLimit(subscription.tier),
+      cancelAtPeriodEnd: false,
+      endsAt: null
     }
   });
 
@@ -1115,6 +1364,11 @@ async function handlePaymentFailed(payload) {
     console.error(`Subscription not found for LS ID: ${subscriptionId}`);
     return;
   }
+
+  // Update subscriptions table
+  await updateSubscriptionRecord(String(subscriptionId), {
+    status: 'past_due'
+  });
 
   // Mark subscription as past_due
   await updateUser(subscription.userId, {

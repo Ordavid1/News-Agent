@@ -48,6 +48,10 @@ class RateLimiter {
       whatsapp: {
         posts: 20,        // 20 posts per hour
         window: 3600000   // 1 hour in ms
+      },
+      tiktok: {
+        posts: 6,         // TikTok allows 6 publishes per minute per user token
+        window: 3600000   // 1 hour in ms
       }
     };
     

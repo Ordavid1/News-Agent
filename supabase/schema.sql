@@ -18,9 +18,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
   -- Subscription
   subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'basic', 'starter', 'growth', 'professional', 'business', 'enterprise')),
-  subscription_status TEXT DEFAULT 'active' CHECK (subscription_status IN ('active', 'cancelled', 'suspended')),
+  subscription_status TEXT DEFAULT 'active' CHECK (subscription_status IN ('active', 'cancelled', 'suspended', 'past_due', 'expired')),
+  cancel_at_period_end BOOLEAN DEFAULT FALSE,
+  subscription_ends_at TIMESTAMPTZ,
+  pending_tier TEXT,
+  pending_change_at TIMESTAMPTZ,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
+  ls_subscription_id TEXT,
+  ls_customer_id TEXT,
 
   -- Usage limits (free tier: 1 post/week, paid tiers: posts/day)
   posts_remaining INTEGER DEFAULT 1,
@@ -124,9 +130,15 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
 
   tier TEXT NOT NULL,
+  -- Stripe fields (legacy)
   stripe_subscription_id TEXT UNIQUE,
   stripe_customer_id TEXT,
   stripe_price_id TEXT,
+  -- Lemon Squeezy fields
+  ls_subscription_id TEXT,
+  ls_customer_id TEXT,
+  ls_variant_id TEXT,
+  ls_order_id TEXT,
 
   status TEXT DEFAULT 'active',
   current_period_start TIMESTAMPTZ,
