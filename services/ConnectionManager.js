@@ -238,8 +238,13 @@ export async function exchangeCodeForTokens(platform, code, state) {
   // For Facebook/Instagram: exchange short-lived token for long-lived token (60 days)
   // Page tokens derived from long-lived user tokens are never-expiring
   let accessToken = tokens.access_token;
+  let expiresIn = tokens.expires_in;
   if (platform === 'facebook' || platform === 'instagram') {
-    accessToken = await exchangeForLongLivedToken(accessToken);
+    const longLived = await exchangeForLongLivedToken(accessToken);
+    accessToken = longLived.accessToken;
+    // Use the long-lived token's expiry (typically ~5184000s = 60 days)
+    // If exchange failed, expiresIn will be null → no expiration stored → won't trigger refresh
+    expiresIn = longLived.expiresIn || null;
   }
 
   // Fetch user info (uses long-lived token for facebook/instagram)
@@ -251,7 +256,7 @@ export async function exchangeCodeForTokens(platform, code, state) {
     platform,
     accessToken: accessToken,
     refreshToken: tokens.refresh_token,
-    expiresIn: tokens.expires_in,
+    expiresIn,
     platformUserId: userInfo.id,
     platformUsername: userInfo.username,
     platformDisplayName: userInfo.displayName,
@@ -433,7 +438,7 @@ async function fetchFacebookPageInfo(accessToken) {
  * Short-lived tokens last ~1-2 hours. Long-lived tokens last ~60 days.
  * Page tokens derived from long-lived user tokens are never-expiring.
  * @param {string} shortLivedToken - The short-lived access token from OAuth code exchange
- * @returns {string} Long-lived access token (or original token if exchange fails)
+ * @returns {Object} { accessToken, expiresIn } - Long-lived token and its expiry in seconds
  */
 async function exchangeForLongLivedToken(shortLivedToken) {
   const clientId = getClientId('facebook');
@@ -449,15 +454,15 @@ async function exchangeForLongLivedToken(shortLivedToken) {
     if (!response.ok) {
       const errorText = await response.text();
       logger.warn('Failed to exchange for long-lived token:', errorText);
-      return shortLivedToken;
+      return { accessToken: shortLivedToken, expiresIn: null };
     }
 
     const data = await response.json();
     logger.info(`Exchanged for long-lived Facebook token (expires in ${data.expires_in}s)`);
-    return data.access_token;
+    return { accessToken: data.access_token, expiresIn: data.expires_in };
   } catch (error) {
     logger.warn('Long-lived token exchange error:', error.message);
-    return shortLivedToken;
+    return { accessToken: shortLivedToken, expiresIn: null };
   }
 }
 
@@ -881,7 +886,8 @@ export async function exchangeMarketingCode(code, state) {
   const tokens = await response.json();
 
   // Exchange for long-lived token
-  const accessToken = await exchangeForLongLivedToken(tokens.access_token);
+  const longLived = await exchangeForLongLivedToken(tokens.access_token);
+  const accessToken = longLived.accessToken;
 
   // Verify that ads scopes were granted
   const grantedScopes = await checkGrantedScopes(accessToken);
@@ -900,7 +906,7 @@ export async function exchangeMarketingCode(code, state) {
     platform: 'facebook',
     accessToken,
     refreshToken: tokens.refresh_token,
-    expiresIn: tokens.expires_in,
+    expiresIn: longLived.expiresIn || null,
     scopes: allScopes
   });
 

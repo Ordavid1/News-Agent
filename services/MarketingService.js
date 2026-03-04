@@ -15,6 +15,7 @@ import TokenManager, { TokenDecryptionError } from './TokenManager.js';
 import {
   getSelectedAdAccount,
   getCampaignById,
+  getCampaignByFbId,
   getAdSetById,
   getAdById,
   createCampaign,
@@ -29,7 +30,10 @@ import {
   getAdSetAds,
   getBoostablePublishedPosts,
   getMarketingOverview,
-  getMarketingMetricsHistory
+  getMarketingMetricsHistory,
+  getAudienceTemplateByFbId,
+  createAudienceTemplate,
+  updateAudienceTemplate
 } from './database-wrapper.js';
 
 const logger = winston.createLogger({
@@ -47,8 +51,12 @@ const logger = winston.createLogger({
 const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
+const PAGE_POSTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 class MarketingService {
   constructor() {
+    // In-memory cache for page posts (TTL: 5 minutes per user)
+    this._pagePostsCache = new Map();
     logger.info('MarketingService initialized');
   }
 
@@ -121,8 +129,8 @@ class MarketingService {
         headers: { 'Content-Type': 'application/json' }
       };
 
-      if (data && (method === 'POST' || method === 'PATCH')) {
-        // For Meta Marketing API, parameters go as query params or form data, not JSON body
+      if (data) {
+        // For Meta Marketing API, parameters go as query params for all methods
         config.params = { ...config.params, ...data };
       }
 
@@ -137,6 +145,41 @@ class MarketingService {
       logger.error(`Marketing API request failed: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Fetch all pages of a paginated Meta API response.
+   * Meta uses cursor-based pagination with paging.next URLs.
+   * @param {string} accessToken
+   * @param {string} endpoint - Initial endpoint (e.g. '/{pageId}/published_posts')
+   * @param {Object} params - Query parameters for the first request
+   * @param {number} maxItems - Safety limit to prevent runaway pagination (default 500)
+   * @returns {Array} All items from all pages combined
+   */
+  async _fetchAllPages(accessToken, endpoint, params = {}, maxItems = 500) {
+    const allItems = [];
+
+    let result = await this._callMarketingApi(accessToken, 'GET', endpoint, params);
+
+    if (result.data) {
+      allItems.push(...result.data);
+    }
+
+    // Follow pagination cursors until exhausted or safety limit reached
+    while (result.paging?.next && allItems.length < maxItems) {
+      try {
+        const response = await axios.get(result.paging.next);
+        result = response.data;
+        if (result.data) {
+          allItems.push(...result.data);
+        }
+      } catch (error) {
+        logger.warn(`Pagination fetch failed at ${allItems.length} items: ${error.message}`);
+        break;
+      }
+    }
+
+    return allItems;
   }
 
   // ============================================
@@ -212,17 +255,21 @@ class MarketingService {
 
     // Step 3: Create Ad Creative from the existing post
     const creativeParams = {
-      name: `Creative: ${platformPostId.substring(0, 30)}`,
-      object_story_id: platformPostId // This is the key: links organic post to ad
+      name: `Creative: ${platformPostId.substring(0, 30)}`
     };
 
-    // For Instagram posts, add the instagram_actor_id
     if (sourcePlatform === 'instagram') {
-      // The instagram_actor_id is the IG business account ID
+      // Instagram uses source_instagram_media_id + instagram_actor_id (NOT object_story_id)
       const connection = await TokenManager.getTokens(userId, 'instagram');
-      if (connection?.platform_metadata?.instagramAccountId) {
-        creativeParams.instagram_actor_id = connection.platform_metadata.instagramAccountId;
+      const igAccountId = connection?.platform_metadata?.instagramAccountId;
+      if (!igAccountId) {
+        throw new Error('Instagram business account ID not found. Please reconnect your Instagram account.');
       }
+      creativeParams.source_instagram_media_id = platformPostId;
+      creativeParams.instagram_actor_id = igAccountId;
+    } else {
+      // Facebook uses object_story_id (pageId_postId format)
+      creativeParams.object_story_id = platformPostId;
     }
 
     const fbCreative = await this._callMarketingApi(creds.accessToken, 'POST', `/${creds.adAccountId}/adcreatives`, creativeParams);
@@ -378,6 +425,72 @@ class MarketingService {
   }
 
   // ============================================
+  // PAGE POSTS (Fetch from Meta for Boost)
+  // ============================================
+
+  /**
+   * Fetch published posts directly from the user's Facebook Page via Meta Graph API.
+   * Returns all posts from the past N days — including posts not published through this app.
+   * Results are cached per-user for 5 minutes to reduce API calls.
+   *
+   * @param {string} userId
+   * @param {number} days - How many days back to fetch (default 30)
+   * @returns {Array} Posts normalized for frontend consumption
+   */
+  async fetchPagePosts(userId, days = 30) {
+    // Check cache first
+    const cacheKey = `${userId}:${days}`;
+    const cached = this._pagePostsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PAGE_POSTS_CACHE_TTL) {
+      logger.debug(`Returning cached page posts for user ${userId}`);
+      return cached.data;
+    }
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    if (!creds.pageId || !creds.pageAccessToken) {
+      throw new Error('No Facebook Page connected. Please ensure your Facebook connection includes a Page.');
+    }
+
+    const sinceTimestamp = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+
+    const posts = await this._fetchAllPages(
+      creds.pageAccessToken,
+      `/${creds.pageId}/published_posts`,
+      {
+        fields: 'id,message,created_time,permalink_url,full_picture,type,shares,reactions.summary(total_count),comments.summary(total_count)',
+        since: sinceTimestamp,
+        limit: 100
+      },
+      300 // Safety limit: max 300 posts
+    );
+
+    // Normalize response to match the published_posts shape the frontend expects
+    const normalized = posts.map(post => ({
+      id: post.id,                        // Facebook post ID (pageId_postId format)
+      platform_post_id: post.id,          // Used for boosting — this is the object_story_id
+      platform: 'facebook',
+      content: post.message || '',
+      published_at: post.created_time,
+      permalink_url: post.permalink_url,
+      full_picture: post.full_picture || null,
+      type: post.type,
+      engagement: {
+        reactions: post.reactions?.summary?.total_count || 0,
+        comments: post.comments?.summary?.total_count || 0,
+        shares: post.shares?.count || 0
+      },
+      source: 'meta'  // Distinguish from app-published posts
+    }));
+
+    // Cache the result
+    this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
+
+    logger.info(`Fetched ${normalized.length} page posts for user ${userId} (last ${days} days)`);
+    return normalized;
+  }
+
+  // ============================================
   // CAMPAIGN MANAGEMENT
   // ============================================
 
@@ -411,6 +524,74 @@ class MarketingService {
     });
 
     return dbCampaign;
+  }
+
+  /**
+   * Sync campaigns from Meta Ad Account into local database.
+   * Fetches all campaigns and upserts them into marketing_campaigns.
+   * Synced campaigns are tagged with metadata.source = 'meta_sync'.
+   *
+   * @param {string} userId
+   * @returns {Object} { synced, created, updated, total }
+   */
+  async syncCampaignsFromMeta(userId) {
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Syncing campaigns from Meta for user ${userId}, ad account ${creds.adAccountId}`);
+
+    const campaigns = await this._fetchAllPages(
+      creds.accessToken,
+      `/${creds.adAccountId}/campaigns`,
+      {
+        fields: 'id,name,objective,status,created_time,updated_time,daily_budget,lifetime_budget,start_time,stop_time,budget_remaining',
+        limit: 100
+      },
+      200
+    );
+
+    // Map Meta statuses to local statuses
+    const statusMap = {
+      'ACTIVE': 'active',
+      'PAUSED': 'paused',
+      'DELETED': 'archived',
+      'ARCHIVED': 'archived'
+    };
+
+    let created = 0, updated = 0;
+
+    for (const fbCampaign of campaigns) {
+      // Check if we already have this campaign locally
+      const existing = await getCampaignByFbId(userId, fbCampaign.id);
+
+      const campaignData = {
+        name: fbCampaign.name,
+        objective: fbCampaign.objective || 'OUTCOME_ENGAGEMENT',
+        status: statusMap[fbCampaign.status] || 'draft',
+        fb_status: fbCampaign.status,
+        daily_budget: fbCampaign.daily_budget ? parseFloat(fbCampaign.daily_budget) / 100 : null,
+        lifetime_budget: fbCampaign.lifetime_budget ? parseFloat(fbCampaign.lifetime_budget) / 100 : null,
+        start_time: fbCampaign.start_time || null,
+        end_time: fbCampaign.stop_time || null,
+        metadata: { source: 'meta_sync', budget_remaining: fbCampaign.budget_remaining }
+      };
+
+      if (existing) {
+        await updateCampaign(existing.id, campaignData);
+        updated++;
+      } else {
+        await createCampaign({
+          userId,
+          adAccountId: creds.adAccountDbId,
+          fbCampaignId: fbCampaign.id,
+          fbStatus: fbCampaign.status,
+          ...campaignData
+        });
+        created++;
+      }
+    }
+
+    logger.info(`Campaign sync complete for user ${userId}: ${created} created, ${updated} updated out of ${campaigns.length} total`);
+    return { synced: created + updated, created, updated, total: campaigns.length };
   }
 
   /**
@@ -599,6 +780,62 @@ class MarketingService {
     return result.data || [];
   }
 
+  /**
+   * Sync Custom Audiences from Meta Ad Account into local database.
+   * These are actual audience lists (lookalike, website visitors, customer lists)
+   * stored in Meta, different from the app's local targeting templates.
+   * Synced audiences are tagged with source = 'meta'.
+   *
+   * @param {string} userId
+   * @returns {Object} { synced, created, updated, total }
+   */
+  async syncCustomAudiences(userId) {
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Syncing custom audiences from Meta for user ${userId}, ad account ${creds.adAccountId}`);
+
+    const audiences = await this._fetchAllPages(
+      creds.accessToken,
+      `/${creds.adAccountId}/customaudiences`,
+      {
+        fields: 'id,name,description,approximate_count,subtype,time_created,time_updated',
+        limit: 100
+      },
+      200
+    );
+
+    let created = 0, updated = 0;
+
+    for (const fbAudience of audiences) {
+      const existing = await getAudienceTemplateByFbId(userId, fbAudience.id);
+
+      const audienceData = {
+        name: fbAudience.name,
+        description: fbAudience.description || null,
+        source: 'meta',
+        fb_audience_id: fbAudience.id,
+        approximate_count: fbAudience.approximate_count || null,
+        subtype: fbAudience.subtype || null,
+        targeting: {},  // Meta custom audiences are used by reference, not by targeting spec
+        metadata: { source: 'meta_sync', subtype: fbAudience.subtype }
+      };
+
+      if (existing) {
+        await updateAudienceTemplate(existing.id, audienceData);
+        updated++;
+      } else {
+        await createAudienceTemplate({
+          userId,
+          ...audienceData
+        });
+        created++;
+      }
+    }
+
+    logger.info(`Audience sync complete for user ${userId}: ${created} created, ${updated} updated out of ${audiences.length}`);
+    return { synced: created + updated, created, updated, total: audiences.length };
+  }
+
   // ============================================
   // METRICS SYNC
   // ============================================
@@ -757,32 +994,60 @@ class MarketingService {
         let engagement = {};
 
         if (post.platform === 'facebook') {
+          // Fetch basic engagement fields (reactions replaces deprecated likes)
           const result = await this._callMarketingApi(accessToken, 'GET',
             `/${post.platform_post_id}`, {
-              fields: 'shares,likes.summary(true),comments.summary(true),insights.metric(post_impressions,post_engaged_users)'
+              fields: 'shares,reactions.summary(total_count),comments.summary(total_count)'
             }
           );
 
           engagement = {
-            likes: result.likes?.summary?.total_count || 0,
+            reactions: result.reactions?.summary?.total_count || 0,
             comments: result.comments?.summary?.total_count || 0,
-            shares: result.shares?.count || 0,
-            impressions: result.insights?.data?.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0,
-            engagedUsers: result.insights?.data?.find(i => i.name === 'post_engaged_users')?.values?.[0]?.value || 0
+            shares: result.shares?.count || 0
           };
+
+          // Fetch post insights separately (inline insights.metric() syntax is unreliable)
+          try {
+            const insights = await this._callMarketingApi(accessToken, 'GET',
+              `/${post.platform_post_id}/insights`, {
+                metric: 'post_impressions,post_engaged_users'
+              }
+            );
+            if (insights.data) {
+              engagement.impressions = insights.data.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0;
+              engagement.engagedUsers = insights.data.find(i => i.name === 'post_engaged_users')?.values?.[0]?.value || 0;
+            }
+          } catch (insightsErr) {
+            logger.debug(`Could not fetch insights for FB post ${post.platform_post_id}: ${insightsErr.message}`);
+          }
         } else if (post.platform === 'instagram') {
+          // Fetch basic IG media fields (impressions/reach are NOT direct fields)
           const result = await this._callMarketingApi(accessToken, 'GET',
             `/${post.platform_post_id}`, {
-              fields: 'like_count,comments_count,impressions,reach'
+              fields: 'like_count,comments_count'
             }
           );
 
           engagement = {
             likes: result.like_count || 0,
-            comments: result.comments_count || 0,
-            impressions: result.impressions || 0,
-            reach: result.reach || 0
+            comments: result.comments_count || 0
           };
+
+          // Fetch IG media insights separately
+          try {
+            const insights = await this._callMarketingApi(accessToken, 'GET',
+              `/${post.platform_post_id}/insights`, {
+                metric: 'impressions,reach'
+              }
+            );
+            if (insights.data) {
+              engagement.impressions = insights.data.find(i => i.name === 'impressions')?.values?.[0]?.value || 0;
+              engagement.reach = insights.data.find(i => i.name === 'reach')?.values?.[0]?.value || 0;
+            }
+          } catch (insightsErr) {
+            logger.debug(`Could not fetch insights for IG post ${post.platform_post_id}: ${insightsErr.message}`);
+          }
         }
 
         // Update the published_posts engagement field

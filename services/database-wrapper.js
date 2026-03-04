@@ -61,6 +61,7 @@ export {
   // Marketing campaign functions
   getUserCampaigns,
   getCampaignById,
+  getCampaignByFbId,
   createCampaign,
   updateCampaign,
   deleteCampaign,
@@ -81,6 +82,7 @@ export {
   // Marketing audience template functions
   getUserAudienceTemplates,
   getAudienceTemplateById,
+  getAudienceTemplateByFbId,
   createAudienceTemplate,
   updateAudienceTemplate,
   deleteAudienceTemplate,

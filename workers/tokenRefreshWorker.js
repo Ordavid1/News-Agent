@@ -53,8 +53,21 @@ async function processRefreshJob(job) {
       throw new Error('Connection not found');
     }
 
-    if (!connection.refresh_token) {
-      throw new Error('No refresh token available');
+    // Facebook and Instagram use long-lived tokens (60 days) that cannot be refreshed
+    // via refresh_token. They must be renewed by re-authenticating.
+    // Do NOT mark these as expired — the token is still valid until its natural expiry.
+    const NON_REFRESHABLE_PLATFORMS = ['facebook', 'instagram'];
+    if (NON_REFRESHABLE_PLATFORMS.includes(connection.platform) || !connection.refresh_token) {
+      logger.info(`Skipping refresh for ${connection.platform} connection ${connection_id} — platform uses long-lived tokens without refresh`);
+      // Mark job as completed (not failed) so it doesn't retry and expire the connection
+      await supabaseAdmin
+        .from('token_refresh_queue')
+        .update({
+          status: 'completed',
+          processed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      return { success: true, connectionId: connection_id, skipped: true };
     }
 
     // Attempt to refresh the token

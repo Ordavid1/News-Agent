@@ -314,15 +314,21 @@ CREATE TABLE IF NOT EXISTS public.audience_templates (
   platforms TEXT[] DEFAULT '{facebook,instagram}',
   estimated_reach BIGINT,
   is_default BOOLEAN DEFAULT FALSE,
+  source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'meta')),
+  fb_audience_id TEXT,
+  approximate_count BIGINT,
+  subtype TEXT,
   metadata JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON TABLE public.audience_templates IS 'Reusable audience targeting templates. Users can save and reuse targeting configurations across campaigns and boosts.';
+COMMENT ON TABLE public.audience_templates IS 'Reusable audience targeting templates and synced Meta Custom Audiences. source=local for app-created templates, source=meta for synced audiences.';
 
 CREATE INDEX IF NOT EXISTS idx_audience_templates_user_id ON audience_templates(user_id);
 CREATE INDEX IF NOT EXISTS idx_audience_templates_user_default ON audience_templates(user_id, is_default) WHERE is_default = TRUE;
+CREATE INDEX IF NOT EXISTS idx_audience_templates_source ON audience_templates(source);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_templates_user_fb_id ON audience_templates(user_id, fb_audience_id) WHERE fb_audience_id IS NOT NULL;
 
 ALTER TABLE audience_templates ENABLE ROW LEVEL SECURITY;
 

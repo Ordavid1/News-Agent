@@ -187,6 +187,22 @@ router.get('/boostable-posts', async (req, res) => {
 });
 
 /**
+ * GET /api/marketing/page-posts
+ * Fetch posts directly from the user's Facebook Page (last N days).
+ * Includes ALL posts, not just those published through this app.
+ */
+router.get('/page-posts', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const posts = await marketingService.fetchPagePosts(req.user.id, days);
+    res.json({ success: true, posts, source: 'meta' });
+  } catch (error) {
+    logger.error('Error fetching page posts:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch page posts' });
+  }
+});
+
+/**
  * POST /api/marketing/boost
  * Boost a published post (creates campaign → ad set → creative → ad)
  */
@@ -333,6 +349,20 @@ router.get('/campaigns', async (req, res) => {
   } catch (error) {
     logger.error('Error getting campaigns:', error);
     res.status(500).json({ error: 'Failed to get campaigns' });
+  }
+});
+
+/**
+ * POST /api/marketing/campaigns/sync
+ * Sync campaigns from Meta Ad Account into local database
+ */
+router.post('/campaigns/sync', async (req, res) => {
+  try {
+    const result = await marketingService.syncCampaignsFromMeta(req.user.id);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    logger.error('Error syncing campaigns from Meta:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync campaigns from Meta' });
   }
 });
 
@@ -566,6 +596,20 @@ router.get('/audiences', async (req, res) => {
   } catch (error) {
     logger.error('Error getting audiences:', error);
     res.status(500).json({ error: 'Failed to get audience templates' });
+  }
+});
+
+/**
+ * POST /api/marketing/audiences/sync
+ * Sync Custom Audiences from Meta Ad Account
+ */
+router.post('/audiences/sync', async (req, res) => {
+  try {
+    const result = await marketingService.syncCustomAudiences(req.user.id);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    logger.error('Error syncing audiences from Meta:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync audiences from Meta' });
   }
 });
 

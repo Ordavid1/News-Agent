@@ -31,6 +31,11 @@ var audienceInterests = [];
 var locationSearchTimer = null;
 var interestSearchTimer = null;
 
+// Auto-sync tracking
+var lastCampaignSync = 0;
+var lastAudienceSync = 0;
+const AUTO_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -620,20 +625,46 @@ async function loadBoostablePosts() {
     empty.classList.add('hidden');
 
     try {
-        const response = await apiGet('/api/marketing/boostable-posts?limit=50');
-        if (response.success) {
-            boostablePosts = response.posts || [];
+        // Fetch both app-published posts and Meta page posts in parallel
+        const [appResponse, metaResponse] = await Promise.allSettled([
+            apiGet('/api/marketing/boostable-posts?limit=50'),
+            apiGet('/api/marketing/page-posts?days=30')
+        ]);
 
-            if (loading) loading.classList.add('hidden');
+        const appPosts = appResponse.status === 'fulfilled' && appResponse.value.success
+            ? (appResponse.value.posts || []).map(p => ({ ...p, source: 'app' }))
+            : [];
+        const metaPosts = metaResponse.status === 'fulfilled' && metaResponse.value.success
+            ? (metaResponse.value.posts || [])
+            : [];
 
-            if (boostablePosts.length === 0) {
-                list.innerHTML = '';
-                empty.classList.remove('hidden');
-                return;
-            }
+        // Deduplicate by platform_post_id — prefer Meta version (fresher engagement data)
+        const seenIds = new Set();
+        const merged = [];
 
-            list.innerHTML = boostablePosts.map(post => renderBoostablePost(post)).join('');
+        for (const post of metaPosts) {
+            if (post.platform_post_id) seenIds.add(post.platform_post_id);
+            merged.push(post);
         }
+        for (const post of appPosts) {
+            if (post.platform_post_id && !seenIds.has(post.platform_post_id)) {
+                merged.push(post);
+            }
+        }
+
+        // Sort by date descending
+        merged.sort((a, b) => new Date(b.published_at || b.created_time || 0) - new Date(a.published_at || a.created_time || 0));
+
+        boostablePosts = merged;
+        if (loading) loading.classList.add('hidden');
+
+        if (boostablePosts.length === 0) {
+            list.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        list.innerHTML = boostablePosts.map(post => renderBoostablePost(post)).join('');
     } catch (error) {
         console.error('Error loading boostable posts:', error);
         if (loading) loading.classList.add('hidden');
@@ -648,19 +679,39 @@ function renderBoostablePost(post) {
     const platformLabel = platform.charAt(0).toUpperCase() + platform.slice(1);
     const date = post.published_at ? new Date(post.published_at).toLocaleDateString() : '';
     const engagement = post.engagement || {};
-    const likes = engagement.likes || engagement.like_count || 0;
+    const likes = engagement.reactions || engagement.likes || engagement.like_count || 0;
     const comments = engagement.comments || engagement.comments_count || 0;
+    const shares = engagement.shares || 0;
+    const isFromMeta = post.source === 'meta';
+    const sourceBadge = isFromMeta
+        ? '<span class="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">From Page</span>'
+        : '<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">App Published</span>';
+    const thumbnail = post.full_picture
+        ? `<img src="${escapeHtml(post.full_picture)}" alt="" class="w-16 h-16 rounded-lg object-cover flex-shrink-0">`
+        : '';
+    const permalink = post.permalink_url
+        ? `<a href="${escapeHtml(post.permalink_url)}" target="_blank" rel="noopener" class="text-xs text-blue-500 hover:underline ml-2">View</a>`
+        : '';
 
     return `
         <div class="card-static p-5">
             <div class="flex items-start justify-between gap-4">
+                ${thumbnail}
                 <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 mb-2">
+                    <div class="flex items-center gap-2 mb-2 flex-wrap">
                         <span class="badge-primary text-xs">${escapeHtml(platformLabel)}</span>
+                        ${sourceBadge}
                         <span class="text-xs text-ink-400">${escapeHtml(date)}</span>
-                        ${likes > 0 || comments > 0 ? `<span class="text-xs text-ink-400">${likes} likes &middot; ${comments} comments</span>` : ''}
+                        ${permalink}
                     </div>
                     <p class="text-sm text-ink-700 line-clamp-2">${escapeHtml(preview)}</p>
+                    ${likes > 0 || comments > 0 || shares > 0 ? `
+                        <div class="flex items-center gap-3 mt-2 text-xs text-ink-400">
+                            ${likes > 0 ? `<span>${likes} reactions</span>` : ''}
+                            ${comments > 0 ? `<span>${comments} comments</span>` : ''}
+                            ${shares > 0 ? `<span>${shares} shares</span>` : ''}
+                        </div>
+                    ` : ''}
                 </div>
                 <button onclick="openBoostModal('${escapeHtml(post.id)}', '${escapeHtml(post.platform_post_id || '')}', '${escapeHtml(platform)}')"
                     class="btn-primary btn-sm whitespace-nowrap flex items-center gap-1">
@@ -877,7 +928,12 @@ async function submitBoost() {
     const selectedAudienceId = document.getElementById('boostAudienceSelect').value;
     if (selectedAudienceId !== 'new') {
         const savedAudience = audiences.find(a => a.id === selectedAudienceId);
-        audience = savedAudience?.targeting || {};
+        if (savedAudience?.source === 'meta' && savedAudience?.fb_audience_id) {
+            // Meta Custom Audience — reference by ID
+            audience = { custom_audiences: [{ id: savedAudience.fb_audience_id }] };
+        } else {
+            audience = savedAudience?.targeting || {};
+        }
     } else {
         const gender = document.querySelector('input[name="boostGender"]:checked')?.value || 'all';
         audience = {
@@ -938,6 +994,16 @@ async function loadCampaigns() {
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
+    // Auto-sync from Meta if not recently synced and ad account is connected
+    if (selectedAdAccount && Date.now() - lastCampaignSync > AUTO_SYNC_INTERVAL) {
+        try {
+            await apiPost('/api/marketing/campaigns/sync');
+            lastCampaignSync = Date.now();
+        } catch (e) {
+            console.warn('Auto-sync campaigns failed:', e.message);
+        }
+    }
+
     try {
         const params = new URLSearchParams();
         if (statusFilter) params.set('status', statusFilter);
@@ -972,6 +1038,32 @@ async function loadCampaigns() {
     }
 }
 
+async function syncCampaigns() {
+    const btn = document.getElementById('syncCampaignsBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loader-sm mx-auto"></div> Syncing...';
+    }
+
+    try {
+        const response = await apiPost('/api/marketing/campaigns/sync');
+        if (response.success) {
+            lastCampaignSync = Date.now();
+            showToast(`Synced ${response.synced} campaigns from Meta (${response.created} new, ${response.updated} updated)`, 'success');
+            await loadCampaigns();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to sync campaigns', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg> Sync from Meta`;
+        }
+    }
+}
+
 function renderCampaignCard(campaign) {
     const platforms = (campaign.platforms || ['facebook']).join(', ');
     const budget = campaign.daily_budget
@@ -979,15 +1071,17 @@ function renderCampaignCard(campaign) {
         : campaign.lifetime_budget
             ? `$${parseFloat(campaign.lifetime_budget).toFixed(2)} lifetime`
             : 'No budget set';
+    const isSynced = campaign.metadata?.source === 'meta_sync';
 
     return `
         <div class="card-static p-5 cursor-pointer hover:border-brand-300 transition-colors" onclick="openCampaignDetail('${campaign.id}')">
             <div class="flex items-center justify-between">
                 <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 mb-1">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
                         <p class="font-medium text-ink-800">${escapeHtml(campaign.name)}</p>
                         <span class="text-xs px-2 py-0.5 rounded-full ${getStatusClasses(campaign.status)}">${campaign.status}</span>
                         ${campaign.metadata?.boostType ? '<span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Boost</span>' : ''}
+                        ${isSynced ? '<span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">Synced from Meta</span>' : ''}
                     </div>
                     <p class="text-xs text-ink-400">
                         ${campaign.objective || 'Engagement'} &middot; ${budget} &middot; ${platforms}
@@ -1220,24 +1314,102 @@ async function loadAudiences() {
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
+    // Auto-sync from Meta if not recently synced and ad account is connected
+    if (selectedAdAccount && Date.now() - lastAudienceSync > AUTO_SYNC_INTERVAL) {
+        try {
+            await apiPost('/api/marketing/audiences/sync');
+            lastAudienceSync = Date.now();
+        } catch (e) {
+            console.warn('Auto-sync audiences failed:', e.message);
+        }
+    }
+
     try {
         const response = await apiGet('/api/marketing/audiences');
         if (response.success) {
             audiences = response.audiences || [];
             if (loading) loading.classList.add('hidden');
 
-            if (audiences.length === 0) {
+            const localAudiences = audiences.filter(a => !a.source || a.source === 'local');
+            const metaAudiences = audiences.filter(a => a.source === 'meta');
+
+            if (localAudiences.length === 0 && metaAudiences.length === 0) {
                 list.innerHTML = '';
                 empty.classList.remove('hidden');
                 return;
             }
 
-            list.innerHTML = audiences.map(audience => renderAudienceCard(audience)).join('');
+            let html = '';
+
+            if (metaAudiences.length > 0) {
+                html += '<div class="col-span-full"><h4 class="font-semibold text-ink-800 mb-3 flex items-center gap-2"><svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>Meta Custom Audiences</h4></div>';
+                html += metaAudiences.map(a => renderMetaAudienceCard(a)).join('');
+            }
+
+            if (localAudiences.length > 0) {
+                if (metaAudiences.length > 0) {
+                    html += '<div class="col-span-full mt-4"><h4 class="font-semibold text-ink-800 mb-3">Your Templates</h4></div>';
+                }
+                html += localAudiences.map(a => renderAudienceCard(a)).join('');
+            }
+
+            list.innerHTML = html;
         }
     } catch (error) {
         console.error('Error loading audiences:', error);
         if (loading) loading.classList.add('hidden');
     }
+}
+
+async function syncAudiences() {
+    const btn = document.getElementById('syncAudiencesBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loader-sm mx-auto"></div> Syncing...';
+    }
+
+    try {
+        const response = await apiPost('/api/marketing/audiences/sync');
+        if (response.success) {
+            lastAudienceSync = Date.now();
+            showToast(`Synced ${response.synced} audiences from Meta (${response.created} new, ${response.updated} updated)`, 'success');
+            await loadAudiences();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to sync audiences', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg> Sync from Meta`;
+        }
+    }
+}
+
+function renderMetaAudienceCard(audience) {
+    const sizeLabel = audience.approximate_count
+        ? formatNumber(audience.approximate_count) + ' people'
+        : 'Unknown size';
+    const subtypeLabel = audience.subtype
+        ? audience.subtype.replace(/_/g, ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase())
+        : 'Custom';
+
+    return `
+        <div class="card-static p-5">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <p class="font-medium text-ink-800">${escapeHtml(audience.name)}</p>
+                    ${audience.description ? `<p class="text-xs text-ink-400 mt-0.5">${escapeHtml(audience.description)}</p>` : ''}
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">Meta</span>
+            </div>
+            <div class="flex flex-wrap gap-2 text-xs">
+                <span class="bg-surface-100 text-ink-600 px-2 py-1 rounded">${escapeHtml(subtypeLabel)}</span>
+                <span class="bg-surface-100 text-ink-600 px-2 py-1 rounded">~${escapeHtml(sizeLabel)}</span>
+            </div>
+        </div>
+    `;
 }
 
 function renderAudienceCard(audience) {
@@ -1818,17 +1990,42 @@ function populateAudienceDropdown(selectId) {
     const select = document.getElementById(selectId);
     if (!select) return;
 
-    // Keep the first option (default)
+    // Keep the first option (default "Build new targeting")
     const firstOption = select.options[0];
     select.innerHTML = '';
     select.appendChild(firstOption);
 
-    audiences.forEach(a => {
-        const opt = document.createElement('option');
-        opt.value = a.id;
-        opt.textContent = a.name;
-        select.appendChild(opt);
-    });
+    const localAudiences = audiences.filter(a => !a.source || a.source === 'local');
+    const metaAudiences = audiences.filter(a => a.source === 'meta');
+
+    // Local targeting templates
+    if (localAudiences.length > 0) {
+        const group = document.createElement('optgroup');
+        group.label = 'Your Templates';
+        localAudiences.forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.id;
+            opt.textContent = a.name;
+            group.appendChild(opt);
+        });
+        select.appendChild(group);
+    }
+
+    // Meta Custom Audiences
+    if (metaAudiences.length > 0) {
+        const group = document.createElement('optgroup');
+        group.label = 'Meta Custom Audiences';
+        metaAudiences.forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.id;
+            opt.dataset.source = 'meta';
+            opt.dataset.fbAudienceId = a.fb_audience_id;
+            const sizeStr = a.approximate_count ? ` (~${formatNumber(a.approximate_count)})` : '';
+            opt.textContent = `${a.name}${sizeStr}`;
+            group.appendChild(opt);
+        });
+        select.appendChild(group);
+    }
 }
 
 // ============================================

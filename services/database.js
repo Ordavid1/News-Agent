@@ -1491,6 +1491,26 @@ export async function getCampaignById(campaignId) {
 }
 
 /**
+ * Get campaign by Facebook Campaign ID for a specific user
+ */
+export async function getCampaignByFbId(userId, fbCampaignId) {
+  const { data, error } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('fb_campaign_id', fbCampaignId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting campaign by FB ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
  * Create a marketing campaign
  */
 export async function createCampaign(campaignData) {
@@ -1902,6 +1922,26 @@ export async function getAudienceTemplateById(templateId) {
 }
 
 /**
+ * Get audience template by Facebook Custom Audience ID for a specific user
+ */
+export async function getAudienceTemplateByFbId(userId, fbAudienceId) {
+  const { data, error } = await supabaseAdmin
+    .from('audience_templates')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('fb_audience_id', fbAudienceId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting audience template by FB ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
  * Create an audience template
  */
 export async function createAudienceTemplate(templateData) {
@@ -1915,6 +1955,10 @@ export async function createAudienceTemplate(templateData) {
     platforms: rest.platforms || ['facebook', 'instagram'],
     estimated_reach: rest.estimatedReach || null,
     is_default: rest.isDefault || false,
+    source: rest.source || 'local',
+    fb_audience_id: rest.fb_audience_id || null,
+    approximate_count: rest.approximate_count || null,
+    subtype: rest.subtype || null,
     metadata: rest.metadata || {}
   };
 
@@ -2435,6 +2479,7 @@ export default {
   // Marketing campaign functions
   getUserCampaigns,
   getCampaignById,
+  getCampaignByFbId,
   createCampaign,
   updateCampaign,
   deleteCampaign,
@@ -2455,6 +2500,7 @@ export default {
   // Marketing audience template functions
   getUserAudienceTemplates,
   getAudienceTemplateById,
+  getAudienceTemplateByFbId,
   createAudienceTemplate,
   updateAudienceTemplate,
   deleteAudienceTemplate,

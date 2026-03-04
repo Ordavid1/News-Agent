@@ -795,12 +795,20 @@
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Campaigns</h3>
                             <p class="text-ink-500 text-sm">Manage your ad campaigns, ad sets, and ads</p>
                         </div>
-                        <button onclick="openCreateCampaignModal()" class="btn-primary btn-sm flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                            </svg>
-                            New Campaign
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button id="syncCampaignsBtn" onclick="syncCampaigns()" class="btn-outline btn-sm flex items-center gap-2" title="Import campaigns from Meta">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                Sync from Meta
+                            </button>
+                            <button onclick="openCreateCampaignModal()" class="btn-primary btn-sm flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                New Campaign
+                            </button>
+                        </div>
                     </div>
                     <div class="flex items-center gap-3 mb-4">
                         <select id="campaignStatusFilter" onchange="loadCampaigns()" class="select text-sm py-2 px-3">
@@ -845,12 +853,20 @@
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Audience Library</h3>
                             <p class="text-ink-500 text-sm">Save reusable targeting templates for your ads</p>
                         </div>
-                        <button onclick="openAudienceModal()" class="btn-primary btn-sm flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                            </svg>
-                            New Audience
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button id="syncAudiencesBtn" onclick="syncAudiences()" class="btn-outline btn-sm flex items-center gap-2" title="Import audiences from Meta">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                Sync from Meta
+                            </button>
+                            <button onclick="openAudienceModal()" class="btn-primary btn-sm flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                New Audience
+                            </button>
+                        </div>
                     </div>
                     <div id="audiencesList" class="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div id="audiencesLoading" class="col-span-full text-center py-8">
