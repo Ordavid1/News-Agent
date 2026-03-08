@@ -145,6 +145,8 @@ services:
         sync: false
       - key: TIKTOK_API_KEY
         sync: false
+      - key: TIKTOK_APP_AUDITED
+        value: false
 
       # Automation Settings
       - key: AUTOMATION_ENABLED

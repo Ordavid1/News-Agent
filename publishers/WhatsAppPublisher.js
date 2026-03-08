@@ -81,8 +81,14 @@ class WhatsAppPublisher {
       const data = response.data;
       logger.debug(`Account info retrieved: ${data.phone || 'unknown'}`);
 
+      // Ensure phone number has + prefix for international format
+      const rawPhone = data.phone || data.wid?.split(':')[0]?.split('@')[0] || 'Unknown';
+      const phoneNumber = rawPhone !== 'Unknown' && !rawPhone.startsWith('+')
+        ? `+${rawPhone}`
+        : rawPhone;
+
       return {
-        phoneNumber: data.phone || data.wid?.split('@')[0] || 'Unknown',
+        phoneNumber,
         name: data.pushname || data.name || 'AI News Agent',
         wid: data.wid
       };

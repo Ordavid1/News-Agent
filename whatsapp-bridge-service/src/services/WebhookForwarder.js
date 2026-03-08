@@ -34,7 +34,7 @@ class WebhookForwarder {
    * @param {string} type - Message type ('notify' for new messages)
    */
   async _handleMessages(messages, type) {
-    // Only process new incoming messages
+    // Only process new incoming messages (skip history sync)
     if (type !== 'notify') return;
 
     for (const msg of messages) {
@@ -51,9 +51,6 @@ class WebhookForwarder {
    * @param {Object} msg - Baileys message object
    */
   async _processMessage(msg) {
-    // Skip own messages
-    if (msg.key.fromMe) return;
-
     // Only process group messages
     const jid = msg.key.remoteJid;
     if (!jid || !jid.endsWith('@g.us')) return;
@@ -65,6 +62,10 @@ class WebhookForwarder {
     // Check for verification code
     const codeMatch = text.match(VERIFICATION_CODE_REGEX);
     if (!codeMatch) return;
+
+    // Note: We don't skip fromMe messages here because the bot owner
+    // may also be a user connecting their own groups for testing or use.
+    // Automated posts won't contain NA-XXXXXXXX patterns, so this is safe.
 
     const verificationCode = codeMatch[0].toUpperCase();
     logger.info(`Detected verification code ${verificationCode} in group ${jid}`);

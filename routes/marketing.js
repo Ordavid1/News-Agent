@@ -88,8 +88,10 @@ router.get('/ad-accounts', async (req, res) => {
       return res.json({ success: true, accounts: [], needsConnection: true });
     }
 
+    // Check if marketing permissions are enabled on this connection
+    const marketingEnabled = connection.platform_metadata?.marketingEnabled === true;
     const accounts = await getUserAdAccounts(req.user.id);
-    res.json({ success: true, accounts });
+    res.json({ success: true, accounts, marketingEnabled });
   } catch (error) {
     logger.error('Error getting ad accounts:', error);
     res.status(500).json({ error: 'Failed to get ad accounts' });

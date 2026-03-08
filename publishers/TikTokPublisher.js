@@ -23,9 +23,6 @@ const TIKTOK_API_BASE = 'https://open.tiktokapis.com/v2';
 const PUBLISH_POLL_MAX_ATTEMPTS = 30;
 const PUBLISH_POLL_INTERVAL_MS = 3000; // 3 seconds
 
-// Default privacy level (SELF_ONLY for unaudited apps, PUBLIC_TO_EVERYONE after audit)
-const DEFAULT_PRIVACY_LEVEL = 'SELF_ONLY';
-
 // Unaudited apps must use the Inbox endpoint (user reviews in TikTok app before posting).
 // Audited apps can use Direct Post endpoint (posts immediately).
 // Set TIKTOK_APP_AUDITED=true in env after TikTok audit approval.
@@ -33,6 +30,10 @@ const IS_AUDITED = process.env.TIKTOK_APP_AUDITED === 'true';
 const PUBLISH_ENDPOINT = IS_AUDITED
   ? '/post/publish/video/init/'
   : '/post/publish/inbox/video/init/';
+
+// Default privacy level — unaudited apps are restricted to SELF_ONLY;
+// audited apps default to PUBLIC_TO_EVERYONE (direct post to feed).
+const DEFAULT_PRIVACY_LEVEL = IS_AUDITED ? 'PUBLIC_TO_EVERYONE' : 'SELF_ONLY';
 
 class TikTokPublisher {
   /**
@@ -90,7 +91,25 @@ class TikTokPublisher {
 
     try {
       const formattedCaption = this.formatForTikTok(caption);
-      const privacyLevel = options.privacyLevel || DEFAULT_PRIVACY_LEVEL;
+      let privacyLevel = options.privacyLevel || DEFAULT_PRIVACY_LEVEL;
+
+      // For audited (direct post) apps, query creator info to validate privacy level
+      if (IS_AUDITED) {
+        try {
+          const creatorInfo = await this.getCreatorInfo();
+          const availableLevels = creatorInfo?.privacy_level_options || [];
+          logger.info(`Creator privacy options: ${JSON.stringify(availableLevels)}`);
+
+          if (availableLevels.length > 0 && !availableLevels.includes(privacyLevel)) {
+            privacyLevel = availableLevels.includes('PUBLIC_TO_EVERYONE')
+              ? 'PUBLIC_TO_EVERYONE'
+              : availableLevels[0];
+            logger.info(`Adjusted privacy level to ${privacyLevel} based on creator info`);
+          }
+        } catch (creatorErr) {
+          logger.warn(`Failed to query creator info: ${creatorErr.message}. Using default privacy: ${privacyLevel}`);
+        }
+      }
 
       logger.info(`Publishing to TikTok — privacy: ${privacyLevel}, caption: ${formattedCaption.length} chars`);
 
@@ -161,8 +180,8 @@ class TikTokPublisher {
     logger.info(`Initializing PULL_FROM_URL upload (${IS_AUDITED ? 'direct post' : 'inbox'}) — video: ${videoUrl}`);
 
     const postInfo = {
-      title: caption.slice(0, 150), // TikTok title limit
-      description: caption,
+      title: caption, // TikTok caption field — max 2200 chars (enforced by formatForTikTok)
+      is_aigc: true,  // Label as AI-generated content per TikTok policy
       disable_duet: false,
       disable_comment: false,
       disable_stitch: false
@@ -217,8 +236,8 @@ class TikTokPublisher {
 
     // Step 1: Initialize upload
     const postInfo = {
-      title: caption.slice(0, 150),
-      description: caption,
+      title: caption, // TikTok caption field — max 2200 chars (enforced by formatForTikTok)
+      is_aigc: true,  // Label as AI-generated content per TikTok policy
       disable_duet: false,
       disable_comment: false,
       disable_stitch: false

@@ -1028,9 +1028,14 @@ async function openWhatsAppModal() {
     // Reset modal state
     resetWhatsAppModal();
 
-    // Show modal
+    // Show modal with loading state
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    document.getElementById('whatsappLoading').classList.remove('hidden');
+    document.getElementById('whatsappCancelBtn').classList.add('hidden');
+
+    // Immediately fetch verification code + QR
+    await getWhatsAppCode();
 }
 
 function closeWhatsAppModal() {
@@ -1042,18 +1047,32 @@ function closeWhatsAppModal() {
 }
 
 function resetWhatsAppModal() {
-    // Show initial state, hide others
-    const initial = document.getElementById('whatsappInitial');
-    const codeSection = document.getElementById('whatsappCodeSection');
-    const groupsSection = document.getElementById('whatsappGroupsSection');
-    const errorDiv = document.getElementById('whatsappError');
-    const successDiv = document.getElementById('whatsappSuccess');
+    // Hide all pages
+    const pages = ['whatsappLoading', 'whatsappPage1', 'whatsappPage2', 'whatsappGroupsSection', 'whatsappError', 'whatsappSuccess'];
+    pages.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
 
-    if (initial) initial.classList.remove('hidden');
-    if (codeSection) codeSection.classList.add('hidden');
-    if (groupsSection) groupsSection.classList.add('hidden');
-    if (errorDiv) errorDiv.classList.add('hidden');
-    if (successDiv) successDiv.classList.add('hidden');
+    // Reset step indicator
+    document.getElementById('whatsappStepDot1')?.classList.replace('bg-surface-300', 'bg-green-500');
+    document.getElementById('whatsappStepDot2')?.classList.replace('bg-green-500', 'bg-surface-300');
+    document.getElementById('whatsappStepIndicator')?.classList.remove('hidden');
+    document.getElementById('whatsappCancelBtn')?.classList.remove('hidden');
+}
+
+function goToWhatsAppPage1() {
+    document.getElementById('whatsappPage2').classList.add('hidden');
+    document.getElementById('whatsappPage1').classList.remove('hidden');
+    document.getElementById('whatsappStepDot1')?.classList.replace('bg-surface-300', 'bg-green-500');
+    document.getElementById('whatsappStepDot2')?.classList.replace('bg-green-500', 'bg-surface-300');
+}
+
+function goToWhatsAppPage2() {
+    document.getElementById('whatsappPage1').classList.add('hidden');
+    document.getElementById('whatsappPage2').classList.remove('hidden');
+    document.getElementById('whatsappStepDot1')?.classList.replace('bg-green-500', 'bg-surface-300');
+    document.getElementById('whatsappStepDot2')?.classList.replace('bg-surface-300', 'bg-green-500');
 }
 
 function showWhatsAppError(message) {
@@ -1076,16 +1095,6 @@ function showWhatsAppSuccess(message) {
 
 async function getWhatsAppCode() {
     const token = localStorage.getItem('token');
-    const btn = document.getElementById('whatsappGetCodeBtn');
-    const errorDiv = document.getElementById('whatsappError');
-
-    // Hide previous error
-    if (errorDiv) errorDiv.classList.add('hidden');
-
-    // Show loading state
-    const originalText = btn.textContent;
-    btn.textContent = 'Generating...';
-    btn.disabled = true;
 
     try {
         const response = await fetch('/api/connections/whatsapp/initiate', {
@@ -1105,24 +1114,30 @@ async function getWhatsAppCode() {
             whatsappVerificationCode = data.verificationCode;
             whatsappCodeExpiresAt = new Date(data.expiresAt);
 
-            // Update UI
+            // Populate Page 1 (Contact)
             document.getElementById('whatsappPhoneNumber').textContent = data.phoneNumber;
+            document.getElementById('whatsappWaLink').href = data.waLink;
+            document.getElementById('whatsappQrCode').src = data.qrCode;
+
+            // Populate Page 2 (Verification Code)
             document.getElementById('whatsappPhoneNumberInstructions').textContent = data.phoneNumber;
             document.getElementById('whatsappVerificationCode').textContent = data.verificationCode;
             updateWhatsAppCodeExpiry();
 
-            // Show code section, hide initial
-            document.getElementById('whatsappInitial').classList.add('hidden');
-            document.getElementById('whatsappCodeSection').classList.remove('hidden');
+            // Hide loading, show Page 1
+            document.getElementById('whatsappLoading').classList.add('hidden');
+            document.getElementById('whatsappPage1').classList.remove('hidden');
+            document.getElementById('whatsappCancelBtn').classList.remove('hidden');
         } else {
+            document.getElementById('whatsappLoading').classList.add('hidden');
+            document.getElementById('whatsappCancelBtn').classList.remove('hidden');
             showWhatsAppError(data.error || 'Failed to generate verification code');
         }
     } catch (error) {
         console.error('Error getting WhatsApp code:', error);
+        document.getElementById('whatsappLoading').classList.add('hidden');
+        document.getElementById('whatsappCancelBtn').classList.remove('hidden');
         showWhatsAppError('Failed to generate code. Please try again.');
-    } finally {
-        btn.textContent = originalText;
-        btn.disabled = false;
     }
 }
 
@@ -1235,9 +1250,10 @@ async function claimWhatsAppGroup(pendingId) {
 
         if (data.success) {
             showWhatsAppSuccess(`Connected to ${data.group.name}!`);
-            // Hide code section and groups
-            document.getElementById('whatsappCodeSection').classList.add('hidden');
+            // Hide pages and groups
+            document.getElementById('whatsappPage2').classList.add('hidden');
             document.getElementById('whatsappGroupsSection').classList.add('hidden');
+            document.getElementById('whatsappStepIndicator').classList.add('hidden');
 
             // Refresh connections and close modal after delay
             setTimeout(async () => {
@@ -1881,7 +1897,7 @@ async function testAgentPost(agentId) {
     // Open SSE connection for real-time progress updates
     let eventSource = null;
     try {
-        eventSource = new EventSource(`/api/agents/${agentId}/test/progress`);
+        eventSource = new EventSource(`/api/agents/${agentId}/test/progress?token=${encodeURIComponent(token)}`);
 
         eventSource.onmessage = (event) => {
             try {
@@ -2789,6 +2805,8 @@ window.connectTelegram = connectTelegram;
 // WhatsApp functions
 window.openWhatsAppModal = openWhatsAppModal;
 window.closeWhatsAppModal = closeWhatsAppModal;
+window.goToWhatsAppPage1 = goToWhatsAppPage1;
+window.goToWhatsAppPage2 = goToWhatsAppPage2;
 window.getWhatsAppCode = getWhatsAppCode;
 window.copyWhatsAppCode = copyWhatsAppCode;
 window.checkWhatsAppStatus = checkWhatsAppStatus;

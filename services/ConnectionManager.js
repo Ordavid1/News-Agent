@@ -311,6 +311,19 @@ export async function exchangeCodeForTokens(platform, code, state) {
   // Fetch user info (uses long-lived token for facebook/instagram)
   const userInfo = await fetchUserInfo(platform, accessToken);
 
+  // Preserve existing platform-specific flags (e.g. marketingEnabled) when reconnecting
+  let metadata = userInfo.metadata || {};
+  if (platform === 'facebook') {
+    try {
+      const existing = await TokenManager.getTokens(stateData.userId, 'facebook');
+      if (existing?.platform_metadata?.marketingEnabled) {
+        metadata.marketingEnabled = true;
+      }
+    } catch (e) {
+      // Existing connection may not exist or may have decryption errors — safe to ignore
+    }
+  }
+
   // Store tokens
   await TokenManager.storeTokens({
     userId: stateData.userId,
@@ -321,7 +334,7 @@ export async function exchangeCodeForTokens(platform, code, state) {
     platformUserId: userInfo.id,
     platformUsername: userInfo.username,
     platformDisplayName: userInfo.displayName,
-    platformMetadata: userInfo.metadata || {},
+    platformMetadata: metadata,
     scopes: config.scopes
   });
 
@@ -1036,36 +1049,31 @@ export async function exchangeMarketingCode(code, state) {
     throw new Error('Required marketing permissions were not granted. Please authorize both ads_management and ads_read.');
   }
 
-  // Update the existing Facebook connection with the upgraded token and scopes
+  // Fetch page info BEFORE storing tokens so we can include it in the atomic upsert
   const allScopes = [...new Set([...config.scopes, ...MARKETING_SCOPES])];
+  const pageInfo = await fetchFacebookPageInfo(accessToken);
+
+  // Build complete platform_metadata with marketingEnabled flag
+  const platformMetadata = {
+    marketingEnabled: true
+  };
+  if (pageInfo) {
+    platformMetadata.pageId = pageInfo.id;
+    platformMetadata.pageAccessToken = pageInfo.accessToken;
+    platformMetadata.pageName = pageInfo.name;
+    platformMetadata.pictureUrl = pageInfo.pictureUrl;
+  }
+
+  // Store tokens with complete metadata atomically (prevents marketingEnabled from being wiped)
   await TokenManager.storeTokens({
     userId: stateData.userId,
     platform: 'facebook',
     accessToken,
     refreshToken: tokens.refresh_token,
     expiresIn: longLived.expiresIn || null,
+    platformMetadata,
     scopes: allScopes
   });
-
-  // Also re-fetch page info with the upgraded token
-  const pageInfo = await fetchFacebookPageInfo(accessToken);
-  if (pageInfo) {
-    await supabaseAdmin
-      .from('social_connections')
-      .update({
-        platform_metadata: {
-          pageId: pageInfo.id,
-          pageAccessToken: pageInfo.accessToken,
-          pageName: pageInfo.name,
-          pictureUrl: pageInfo.pictureUrl,
-          marketingEnabled: true
-        },
-        scopes: allScopes,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', stateData.userId)
-      .eq('platform', 'facebook');
-  }
 
   // Discover ad accounts
   const adAccounts = await discoverAdAccounts(accessToken);

@@ -606,7 +606,8 @@ app.use(express.urlencoded({ extended: true }));
 // Request logging middleware - log all API requests for debugging
 app.use('/api', (req, res, next) => {
   // Log API requests (auth status only, not token values)
-  console.log(`[API] ${req.method} ${req.originalUrl} - Auth: ${req.headers.authorization ? 'present' : 'missing'}`);
+  const hasAuth = !!(req.headers.authorization || req.cookies?.authToken || req.query?.token);
+  console.log(`[API] ${req.method} ${req.path} - Auth: ${hasAuth ? 'present' : 'missing'}`);
   next();
 });
 

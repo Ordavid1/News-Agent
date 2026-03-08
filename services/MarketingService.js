@@ -125,22 +125,42 @@ class MarketingService {
       const config = {
         method,
         url,
-        params: { access_token: accessToken },
-        headers: { 'Content-Type': 'application/json' }
+        params: { access_token: accessToken }
       };
 
       if (data) {
-        // For Meta Marketing API, parameters go as query params for all methods
-        config.params = { ...config.params, ...data };
+        if (method === 'GET' || method === 'DELETE') {
+          // GET/DELETE: merge data into query params
+          config.params = { ...config.params, ...data };
+        } else {
+          // POST/PATCH: send as form-encoded body (Meta's standard)
+          const formData = new URLSearchParams();
+          for (const [key, value] of Object.entries(data)) {
+            if (value !== undefined && value !== null) {
+              formData.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+            }
+          }
+          config.data = formData.toString();
+          config.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        }
       }
+
+      logger.debug(`Marketing API ${method} ${endpoint}`, { params: method === 'GET' ? Object.keys(data || {}) : undefined });
 
       const response = await axios(config);
       return response.data;
     } catch (error) {
       const apiError = error.response?.data?.error;
       if (apiError) {
-        logger.error(`Marketing API error: ${apiError.message} (code: ${apiError.code}, subcode: ${apiError.error_subcode})`);
-        throw new Error(`Meta Marketing API: ${apiError.message}`);
+        logger.error(`Marketing API error: ${apiError.message} (code: ${apiError.code}, subcode: ${apiError.error_subcode})`, {
+          endpoint,
+          method,
+          errorType: apiError.type,
+          errorDetail: apiError.error_user_title || apiError.error_user_msg || JSON.stringify(apiError).substring(0, 500),
+          fbTraceId: apiError.fbtrace_id
+        });
+        const detail = apiError.error_user_msg || apiError.message;
+        throw new Error(`Meta Marketing API: ${detail}`);
       }
       logger.error(`Marketing API request failed: ${error.message}`);
       throw error;
@@ -224,7 +244,7 @@ class MarketingService {
       name: campaignName,
       objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
-      special_ad_categories: '[]'
+      special_ad_categories: []
     });
 
     logger.info(`Created campaign: ${fbCampaign.id}`);
@@ -240,6 +260,7 @@ class MarketingService {
       status: 'PAUSED',
       start_time: duration.startTime,
       end_time: duration.endTime,
+      is_adset_budget_sharing_enabled: false, // Required when budget is at ad set level (not campaign budget optimization)
       ...placements
     };
 
@@ -458,7 +479,7 @@ class MarketingService {
       creds.pageAccessToken,
       `/${creds.pageId}/published_posts`,
       {
-        fields: 'id,message,created_time,permalink_url,full_picture,type,shares,reactions.summary(total_count),comments.summary(total_count)',
+        fields: 'id,message,created_time,permalink_url,full_picture,type',
         since: sinceTimestamp,
         limit: 100
       },
@@ -476,9 +497,9 @@ class MarketingService {
       full_picture: post.full_picture || null,
       type: post.type,
       engagement: {
-        reactions: post.reactions?.summary?.total_count || 0,
-        comments: post.comments?.summary?.total_count || 0,
-        shares: post.shares?.count || 0
+        reactions: 0,
+        comments: 0,
+        shares: 0
       },
       source: 'meta'  // Distinguish from app-published posts
     }));
@@ -504,7 +525,7 @@ class MarketingService {
       name: campaignData.name,
       objective: campaignData.objective,
       status: 'PAUSED',
-      special_ad_categories: '[]'
+      special_ad_categories: []
     });
 
     const dbCampaign = await createCampaign({
@@ -616,6 +637,7 @@ class MarketingService {
       status: 'PAUSED',
       start_time: adSetData.startTime || campaign.start_time,
       end_time: adSetData.endTime || campaign.end_time,
+      is_adset_budget_sharing_enabled: false,
       ...placements
     };
 
@@ -994,29 +1016,21 @@ class MarketingService {
         let engagement = {};
 
         if (post.platform === 'facebook') {
-          // Fetch basic engagement fields (reactions replaces deprecated likes)
-          const result = await this._callMarketingApi(accessToken, 'GET',
-            `/${post.platform_post_id}`, {
-              fields: 'shares,reactions.summary(total_count),comments.summary(total_count)'
-            }
-          );
-
-          engagement = {
-            reactions: result.reactions?.summary?.total_count || 0,
-            comments: result.comments?.summary?.total_count || 0,
-            shares: result.shares?.count || 0
-          };
-
-          // Fetch post insights separately (inline insights.metric() syntax is unreliable)
+          // Use Page Post insights endpoint — direct post field aggregations are deprecated in v24.0
           try {
             const insights = await this._callMarketingApi(accessToken, 'GET',
               `/${post.platform_post_id}/insights`, {
-                metric: 'post_impressions,post_engaged_users'
+                metric: 'post_impressions,post_engaged_users,post_reactions_by_type_total'
               }
             );
             if (insights.data) {
-              engagement.impressions = insights.data.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0;
-              engagement.engagedUsers = insights.data.find(i => i.name === 'post_engaged_users')?.values?.[0]?.value || 0;
+              const reactionsData = insights.data.find(i => i.name === 'post_reactions_by_type_total')?.values?.[0]?.value || {};
+              const totalReactions = Object.values(reactionsData).reduce((sum, count) => sum + (count || 0), 0);
+              engagement = {
+                reactions: totalReactions,
+                impressions: insights.data.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0,
+                engagedUsers: insights.data.find(i => i.name === 'post_engaged_users')?.values?.[0]?.value || 0
+              };
             }
           } catch (insightsErr) {
             logger.debug(`Could not fetch insights for FB post ${post.platform_post_id}: ${insightsErr.message}`);

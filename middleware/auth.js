@@ -30,12 +30,14 @@ export async function authenticateToken(req, res, next) {
     return res.status(503).json({ error: 'Authentication service not configured' });
   }
 
-  // SECURITY: Check httpOnly cookie first (most secure), then Authorization header
+  // SECURITY: Check httpOnly cookie first (most secure), then Authorization header,
+  // then query parameter (required for SSE/EventSource which cannot set custom headers)
   const cookieToken = req.cookies?.authToken;
   const authHeader = req.headers['authorization'];
   const headerToken = authHeader && authHeader.split(' ')[1];
+  const queryToken = req.query?.token;
 
-  const token = cookieToken || headerToken;
+  const token = cookieToken || headerToken || queryToken;
 
   if (!token) {
     return res.status(401).json({ error: 'Access token required' });

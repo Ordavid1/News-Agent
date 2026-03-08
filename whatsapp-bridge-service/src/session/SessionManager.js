@@ -187,6 +187,7 @@ class SessionManager {
       generateHighQualityLinkPreview: false,
       // Reduce unnecessary data fetching
       shouldIgnoreJid: (jid) => {
+        if (!jid) return true;
         // Ignore status broadcasts and newsletter channels
         return jid === 'status@broadcast' || jid.endsWith('@newsletter');
       }
@@ -226,6 +227,16 @@ class SessionManager {
 
         const account = this.getAccountInfo();
         logger.info(`WhatsApp connected! Phone: ${account?.phone}, Name: ${account?.pushname}`);
+
+        // Safety: Baileys v6 buffers events on startup for logged-in sessions.
+        // If the offline notification handler doesn't fire (stale session, network timing),
+        // events stay buffered forever. Flush after a delay to guarantee delivery.
+        setTimeout(() => {
+          if (this.sock?.ev) {
+            logger.info('Flushing event buffer (safety flush)');
+            this.sock.ev.flush();
+          }
+        }, 5000);
       }
 
       if (connection === 'close') {

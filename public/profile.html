@@ -1075,31 +1075,76 @@
                 </button>
             </div>
 
-            <!-- Initial State -->
-            <div id="whatsappInitial">
-                <div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
-                    <h4 class="font-semibold text-green-700 mb-2">How it works</h4>
-                    <ol class="text-sm text-ink-600 space-y-2 list-decimal list-inside">
-                        <li>Get a unique verification code</li>
-                        <li>Add our WhatsApp number to your group</li>
-                        <li>Send the code in your group</li>
-                        <li>Click "Check Status" to complete</li>
-                    </ol>
+            <!-- Step indicator -->
+            <div class="flex items-center justify-center gap-2 mb-6" id="whatsappStepIndicator">
+                <div id="whatsappStepDot1" class="w-2.5 h-2.5 rounded-full bg-green-500 transition-colors"></div>
+                <div class="w-8 h-px bg-surface-300"></div>
+                <div id="whatsappStepDot2" class="w-2.5 h-2.5 rounded-full bg-surface-300 transition-colors"></div>
+            </div>
+
+            <!-- Loading State (while fetching code + QR) -->
+            <div id="whatsappLoading" class="hidden">
+                <div class="flex flex-col items-center justify-center py-12">
+                    <svg class="animate-spin h-10 w-10 text-green-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-sm text-ink-500">Setting up your connection...</p>
                 </div>
-                <button onclick="getWhatsAppCode()" id="whatsappGetCodeBtn" class="btn-primary w-full py-3">
-                    Get Verification Code
+            </div>
+
+            <!-- Page 1: Save Bot Contact -->
+            <div id="whatsappPage1" class="hidden">
+                <div class="text-center mb-4">
+                    <div class="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mb-3">
+                        <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                            <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.96 11.96 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.347 0-4.542-.68-6.405-1.848l-.446-.282-2.644.886.886-2.644-.282-.446A9.95 9.95 0 012 12C2 6.486 6.486 2 12 2s10 4.486 10 10-4.486 10-10 10z"/>
+                        </svg>
+                    </div>
+                    <h4 class="font-semibold text-ink-800 mb-1">Add Our Bot to Your Contacts</h4>
+                    <p class="text-sm text-ink-500">Save the bot's number so you can add it to your WhatsApp group</p>
+                </div>
+
+                <!-- Phone number display -->
+                <div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 text-center">
+                    <p class="text-sm text-ink-500 mb-1">Bot's WhatsApp Number</p>
+                    <p class="text-2xl font-mono font-bold text-green-700" id="whatsappPhoneNumber">Loading...</p>
+                </div>
+
+                <!-- Primary action: Open in WhatsApp (works on mobile) -->
+                <a id="whatsappWaLink" href="#" target="_blank" rel="noopener noreferrer"
+                   class="flex items-center justify-center gap-2 w-full py-3 mb-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-medium transition-all text-center">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                    </svg>
+                    Open in WhatsApp
+                </a>
+
+                <!-- QR Code (secondary - for scanning with phone camera) -->
+                <details class="mb-4">
+                    <summary class="text-sm text-ink-400 cursor-pointer hover:text-ink-600 text-center transition-colors">
+                        Or scan QR code with your phone camera
+                    </summary>
+                    <div class="flex justify-center mt-3">
+                        <div class="bg-white p-3 rounded-xl border border-surface-200 shadow-sm">
+                            <img id="whatsappQrCode" alt="WhatsApp QR Code" class="w-48 h-48" />
+                        </div>
+                    </div>
+                    <p class="text-center text-xs text-ink-400 mt-2">Scan with your phone's camera app (not WhatsApp)</p>
+                </details>
+
+                <button onclick="goToWhatsAppPage2()" id="whatsappNextBtn" class="btn-primary w-full py-3">
+                    I've Saved the Number — Next
                 </button>
             </div>
 
-            <!-- Code Display State -->
-            <div id="whatsappCodeSection" class="hidden">
+            <!-- Page 2: Verification Code + Instructions -->
+            <div id="whatsappPage2" class="hidden">
                 <div class="bg-surface-50 border border-surface-200 rounded-xl p-4 mb-4">
-                    <p class="text-sm text-ink-500 mb-2">Our WhatsApp Number:</p>
-                    <p class="text-lg font-mono text-green-600 mb-4" id="whatsappPhoneNumber">Loading...</p>
-
                     <p class="text-sm text-ink-500 mb-2">Your Verification Code:</p>
                     <div class="flex items-center gap-2">
-                        <code class="flex-1 text-2xl font-bold text-brand-600 bg-brand-50 px-4 py-2 rounded-lg border border-brand-200" id="whatsappVerificationCode">NA-XXXXXXXX</code>
+                        <code class="flex-1 text-2xl font-bold text-brand-600 bg-brand-50 px-4 py-2 rounded-lg border border-brand-200 text-center" id="whatsappVerificationCode">NA-XXXXXXXX</code>
                         <button onclick="copyWhatsAppCode(event)" class="px-3 py-2 bg-surface-100 hover:bg-surface-200 rounded-lg transition-all" title="Copy code">
                             <svg class="w-5 h-5 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
@@ -1109,10 +1154,10 @@
                     <p class="text-xs text-ink-400 mt-2">Code expires in <span id="whatsappCodeExpiry">30 minutes</span></p>
                 </div>
 
-                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-                    <h4 class="font-semibold text-blue-700 mb-2">Next Steps:</h4>
+                <div class="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                    <h4 class="font-semibold text-green-700 mb-2">Next Steps:</h4>
                     <ol class="text-sm text-ink-600 space-y-2 list-decimal list-inside">
-                        <li>Add <span id="whatsappPhoneNumberInstructions" class="text-green-600 font-mono">the number above</span> to your WhatsApp group</li>
+                        <li>Add <span id="whatsappPhoneNumberInstructions" class="text-green-600 font-mono">the bot number</span> to your WhatsApp group</li>
                         <li>Send the verification code as a message in the group</li>
                         <li>Click "Check Status" below</li>
                     </ol>
@@ -1120,6 +1165,10 @@
 
                 <button onclick="checkWhatsAppStatus()" id="whatsappCheckStatusBtn" class="btn-primary w-full py-3 mb-3">
                     Check Status
+                </button>
+
+                <button onclick="goToWhatsAppPage1()" class="text-sm text-ink-400 hover:text-ink-600 w-full text-center transition-colors">
+                    Back to QR Code
                 </button>
             </div>
 
@@ -1142,7 +1191,7 @@
             </div>
 
             <!-- Cancel button -->
-            <button onclick="closeWhatsAppModal()" class="btn-outline w-full py-3 mt-2">
+            <button onclick="closeWhatsAppModal()" id="whatsappCancelBtn" class="btn-outline w-full py-3 mt-2">
                 Cancel
             </button>
         </div>

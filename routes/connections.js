@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import QRCode from 'qrcode';
 import ConnectionManager from '../services/ConnectionManager.js';
 import TokenManager from '../services/TokenManager.js';
 import { authenticateToken } from '../middleware/auth.js';
@@ -740,7 +741,7 @@ router.get('/whatsapp/bot-info', async (req, res) => {
 router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
   try {
     // Check tier - WhatsApp is for Starter plan and above
-    const tier = req.user.subscription_tier || 'free';
+    const tier = req.user.subscription?.tier || req.user.subscription_tier || 'free';
     const allowedTiers = ['starter', 'growth', 'professional', 'business', 'enterprise'];
     if (!allowedTiers.includes(tier)) {
       return res.status(403).json({
@@ -772,10 +773,17 @@ router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
       const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
       const accountInfo = await WhatsAppPublisher.getAccountInfo();
 
+      // Generate QR code for wa.me link (strips + prefix for wa.me URL format)
+      const rawPhone = accountInfo.phoneNumber.replace(/[^0-9]/g, '');
+      const waLink = `https://wa.me/${rawPhone}`;
+      const qrCodeDataUrl = await QRCode.toDataURL(waLink, { width: 256, margin: 2 });
+
       return res.json({
         success: true,
         verificationCode: existingCode.verification_code,
         phoneNumber: accountInfo.phoneNumber,
+        qrCode: qrCodeDataUrl,
+        waLink,
         expiresAt: existingCode.expires_at,
         instructions: [
           `Add ${accountInfo.phoneNumber} to your WhatsApp group as a participant`,
@@ -807,10 +815,17 @@ router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
     const WhatsAppPublisher = (await import('../publishers/WhatsAppPublisher.js')).default;
     const accountInfo = await WhatsAppPublisher.getAccountInfo();
 
+    // Generate QR code for wa.me link
+    const rawPhone = accountInfo.phoneNumber.replace(/[^0-9]/g, '');
+    const waLink = `https://wa.me/${rawPhone}`;
+    const qrCodeDataUrl = await QRCode.toDataURL(waLink, { width: 256, margin: 2 });
+
     res.json({
       success: true,
       verificationCode,
       phoneNumber: accountInfo.phoneNumber,
+      qrCode: qrCodeDataUrl,
+      waLink,
       expiresAt: expiresAt.toISOString(),
       instructions: [
         `Add ${accountInfo.phoneNumber} to your WhatsApp group as a participant`,
@@ -991,17 +1006,22 @@ router.post('/whatsapp/webhook', async (req, res) => {
 
     // Handle different webhook event structures
     const messages = payload.messages || (payload.message ? [payload.message] : []);
+    logger.info(`WhatsApp webhook received: ${messages.length} message(s)`);
 
     for (const message of messages) {
       // Only process group messages
       const chatId = message.chat_id || message.from;
       if (!chatId || !chatId.endsWith('@g.us')) {
+        logger.debug(`WhatsApp webhook: skipping non-group message (chatId=${chatId || 'none'})`);
         continue;
       }
 
       // Get message text
       const text = message.text?.body || message.body || message.text || '';
-      if (!text) continue;
+      if (!text) {
+        logger.debug(`WhatsApp webhook: no text content in message from group ${chatId}`);
+        continue;
+      }
 
       // Look for verification code pattern (NA-XXXXXXXX)
       const codeMatch = text.match(/NA-[A-F0-9]{8}/i);
