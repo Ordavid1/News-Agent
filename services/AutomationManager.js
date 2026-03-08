@@ -30,6 +30,8 @@ import {
   publishToTikTok
 } from './PublishingService.js';
 import testProgressEmitter from './TestProgressEmitter.js';
+import TokenManager from './TokenManager.js';
+import { updateAgent as updateAgentInDb } from './database-wrapper.js';
 import '../config/env.js';
 
 // Initialize logger
@@ -233,6 +235,23 @@ class AutomationManager {
     const userId = agent.user_id;
     const platform = agent.platform;
 
+    // 0. Early connection validation — before ANY expensive operations
+    // Prevents wasting content gen / video gen API costs on dead connections
+    try {
+      const connectionCheck = await TokenManager.getTokens(userId, platform);
+      if (!connectionCheck || connectionCheck.status !== 'active') {
+        const status = connectionCheck?.status || 'missing';
+        agentLog('error', `Connection for ${platform} is ${status} — auto-pausing agent`);
+        await updateAgentInDb(agent.id, { status: 'paused' });
+        return { success: false, error: `connection_${status}` };
+      }
+    } catch (connError) {
+      // TokenDecryptionError or other connection failures
+      agentLog('error', `Connection check failed for ${platform}: ${connError.message} — auto-pausing agent`);
+      await updateAgentInDb(agent.id, { status: 'paused' });
+      return { success: false, error: 'connection_invalid' };
+    }
+
     // 1. Check rate limits for this user/platform
     const canPost = await this.rateLimiter.checkLimit(userId, platform);
     if (!canPost) {
@@ -309,21 +328,62 @@ class AutomationManager {
         agentLog('info', `Video prompt generated (${videoPrompt.length} chars)`);
 
         const videoGenerationService = (await import('./VideoGenerationService.js')).default;
-        const videoResult = await videoGenerationService.generateVideo({
-          imageUrl: content.imageUrl,
-          prompt: videoPrompt
-        });
+
+        const MAX_CONTENT_FILTER_RETRIES = 2;
+        let videoResult;
+        let currentPrompt = videoPrompt;
+        let contentFilterExhausted = false;
+
+        for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
+          try {
+            videoResult = await videoGenerationService.generateVideo({
+              imageUrl: content.imageUrl,
+              prompt: currentPrompt
+            });
+            break; // Success — exit retry loop
+          } catch (filterError) {
+            if (filterError.isContentFilter && attempt < MAX_CONTENT_FILTER_RETRIES) {
+              // Content filter block — use LLM to rephrase the prompt and retry
+              agentLog('warn', `Video blocked by content filter (${filterError.model}) — rephrasing prompt (attempt ${attempt + 1}/${MAX_CONTENT_FILTER_RETRIES})...`);
+
+              currentPrompt = await this.contentGenerator.rephraseVideoPrompt(filterError.originalPrompt, trend, { model: filterError.model, attemptNumber: attempt + 1 });
+              agentLog('info', `Rephrased video prompt generated (${currentPrompt.length} chars)`);
+              agentLog('info', `Retrying video generation with rephrased prompt (attempt ${attempt + 2})...`);
+            } else if (filterError.isContentFilter) {
+              contentFilterExhausted = true; // All rephrase retries exhausted
+              break;
+            } else {
+              throw filterError; // Non-filter errors propagate immediately
+            }
+          }
+        }
+
+        // Final fallback: if all rephrase retries were blocked, the source IMAGE itself
+        // is likely triggering the content filter. Try once more without the reference image.
+        if (contentFilterExhausted && !videoResult) {
+          agentLog('warn', 'All rephrase retries exhausted — source image likely triggers filter. Trying text-only video generation...');
+
+          videoResult = await videoGenerationService.generateVideo({
+            imageUrl: content.imageUrl,
+            prompt: currentPrompt,
+            skipImage: true
+          });
+        }
 
         content.videoUrl = videoResult.videoUrl;
+        content.videoBuffer = videoResult.videoBuffer || null;
         agentLog('info', `Video generated successfully — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
       } catch (videoError) {
-        agentLog('error', `Video generation failed: ${videoError.message}`);
+        const errorDetail = videoError.isContentFilter
+          ? `Video blocked by content filter even after rephrasing: ${videoError.message}`
+          : videoError.message;
+        agentLog('error', `Video generation failed: ${errorDetail}`);
         await logAgentAutomation(agent.id, userId, 'video_generation_failed', {
           platform,
           trend: trend.title || trend.topic,
-          error: videoError.message
+          error: errorDetail
         });
-        return { success: false, error: `Video generation failed: ${videoError.message}` };
+        return { success: false, error: `Video generation failed: ${errorDetail}` };
       }
     }
 
@@ -429,6 +489,36 @@ class AutomationManager {
         preferredCategory: this.mapPlatformToCategory(agent.platform),
         returnMultiple: false
       });
+
+      if (!generalTrend) return null;
+
+      // For platforms that require media (Instagram, TikTok), enrich keyword-only
+      // trends with article data so image extraction has a URL to work with
+      if (ImageExtractor.PLATFORMS_REQUIRING_MEDIA.includes(agent.platform) && !generalTrend.url) {
+        logger.debug(`Agent ${agent.id}: Trend "${generalTrend.topic}" lacks article URL — enriching for ${agent.platform}`);
+
+        try {
+          const enrichedTrends = await trendAnalyzer.getTrendsForTopics(
+            [generalTrend.topic],
+            { limit: 5 }
+          );
+
+          if (enrichedTrends && enrichedTrends.length > 0) {
+            const article = enrichedTrends[0];
+            generalTrend.url = article.url;
+            generalTrend.title = article.title || generalTrend.topic;
+            generalTrend.description = article.description || generalTrend.description;
+            generalTrend.imageUrl = article.imageUrl || null;
+            generalTrend.publishedAt = article.publishedAt || null;
+            generalTrend.source = article.source || generalTrend.source;
+            logger.debug(`Agent ${agent.id}: Enriched trend with article: "${article.title}" (${article.url})`);
+          } else {
+            logger.warn(`Agent ${agent.id}: No articles found for trend "${generalTrend.topic}" — media platforms may fail`);
+          }
+        } catch (enrichError) {
+          logger.warn(`Agent ${agent.id}: Trend enrichment failed: ${enrichError.message}`);
+        }
+      }
 
       return generalTrend;
 
@@ -539,7 +629,10 @@ class AutomationManager {
       reddit: null,          // Reddit - all categories
       facebook: null,        // Facebook - all categories
       telegram: 'tech',      // Telegram - tech focused
-      whatsapp: null         // WhatsApp - all categories
+      whatsapp: null,        // WhatsApp - all categories
+      instagram: null,       // Instagram - all categories
+      tiktok: null,          // TikTok - all categories
+      threads: null          // Threads - all categories
     };
     return mapping[platform] || null;
   }
@@ -561,6 +654,15 @@ class AutomationManager {
         }
         if (meta?.url && meta.url !== trend.url) {
           urls.push(meta.url);
+        }
+        // Extract article URLs from Google News RSS / SerpAPI metadata
+        if (Array.isArray(meta?.articles)) {
+          for (const article of meta.articles) {
+            const articleUrl = article?.link || article?.url;
+            if (articleUrl && articleUrl !== trend.url) {
+              urls.push(articleUrl);
+            }
+          }
         }
       }
     }

@@ -120,13 +120,17 @@ class TikTokPublisher {
       // Poll for publish completion
       const result = await this.waitForPublishComplete(publishId);
 
-      logger.info(`Successfully published to TikTok — publish_id: ${publishId}`);
+      const logMsg = result.sentToInbox
+        ? `Video sent to TikTok inbox for user review — publish_id: ${publishId}`
+        : `Successfully published to TikTok — publish_id: ${publishId}`;
+      logger.info(logMsg);
 
       return {
         success: true,
         platform: 'tiktok',
         publishId,
-        postId: result.postId || publishId
+        postId: result.postId || publishId,
+        sentToInbox: result.sentToInbox || false
       };
     } catch (error) {
       const errorDetails = {
@@ -296,6 +300,14 @@ class TikTokPublisher {
           || response.data?.data?.post_id;
         logger.info(`Publish complete — post_id: ${postId || 'pending moderation'}`);
         return { postId };
+      }
+
+      // For unaudited apps using the Inbox endpoint, SEND_TO_USER_INBOX is the
+      // terminal success state — the video has been delivered to the user's TikTok
+      // inbox for review and manual posting from the TikTok app.
+      if (status === 'SEND_TO_USER_INBOX') {
+        logger.info(`Video sent to TikTok inbox — publish_id: ${publishId}. User must review and post from the TikTok app.`);
+        return { postId: null, sentToInbox: true };
       }
 
       if (status === 'FAILED') {

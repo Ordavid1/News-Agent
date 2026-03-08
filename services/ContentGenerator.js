@@ -13,6 +13,7 @@ import { getInstagramSystemPrompt, getInstagramUserPrompt } from '../public/comp
 import { getThreadsSystemPrompt, getThreadsUserPrompt } from '../public/components/threadsPrompts.mjs';
 import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/components/whatsappPrompts.mjs';
 import { getTikTokSystemPrompt, getTikTokUserPrompt } from '../public/components/tiktokPrompts.mjs';
+import { getVideoPromptSystemPrompt, getVideoPromptUserPrompt, getVideoRephraseSystemPrompt, getVideoRephraseUserPrompt } from '../public/components/videoPrompts.mjs';
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -392,9 +393,10 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
   }
 
   /**
-   * Generate a video generation prompt for TikTok.
-   * Uses VideoPromptEngine to convert article + caption + image into a
-   * precise cinematic prompt for Veo or Runway video models.
+   * Generate a video generation prompt for TikTok using LLM.
+   * The LLM acts as an expert cinematographer — it reads the article + caption
+   * and outputs a vivid, specific, cinematic scene description optimized for
+   * the target video model (Runway Gen-4.5 or Google Veo 3.1).
    * @param {Object} trend - Article/trend data
    * @param {string} caption - Generated TikTok caption text
    * @param {Object} agentSettings - Agent settings
@@ -404,21 +406,132 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
     const { default: VideoPromptEngine } = await import('./VideoPromptEngine.js');
 
     const model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
+    const charLimit = model === 'runway' ? 950 : 1400;
 
-    const prompt = VideoPromptEngine.generatePrompt({
-      article: {
-        title: trend.title,
-        summary: trend.summary || trend.description || '',
-        description: trend.description || trend.summary || '',
-        source: trend.source
-      },
-      caption,
-      imageUrl: trend.imageUrl || null,
-      model
-    });
+    const article = {
+      title: trend.title,
+      summary: trend.summary || trend.description || '',
+      description: trend.description || trend.summary || '',
+      source: trend.source
+    };
 
-    logger.info(`Generated video prompt for ${model} (${prompt.length} chars)`);
-    return prompt;
+    // Get scene classification metadata to enrich the LLM context
+    const sceneMetadata = VideoPromptEngine.getSceneMetadata({ article });
+
+    // Build LLM prompts for cinematographic video scene generation
+    const systemPrompt = getVideoPromptSystemPrompt(agentSettings, model, sceneMetadata);
+    const userPrompt = getVideoPromptUserPrompt(article, caption, model, sceneMetadata);
+
+    let videoPrompt;
+
+    if (this.openai) {
+      logger.info(`Generating LLM video prompt for ${model} (category: ${sceneMetadata.category}, mood: ${sceneMetadata.mood})...`);
+
+      const config = {
+        model: 'gpt-5-nano',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+      };
+
+      const completion = await this.openai.chat.completions.create(config);
+      videoPrompt = completion.choices[0].message.content.trim();
+
+      // Strip common LLM meta-framing if present (e.g., "Here's the video prompt:")
+      videoPrompt = videoPrompt
+        .replace(/^(here['']?s?\s+(the\s+)?video\s+prompt[:\s]*)/i, '')
+        .replace(/^(video\s+prompt[:\s]*)/i, '')
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .trim();
+    } else {
+      // Mock fallback for testing without OpenAI
+      videoPrompt = `Photorealistic 9:16 cinematic news footage. A modern newsroom, screens glowing with breaking updates about ${article.title}. Camera pushes forward past anchor desks into a wall of monitors. Sharp focus, natural lighting, broadcast-quality documentary footage.`;
+    }
+
+    // Enforce hard character limit for the video model
+    if (videoPrompt.length > charLimit) {
+      logger.warn(`Video prompt exceeded ${charLimit} char limit (${videoPrompt.length} chars) — truncating`);
+      const truncated = videoPrompt.slice(0, charLimit);
+      const lastPeriod = truncated.lastIndexOf('.');
+      if (lastPeriod > charLimit * 0.7) {
+        videoPrompt = truncated.slice(0, lastPeriod + 1);
+      } else {
+        videoPrompt = truncated.slice(0, charLimit - 3) + '...';
+      }
+    }
+
+    logger.info(`Generated LLM video prompt for ${model} (${videoPrompt.length} chars)`);
+    logger.debug(`Video prompt: ${videoPrompt}`);
+    return videoPrompt;
+  }
+
+  /**
+   * Rephrase a video prompt that was blocked by content safety filters.
+   * Uses LLM reasoning to identify trigger words and produce a safer alternative
+   * that preserves cinematic quality and story relevance.
+   *
+   * @param {string} originalPrompt - The prompt that was rejected by content filters
+   * @param {Object} trend - Article/trend data (for story context)
+   * @param {Object} options - { model: 'veo'|'runway' }
+   * @returns {Promise<string>} Rephrased video generation prompt
+   */
+  async rephraseVideoPrompt(originalPrompt, trend, { model = 'veo', attemptNumber = 1 } = {}) {
+    const charLimit = model === 'runway' ? 950 : 1400;
+
+    const article = {
+      title: trend.title,
+      summary: trend.summary || trend.description || '',
+      description: trend.description || trend.summary || '',
+      source: trend.source
+    };
+
+    const systemPrompt = getVideoRephraseSystemPrompt(model, attemptNumber);
+    const userPrompt = getVideoRephraseUserPrompt(originalPrompt, article, model, attemptNumber);
+
+    let rephrasedPrompt;
+
+    if (this.openai) {
+      logger.info(`Rephrasing content-filtered video prompt via LLM (model: ${model})...`);
+      logger.info(`Original prompt (${originalPrompt.length} chars): ${originalPrompt.slice(0, 120)}...`);
+
+      const config = {
+        model: 'gpt-5-nano',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+      };
+
+      const completion = await this.openai.chat.completions.create(config);
+      rephrasedPrompt = completion.choices[0].message.content.trim();
+
+      // Strip common LLM meta-framing (same cleanup as generateVideoPrompt)
+      rephrasedPrompt = rephrasedPrompt
+        .replace(/^(here['']?s?\s+(the\s+)?(rephrased\s+)?video\s+prompt[:\s]*)/i, '')
+        .replace(/^(rephrased\s+)?(video\s+prompt[:\s]*)/i, '')
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .trim();
+    } else {
+      // Mock fallback — in test mode, return a generic safe prompt
+      logger.warn('OpenAI not configured — returning generic safe prompt as mock rephrase');
+      rephrasedPrompt = `Photorealistic 9:16 cinematic news footage. A modern conference room, screens displaying charts and data related to ${article.title}. Camera pushes forward past a polished table into a wall of monitors. Sharp focus, natural lighting, broadcast-quality documentary footage.`;
+    }
+
+    // Enforce character limit (same logic as generateVideoPrompt)
+    if (rephrasedPrompt.length > charLimit) {
+      logger.warn(`Rephrased prompt exceeded ${charLimit} char limit (${rephrasedPrompt.length} chars) — truncating`);
+      const truncated = rephrasedPrompt.slice(0, charLimit);
+      const lastPeriod = truncated.lastIndexOf('.');
+      if (lastPeriod > charLimit * 0.7) {
+        rephrasedPrompt = truncated.slice(0, lastPeriod + 1);
+      } else {
+        rephrasedPrompt = truncated.slice(0, charLimit - 3) + '...';
+      }
+    }
+
+    logger.info(`Rephrased video prompt generated (${rephrasedPrompt.length} chars)`);
+    return rephrasedPrompt;
   }
 }
 

@@ -26,6 +26,8 @@ import trendAnalyzer from '../services/TrendAnalyzer.js';
 import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToTikTok } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
+import TokenManager from '../services/TokenManager.js';
+import ConnectionManager from '../services/ConnectionManager.js';
 import winston from 'winston';
 
 // Tiers that have access to image extraction feature (Starter and above)
@@ -521,13 +523,14 @@ router.get('/:id/test/progress', authenticateToken, async (req, res) => {
     }
   });
 
-  // Safety timeout: close SSE connection after 60 seconds
+  // Safety timeout: close SSE connection after 12 minutes
+  // Must exceed video generation polling (10 min) + LLM prompt gen + image extraction
   const connectionTimeout = setTimeout(() => {
     res.write(`data: ${JSON.stringify({ phase: 'timeout', message: 'Connection timed out' })}\n\n`);
     clearInterval(heartbeat);
     unsubscribe();
     try { res.end(); } catch (e) { /* already closed */ }
-  }, 60000);
+  }, 720000);
 
   // Handle client disconnect
   req.on('close', () => {
@@ -625,6 +628,53 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     }
 
     console.log(`[Agent Test] Agent settings:`, { topics, keywords, geoFilter, tone, platform, platformSettings });
+
+    // Step 0: Early connection health check — BEFORE any expensive operations
+    // This prevents wasting API calls (content gen, video gen) on a dead connection
+    testProgressEmitter.emitProgress(userId, agentId, 'connection_check', 'Verifying platform connection...');
+    try {
+      const connection = await TokenManager.getTokens(userId, platform);
+      if (!connection) {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', `No ${platform} connection found`);
+        return res.status(400).json({
+          success: false,
+          error: `No ${platform} connection found. Please connect your ${platform} account in Settings first.`,
+          step: 'connection'
+        });
+      }
+      if (connection.status !== 'active') {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} connection is ${connection.status}`);
+        return res.status(400).json({
+          success: false,
+          error: `Your ${platform} connection is ${connection.status}. Please disconnect and reconnect your account in Settings.`,
+          step: 'connection'
+        });
+      }
+      // Pre-emptively refresh if token is about to expire
+      if (TokenManager.needsRefresh(connection)) {
+        console.log(`[Agent Test] Token for ${platform} needs refresh, attempting pre-emptive refresh...`);
+        try {
+          await ConnectionManager.refreshTokens(connection.id);
+          console.log(`[Agent Test] Token refreshed successfully for ${platform}`);
+        } catch (refreshErr) {
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} token expired and could not be refreshed`);
+          return res.status(400).json({
+            success: false,
+            error: `Your ${platform} token has expired and could not be refreshed. Please reconnect your account in Settings.`,
+            step: 'connection'
+          });
+        }
+      }
+      console.log(`[Agent Test] Connection verified for ${platform} (@${connection.platform_username || 'unknown'})`);
+    } catch (connError) {
+      // TokenDecryptionError or other connection failures
+      testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} connection credentials are invalid`);
+      return res.status(400).json({
+        success: false,
+        error: `Your ${platform} connection credentials are invalid. Please disconnect and reconnect your account in Settings.`,
+        step: 'connection'
+      });
+    }
 
     // Step 1: Fetch trends using agent's settings
     // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
@@ -787,22 +837,65 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings);
 
         const videoGenerationService = (await import('../services/VideoGenerationService.js')).default;
-        const videoResult = await videoGenerationService.generateVideo({
-          imageUrl,
-          prompt: videoPrompt
-        });
+
+        const MAX_CONTENT_FILTER_RETRIES = 2;
+        let videoResult;
+        let currentPrompt = videoPrompt;
+        let contentFilterExhausted = false;
+
+        for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
+          try {
+            videoResult = await videoGenerationService.generateVideo({
+              imageUrl,
+              prompt: currentPrompt
+            });
+            break; // Success — exit retry loop
+          } catch (filterError) {
+            if (filterError.isContentFilter && attempt < MAX_CONTENT_FILTER_RETRIES) {
+              // Content filter block — use LLM to rephrase the prompt and retry
+              console.log(`[Agent Test] Video blocked by content filter (${filterError.model}) — rephrasing prompt (attempt ${attempt + 1}/${MAX_CONTENT_FILTER_RETRIES})...`);
+              testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Video blocked by content filter — rephrasing prompt (attempt ${attempt + 1}/${MAX_CONTENT_FILTER_RETRIES})...`);
+
+              currentPrompt = await contentGen.rephraseVideoPrompt(filterError.originalPrompt, trendData, { model: filterError.model, attemptNumber: attempt + 1 });
+              console.log(`[Agent Test] Rephrased video prompt generated (${currentPrompt.length} chars)`);
+              testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Retrying video generation with rephrased prompt (attempt ${attempt + 2})...`);
+            } else if (filterError.isContentFilter) {
+              contentFilterExhausted = true; // All rephrase retries exhausted
+              break;
+            } else {
+              throw filterError; // Non-filter errors propagate immediately
+            }
+          }
+        }
+
+        // Final fallback: if all rephrase retries were blocked, the source IMAGE itself
+        // is likely triggering the content filter. Try once more without the reference image.
+        if (contentFilterExhausted && !videoResult) {
+          console.log(`[Agent Test] All rephrase retries exhausted — source image likely triggers filter. Trying text-only video generation...`);
+          testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Source image may trigger filter — retrying without image...');
+
+          videoResult = await videoGenerationService.generateVideo({
+            imageUrl,
+            prompt: currentPrompt,
+            skipImage: true
+          });
+        }
 
         imageUrl = null; // TikTok doesn't use image directly — use video instead
-        // Store video URL on the content object for the publisher
+        // Store video URL and pre-downloaded buffer on the content object for the publisher
         generatedContent.videoUrl = videoResult.videoUrl;
+        generatedContent.videoBuffer = videoResult.videoBuffer || null;
         testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Video generated (${videoResult.model}, ${videoResult.duration}s)`);
         console.log(`[Agent Test] Video generated — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
       } catch (videoError) {
         console.error(`[Agent Test] Video generation error:`, videoError);
-        testProgressEmitter.emitProgress(userId, agentId, 'error', videoError.message || 'Video generation failed');
+        const errorMsg = videoError.isContentFilter
+          ? `Video blocked by content filter even after rephrasing: ${videoError.message}`
+          : (videoError.message || 'Video generation failed');
+        testProgressEmitter.emitProgress(userId, agentId, 'error', errorMsg);
         return res.status(500).json({
           success: false,
-          error: videoError.message || 'Video generation failed',
+          error: errorMsg,
           step: 'video_generation'
         });
       }
@@ -870,7 +963,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
             });
           }
           content.videoUrl = generatedContent.videoUrl;
-          publishResult = await publishToTikTok(content, userId, generatedContent.videoUrl);
+          publishResult = await publishToTikTok(content, userId, generatedContent.videoUrl, {
+            videoBuffer: generatedContent.videoBuffer
+          });
           break;
         default:
           testProgressEmitter.emitProgress(userId, agentId, 'error', `Platform ${platform} not yet supported`);
@@ -954,7 +1049,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         topic: selectedTopic,
         content: generatedContent.text,
         tone,
-        trend: trendData.title
+        trend: trendData.title,
+        videoUrl: generatedContent.videoUrl || null,
+        articleUrl: trendData.url || null
       },
       result: publishResult,
       debug: {

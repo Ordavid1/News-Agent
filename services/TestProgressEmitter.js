@@ -31,9 +31,9 @@ class TestProgressEmitter {
     // Track active sessions: Map<sessionKey, { phase, message, startedAt, timeoutId }>
     this.activeSessions = new Map();
 
-    // Safety timeout: auto-cleanup sessions after 5 minutes
-    // (text-only platforms: 15-45s, TikTok with video generation: 2-3 min)
-    this.SESSION_TIMEOUT_MS = 300000;
+    // Safety timeout: auto-cleanup sessions
+    // (text-only platforms: 15-45s, TikTok with video generation: up to 10 min)
+    this.SESSION_TIMEOUT_MS = 720000;  // 12 minutes — exceeds max video gen polling (10 min) + buffer
 
     logger.info('[TestProgressEmitter] Initialized');
   }

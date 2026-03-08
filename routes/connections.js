@@ -401,6 +401,31 @@ router.get('/:platform/callback', async (req, res) => {
 
     logger.info(`Successfully connected ${platform} for user ${result.userId}`);
 
+    // Auto-resume any agent that was paused due to a broken connection
+    try {
+      const { supabaseAdmin: adminClient } = await import('../services/supabase.js');
+      const { data: pausedAgent } = await adminClient
+        .from('agents')
+        .select('id, name')
+        .eq('user_id', result.userId)
+        .eq('platform', platform)
+        .eq('status', 'paused')
+        .single();
+
+      if (pausedAgent) {
+        await adminClient
+          .from('agents')
+          .update({ status: 'active' })
+          .eq('id', pausedAgent.id);
+        logger.info(`Auto-resumed agent "${pausedAgent.name}" (${pausedAgent.id}) after ${platform} reconnection`);
+      }
+    } catch (resumeErr) {
+      // PGRST116 = no rows found (no paused agent) — not an error
+      if (resumeErr?.code !== 'PGRST116') {
+        logger.error('Failed to auto-resume agent after reconnection:', resumeErr.message);
+      }
+    }
+
     // Redirect back to frontend with success
     res.redirect(
       `${result.redirectUrl || FRONTEND_URL + '/profile.html'}?tab=connections&connected=${platform}&username=${encodeURIComponent(result.userInfo.username || '')}`

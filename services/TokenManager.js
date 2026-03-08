@@ -18,7 +18,15 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
-// Encryption key for token storage (should be in env in production)
+// Encryption key for token storage — MUST be set explicitly for production stability
+if (!process.env.TOKEN_ENCRYPTION_KEY) {
+  logger.error('═══════════════════════════════════════════════════════════════');
+  logger.error('[TokenManager] WARNING: TOKEN_ENCRYPTION_KEY is not set!');
+  logger.error('[TokenManager] Falling back to JWT_SECRET — this is NOT safe for production.');
+  logger.error('[TokenManager] If JWT_SECRET changes, ALL stored tokens become unreadable.');
+  logger.error('[TokenManager] Set TOKEN_ENCRYPTION_KEY in your environment variables.');
+  logger.error('═══════════════════════════════════════════════════════════════');
+}
 const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key-change-in-production';
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
@@ -299,7 +307,7 @@ export async function updateTokens(connectionId, {
 }
 
 /**
- * Mark connection as expired/error
+ * Mark connection as expired/error and auto-pause any associated agent
  */
 export async function markConnectionError(connectionId, errorMessage) {
   const { error } = await supabaseAdmin
@@ -315,10 +323,13 @@ export async function markConnectionError(connectionId, errorMessage) {
     logger.error('Error marking connection error:', error);
     throw error;
   }
+
+  // Auto-pause any active agent tied to this connection
+  await pauseAgentForConnection(connectionId, 'error');
 }
 
 /**
- * Mark connection as expired
+ * Mark connection as expired and auto-pause any associated agent
  */
 export async function markConnectionExpired(connectionId) {
   const { error } = await supabaseAdmin
@@ -333,6 +344,9 @@ export async function markConnectionExpired(connectionId) {
     logger.error('Error marking connection expired:', error);
     throw error;
   }
+
+  // Auto-pause any active agent tied to this connection
+  await pauseAgentForConnection(connectionId, 'expired');
 }
 
 /**
@@ -411,6 +425,37 @@ export async function revokeConnection(userId, platform) {
   }
 
   logger.info(`Revoked ${platform} connection for user ${userId}`);
+}
+
+/**
+ * Auto-pause any active agent tied to a connection that just died.
+ * Prevents agents from wasting expensive operations (content gen, video gen)
+ * on connections that are known to be broken.
+ */
+async function pauseAgentForConnection(connectionId, reason) {
+  try {
+    const { data: agent } = await supabaseAdmin
+      .from('agents')
+      .select('id, name')
+      .eq('connection_id', connectionId)
+      .eq('status', 'active')
+      .single();
+
+    if (agent) {
+      await supabaseAdmin
+        .from('agents')
+        .update({ status: 'paused' })
+        .eq('id', agent.id);
+
+      logger.warn(`Auto-paused agent "${agent.name}" (${agent.id}) — connection ${reason}`);
+    }
+  } catch (err) {
+    // Don't fail the connection status update if agent pause fails
+    // PGRST116 = no rows found (no agent for this connection) — not an error
+    if (err?.code !== 'PGRST116') {
+      logger.error('Failed to auto-pause agent for connection:', err.message);
+    }
+  }
 }
 
 export default {

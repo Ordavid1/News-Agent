@@ -424,8 +424,14 @@ async getTwitterTrends(location = 'worldwide') {
     return [];
   }
 
+  // Respect rate limit / payment backoff set by previous failures
+  if (this.twitterRateLimitReset && Date.now() < this.twitterRateLimitReset) {
+    logger.debug(`Skipping Twitter trends — backed off until ${new Date(this.twitterRateLimitReset).toISOString()}`);
+    return [];
+  }
+
   try {
-    // First, try v2 personalized trends (free tier - once per day)
+    // First, try v2 personalized trends (once per day)
     const personalizedTrends = await this.getPersonalizedTrends(location);
     if (personalizedTrends && personalizedTrends.length > 0) {
       return personalizedTrends;
@@ -479,14 +485,15 @@ async getTwitterTrends(location = 'worldwide') {
       return trends;
       
     } catch (trendsError) {
-      // Log specific error for trends endpoint
-      if (trendsError.code === 403) {
-        logger.warn('Twitter Trends API requires Elevated access. Falling back to search-based trends.');
-      } else {
-        logger.error('Twitter trends API error:', trendsError.message);
+      // 402/403 = billing or access issue — search will fail too, so bail out entirely
+      if (trendsError.code === 402 || trendsError.code === 403) {
+        this.twitterRateLimitReset = Date.now() + (60 * 60 * 1000);
+        logger.warn(`Twitter Trends API returned ${trendsError.code} (${trendsError.code === 402 ? 'Payment Required' : 'Forbidden'}). Twitter trends disabled for 1 hour.`);
+        return [];
       }
-      
-      // Fallback to search-based trends
+
+      logger.error('Twitter trends API error:', trendsError.message);
+      // Fallback to search-based trends only for non-billing errors
       return await this.getSearchBasedTrends(location);
     }
     
@@ -545,8 +552,15 @@ async getPersonalizedTrends(location = 'US') {
     return trends;
 
   } catch (error) {
-    logger.error('Personalized trends error:', error);
-    // Fall back to search-based trends
+    // 402 = pay-per-use credits insufficient; 403 = endpoint not available on current tier
+    // In both cases, don't fall back to search — it will also fail and waste credit attempts
+    if (error.code === 402 || error.code === 403) {
+      this.twitterRateLimitReset = Date.now() + (60 * 60 * 1000); // Back off for 1 hour
+      logger.warn(`Personalized trends returned ${error.code}. Twitter trends disabled for 1 hour.`);
+      return [];
+    }
+    logger.error('Personalized trends error:', error.message);
+    // Fall back to search-based trends only for non-billing errors
     return await this.getSearchBasedTrends(location);
   }
 }
@@ -626,6 +640,11 @@ async getSearchBasedTrends(location) {
           this.twitterRateLimitReset = resetTime * 1000; // Convert to milliseconds
           logger.warn(`Twitter rate limit hit. Reset at ${new Date(this.twitterRateLimitReset).toISOString()}`);
           break; // Stop trying more queries
+        } else if (queryError.code === 402) {
+          // Payment Required — pay-per-use credits exhausted or endpoint not available on current tier
+          this.twitterRateLimitReset = Date.now() + (60 * 60 * 1000); // Back off for 1 hour
+          logger.warn('Twitter API returned 402 (Payment Required). Search endpoint requires additional credits on the pay-per-use plan. Disabling Twitter trends for 1 hour.');
+          break; // Stop immediately — all subsequent queries will also fail
         } else if (queryError.code === 400) {
           logger.debug(`Invalid query format: "${query}"`);
           continue; // Try next query
@@ -801,21 +820,26 @@ async getGoogleTrendsViaSerpAPI(location) {
     // Check if we have trending searches
     const trendingSearches = response.data.trending_searches?.daily || [];
     
-    return trendingSearches.flatMap(day => 
-      day.searches?.map(search => ({
-        topic: search.query,
-        query: search.query,
-        volume: parseInt(search.formattedTraffic?.replace(/[+,]/g, '') || '0'),
-        metadata: {
-          source: 'google_trends_serpapi',
-          articles: search.articles?.slice(0, 3).map(a => ({
-            title: a.title,
-            source: a.source,
-            url: a.url
-          })) || [],
-          timestamp: new Date().toISOString()
-        }
-      })) || []
+    return trendingSearches.flatMap(day =>
+      day.searches?.map(search => {
+        const firstArticle = search.articles?.[0] || {};
+        return {
+          topic: search.query,
+          query: search.query,
+          url: firstArticle.url || null,
+          title: firstArticle.title || search.query,
+          volume: parseInt(search.formattedTraffic?.replace(/[+,]/g, '') || '0'),
+          metadata: {
+            source: 'google_trends_serpapi',
+            articles: search.articles?.slice(0, 3).map(a => ({
+              title: a.title,
+              source: a.source,
+              url: a.url
+            })) || [],
+            timestamp: new Date().toISOString()
+          }
+        };
+      }) || []
     );
     
   } catch (error) {
@@ -887,18 +911,23 @@ async getGoogleNewsTopics(location = 'US') {
                topic.length > 4 && // Not too short
                topic.split(' ').length <= 4; // Not too long
       })
-      .map(([topic, data]) => ({
-        topic,
-        query: topic,
-        volume: data.count * 5000, // Estimated volume based on mentions
-        metadata: {
-          source: 'google_news_rss',
-          mentions: data.count,
-          articles: data.articles.slice(0, 3),
-          location: location,
-          timestamp: new Date().toISOString()
-        }
-      }))
+      .map(([topic, data]) => {
+        const firstArticle = data.articles[0] || {};
+        return {
+          topic,
+          query: topic,
+          url: firstArticle.link || null,
+          title: firstArticle.title || topic,
+          volume: data.count * 5000, // Estimated volume based on mentions
+          metadata: {
+            source: 'google_news_rss',
+            mentions: data.count,
+            articles: data.articles.slice(0, 3),
+            location: location,
+            timestamp: new Date().toISOString()
+          }
+        };
+      })
       .sort((a, b) => b.volume - a.volume)
       .slice(0, 20);
     
@@ -1292,7 +1321,7 @@ async fetchRedditHot(subreddit, token) {
 
   rankTrends(trends, category) {
     const trendScores = new Map();
-    
+
     trends.forEach(trend => {
       const key = this.normalizeTrendTopic(trend.topic);
       const existing = trendScores.get(key) || {
@@ -1300,15 +1329,27 @@ async fetchRedditHot(subreddit, token) {
         score: 0,
         sources: [],
         volume: 0,
-        metadata: {}
+        metadata: {},
+        url: null,
+        title: null,
+        imageUrl: null,
+        description: null,
+        publishedAt: null
       };
-      
+
       const volumeScore = Math.log10(trend.volume + 1) * trend.weight;
       existing.score += volumeScore;
       existing.sources.push(trend.source);
       existing.volume += trend.volume;
       existing.metadata[trend.source] = trend.metadata;
-      
+
+      // Preserve article data from first source that provides it
+      if (!existing.url && trend.url) existing.url = trend.url;
+      if (!existing.title && trend.title) existing.title = trend.title;
+      if (!existing.imageUrl && trend.imageUrl) existing.imageUrl = trend.imageUrl;
+      if (!existing.description && trend.description) existing.description = trend.description;
+      if (!existing.publishedAt && trend.publishedAt) existing.publishedAt = trend.publishedAt;
+
       trendScores.set(key, existing);
     });
     

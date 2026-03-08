@@ -31,7 +31,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: TOKEN_ENCRYPTION_KEY
-        sync: false
+        generateValue: true
 
       # Supabase
       - key: SUPABASE_URL

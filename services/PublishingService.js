@@ -223,6 +223,40 @@ class PublishingService {
     };
   }
 
+  /**
+   * Detect and handle authentication failures during publishing.
+   * If the error is a 401/403 or platform-specific auth error, marks the
+   * connection as 'error' which also auto-pauses the associated agent.
+   */
+  async handleAuthFailure(userId, platform, error) {
+    const status = error.response?.status || error.code;
+    const fbErrorCode = error.response?.data?.error?.code;
+    const isAuthError = status === 401 || status === 403 || fbErrorCode === 190;
+
+    if (isAuthError) {
+      logger.warn(`Auth failure detected for ${platform} (user: ${userId}) — HTTP ${status}. Marking connection as error.`);
+      try {
+        const { supabaseAdmin } = await import('./supabase.js');
+        const { data: connection } = await supabaseAdmin
+          .from('social_connections')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('platform', platform)
+          .single();
+
+        if (connection) {
+          await TokenManager.markConnectionError(
+            connection.id,
+            `Publishing auth failure (HTTP ${status}): ${error.message}`
+          );
+          // Agent auto-pause happens inside markConnectionError
+        }
+      } catch (markErr) {
+        logger.error(`Failed to mark connection error after auth failure:`, markErr.message);
+      }
+    }
+  }
+
   async publishToTwitter(content, userId, imageUrl = null) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'twitter');
@@ -254,6 +288,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Twitter for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'twitter', error);
       throw error;
     }
   }
@@ -289,6 +324,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to LinkedIn for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'linkedin', error);
       throw error;
     }
   }
@@ -327,6 +363,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Reddit for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'reddit', error);
       throw error;
     }
   }
@@ -356,6 +393,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Facebook for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'facebook', error);
       throw error;
     }
   }
@@ -388,6 +426,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Instagram for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'instagram', error);
       throw error;
     }
   }
@@ -415,6 +454,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Threads for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'threads', error);
       throw error;
     }
   }
@@ -445,6 +485,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to Telegram for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'telegram', error);
       throw error;
     }
   }
@@ -475,20 +516,23 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to WhatsApp for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'whatsapp', error);
       throw error;
     }
   }
 
-  async publishToTikTok(content, userId, videoUrl = null) {
+  async publishToTikTok(content, userId, videoUrl = null, options = {}) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'tiktok');
 
-      if (!videoUrl && !content.videoUrl) {
-        throw new Error('TikTok requires a video URL. Video generation must complete before publishing.');
+      if (!videoUrl && !content.videoUrl && !options.videoBuffer) {
+        throw new Error('TikTok requires a video URL or buffer. Video generation must complete before publishing.');
       }
 
       const mediaUrl = videoUrl || content.videoUrl;
-      const result = await publisher.publishPost(content.text, mediaUrl);
+      const result = await publisher.publishPost(content.text, mediaUrl, {
+        videoBuffer: options.videoBuffer
+      });
 
       if (result.success) {
         await this.savePostToDatabase(userId, 'tiktok', content, result, null);
@@ -507,6 +551,7 @@ class PublishingService {
 
     } catch (error) {
       logger.error(`Failed to publish to TikTok for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'tiktok', error);
       throw error;
     }
   }
@@ -664,7 +709,7 @@ export const publishToInstagram = (content, userId, imageUrl = null) => publishi
 export const publishToThreads = (content, userId, imageUrl = null) => publishingService.publishToThreads(content, userId, imageUrl);
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
-export const publishToTikTok = (content, userId, videoUrl = null) => publishingService.publishToTikTok(content, userId, videoUrl);
+export const publishToTikTok = (content, userId, videoUrl = null, options = {}) => publishingService.publishToTikTok(content, userId, videoUrl, options);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
   publishingService.publishToMultiplePlatforms(content, platforms, userId, options);
 

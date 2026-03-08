@@ -2052,9 +2052,28 @@ function showAgentTestResults(result, isSuccess) {
                     <div class="p-4 rounded-lg bg-gray-900/50 border border-gray-700">
                         <p class="text-sm text-gray-400 mb-2">Topic: <span class="text-white">${escapeHtml(result.post.topic)}</span></p>
                         <p class="text-sm text-gray-400 mb-2">Trend: <span class="text-white">${escapeHtml(result.post.trend)}</span></p>
+                        ${result.post.articleUrl ? `<p class="text-sm text-gray-400 mb-2">Source: <a href="${result.post.articleUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">${escapeHtml(result.post.trend)} ↗</a></p>` : ''}
                         <div class="mt-4 p-3 bg-black/50 rounded-lg">
                             <p class="text-white whitespace-pre-wrap">${escapeHtml(result.post.content)}</p>
                         </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (result.post?.videoUrl) {
+            html += `
+                <div class="mb-4 p-4 rounded-lg bg-gray-900/50 border border-gray-700">
+                    <h4 class="text-sm font-semibold text-gray-300 mb-2">Generated Video</h4>
+                    <div class="flex gap-3">
+                        <a href="${result.post.videoUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/50 rounded-lg text-blue-400 hover:bg-blue-500/30 transition-colors text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            View Video
+                        </a>
+                        <a href="${result.post.videoUrl}" download class="inline-flex items-center gap-2 px-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 transition-colors text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            Download
+                        </a>
                     </div>
                 </div>
             `;
