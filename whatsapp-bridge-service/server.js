@@ -61,7 +61,8 @@ const server = app.listen(config.port, () => {
 
 // Initialize WhatsApp connection (non-blocking)
 sessionManager.initialize().catch(err => {
-  logger.error('Failed to initialize WhatsApp session:', err.message);
+  logger.error(`Failed to initialize WhatsApp session: ${err.message || err}`);
+  if (err.stack) logger.error(`Stack: ${err.stack}`);
 });
 
 // ──────────────────────────────────────────
