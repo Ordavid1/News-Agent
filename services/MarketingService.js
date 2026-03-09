@@ -244,7 +244,8 @@ class MarketingService {
       name: campaignName,
       objective: 'OUTCOME_ENGAGEMENT',
       status: 'PAUSED',
-      special_ad_categories: []
+      special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false
     });
 
     logger.info(`Created campaign: ${fbCampaign.id}`);
@@ -475,16 +476,35 @@ class MarketingService {
 
     const sinceTimestamp = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
 
-    const posts = await this._fetchAllPages(
-      creds.pageAccessToken,
-      `/${creds.pageId}/published_posts`,
-      {
-        fields: 'id,message,created_time,permalink_url,full_picture,type',
-        since: sinceTimestamp,
-        limit: 100
-      },
-      300 // Safety limit: max 300 posts
-    );
+    // Use direct fetch to bypass _callMarketingApi wrapper — Page content endpoints
+    // in v24.0 trigger internal deprecation errors through the marketing API path.
+    // Fetch from /{pageId}/posts (page's own posts only).
+    const postsUrl = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/${creds.pageId}/posts`);
+    postsUrl.searchParams.set('access_token', creds.pageAccessToken);
+    postsUrl.searchParams.set('fields', 'id,message,created_time,permalink_url,full_picture');
+    postsUrl.searchParams.set('since', sinceTimestamp);
+    postsUrl.searchParams.set('limit', '100');
+
+    const allPosts = [];
+    let nextUrl = postsUrl.toString();
+
+    while (nextUrl && allPosts.length < 300) {
+      const response = await fetch(nextUrl);
+      const result = await response.json();
+
+      if (result.error) {
+        logger.error(`Page posts API error: ${result.error.message} (code: ${result.error.code})`);
+        throw new Error(`Meta API: ${result.error.message}`);
+      }
+
+      if (result.data) {
+        allPosts.push(...result.data);
+      }
+
+      nextUrl = result.paging?.next || null;
+    }
+
+    const posts = allPosts;
 
     // Normalize response to match the published_posts shape the frontend expects
     const normalized = posts.map(post => ({
@@ -495,7 +515,6 @@ class MarketingService {
       published_at: post.created_time,
       permalink_url: post.permalink_url,
       full_picture: post.full_picture || null,
-      type: post.type,
       engagement: {
         reactions: 0,
         comments: 0,
@@ -525,7 +544,8 @@ class MarketingService {
       name: campaignData.name,
       objective: campaignData.objective,
       status: 'PAUSED',
-      special_ad_categories: []
+      special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false
     });
 
     const dbCampaign = await createCampaign({
