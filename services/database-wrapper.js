@@ -123,9 +123,13 @@ export {
   createMediaAsset,
   deleteMediaAsset,
   countMediaAssets,
-  getMediaTrainingJob,
-  upsertMediaTrainingJob,
+  getMediaTrainingJobById,
+  getMediaTrainingJobs,
+  getActiveMediaTrainingJob,
+  createMediaTrainingJob,
+  updateMediaTrainingJob,
   getGeneratedMedia,
+  getGeneratedMediaByJobId,
   createGeneratedMedia,
   deleteGeneratedMedia
 } from './database.js';

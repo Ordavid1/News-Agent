@@ -2921,19 +2921,19 @@ export async function countMediaAssets(userId, adAccountId) {
 }
 
 /**
- * Get the training job for an ad account (one per account)
+ * Get a specific training job by ID (scoped to user for security)
  */
-export async function getMediaTrainingJob(userId, adAccountId) {
+export async function getMediaTrainingJobById(jobId, userId) {
   const { data, error } = await supabaseAdmin
     .from('media_training_jobs')
     .select('*')
+    .eq('id', jobId)
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
     .single();
 
   if (error) {
-    if (error.code === 'PGRST116') return null; // Not found
-    logger.error('Error getting media training job:', error);
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting media training job by ID:', error);
     throw error;
   }
 
@@ -2941,24 +2941,94 @@ export async function getMediaTrainingJob(userId, adAccountId) {
 }
 
 /**
- * Upsert a media training job (insert or update on ad_account_id conflict)
+ * Get all training jobs for an ad account, ordered newest first
  */
-export async function upsertMediaTrainingJob(userId, adAccountId, jobData) {
+export async function getMediaTrainingJobs(userId, adAccountId) {
   const { data, error } = await supabaseAdmin
     .from('media_training_jobs')
-    .upsert({
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting media training jobs:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get the active (status='training') job for an account, if any
+ */
+export async function getActiveMediaTrainingJob(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .eq('status', 'training')
+    .maybeSingle();
+
+  if (error) {
+    logger.error('Error getting active media training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a new training job (always INSERT, supports multiple per account)
+ */
+export async function createMediaTrainingJob(userId, adAccountId, jobData) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .insert({
       user_id: userId,
       ad_account_id: adAccountId,
-      ...jobData,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: 'ad_account_id'
+      name: jobData.name || 'Untitled',
+      status: jobData.status || 'pending',
+      replicate_training_id: jobData.replicate_training_id || null,
+      replicate_model_version: jobData.replicate_model_version || null,
+      replicate_model_name: jobData.replicate_model_name || null,
+      trigger_word: jobData.trigger_word || null,
+      training_image_urls: jobData.training_image_urls || null,
+      image_count: jobData.image_count || 0,
+      payment_status: jobData.payment_status || 'free',
+      error_message: jobData.error_message || null,
+      started_at: jobData.started_at || null,
+      completed_at: jobData.completed_at || null
     })
     .select()
     .single();
 
   if (error) {
-    logger.error('Error upserting media training job:', error);
+    logger.error('Error creating media training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update an existing training job by ID (scoped to user)
+ */
+export async function updateMediaTrainingJob(jobId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', jobId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating media training job:', error);
     throw error;
   }
 
@@ -2978,6 +3048,26 @@ export async function getGeneratedMedia(userId, adAccountId) {
 
   if (error) {
     logger.error('Error getting generated media:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get generated media filtered by a specific training job
+ */
+export async function getGeneratedMediaByJobId(userId, adAccountId, trainingJobId) {
+  const { data, error } = await supabaseAdmin
+    .from('generated_media')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .eq('training_job_id', trainingJobId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting generated media by job ID:', error);
     throw error;
   }
 
@@ -3154,9 +3244,13 @@ export default {
   createMediaAsset,
   deleteMediaAsset,
   countMediaAssets,
-  getMediaTrainingJob,
-  upsertMediaTrainingJob,
+  getMediaTrainingJobById,
+  getMediaTrainingJobs,
+  getActiveMediaTrainingJob,
+  createMediaTrainingJob,
+  updateMediaTrainingJob,
   getGeneratedMedia,
+  getGeneratedMediaByJobId,
   createGeneratedMedia,
   deleteGeneratedMedia
 };

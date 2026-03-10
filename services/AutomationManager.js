@@ -248,7 +248,14 @@ class AutomationManager {
         return { success: false, error: `connection_${status}` };
       }
     } catch (connError) {
-      // TokenDecryptionError or other connection failures
+      // TokenDecryptionError or other connection failures — mark connection as error
+      // since this is a publishing path (agent about to generate content + publish)
+      if (connError.connectionId) {
+        await TokenManager.markConnectionError(
+          connError.connectionId,
+          `Token decryption failed during automated posting. Please reconnect your account.`
+        );
+      }
       agentLog('error', `Connection check failed for ${platform}: ${connError.message} — auto-pausing agent`);
       await updateAgentInDb(agent.id, { status: 'paused' });
       return { success: false, error: 'connection_invalid' };

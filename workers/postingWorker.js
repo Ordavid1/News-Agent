@@ -7,7 +7,7 @@
 
 import { supabaseAdmin } from '../services/supabase.js';
 import publishingService from '../services/PublishingService.js';
-import TokenManager from '../services/TokenManager.js';
+import TokenManager, { TokenDecryptionError } from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import winston from 'winston';
 
@@ -142,6 +142,14 @@ async function processPostingJob(job) {
 
   } catch (error) {
     logger.error(`Posting job ${id} failed:`, error.message);
+
+    // Mark connection as error on definitive token decryption failures
+    if (error instanceof TokenDecryptionError && error.connectionId) {
+      await TokenManager.markConnectionError(
+        error.connectionId,
+        'Token decryption failed during scheduled posting. Please reconnect your account.'
+      );
+    }
 
     const newAttempts = attempts + 1;
 

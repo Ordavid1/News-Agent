@@ -196,6 +196,8 @@ export async function getTokens(userId, platform) {
   if (!data) return null;
 
   // Decrypt tokens - may throw TokenDecryptionError if decryption fails
+  // NOTE: getTokens() is a READ operation — it must NEVER call markConnectionError().
+  // Destructive error marking must only happen in explicit publishing/action paths.
   try {
     const decryptedAccessToken = decryptToken(data.access_token);
     const decryptedRefreshToken = decryptToken(data.refresh_token);
@@ -207,14 +209,10 @@ export async function getTokens(userId, platform) {
     };
   } catch (decryptError) {
     if (decryptError instanceof TokenDecryptionError) {
-      // Mark the connection as needing reconnection
-      logger.error(`Token decryption failed for ${platform} connection (user: ${userId}) - marking as error`);
-      await markConnectionError(
-        data.id,
-        'Token decryption failed - encryption key may have changed. Please reconnect your account.'
-      );
+      const callerStack = new Error().stack.split('\n').slice(2, 5).map(l => l.trim()).join(' <- ');
+      logger.error(`[TokenManager] Token decryption failed for ${platform} (user: ${userId}, conn: ${data.id}). Caller: ${callerStack}`);
 
-      // Re-throw with connection context
+      // Attach connection context to the error so callers can mark if appropriate
       decryptError.platform = platform;
       decryptError.connectionId = data.id;
     }
@@ -241,6 +239,8 @@ export async function getTokensByConnectionId(connectionId) {
   if (!data) return null;
 
   // Decrypt tokens - may throw TokenDecryptionError if decryption fails
+  // NOTE: getTokensByConnectionId() is a READ operation — it must NEVER call markConnectionError().
+  // Destructive error marking must only happen in explicit publishing/action paths.
   try {
     const decryptedAccessToken = decryptToken(data.access_token);
     const decryptedRefreshToken = decryptToken(data.refresh_token);
@@ -252,14 +252,10 @@ export async function getTokensByConnectionId(connectionId) {
     };
   } catch (decryptError) {
     if (decryptError instanceof TokenDecryptionError) {
-      // Mark the connection as needing reconnection
-      logger.error(`Token decryption failed for connection ${connectionId} - marking as error`);
-      await markConnectionError(
-        connectionId,
-        'Token decryption failed - encryption key may have changed. Please reconnect your account.'
-      );
+      const callerStack = new Error().stack.split('\n').slice(2, 5).map(l => l.trim()).join(' <- ');
+      logger.error(`[TokenManager] Token decryption failed for connection ${connectionId} (platform: ${data.platform}). Caller: ${callerStack}`);
 
-      // Re-throw with connection context
+      // Attach connection context to the error so callers can mark if appropriate
       decryptError.connectionId = connectionId;
       decryptError.platform = data.platform;
     }

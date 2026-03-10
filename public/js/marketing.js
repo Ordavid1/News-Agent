@@ -21,7 +21,9 @@ var brandVoicePollingTimer = null;
 
 // Media Assets state
 var mediaAssets = [];
-var mediaTrainingJob = null;
+var mediaTrainingJobs = [];          // All training sessions (history)
+var activeTrainingJob = null;         // Currently in-progress training (if any)
+var selectedTrainingJob = null;       // Which completed model to generate from
 var generatedMedia = [];
 var mediaTrainingPollingTimer = null;
 var latestGeneratedImageUrl = null;
@@ -3113,8 +3115,9 @@ async function loadMediaAssets() {
     const acctId = selectedAdAccount.id;
 
     // Load each section independently — one failure must not break the others
-    const [assetsResult, trainingResult, generatedResult] = await Promise.allSettled([
+    const [assetsResult, historyResult, activeResult, generatedResult] = await Promise.allSettled([
         apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
+        apiGet(`/api/marketing/media-assets/training/history?adAccountId=${acctId}`),
         apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`),
         apiGet(`/api/marketing/media-assets/generated?adAccountId=${acctId}`)
     ]);
@@ -3128,14 +3131,27 @@ async function loadMediaAssets() {
     }
     renderMediaAssetGrid();
 
-    // Training status
-    if (trainingResult.status === 'fulfilled') {
-        mediaTrainingJob = trainingResult.value.job || null;
+    // Training history (all sessions)
+    if (historyResult.status === 'fulfilled') {
+        mediaTrainingJobs = historyResult.value.jobs || [];
     } else {
-        console.error('[MediaAssets] Failed to load training status:', trainingResult.reason);
-        mediaTrainingJob = null;
+        console.error('[MediaAssets] Failed to load training history:', historyResult.reason);
+        mediaTrainingJobs = [];
     }
-    renderTrainingStatus();
+
+    // Active training (currently in-progress, if any)
+    if (activeResult.status === 'fulfilled') {
+        activeTrainingJob = activeResult.value.job || null;
+    } else {
+        console.error('[MediaAssets] Failed to load active training:', activeResult.reason);
+        activeTrainingJob = null;
+    }
+
+    // Auto-select the most recent completed training for generation
+    selectedTrainingJob = mediaTrainingJobs.find(j => j.status === 'completed') || null;
+
+    renderActiveTrainingStatus();
+    renderTrainingHistory();
     renderGenerationSection();
 
     // Generated images
@@ -3150,7 +3166,7 @@ async function loadMediaAssets() {
     initMediaDropZone();
 
     // If training is in progress, start polling
-    if (mediaTrainingJob && mediaTrainingJob.status === 'training') {
+    if (activeTrainingJob && activeTrainingJob.status === 'training') {
         startTrainingPolling();
     }
 }
@@ -3370,67 +3386,87 @@ function updateTrainButtonState() {
 
 /**
  * Start LoRA training for the selected ad account.
+ * Prompts user for a session name before starting.
  */
 async function startMediaTraining() {
     if (!selectedAdAccount) return;
 
-    if (mediaTrainingJob && mediaTrainingJob.status === 'completed') {
-        if (!confirm('This will re-train your model with the current images. The previous model will be replaced. Continue?')) {
-            return;
-        }
-    }
+    const name = prompt('Name this training session:', `Training ${new Date().toLocaleDateString()}`);
+    if (!name || !name.trim()) return; // User canceled or empty
 
     try {
         // Show training in progress immediately
         showTrainingState('progress');
 
         const data = await apiPost('/api/marketing/media-assets/training/start', {
-            adAccountId: selectedAdAccount.id
+            adAccountId: selectedAdAccount.id,
+            name: name.trim()
         });
 
-        mediaTrainingJob = data.job;
+        activeTrainingJob = data.job;
+        // Add to history at the top
+        mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
+        renderTrainingHistory();
+
         showToast('Training started! This takes about 5-10 minutes.', 'success');
         startTrainingPolling();
     } catch (error) {
         showToast(error.message, 'error');
-        // Revert UI if training hasn't started
-        renderTrainingStatus();
+        renderActiveTrainingStatus();
     }
 }
 
 /**
- * Poll for training status every 10 seconds.
+ * Poll for training status every 10 seconds using the active job's ID.
  */
 function startTrainingPolling() {
     if (mediaTrainingPollingTimer) clearInterval(mediaTrainingPollingTimer);
+    if (!activeTrainingJob) return;
 
     mediaTrainingPollingTimer = setInterval(async () => {
-        if (!selectedAdAccount) {
+        if (!selectedAdAccount || !activeTrainingJob) {
             clearInterval(mediaTrainingPollingTimer);
             return;
         }
 
         try {
-            const data = await apiGet(`/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}`);
-            mediaTrainingJob = data.job;
+            const data = await apiGet(
+                `/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}&jobId=${activeTrainingJob.id}`
+            );
+            const job = data.job;
 
-            // Update progress UI
-            if (mediaTrainingJob) {
-                if (mediaTrainingJob.progress) {
-                    const pct = Math.round(mediaTrainingJob.progress.percentage * 100);
+            if (job) {
+                activeTrainingJob = job;
+
+                // Update progress bar
+                if (job.progress) {
+                    const pct = Math.round(job.progress.percentage * 100);
                     const bar = document.getElementById('mediaTrainingBar');
                     const pctEl = document.getElementById('mediaTrainingPercentage');
                     const textEl = document.getElementById('mediaTrainingProgressText');
 
                     if (bar) bar.style.width = `${pct}%`;
                     if (pctEl) pctEl.textContent = `${pct}%`;
-                    if (textEl) textEl.textContent = `Step ${mediaTrainingJob.progress.current} of ${mediaTrainingJob.progress.total}`;
+                    if (textEl) textEl.textContent = `Step ${job.progress.current} of ${job.progress.total}`;
                 }
 
-                if (['completed', 'failed'].includes(mediaTrainingJob.status)) {
+                // Terminal state — stop polling, refresh
+                if (['completed', 'failed'].includes(job.status)) {
                     clearInterval(mediaTrainingPollingTimer);
                     mediaTrainingPollingTimer = null;
-                    renderTrainingStatus();
+
+                    // Update the job in the history array
+                    const idx = mediaTrainingJobs.findIndex(j => j.id === job.id);
+                    if (idx !== -1) mediaTrainingJobs[idx] = job;
+
+                    // If completed, auto-select for generation
+                    if (job.status === 'completed') {
+                        selectedTrainingJob = job;
+                    }
+
+                    activeTrainingJob = null;
+                    renderActiveTrainingStatus();
+                    renderTrainingHistory();
                     renderGenerationSection();
                 }
             }
@@ -3441,17 +3477,15 @@ function startTrainingPolling() {
 }
 
 /**
- * Show a specific training state in the UI.
+ * Show a specific training state in the UI (idle or progress).
+ * Completed/failed states now live in the training history section.
  */
 function showTrainingState(state) {
     const idle = document.getElementById('mediaTrainingIdle');
     const progress = document.getElementById('mediaTrainingProgress');
-    const complete = document.getElementById('mediaTrainingComplete');
-    const failed = document.getElementById('mediaTrainingFailed');
 
-    [idle, progress, complete, failed].forEach(el => {
-        if (el) el.classList.add('hidden');
-    });
+    if (idle) idle.classList.add('hidden');
+    if (progress) progress.classList.add('hidden');
 
     switch (state) {
         case 'idle':
@@ -3460,50 +3494,127 @@ function showTrainingState(state) {
         case 'progress':
             if (progress) progress.classList.remove('hidden');
             break;
-        case 'complete':
-            if (complete) complete.classList.remove('hidden');
-            break;
-        case 'failed':
-            if (failed) failed.classList.remove('hidden');
-            break;
     }
 }
 
 /**
- * Render the current training status.
+ * Render the active training status (idle or in-progress only).
  */
-function renderTrainingStatus() {
+function renderActiveTrainingStatus() {
     updateTrainButtonState();
 
-    if (!mediaTrainingJob) {
+    if (!activeTrainingJob || !['training', 'pending'].includes(activeTrainingJob.status)) {
         showTrainingState('idle');
         return;
     }
 
-    switch (mediaTrainingJob.status) {
-        case 'training':
-        case 'pending':
-            showTrainingState('progress');
-            break;
-        case 'completed': {
-            showTrainingState('complete');
-            const info = document.getElementById('mediaTrainingInfo');
-            if (info) {
-                const date = new Date(mediaTrainingJob.completed_at).toLocaleDateString();
-                info.textContent = `Trained on ${mediaTrainingJob.image_count} images — completed ${date}`;
-            }
-            break;
+    showTrainingState('progress');
+}
+
+/**
+ * Render the training history list — all past and current sessions.
+ */
+function renderTrainingHistory() {
+    const container = document.getElementById('mediaTrainingHistoryList');
+    if (!container) return;
+
+    if (!mediaTrainingJobs || mediaTrainingJobs.length === 0) {
+        container.innerHTML = '<p class="text-sm text-ink-400 text-center py-4">No training sessions yet. Train your first model above.</p>';
+        return;
+    }
+
+    container.innerHTML = mediaTrainingJobs.map(job => {
+        const date = job.completed_at
+            ? new Date(job.completed_at).toLocaleDateString()
+            : new Date(job.created_at).toLocaleDateString();
+
+        // Status badge
+        let badgeClass, badgeText;
+        switch (job.status) {
+            case 'completed':
+                badgeClass = 'bg-green-100 text-green-700';
+                badgeText = 'Completed';
+                break;
+            case 'training':
+            case 'pending':
+                badgeClass = 'bg-amber-100 text-amber-700';
+                badgeText = 'Training...';
+                break;
+            case 'failed':
+                badgeClass = 'bg-red-100 text-red-700';
+                badgeText = 'Failed';
+                break;
+            default:
+                badgeClass = 'bg-surface-100 text-ink-500';
+                badgeText = job.status;
         }
-        case 'failed': {
-            showTrainingState('failed');
-            const errEl = document.getElementById('mediaTrainingError');
-            if (errEl) {
-                errEl.textContent = mediaTrainingJob.error_message || 'Unknown error';
+
+        // Is this the selected model for generation?
+        const isSelected = selectedTrainingJob && selectedTrainingJob.id === job.id;
+
+        // Action button
+        let actionBtn = '';
+        if (job.status === 'completed') {
+            if (isSelected) {
+                actionBtn = `<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Selected
+                </span>`;
+            } else {
+                actionBtn = `<button onclick="selectTrainingForGeneration('${job.id}')" class="btn-outline btn-sm text-xs">Use for Generation</button>`;
             }
-            break;
+        } else if (job.status === 'failed') {
+            actionBtn = `<button onclick="startMediaTraining()" class="btn-outline btn-sm text-xs">Retry</button>`;
         }
-        default:
-            showTrainingState('idle');
+
+        const imageCount = job.image_count || (job.training_image_urls ? job.training_image_urls.length : '?');
+        const triggerWord = job.trigger_word ? `<span class="text-[10px] text-ink-400 font-mono">${escapeHtml(job.trigger_word)}</span>` : '';
+
+        return `
+            <div class="flex items-center gap-4 p-3 rounded-xl border ${isSelected ? 'border-brand-300 bg-brand-50/30' : 'border-surface-200 bg-surface-50'} transition-colors">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <p class="text-sm font-medium text-ink-800 truncate">${escapeHtml(job.name || 'Untitled')}</p>
+                        <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeClass}">${badgeText}</span>
+                    </div>
+                    <div class="flex items-center gap-3 mt-1">
+                        <span class="text-xs text-ink-400">${date}</span>
+                        <span class="text-xs text-ink-400">${imageCount} images</span>
+                        ${triggerWord}
+                    </div>
+                    ${job.status === 'failed' && job.error_message ? `<p class="text-xs text-red-500 mt-1 truncate" title="${escapeHtml(job.error_message)}">${escapeHtml(job.error_message)}</p>` : ''}
+                </div>
+                <div class="flex-shrink-0">
+                    ${actionBtn}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+/**
+ * Select a completed training session for image generation.
+ */
+function selectTrainingForGeneration(jobId) {
+    const job = mediaTrainingJobs.find(j => j.id === jobId);
+    if (!job || job.status !== 'completed') return;
+
+    selectedTrainingJob = job;
+    renderTrainingHistory();
+    renderGenerationSection();
+
+    // Reload generated images filtered to this training job
+    if (selectedAdAccount) {
+        apiGet(`/api/marketing/media-assets/generated?adAccountId=${selectedAdAccount.id}&trainingJobId=${jobId}`)
+            .then(data => {
+                generatedMedia = data.media || [];
+                renderGeneratedMedia();
+            })
+            .catch(err => {
+                console.error('[MediaAssets] Failed to load generated media for job:', err);
+            });
     }
 }
 
@@ -3512,26 +3623,29 @@ function renderTrainingStatus() {
 // ============================================
 
 /**
- * Show/hide generation section based on training status.
+ * Show/hide generation section based on whether a completed training is selected.
  */
 function renderGenerationSection() {
     const disabled = document.getElementById('mediaGenerateDisabled');
     const form = document.getElementById('mediaGenerateForm');
+    const selectedLabel = document.getElementById('mediaGenerateSelectedModel');
 
-    if (mediaTrainingJob && mediaTrainingJob.status === 'completed') {
+    if (selectedTrainingJob && selectedTrainingJob.status === 'completed') {
         if (disabled) disabled.classList.add('hidden');
         if (form) form.classList.remove('hidden');
+        if (selectedLabel) selectedLabel.textContent = `Generating from: ${selectedTrainingJob.name || 'Untitled'}`;
     } else {
         if (disabled) disabled.classList.remove('hidden');
         if (form) form.classList.add('hidden');
+        if (selectedLabel) selectedLabel.textContent = '';
     }
 }
 
 /**
- * Generate an image using the trained model.
+ * Generate an image using the selected trained model.
  */
 async function generateMediaImage() {
-    if (!selectedAdAccount) return;
+    if (!selectedAdAccount || !selectedTrainingJob) return;
 
     const promptInput = document.getElementById('mediaGeneratePrompt');
     const prompt = promptInput?.value?.trim();
@@ -3551,7 +3665,8 @@ async function generateMediaImage() {
     try {
         const data = await apiPost('/api/marketing/media-assets/generate', {
             adAccountId: selectedAdAccount.id,
-            prompt
+            prompt,
+            trainingJobId: selectedTrainingJob.id
         });
 
         const media = data.media;

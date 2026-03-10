@@ -1377,17 +1377,27 @@ router.delete('/media-assets/:id', async (req, res) => {
 /**
  * POST /api/marketing/media-assets/training/start
  * Start LoRA training on Replicate using uploaded images.
+ * Accepts { adAccountId, name } — name is the user-chosen session name.
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId } = req.body;
+    const { adAccountId, name } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
     }
 
-    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}`);
+    // Validate session name
+    const sessionName = (name || '').trim();
+    if (!sessionName) {
+      return res.status(400).json({ error: 'Training session name is required' });
+    }
+    if (sessionName.length > 100) {
+      return res.status(400).json({ error: 'Training session name must be 100 characters or less' });
+    }
 
-    const job = await mediaAssetService.startTraining(req.user.id, adAccountId);
+    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}"`);
+
+    const job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName);
 
     logger.info(`[MediaAssets] Training started: job=${job.id}, replicate_id=${job.replicate_training_id}`);
     res.json({ job });
@@ -1401,27 +1411,33 @@ router.post('/media-assets/training/start', async (req, res) => {
 
 /**
  * GET /api/marketing/media-assets/training/status
- * Get training job status for an ad account.
+ * Get training job status. Accepts optional jobId for specific job,
+ * otherwise returns the active (in-progress) job for the account.
  */
 router.get('/media-assets/training/status', async (req, res) => {
   try {
-    const { adAccountId } = req.query;
+    const { adAccountId, jobId } = req.query;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId query parameter is required' });
     }
 
-    // Get job from DB first (always works regardless of Replicate availability)
-    const existingJob = await mediaAssetService.getTrainingJob(req.user.id, adAccountId);
-    let job = existingJob;
+    let job = null;
+
+    if (jobId) {
+      // Specific job requested
+      job = await mediaAssetService.getTrainingJobById(jobId, req.user.id);
+    } else {
+      // Find the active training for this account (if any)
+      job = await mediaAssetService.getActiveTrainingJob(req.user.id, adAccountId);
+    }
 
     // If training is in progress, try to check Replicate for updates
     // but don't fail the entire request if Replicate is unavailable
-    if (existingJob && existingJob.status === 'training') {
+    if (job && job.status === 'training') {
       try {
-        job = await mediaAssetService.checkTrainingStatus(req.user.id, adAccountId);
+        job = await mediaAssetService.checkTrainingStatus(job.id, req.user.id);
       } catch (replicateErr) {
         logger.warn(`[MediaAssets] Replicate status check failed (returning cached job): ${replicateErr.message}`);
-        // Return the existing DB job — progress won't update but data is preserved
       }
     }
 
@@ -1433,25 +1449,48 @@ router.get('/media-assets/training/status', async (req, res) => {
 });
 
 /**
+ * GET /api/marketing/media-assets/training/history
+ * List all training jobs for an ad account (newest first).
+ */
+router.get('/media-assets/training/history', async (req, res) => {
+  try {
+    const { adAccountId } = req.query;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId query parameter is required' });
+    }
+
+    const jobs = await mediaAssetService.getTrainingJobs(req.user.id, adAccountId);
+    res.json({ jobs });
+  } catch (error) {
+    logger.error(`[MediaAssets] GET /training/history failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to get training history' });
+  }
+});
+
+/**
  * POST /api/marketing/media-assets/generate
- * Generate an image using the trained LoRA model.
+ * Generate an image using a specific trained LoRA model.
+ * Requires { adAccountId, prompt, trainingJobId }.
  */
 router.post('/media-assets/generate', async (req, res) => {
   try {
-    const { adAccountId, prompt } = req.body;
+    const { adAccountId, prompt, trainingJobId } = req.body;
     if (!adAccountId || !prompt) {
       return res.status(400).json({ error: 'adAccountId and prompt are required' });
     }
+    if (!trainingJobId) {
+      return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
+    }
 
-    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}`);
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}`);
 
-    const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt);
+    const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId);
 
     logger.info(`[MediaAssets] Image generated: ${media.id}`);
     res.json({ media });
   } catch (error) {
     logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);
-    const status = error.message.includes('No completed training') ? 400 : 500;
+    const status = error.message.includes('not completed') || error.message.includes('not found') ? 400 : 500;
     res.status(status).json({ error: error.message || 'Failed to generate image' });
   }
 });
@@ -1459,15 +1498,21 @@ router.post('/media-assets/generate', async (req, res) => {
 /**
  * GET /api/marketing/media-assets/generated
  * List generated images for an ad account.
+ * Accepts optional trainingJobId to filter by training session.
  */
 router.get('/media-assets/generated', async (req, res) => {
   try {
-    const { adAccountId } = req.query;
+    const { adAccountId, trainingJobId } = req.query;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId query parameter is required' });
     }
 
-    const media = await mediaAssetService.getGeneratedImages(req.user.id, adAccountId);
+    let media;
+    if (trainingJobId) {
+      media = await mediaAssetService.getGeneratedImagesByJob(req.user.id, adAccountId, trainingJobId);
+    } else {
+      media = await mediaAssetService.getGeneratedImages(req.user.id, adAccountId);
+    }
     res.json({ media });
   } catch (error) {
     logger.error(`[MediaAssets] GET /generated failed: ${error.message}`);

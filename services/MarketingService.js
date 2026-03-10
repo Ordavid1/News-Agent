@@ -101,6 +101,12 @@ class MarketingService {
       };
     } catch (error) {
       if (error instanceof TokenDecryptionError) {
+        if (error.connectionId) {
+          await TokenManager.markConnectionError(
+            error.connectionId,
+            'Token decryption failed during marketing operations. Please reconnect your account.'
+          );
+        }
         throw new Error('Facebook connection credentials are invalid. Please disconnect and reconnect your Facebook account.');
       }
       throw error;

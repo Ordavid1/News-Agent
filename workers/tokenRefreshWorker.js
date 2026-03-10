@@ -5,7 +5,7 @@
  * Runs periodically to refresh OAuth tokens before they expire.
  */
 
-import TokenManager from '../services/TokenManager.js';
+import TokenManager, { TokenDecryptionError } from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import { supabaseAdmin } from '../services/supabase.js';
 import winston from 'winston';
@@ -87,6 +87,25 @@ async function processRefreshJob(job) {
 
   } catch (error) {
     logger.error(`Token refresh failed for job ${id}:`, error.message);
+
+    // Mark connection as error on definitive token decryption failures
+    if (error instanceof TokenDecryptionError && error.connectionId) {
+      await TokenManager.markConnectionError(
+        error.connectionId,
+        'Token decryption failed during token refresh. Please reconnect your account.'
+      );
+      // Don't retry — decryption failures are deterministic
+      await supabaseAdmin
+        .from('token_refresh_queue')
+        .update({
+          status: 'failed',
+          attempts: WORKER_CONFIG.maxRetries,
+          last_error: error.message,
+          processed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      return { success: false, connectionId: job.connection_id, error: error.message };
+    }
 
     const newAttempts = attempts + 1;
 

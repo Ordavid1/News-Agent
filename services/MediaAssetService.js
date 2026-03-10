@@ -21,9 +21,13 @@ import {
   createMediaAsset,
   deleteMediaAsset as dbDeleteMediaAsset,
   countMediaAssets,
-  getMediaTrainingJob,
-  upsertMediaTrainingJob,
+  getMediaTrainingJobById,
+  getMediaTrainingJobs,
+  getActiveMediaTrainingJob,
+  createMediaTrainingJob,
+  updateMediaTrainingJob,
   getGeneratedMedia,
+  getGeneratedMediaByJobId,
   createGeneratedMedia,
   deleteGeneratedMedia as dbDeleteGeneratedMedia
 } from './database-wrapper.js';
@@ -209,9 +213,10 @@ class MediaAssetService {
    *
    * @param {string} userId
    * @param {string} adAccountId
+   * @param {string} name - User-provided session name
    * @returns {object} Training job record
    */
-  async startTraining(userId, adAccountId) {
+  async startTraining(userId, adAccountId, name) {
     if (!this.replicate) {
       throw new Error('Replicate not configured. Set REPLICATE_API_TOKEN environment variable.');
     }
@@ -225,13 +230,13 @@ class MediaAssetService {
       throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required for training. Currently have ${assetCount}.`);
     }
 
-    // Check for existing active training
-    const existingJob = await getMediaTrainingJob(userId, adAccountId);
-    if (existingJob && existingJob.status === 'training') {
-      throw new Error('A training is already in progress for this account.');
+    // Concurrency guard: only one active training per account at a time
+    const activeJob = await getActiveMediaTrainingJob(userId, adAccountId);
+    if (activeJob) {
+      throw new Error('A training is already in progress for this account. Please wait for it to complete.');
     }
 
-    // Gather all image URLs
+    // Gather all image URLs (shared pool, snapshot for audit trail)
     const assets = await getUserMediaAssets(userId, adAccountId);
     const imageUrls = assets.map(a => a.public_url);
 
@@ -249,6 +254,7 @@ class MediaAssetService {
 
     // Create or ensure destination model exists
     const modelName = `media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
+    const replicateModelName = `${this.replicateOwner}/${modelName}`;
     await this._ensureDestinationModel(modelName);
 
     // Get latest trainer version
@@ -263,7 +269,7 @@ class MediaAssetService {
       TRAINER_NAME,
       trainerVersion,
       {
-        destination: `${this.replicateOwner}/${modelName}`,
+        destination: replicateModelName,
         input: {
           input_images: inputImagesUrl,
           trigger_word: triggerWord,
@@ -281,12 +287,17 @@ class MediaAssetService {
 
     logger.info(`Training started: ${training.id} (status: ${training.status})`);
 
-    // Save training job to DB
-    const job = await upsertMediaTrainingJob(userId, adAccountId, {
+    // Save training job to DB (INSERT, not upsert — supports multiple sessions)
+    const job = await createMediaTrainingJob(userId, adAccountId, {
+      name: name || 'Untitled',
       status: 'training',
       replicate_training_id: training.id,
       replicate_model_version: null,
+      replicate_model_name: replicateModelName,
+      trigger_word: triggerWord,
+      training_image_urls: imageUrls,
       image_count: assetCount,
+      payment_status: 'free', // Payment gate hook — set to 'paid' when payment UI is implemented
       error_message: null,
       started_at: new Date().toISOString(),
       completed_at: null
@@ -295,23 +306,23 @@ class MediaAssetService {
     return {
       ...job,
       trigger_word: triggerWord,
-      replicate_model: `${this.replicateOwner}/${modelName}`
+      replicate_model: replicateModelName
     };
   }
 
   /**
    * Check and update training status from Replicate.
    *
+   * @param {string} jobId - Training job ID
    * @param {string} userId
-   * @param {string} adAccountId
    * @returns {object} Updated training job
    */
-  async checkTrainingStatus(userId, adAccountId) {
+  async checkTrainingStatus(jobId, userId) {
     if (!this.replicate) {
       throw new Error('Replicate not configured.');
     }
 
-    const job = await getMediaTrainingJob(userId, adAccountId);
+    const job = await getMediaTrainingJobById(jobId, userId);
     if (!job) return null;
 
     // If already in terminal state, just return
@@ -334,7 +345,7 @@ class MediaAssetService {
 
     // Map Replicate status to our status
     let newStatus = job.status;
-    const updates = { updated_at: new Date().toISOString() };
+    const updates = {};
 
     if (training.status === 'succeeded') {
       newStatus = 'completed';
@@ -350,7 +361,7 @@ class MediaAssetService {
     // 'starting' and 'processing' both map to 'training'
 
     updates.status = newStatus;
-    const updatedJob = await upsertMediaTrainingJob(userId, adAccountId, updates);
+    const updatedJob = await updateMediaTrainingJob(jobId, userId, updates);
 
     return {
       ...updatedJob,
@@ -359,10 +370,24 @@ class MediaAssetService {
   }
 
   /**
-   * Get training job for an ad account.
+   * Get all training jobs for an ad account.
    */
-  async getTrainingJob(userId, adAccountId) {
-    return getMediaTrainingJob(userId, adAccountId);
+  async getTrainingJobs(userId, adAccountId) {
+    return getMediaTrainingJobs(userId, adAccountId);
+  }
+
+  /**
+   * Get a specific training job by ID.
+   */
+  async getTrainingJobById(jobId, userId) {
+    return getMediaTrainingJobById(jobId, userId);
+  }
+
+  /**
+   * Get the currently active training job for an account (if any).
+   */
+  async getActiveTrainingJob(userId, adAccountId) {
+    return getActiveMediaTrainingJob(userId, adAccountId);
   }
 
   // ============================================
@@ -370,34 +395,35 @@ class MediaAssetService {
   // ============================================
 
   /**
-   * Generate an image using the trained LoRA model.
+   * Generate an image using a specific trained LoRA model.
    *
    * @param {string} userId
    * @param {string} adAccountId
    * @param {string} prompt
+   * @param {string} trainingJobId - Which training session to generate from
    * @returns {object} Generated media record
    */
-  async generateImage(userId, adAccountId, prompt) {
+  async generateImage(userId, adAccountId, prompt, trainingJobId) {
     if (!this.replicate) {
       throw new Error('Replicate not configured.');
     }
 
-    // Get the completed training job
-    const job = await getMediaTrainingJob(userId, adAccountId);
+    // Get the specific training job
+    const job = await getMediaTrainingJobById(trainingJobId, userId);
     if (!job || job.status !== 'completed') {
-      throw new Error('No completed training found. Train a model first.');
+      throw new Error('Selected training session is not completed or not found.');
     }
 
     if (!job.replicate_model_version) {
       throw new Error('Training completed but no model version was recorded.');
     }
 
-    // Build the model reference
-    // replicate_model_version may be a full ref (owner/model:hash) or just a hash
-    const modelName = `media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
+    // Build the model reference — use stored model name if available
+    const modelName = job.replicate_model_name
+      || `${this.replicateOwner}/media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
     const modelRef = job.replicate_model_version.includes('/')
       ? job.replicate_model_version
-      : `${this.replicateOwner}/${modelName}:${job.replicate_model_version}`;
+      : `${modelName}:${job.replicate_model_version}`;
 
     logger.info(`Generating image with model ${modelRef}, prompt: "${prompt.slice(0, 80)}..."`);
 
@@ -467,10 +493,17 @@ class MediaAssetService {
   }
 
   /**
-   * Get generated images for an ad account.
+   * Get generated images for an ad account (all training sessions).
    */
   async getGeneratedImages(userId, adAccountId) {
     return getGeneratedMedia(userId, adAccountId);
+  }
+
+  /**
+   * Get generated images filtered to a specific training session.
+   */
+  async getGeneratedImagesByJob(userId, adAccountId, trainingJobId) {
+    return getGeneratedMediaByJobId(userId, adAccountId, trainingJobId);
   }
 
   /**

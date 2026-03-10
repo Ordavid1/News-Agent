@@ -92,9 +92,15 @@ class PublishingService {
       throw new Error(`No ${platform} connection. Please connect your ${platform} account in Settings.`);
 
     } catch (error) {
-      // Handle token decryption errors with a clear user message
+      // Handle token decryption errors — this is a PUBLISHING path so we mark the connection as error
       if (error instanceof TokenDecryptionError) {
         logger.error(`Token decryption failed for ${platform} (user: ${userId}): ${error.message}`);
+        if (error.connectionId) {
+          await TokenManager.markConnectionError(
+            error.connectionId,
+            'Token decryption failed - encryption key may have changed. Please reconnect your account.'
+          );
+        }
         throw new Error(`Your ${platform} connection credentials are invalid. Please disconnect and reconnect your ${platform} account in Settings.`);
       }
 
