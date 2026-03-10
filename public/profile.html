@@ -685,6 +685,14 @@
                                 Auto-Boost Rules
                             </span>
                         </button>
+                        <button onclick="showMarketingTab('brandvoice')" id="mkt-tab-brandvoice" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                            <span class="flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                                </svg>
+                                Brand Voice
+                            </span>
+                        </button>
                     </div>
                 </div>
 
@@ -927,6 +935,156 @@
                         <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Auto-Boost Rules</h4>
                         <p class="text-ink-400 text-sm mb-4">Create rules to automatically boost your best-performing posts.</p>
                         <button onclick="openRuleModal()" class="btn-primary">Create Rule</button>
+                    </div>
+                </div>
+
+                <!-- Brand Voice -->
+                <div id="mkt-content-brandvoice" class="mkt-tab-content hidden">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Brand Voice</h3>
+                            <p class="text-ink-500 text-sm">Learn from your past posts and generate original content that matches your brand's unique voice</p>
+                        </div>
+                        <button onclick="openCreateProfileModal()" class="btn-primary btn-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                            New Profile
+                        </button>
+                    </div>
+
+                    <!-- Profiles List -->
+                    <div id="brandVoiceProfilesList" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div id="brandVoiceLoading" class="col-span-full text-center py-8">
+                            <div class="loader mx-auto mb-3"></div>
+                            <p class="text-ink-400 text-sm">Loading profiles...</p>
+                        </div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="brandVoiceEmpty" class="hidden text-center py-12">
+                        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-brand-50">
+                            <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                            </svg>
+                        </div>
+                        <h4 class="text-lg font-semibold mb-2 text-ink-700" style="font-family: 'Satoshi', sans-serif;">No Brand Voice Profiles</h4>
+                        <p class="text-ink-400 text-sm mb-4">Create a profile to analyze your past posts and generate content that matches your brand's voice.</p>
+                        <button onclick="openCreateProfileModal()" class="btn-primary">Create Profile</button>
+                    </div>
+
+                    <!-- Profile Detail View (hidden by default) -->
+                    <div id="brandVoiceDetail" class="hidden">
+                        <button onclick="closeBrandVoiceDetail()" class="text-sm text-brand-600 hover:underline mb-4 flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                            </svg>
+                            Back to profiles
+                        </button>
+
+                        <div class="card-gradient p-6 mb-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h4 id="bvDetailName" class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;"></h4>
+                                    <p id="bvDetailMeta" class="text-sm text-ink-400"></p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="refreshCurrentProfile()" class="btn-outline btn-sm flex items-center gap-1" title="Re-analyze posts">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                        </svg>
+                                        Refresh
+                                    </button>
+                                    <button onclick="deleteCurrentProfile()" class="btn-outline btn-sm text-red-600 border-red-200 hover:bg-red-50">Delete</button>
+                                </div>
+                            </div>
+
+                            <!-- Voice Profile Summary -->
+                            <div id="bvProfileSummary" class="space-y-4"></div>
+                        </div>
+
+                        <!-- Generate Content Section — Redesigned -->
+                        <div class="card-gradient p-6">
+                            <div class="flex items-center justify-between mb-5">
+                                <div>
+                                    <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Generate Original Content</h4>
+                                    <p class="text-sm text-ink-400 mt-0.5">Create posts that match your brand voice</p>
+                                </div>
+                                <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-ink-600 mb-1">What should the post be about?</label>
+                                <input type="text" id="bvGenerateTopic" class="input-field" placeholder="Leave blank for auto-selected theme from your brand">
+                            </div>
+
+                            <button onclick="generateBrandVoiceContent()" id="bvGenerateBtn" class="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                Generate Post
+                            </button>
+
+                            <!-- Generated Content Output — Styled Preview -->
+                            <div id="bvGeneratedContent" class="hidden mt-6">
+                                <div class="border border-surface-200 rounded-xl overflow-hidden">
+                                    <div class="bg-surface-50 px-4 py-3 border-b border-surface-200 flex items-center justify-between">
+                                        <span class="text-sm font-medium text-ink-600">Generated Post</span>
+                                        <div class="flex items-center gap-2">
+                                            <button onclick="copyGeneratedContent()" class="btn-outline btn-sm flex items-center gap-1 text-xs">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                                                </svg>
+                                                Copy
+                                            </button>
+                                            <button onclick="generateBrandVoiceContent()" class="btn-outline btn-sm flex items-center gap-1 text-xs">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                                </svg>
+                                                Regenerate
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="p-5">
+                                        <div id="bvGeneratedText" class="text-sm text-ink-700 whitespace-pre-wrap leading-relaxed"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Platform Buttons -->
+                                <div class="mt-4">
+                                    <p class="text-xs text-ink-400 mb-3">Share this post on:</p>
+                                    <div id="bvPlatformButtons" class="flex flex-wrap gap-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                    <!-- Generated Posts History -->
+                    <div class="card-gradient p-6 mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Generated Posts History</h4>
+                                <p class="text-sm text-ink-400 mt-0.5">Your previously generated posts</p>
+                            </div>
+                            <div class="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                        </div>
+                        <div id="bvHistoryLoading" class="hidden text-center py-6">
+                            <div class="loader mx-auto" style="width:24px;height:24px;"></div>
+                            <p class="text-sm text-ink-400 mt-2">Loading history...</p>
+                        </div>
+                        <div id="bvHistoryEmpty" class="hidden text-center py-6">
+                            <p class="text-sm text-ink-400">No posts generated yet. Create your first post above!</p>
+                        </div>
+                        <div id="bvHistoryList" class="space-y-3"></div>
                     </div>
                 </div>
 
@@ -1604,6 +1762,35 @@
             document.fonts.ready.then(checkScrollState);
         })();
     </script>
+    <!-- Create Brand Voice Profile Modal -->
+    <div id="createBvProfileModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Create Brand Voice Profile</h3>
+                <button onclick="closeCreateBvProfileModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-ink-600 mb-1">Profile Name</label>
+                <input type="text" id="bvProfileNameInput" class="input-field" placeholder="e.g., My Brand Voice">
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-ink-600 mb-2">Learn from these platforms</label>
+                <p class="text-xs text-ink-400 mb-3">Select which platforms to analyze. Leave all unchecked to learn from all available sources.</p>
+                <div id="bvPlatformCheckboxes" class="grid grid-cols-2 gap-2"></div>
+            </div>
+
+            <button onclick="submitCreateBvProfile()" id="submitCreateBvProfileBtn" class="btn-primary w-full py-3">
+                Create & Start Analysis
+            </button>
+        </div>
+    </div>
+
     <script src="/js/themeManager.js"></script>
 </body>
 </html>

@@ -2474,6 +2474,283 @@ export async function getBoostablePublishedPosts(userId, limit = 50) {
   return data || [];
 }
 
+// ============================================
+// BRAND VOICE FUNCTIONS
+// ============================================
+
+/**
+ * Get all brand voice profiles for a user
+ */
+export async function getUserBrandVoiceProfiles(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting brand voice profiles:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get a single brand voice profile by ID
+ */
+export async function getBrandVoiceProfileById(profileId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .select('*')
+    .eq('id', profileId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting brand voice profile:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a new brand voice profile
+ */
+export async function createBrandVoiceProfile(userId, name) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .insert({
+      user_id: userId,
+      name,
+      status: 'pending'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating brand voice profile:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update a brand voice profile
+ */
+export async function updateBrandVoiceProfile(profileId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', profileId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating brand voice profile:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a brand voice profile (cascade deletes associated posts)
+ */
+export async function deleteBrandVoiceProfile(profileId, userId) {
+  const { error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .delete()
+    .eq('id', profileId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting brand voice profile:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count user's brand voice profiles
+ */
+export async function countUserBrandVoiceProfiles(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('brand_voice_profiles')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error counting brand voice profiles:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+/**
+ * Insert collected posts for brand voice analysis.
+ * Always called after deleteBrandVoicePosts() clears old data, so plain insert is used.
+ * Inserts in batches of 100 to stay within payload size limits.
+ */
+export async function insertBrandVoicePosts(posts) {
+  if (!posts.length) return [];
+
+  const allInserted = [];
+  const BATCH_SIZE = 100;
+
+  for (let i = 0; i < posts.length; i += BATCH_SIZE) {
+    const batch = posts.slice(i, i + BATCH_SIZE);
+    const { data, error } = await supabaseAdmin
+      .from('brand_voice_posts')
+      .insert(batch)
+      .select();
+
+    if (error) {
+      logger.error(`Error inserting brand voice posts batch ${i / BATCH_SIZE + 1}:`, error);
+      throw error;
+    }
+    if (data) allInserted.push(...data);
+  }
+
+  return allInserted;
+}
+
+/**
+ * Get collected posts for a brand voice profile
+ */
+export async function getBrandVoicePosts(profileId, userId, { limit = 500, platform } = {}) {
+  let query = supabaseAdmin
+    .from('brand_voice_posts')
+    .select('*')
+    .eq('profile_id', profileId)
+    .eq('user_id', userId)
+    .order('posted_at', { ascending: false })
+    .limit(limit);
+
+  if (platform) {
+    query = query.eq('platform', platform);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error('Error getting brand voice posts:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Delete all posts for a brand voice profile (used before re-collecting)
+ */
+export async function deleteBrandVoicePosts(profileId, userId) {
+  const { error } = await supabaseAdmin
+    .from('brand_voice_posts')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting brand voice posts:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Insert a generated brand voice post into history
+ */
+export async function insertBrandVoiceGeneratedPost(userId, profileId, { platform, topic, content }) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_generated_posts')
+    .insert({
+      user_id: userId,
+      profile_id: profileId,
+      platform: platform || null,
+      topic: topic || null,
+      content
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error inserting brand voice generated post:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get generated posts history for a brand voice profile
+ */
+export async function getBrandVoiceGeneratedPosts(profileId, userId, { limit = 50 } = {}) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_generated_posts')
+    .select('*')
+    .eq('profile_id', profileId)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    logger.error('Error getting brand voice generated posts:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Delete a single generated brand voice post
+ */
+export async function deleteBrandVoiceGeneratedPost(postId, userId) {
+  const { error } = await supabaseAdmin
+    .from('brand_voice_generated_posts')
+    .delete()
+    .eq('id', postId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting brand voice generated post:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Get all published posts for a user across all platforms (for brand voice collection)
+ */
+export async function getAllPublishedPosts(userId, { days = 180, limit = 500 } = {}) {
+  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('published_posts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('success', true)
+    .not('content', 'is', null)
+    .gte('published_at', sinceDate)
+    .order('published_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    logger.error('Error getting all published posts:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -2567,5 +2844,19 @@ export default {
   getMarketingMetricsHistory,
   getMarketingOverview,
   createPublishedPost,
-  getBoostablePublishedPosts
+  getBoostablePublishedPosts,
+  // Brand voice functions
+  getUserBrandVoiceProfiles,
+  getBrandVoiceProfileById,
+  createBrandVoiceProfile,
+  updateBrandVoiceProfile,
+  deleteBrandVoiceProfile,
+  countUserBrandVoiceProfiles,
+  insertBrandVoicePosts,
+  getBrandVoicePosts,
+  deleteBrandVoicePosts,
+  insertBrandVoiceGeneratedPost,
+  getBrandVoiceGeneratedPosts,
+  deleteBrandVoiceGeneratedPost,
+  getAllPublishedPosts
 };

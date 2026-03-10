@@ -530,6 +530,93 @@ class MarketingService {
     return normalized;
   }
 
+  /**
+   * Fetch Instagram media posts for a user's connected IG business account.
+   * Uses the Instagram Graph API via the linked Facebook Page token.
+   *
+   * @param {string} userId - User ID
+   * @param {number} days - How many days of history to fetch (default 90)
+   * @returns {Array} Normalized post objects
+   */
+  async fetchInstagramPosts(userId, days = 90) {
+    const cacheKey = `ig:${userId}:${days}`;
+    const cached = this._pagePostsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PAGE_POSTS_CACHE_TTL) {
+      logger.debug(`Returning cached Instagram posts for user ${userId}`);
+      return cached.data;
+    }
+
+    // Instagram uses the Facebook page access token + the IG user ID stored in metadata
+    const connection = await TokenManager.getTokens(userId, 'instagram');
+
+    if (!connection || connection.status !== 'active') {
+      logger.info(`No active Instagram connection for user ${userId}, skipping IG post fetch`);
+      return [];
+    }
+
+    const igUserId = connection.platform_user_id || connection.platform_metadata?.igUserId;
+    if (!igUserId) {
+      logger.warn(`Instagram connection for user ${userId} has no igUserId`);
+      return [];
+    }
+
+    // Instagram Business accounts use the Facebook page access token for API calls
+    const accessToken = connection.access_token;
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const postsUrl = new URL(`${GRAPH_API_BASE}/${igUserId}/media`);
+    postsUrl.searchParams.set('access_token', accessToken);
+    postsUrl.searchParams.set('fields', 'id,caption,media_type,timestamp,permalink,like_count,comments_count');
+    postsUrl.searchParams.set('limit', '100');
+
+    const allPosts = [];
+    let nextUrl = postsUrl.toString();
+
+    while (nextUrl && allPosts.length < 300) {
+      const response = await fetch(nextUrl);
+      const result = await response.json();
+
+      if (result.error) {
+        logger.error(`Instagram media API error: ${result.error.message} (code: ${result.error.code})`);
+        throw new Error(`Instagram API: ${result.error.message}`);
+      }
+
+      if (result.data) {
+        // Filter by date client-side since IG media endpoint doesn't support `since`
+        const filtered = result.data.filter(post => new Date(post.timestamp) >= sinceDate);
+        allPosts.push(...filtered);
+
+        // If we're getting posts older than our cutoff, stop paginating
+        const oldestInBatch = result.data[result.data.length - 1];
+        if (oldestInBatch && new Date(oldestInBatch.timestamp) < sinceDate) {
+          break;
+        }
+      }
+
+      nextUrl = result.paging?.next || null;
+    }
+
+    const normalized = allPosts.map(post => ({
+      id: post.id,
+      platform_post_id: post.id,
+      platform: 'instagram',
+      content: post.caption || '',
+      published_at: post.timestamp,
+      permalink_url: post.permalink,
+      media_type: (post.media_type || 'IMAGE').toLowerCase(),
+      engagement: {
+        likes: post.like_count || 0,
+        comments: post.comments_count || 0
+      },
+      source: 'meta'
+    }));
+
+    this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
+
+    logger.info(`Fetched ${normalized.length} Instagram posts for user ${userId} (last ${days} days)`);
+    return normalized;
+  }
+
   // ============================================
   // CAMPAIGN MANAGEMENT
   // ============================================

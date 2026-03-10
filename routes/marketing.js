@@ -15,6 +15,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
 import { requireMarketingAddon } from '../middleware/subscription.js';
 import marketingService from '../services/MarketingService.js';
+import brandVoiceService from '../services/BrandVoiceService.js';
 import {
   getUserAdAccounts,
   getSelectedAdAccount,
@@ -48,7 +49,17 @@ import {
   countUserMarketingRules,
   getRuleTriggerHistory,
   getBoostablePublishedPosts,
-  getUserAds
+  getUserAds,
+  getUserBrandVoiceProfiles,
+  getBrandVoiceProfileById,
+  createBrandVoiceProfile,
+  updateBrandVoiceProfile,
+  deleteBrandVoiceProfile,
+  countUserBrandVoiceProfiles,
+  getBrandVoicePosts,
+  insertBrandVoiceGeneratedPost,
+  getBrandVoiceGeneratedPosts,
+  deleteBrandVoiceGeneratedPost
 } from '../services/database-wrapper.js';
 import winston from 'winston';
 
@@ -911,6 +922,313 @@ router.post('/sync-metrics', async (req, res) => {
   } catch (error) {
     logger.error('Error syncing metrics:', error);
     res.status(500).json({ error: error.message || 'Failed to sync metrics' });
+  }
+});
+
+// ============================================
+// BRAND VOICE
+// ============================================
+
+/**
+ * GET /api/marketing/brand-voice/profiles
+ * List user's brand voice profiles
+ */
+router.get('/brand-voice/profiles', async (req, res) => {
+  try {
+    logger.info(`[BrandVoice] GET /profiles - user=${req.user.id}`);
+    const profiles = await getUserBrandVoiceProfiles(req.user.id);
+    logger.info(`[BrandVoice] GET /profiles - returning ${profiles.length} profiles`);
+    res.json({ profiles });
+  } catch (error) {
+    logger.error(`[BrandVoice] GET /profiles failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to list profiles' });
+  }
+});
+
+/**
+ * GET /api/marketing/brand-voice/profiles/:id
+ * Get a single brand voice profile with its analyzed data
+ */
+router.get('/brand-voice/profiles/:id', async (req, res) => {
+  try {
+    const profile = await getBrandVoiceProfileById(req.params.id, req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+    res.json({ profile });
+  } catch (error) {
+    logger.error(`[BrandVoice] GET /profiles/${req.params.id} failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to get profile' });
+  }
+});
+
+/**
+ * POST /api/marketing/brand-voice/profiles
+ * Create a new brand voice profile and start the learning pipeline
+ */
+router.post('/brand-voice/profiles', async (req, res) => {
+  try {
+    const { name, days, platforms } = req.body;
+    logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({ error: 'Profile name is required' });
+    }
+
+    // Validate platforms array if provided
+    const validPlatforms = ['twitter', 'linkedin', 'facebook', 'instagram', 'reddit', 'telegram', 'threads', 'whatsapp', 'tiktok'];
+    let selectedPlatforms = null;
+    if (platforms && Array.isArray(platforms) && platforms.length > 0) {
+      selectedPlatforms = platforms.filter(p => validPlatforms.includes(p));
+      if (selectedPlatforms.length === 0) {
+        return res.status(400).json({ error: 'At least one valid platform must be selected' });
+      }
+    }
+
+    // Check limits
+    const currentCount = await countUserBrandVoiceProfiles(req.user.id);
+    const limits = req.marketingLimits;
+    const maxProfiles = limits.maxBrandVoiceProfiles || 2;
+    if (maxProfiles !== -1 && currentCount >= maxProfiles) {
+      return res.status(403).json({
+        error: `Brand voice profile limit reached (${maxProfiles}). Upgrade your marketing plan for more.`,
+        currentCount,
+        limit: maxProfiles
+      });
+    }
+
+    // Create profile record
+    const profile = await createBrandVoiceProfile(req.user.id, name.trim());
+
+    // Store selected platforms if specified
+    if (selectedPlatforms) {
+      await updateBrandVoiceProfile(profile.id, req.user.id, { selected_platforms: selectedPlatforms });
+    }
+
+    // Start the learning pipeline asynchronously with platform filter
+    // The client will poll for status updates
+    brandVoiceService.buildProfile(req.user.id, profile.id, days || 180, selectedPlatforms)
+      .catch(err => {
+        logger.error(`[BrandVoice] Background profile build failed for ${profile.id}: ${err.message}`);
+      });
+
+    logger.info(`[BrandVoice] Profile created: id=${profile.id}, pipeline started`);
+
+    res.status(201).json({
+      profile: { ...profile, selected_platforms: selectedPlatforms },
+      message: 'Profile created. Post collection and analysis started — poll the profile endpoint for status updates.'
+    });
+  } catch (error) {
+    logger.error(`[BrandVoice] POST /profiles failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to create profile' });
+  }
+});
+
+/**
+ * PATCH /api/marketing/brand-voice/profiles/:id
+ * Update profile name or manually adjust voice data
+ */
+router.patch('/brand-voice/profiles/:id', async (req, res) => {
+  try {
+    logger.info(`[BrandVoice] PATCH /profiles/${req.params.id} - user=${req.user.id}, fields=${Object.keys(req.body).join(', ')}`);
+    const profile = await getBrandVoiceProfileById(req.params.id, req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const allowedFields = ['name', 'profile_data'];
+    const updates = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const updated = await updateBrandVoiceProfile(req.params.id, req.user.id, updates);
+    logger.info(`[BrandVoice] PATCH /profiles/${req.params.id} - updated fields: ${Object.keys(updates).join(', ')}`);
+    res.json({ profile: updated });
+  } catch (error) {
+    logger.error(`[BrandVoice] PATCH /profiles/${req.params.id} failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to update profile' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/brand-voice/profiles/:id
+ * Delete a brand voice profile and all its collected posts
+ */
+router.delete('/brand-voice/profiles/:id', async (req, res) => {
+  try {
+    logger.info(`[BrandVoice] DELETE /profiles/${req.params.id} - user=${req.user.id}`);
+    const profile = await getBrandVoiceProfileById(req.params.id, req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    await deleteBrandVoiceProfile(req.params.id, req.user.id);
+    logger.info(`[BrandVoice] Profile ${req.params.id} deleted`);
+    res.json({ success: true, message: 'Profile deleted' });
+  } catch (error) {
+    logger.error(`[BrandVoice] DELETE /profiles/${req.params.id} failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete profile' });
+  }
+});
+
+/**
+ * POST /api/marketing/brand-voice/profiles/:id/refresh
+ * Re-collect posts and re-analyze the brand voice
+ */
+router.post('/brand-voice/profiles/:id/refresh', async (req, res) => {
+  try {
+    logger.info(`[BrandVoice] POST /profiles/${req.params.id}/refresh - user=${req.user.id}`);
+    const profile = await getBrandVoiceProfileById(req.params.id, req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    if (profile.status === 'collecting' || profile.status === 'analyzing') {
+      return res.status(409).json({ error: 'Profile is already being processed' });
+    }
+
+    const { days } = req.body;
+
+    // Reset status and start refresh asynchronously
+    await updateBrandVoiceProfile(req.params.id, req.user.id, { status: 'pending' });
+
+    brandVoiceService.refreshProfile(req.user.id, req.params.id, days || 180)
+      .catch(err => {
+        logger.error(`[BrandVoice] Background profile refresh failed for ${req.params.id}: ${err.message}`);
+      });
+
+    logger.info(`[BrandVoice] Profile ${req.params.id} refresh started`);
+    res.json({ success: true, message: 'Profile refresh started. Poll the profile endpoint for status updates.' });
+  } catch (error) {
+    logger.error(`[BrandVoice] POST /profiles/${req.params.id}/refresh failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to refresh profile' });
+  }
+});
+
+/**
+ * GET /api/marketing/brand-voice/profiles/:id/posts
+ * View the collected posts for a profile
+ */
+router.get('/brand-voice/profiles/:id/posts', async (req, res) => {
+  try {
+    const profile = await getBrandVoiceProfileById(req.params.id, req.user.id);
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const { platform, limit } = req.query;
+    const posts = await getBrandVoicePosts(
+      req.params.id,
+      req.user.id,
+      { platform, limit: parseInt(limit) || 100 }
+    );
+
+    res.json({ posts, total: posts.length });
+  } catch (error) {
+    logger.error('Error getting brand voice posts:', error);
+    res.status(500).json({ error: error.message || 'Failed to get posts' });
+  }
+});
+
+/**
+ * POST /api/marketing/brand-voice/generate
+ * Generate original post(s) using a brand voice profile
+ */
+router.post('/brand-voice/generate', async (req, res) => {
+  try {
+    const { profileId, platform, topic, count } = req.body;
+    logger.info(`[BrandVoice] POST /generate - user=${req.user.id}, profileId=${profileId}, platform=${platform || 'auto'}, topic=${topic || 'auto'}`);
+
+    if (!profileId) {
+      return res.status(400).json({ error: 'profileId is required' });
+    }
+
+    // Platform is optional — if not provided, the service auto-detects the dominant platform
+    if (platform) {
+      const validPlatforms = ['twitter', 'linkedin', 'facebook', 'instagram', 'reddit', 'telegram', 'threads', 'whatsapp', 'tiktok'];
+      if (!validPlatforms.includes(platform)) {
+        return res.status(400).json({ error: `Invalid platform. Must be one of: ${validPlatforms.join(', ')}` });
+      }
+    }
+
+    const generatedPosts = await brandVoiceService.generateOriginalPost(
+      req.user.id,
+      profileId,
+      {
+        platform: platform || null,
+        topic: topic || null,
+        count: Math.min(parseInt(count) || 1, 3) // Max 3 variations per request
+      }
+    );
+
+    // Store each generated post in history
+    const postsWithIds = await Promise.all(generatedPosts.map(async (post) => {
+      try {
+        const row = await insertBrandVoiceGeneratedPost(req.user.id, profileId, {
+          platform: post.platform,
+          topic: post.topic,
+          content: post.text
+        });
+        return { ...post, id: row.id };
+      } catch (storeErr) {
+        logger.error(`[BrandVoice] Failed to store generated post: ${storeErr.message}`);
+        return post; // Return without id if storage fails — non-blocking
+      }
+    }));
+
+    logger.info(`[BrandVoice] POST /generate - generated ${postsWithIds.length} post(s) on ${postsWithIds[0]?.platform || 'unknown'}`);
+    res.json({ posts: postsWithIds });
+  } catch (error) {
+    logger.error(`[BrandVoice] POST /generate failed: ${error.message}`);
+    res.status(error.message.includes('not found') ? 404 : 500).json({
+      error: error.message || 'Failed to generate content'
+    });
+  }
+});
+
+/**
+ * GET /api/marketing/brand-voice/profiles/:profileId/generated
+ * Get generated posts history for a profile
+ */
+router.get('/brand-voice/profiles/:profileId/generated', async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    logger.info(`[BrandVoice] GET /profiles/${profileId}/generated - user=${req.user.id}`);
+
+    const posts = await getBrandVoiceGeneratedPosts(profileId, req.user.id);
+
+    logger.info(`[BrandVoice] GET /profiles/${profileId}/generated - returned ${posts.length} post(s)`);
+    res.json({ posts });
+  } catch (error) {
+    logger.error(`[BrandVoice] GET /profiles/:profileId/generated failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load generated posts history' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/brand-voice/generated/:postId
+ * Delete a single generated post from history
+ */
+router.delete('/brand-voice/generated/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    logger.info(`[BrandVoice] DELETE /generated/${postId} - user=${req.user.id}`);
+
+    await deleteBrandVoiceGeneratedPost(postId, req.user.id);
+
+    logger.info(`[BrandVoice] DELETE /generated/${postId} - deleted`);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`[BrandVoice] DELETE /generated/:postId failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete generated post' });
   }
 });
 

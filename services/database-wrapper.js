@@ -103,5 +103,19 @@ export {
   getMarketingMetricsHistory,
   getMarketingOverview,
   createPublishedPost,
-  getBoostablePublishedPosts
+  getBoostablePublishedPosts,
+  // Brand voice functions
+  getUserBrandVoiceProfiles,
+  getBrandVoiceProfileById,
+  createBrandVoiceProfile,
+  updateBrandVoiceProfile,
+  deleteBrandVoiceProfile,
+  countUserBrandVoiceProfiles,
+  insertBrandVoicePosts,
+  getBrandVoicePosts,
+  deleteBrandVoicePosts,
+  insertBrandVoiceGeneratedPost,
+  getBrandVoiceGeneratedPosts,
+  deleteBrandVoiceGeneratedPost,
+  getAllPublishedPosts
 } from './database.js';

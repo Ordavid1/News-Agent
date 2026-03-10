@@ -136,13 +136,15 @@ export const MARKETING_LIMITS = {
     maxActiveCampaigns: 10,
     maxAudienceTemplates: 20,
     maxAutoBoostRules: 10,
-    metricsRefreshMinutes: 30
+    metricsRefreshMinutes: 30,
+    maxBrandVoiceProfiles: 2
   },
   premium: {
     maxActiveCampaigns: -1, // unlimited
     maxAudienceTemplates: -1,
     maxAutoBoostRules: -1,
-    metricsRefreshMinutes: 10
+    metricsRefreshMinutes: 10,
+    maxBrandVoiceProfiles: -1 // unlimited
   }
 };
 

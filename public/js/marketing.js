@@ -14,6 +14,11 @@ var audiences = [];
 var rules = [];
 var overviewData = null;
 
+// Brand Voice state
+var brandVoiceProfiles = [];
+var currentBrandVoiceProfile = null;
+var brandVoicePollingTimer = null;
+
 // Current modal state
 var currentBoostPost = null;
 var editingAudienceId = null;
@@ -83,7 +88,7 @@ async function pollForMarketingAddon() {
         banner.innerHTML = `
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <div class="loader-sm"></div>
+                    <div class="loader" style="width:16px;height:16px;"></div>
                 </div>
                 <div>
                     <h4 class="font-semibold text-ink-800">Activating Marketing Add-on...</h4>
@@ -503,6 +508,9 @@ function showMarketingTab(tabName) {
             break;
         case 'rules':
             loadRules();
+            break;
+        case 'brandvoice':
+            loadBrandVoiceProfiles();
             break;
     }
 }
@@ -2106,6 +2114,25 @@ async function apiDelete(url) {
     return data;
 }
 
+async function apiPatch(url, body) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken()
+        },
+        credentials: 'include',
+        body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || 'Request failed');
+    }
+    return data;
+}
+
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
@@ -2167,4 +2194,801 @@ function showToast(message, type = 'info') {
         toast.classList.add('translate-x-full');
         setTimeout(() => toast.remove(), 300);
     }, 4000);
+}
+
+// ============================================
+// BRAND VOICE
+// ============================================
+
+async function loadBrandVoiceProfiles() {
+    const listEl = document.getElementById('brandVoiceProfilesList');
+    const emptyEl = document.getElementById('brandVoiceEmpty');
+    const loadingEl = document.getElementById('brandVoiceLoading');
+    const detailEl = document.getElementById('brandVoiceDetail');
+
+    // If viewing a profile detail, don't reload the list
+    if (detailEl && !detailEl.classList.contains('hidden')) return;
+
+    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    try {
+        const response = await apiGet('/api/marketing/brand-voice/profiles');
+        brandVoiceProfiles = response.profiles || [];
+
+        if (loadingEl) loadingEl.classList.add('hidden');
+
+        if (brandVoiceProfiles.length === 0) {
+            listEl.innerHTML = '';
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        emptyEl.classList.add('hidden');
+        renderBrandVoiceProfiles(brandVoiceProfiles);
+
+    } catch (error) {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        showToast(error.message, 'error');
+    }
+}
+
+function renderBrandVoiceProfiles(profiles) {
+    const listEl = document.getElementById('brandVoiceProfilesList');
+
+    listEl.innerHTML = profiles.map(profile => {
+        const statusBadge = getBrandVoiceStatusBadge(profile.status);
+        const platformTags = (profile.platforms_analyzed || [])
+            .map(p => `<span class="text-xs bg-surface-100 text-ink-500 px-2 py-0.5 rounded-full">${p}</span>`)
+            .join(' ');
+        const lastAnalyzed = profile.last_analyzed_at
+            ? new Date(profile.last_analyzed_at).toLocaleDateString()
+            : 'Never';
+
+        // Validation score badge
+        const validation = profile.profile_data?._validation;
+        const scoreBadge = validation
+            ? `<span class="text-xs font-medium px-2 py-0.5 rounded-full ${validation.score >= 80 ? 'bg-green-100 text-green-700' : validation.score >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}">${validation.score}/100</span>`
+            : '';
+
+        return `
+            <div class="card-gradient p-5 cursor-pointer hover:shadow-md transition-shadow" onclick="openBrandVoiceDetail('${profile.id}')">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-semibold text-ink-800">${escapeHtml(profile.name)}</h4>
+                    <div class="flex items-center gap-2">
+                        ${scoreBadge}
+                        ${statusBadge}
+                    </div>
+                </div>
+                <div class="space-y-2 text-sm text-ink-500">
+                    <div class="flex items-center gap-2">
+                        <span>Posts analyzed:</span>
+                        <span class="font-medium text-ink-700">${profile.posts_analyzed_count || 0}</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span>Platforms:</span>
+                        ${platformTags || '<span class="text-ink-400">None yet</span>'}
+                    </div>
+                    <div class="text-xs text-ink-400">Last analyzed: ${lastAnalyzed}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function getBrandVoiceStatusBadge(status) {
+    const badges = {
+        pending: '<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Pending</span>',
+        collecting: '<span class="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full animate-pulse">Collecting posts...</span>',
+        analyzing: '<span class="text-xs bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full animate-pulse">Analyzing voice...</span>',
+        ready: '<span class="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded-full">Ready</span>',
+        failed: '<span class="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Failed</span>'
+    };
+    return badges[status] || badges.pending;
+}
+
+function openCreateProfileModal() {
+    const modal = document.getElementById('createBvProfileModal');
+    document.getElementById('bvProfileNameInput').value = '';
+
+    const platformConfig = [
+        { key: 'twitter',   name: 'Twitter/X',  color: '#1DA1F2' },
+        { key: 'linkedin',  name: 'LinkedIn',    color: '#0A66C2' },
+        { key: 'facebook',  name: 'Facebook',    color: '#1877F2' },
+        { key: 'instagram', name: 'Instagram',   color: '#E4405F' },
+        { key: 'reddit',    name: 'Reddit',      color: '#FF4500' },
+        { key: 'telegram',  name: 'Telegram',    color: '#0088cc' },
+        { key: 'whatsapp',  name: 'WhatsApp',    color: '#25D366' },
+        { key: 'tiktok',    name: 'TikTok',      color: '#010101' },
+        { key: 'threads',   name: 'Threads',     color: '#000000' }
+    ];
+
+    const checkboxesEl = document.getElementById('bvPlatformCheckboxes');
+    checkboxesEl.innerHTML = platformConfig.map(p => `
+        <label class="flex items-center gap-2 p-2 rounded-lg border border-surface-200 hover:bg-surface-50 cursor-pointer transition-colors">
+            <input type="checkbox" name="bvPlatform" value="${p.key}" class="rounded text-brand-600 focus:ring-brand-500">
+            <div class="w-5 h-5 rounded-full flex items-center justify-center" style="background: ${p.color}15">
+                <div class="w-2.5 h-2.5 rounded-full" style="background: ${p.color}"></div>
+            </div>
+            <span class="text-sm text-ink-700">${p.name}</span>
+        </label>
+    `).join('');
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeCreateBvProfileModal() {
+    const modal = document.getElementById('createBvProfileModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+async function submitCreateBvProfile() {
+    const name = document.getElementById('bvProfileNameInput').value.trim();
+    if (!name) {
+        showToast('Please enter a profile name', 'error');
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('input[name="bvPlatform"]:checked');
+    const platforms = Array.from(checkboxes).map(cb => cb.value);
+
+    const btn = document.getElementById('submitCreateBvProfileBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+        const body = { name };
+        if (platforms.length > 0) body.platforms = platforms;
+
+        const response = await apiPost('/api/marketing/brand-voice/profiles', body);
+        showToast('Profile created! Analyzing your posts...', 'success');
+        closeCreateBvProfileModal();
+        await loadBrandVoiceProfiles();
+        startBrandVoicePolling(response.profile.id);
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create & Start Analysis';
+    }
+}
+
+function startBrandVoicePolling(profileId) {
+    if (brandVoicePollingTimer) clearInterval(brandVoicePollingTimer);
+
+    brandVoicePollingTimer = setInterval(async () => {
+        try {
+            const response = await apiGet(`/api/marketing/brand-voice/profiles/${profileId}`);
+            const profile = response.profile;
+
+            if (profile.status === 'ready' || profile.status === 'failed') {
+                clearInterval(brandVoicePollingTimer);
+                brandVoicePollingTimer = null;
+
+                if (profile.status === 'ready') {
+                    showToast('Brand voice analysis complete!', 'success');
+                } else {
+                    showToast(`Analysis failed: ${profile.error_message || 'Unknown error'}`, 'error');
+                }
+
+                // Refresh the view
+                if (currentBrandVoiceProfile && currentBrandVoiceProfile.id === profileId) {
+                    openBrandVoiceDetail(profileId);
+                } else {
+                    loadBrandVoiceProfiles();
+                }
+            } else {
+                // Update the status badge in the list if visible
+                loadBrandVoiceProfiles();
+            }
+        } catch (err) {
+            // Silently continue polling
+        }
+    }, 5000); // Poll every 5 seconds
+}
+
+async function openBrandVoiceDetail(profileId) {
+    try {
+        const response = await apiGet(`/api/marketing/brand-voice/profiles/${profileId}`);
+        currentBrandVoiceProfile = response.profile;
+
+        // Hide list, show detail
+        document.getElementById('brandVoiceProfilesList').classList.add('hidden');
+        document.getElementById('brandVoiceEmpty').classList.add('hidden');
+        document.getElementById('brandVoiceDetail').classList.remove('hidden');
+
+        // Fill in detail header
+        document.getElementById('bvDetailName').textContent = currentBrandVoiceProfile.name;
+        const platforms = (currentBrandVoiceProfile.platforms_analyzed || []).join(', ') || 'None';
+        document.getElementById('bvDetailMeta').textContent =
+            `${currentBrandVoiceProfile.posts_analyzed_count || 0} posts analyzed across ${platforms} | Status: ${currentBrandVoiceProfile.status}`;
+
+        // Render profile summary
+        renderBrandVoiceProfileSummary(currentBrandVoiceProfile);
+
+        // Load generated posts history
+        loadBvHistory(profileId);
+
+        // If still processing, start polling
+        if (['pending', 'collecting', 'analyzing'].includes(currentBrandVoiceProfile.status)) {
+            startBrandVoicePolling(profileId);
+        }
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+const BV_EDIT_ICON = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>';
+
+function bvEditHeader(title, sectionKey) {
+    return `<div class="flex items-center justify-between mb-2">
+        <h5 class="font-medium text-ink-700">${title}</h5>
+        <button onclick="editBvSection('${sectionKey}')" class="text-ink-400 hover:text-brand-600 transition-colors p-1" title="Edit">${BV_EDIT_ICON}</button>
+    </div>`;
+}
+
+function bvEditActions(sectionKey) {
+    return `<div class="flex gap-2 mt-3">
+        <button onclick="saveBvSection('${sectionKey}')" class="btn-primary btn-sm">Save</button>
+        <button onclick="cancelBvEdit('${sectionKey}')" class="btn-outline btn-sm">Cancel</button>
+    </div>`;
+}
+
+function renderBrandVoiceProfileSummary(profile) {
+    const summaryEl = document.getElementById('bvProfileSummary');
+    const data = profile.profile_data;
+
+    if (!data || Object.keys(data).length === 0) {
+        summaryEl.innerHTML = `
+            <div class="text-center py-6 text-ink-400">
+                <p>${profile.status === 'failed' ? (profile.error_message || 'Analysis failed. Try refreshing.') : 'Profile is still being analyzed...'}</p>
+            </div>
+        `;
+        return;
+    }
+
+    const sections = [];
+
+    // Validation score card (not editable)
+    if (data._validation) {
+        const v = data._validation;
+        const scoreColor = v.score >= 80 ? 'green' : v.score >= 70 ? 'amber' : 'red';
+
+        sections.push(`
+            <div class="bg-${scoreColor}-50 border border-${scoreColor}-200 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h5 class="font-medium text-ink-700">Voice Accuracy Score</h5>
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl font-bold text-${scoreColor}-600">${v.score}</span>
+                        <span class="text-sm text-${scoreColor}-600">/100</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-5 gap-2 mb-3">
+                    ${Object.entries(v.scores || {}).map(([key, val]) => `
+                        <div class="text-center">
+                            <div class="text-lg font-semibold text-ink-700">${val}</div>
+                            <div class="text-xs text-ink-400">${key.replace(/_/g, ' ')}</div>
+                        </div>
+                    `).join('')}
+                </div>
+                ${v.strengths?.length ? `<div class="text-sm text-green-700 mb-1"><span class="font-medium">Strengths:</span> ${v.strengths.map(s => escapeHtml(s)).join('; ')}</div>` : ''}
+                ${v.weaknesses?.length ? `<div class="text-sm text-${scoreColor}-700"><span class="font-medium">Areas to improve:</span> ${v.weaknesses.map(w => escapeHtml(w)).join('; ')}</div>` : ''}
+                ${!v.passed ? `<p class="text-xs text-${scoreColor}-500 mt-2">Tip: Add more posts or refresh to improve accuracy.</p>` : ''}
+            </div>
+        `);
+    }
+
+    // Overall Tone — editable
+    if (data.overall_tone) {
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="overall_tone">
+                ${bvEditHeader('Overall Tone', 'overall_tone')}
+                <div class="bv-section-display">
+                    <p class="text-sm text-ink-600">${escapeHtml(data.overall_tone)}</p>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <textarea class="input-field w-full text-sm min-h-[80px] resize-y" id="bvEdit_overall_tone">${escapeHtml(data.overall_tone)}</textarea>
+                    ${bvEditActions('overall_tone')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Writing Style — editable
+    if (data.writing_style) {
+        const ws = data.writing_style;
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="writing_style">
+                ${bvEditHeader('Writing Style', 'writing_style')}
+                <div class="bv-section-display">
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        ${ws.formality_level ? `<div><span class="text-ink-400">Formality:</span> <span class="text-ink-600">${escapeHtml(ws.formality_level)}</span></div>` : ''}
+                        ${ws.voice ? `<div><span class="text-ink-400">Voice:</span> <span class="text-ink-600">${escapeHtml(ws.voice)}</span></div>` : ''}
+                        ${ws.sentence_length ? `<div><span class="text-ink-400">Sentences:</span> <span class="text-ink-600">${escapeHtml(ws.sentence_length)}</span></div>` : ''}
+                        ${ws.paragraph_structure ? `<div class="col-span-2"><span class="text-ink-400">Structure:</span> <span class="text-ink-600">${escapeHtml(ws.paragraph_structure)}</span></div>` : ''}
+                    </div>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div><label class="block text-xs text-ink-400 mb-1">Formality</label><input class="input-field w-full text-sm" id="bvEdit_ws_formality" value="${escapeHtml(ws.formality_level || '')}"></div>
+                        <div><label class="block text-xs text-ink-400 mb-1">Voice</label><input class="input-field w-full text-sm" id="bvEdit_ws_voice" value="${escapeHtml(ws.voice || '')}"></div>
+                        <div><label class="block text-xs text-ink-400 mb-1">Sentence length</label><input class="input-field w-full text-sm" id="bvEdit_ws_sentences" value="${escapeHtml(ws.sentence_length || '')}"></div>
+                        <div class="col-span-2"><label class="block text-xs text-ink-400 mb-1">Paragraph structure</label><input class="input-field w-full text-sm" id="bvEdit_ws_structure" value="${escapeHtml(ws.paragraph_structure || '')}"></div>
+                    </div>
+                    ${bvEditActions('writing_style')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Content Themes — editable
+    if (data.content_themes && data.content_themes.length > 0) {
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="content_themes">
+                ${bvEditHeader('Content Themes', 'content_themes')}
+                <div class="bv-section-display">
+                    <div class="flex flex-wrap gap-2">
+                        ${data.content_themes.map(t => `<span class="text-xs bg-brand-50 text-brand-700 px-2 py-1 rounded-full">${escapeHtml(t)}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <div>
+                        <label class="block text-xs text-ink-400 mb-1">Comma-separated themes</label>
+                        <textarea class="input-field w-full text-sm min-h-[80px] resize-y" id="bvEdit_content_themes">${data.content_themes.map(t => escapeHtml(t)).join(', ')}</textarea>
+                    </div>
+                    ${bvEditActions('content_themes')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Vocabulary — editable
+    if (data.vocabulary) {
+        const vocab = data.vocabulary;
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="vocabulary">
+                ${bvEditHeader('Vocabulary', 'vocabulary')}
+                <div class="bv-section-display">
+                    ${vocab.common_phrases?.length ? `<div class="mb-2"><span class="text-xs text-ink-400 uppercase">Common phrases:</span><div class="flex flex-wrap gap-1 mt-1">${vocab.common_phrases.map(p => `<span class="text-xs bg-surface-200 text-ink-600 px-2 py-0.5 rounded">"${escapeHtml(p)}"</span>`).join('')}</div></div>` : ''}
+                    ${vocab.power_words?.length ? `<div><span class="text-xs text-ink-400 uppercase">Power words:</span><div class="flex flex-wrap gap-1 mt-1">${vocab.power_words.map(w => `<span class="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded">${escapeHtml(w)}</span>`).join('')}</div></div>` : ''}
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <div class="space-y-3">
+                        <div><label class="block text-xs text-ink-400 mb-1">Common phrases (comma-separated)</label><textarea class="input-field w-full text-sm min-h-[70px] resize-y" id="bvEdit_vocab_phrases">${(vocab.common_phrases || []).join(', ')}</textarea></div>
+                        <div><label class="block text-xs text-ink-400 mb-1">Power words (comma-separated)</label><textarea class="input-field w-full text-sm min-h-[70px] resize-y" id="bvEdit_vocab_power">${(vocab.power_words || []).join(', ')}</textarea></div>
+                    </div>
+                    ${bvEditActions('vocabulary')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Formatting — editable
+    if (data.formatting) {
+        const fmt = data.formatting;
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="formatting">
+                ${bvEditHeader('Formatting', 'formatting')}
+                <div class="bv-section-display">
+                    <div class="space-y-1 text-sm">
+                        ${fmt.emoji_usage ? `<div><span class="text-ink-400">Emojis:</span> <span class="text-ink-600">${escapeHtml(fmt.emoji_usage)}</span></div>` : ''}
+                        ${fmt.hashtag_style ? `<div><span class="text-ink-400">Hashtags:</span> <span class="text-ink-600">${escapeHtml(fmt.hashtag_style)}</span></div>` : ''}
+                        ${fmt.call_to_action_style ? `<div><span class="text-ink-400">CTA style:</span> <span class="text-ink-600">${escapeHtml(fmt.call_to_action_style)}</span></div>` : ''}
+                    </div>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <div class="space-y-3">
+                        <div><label class="block text-xs text-ink-400 mb-1">Emoji usage</label><input class="input-field w-full text-sm" id="bvEdit_fmt_emoji" value="${escapeHtml(fmt.emoji_usage || '')}"></div>
+                        <div><label class="block text-xs text-ink-400 mb-1">Hashtag style</label><input class="input-field w-full text-sm" id="bvEdit_fmt_hashtag" value="${escapeHtml(fmt.hashtag_style || '')}"></div>
+                        <div><label class="block text-xs text-ink-400 mb-1">CTA style</label><input class="input-field w-full text-sm" id="bvEdit_fmt_cta" value="${escapeHtml(fmt.call_to_action_style || '')}"></div>
+                    </div>
+                    ${bvEditActions('formatting')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Emotional Register — editable
+    if (data.emotional_register) {
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="emotional_register">
+                ${bvEditHeader('Emotional Register', 'emotional_register')}
+                <div class="bv-section-display">
+                    <p class="text-sm text-ink-600">${escapeHtml(data.emotional_register)}</p>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <textarea class="input-field w-full text-sm min-h-[80px] resize-y" id="bvEdit_emotional">${escapeHtml(data.emotional_register)}</textarea>
+                    ${bvEditActions('emotional_register')}
+                </div>
+            </div>
+        `);
+    }
+
+    // Unique Characteristics — editable
+    if (data.unique_characteristics && data.unique_characteristics.length > 0) {
+        sections.push(`
+            <div class="bg-surface-50 rounded-xl p-4" data-bv-section="unique_characteristics">
+                ${bvEditHeader('Unique Characteristics', 'unique_characteristics')}
+                <div class="bv-section-display">
+                    <ul class="text-sm text-ink-600 space-y-1">
+                        ${data.unique_characteristics.map(c => `<li class="flex items-start gap-2"><span class="text-brand-500 mt-1">&#x2022;</span> ${escapeHtml(c)}</li>`).join('')}
+                    </ul>
+                </div>
+                <div class="bv-section-edit hidden space-y-3">
+                    <div>
+                        <label class="block text-xs text-ink-400 mb-1">One characteristic per line</label>
+                        <textarea class="input-field w-full text-sm min-h-[100px] resize-y" id="bvEdit_unique">${data.unique_characteristics.join('\n')}</textarea>
+                    </div>
+                    ${bvEditActions('unique_characteristics')}
+                </div>
+            </div>
+        `);
+    }
+
+    summaryEl.innerHTML = sections.join('');
+}
+
+function editBvSection(sectionKey) {
+    const card = document.querySelector(`[data-bv-section="${sectionKey}"]`);
+    if (!card) return;
+    card.querySelector('.bv-section-display').classList.add('hidden');
+    card.querySelector('.bv-section-edit').classList.remove('hidden');
+}
+
+function cancelBvEdit(sectionKey) {
+    const card = document.querySelector(`[data-bv-section="${sectionKey}"]`);
+    if (!card) return;
+    card.querySelector('.bv-section-display').classList.remove('hidden');
+    card.querySelector('.bv-section-edit').classList.add('hidden');
+}
+
+async function saveBvSection(sectionKey) {
+    if (!currentBrandVoiceProfile) return;
+
+    const profileData = JSON.parse(JSON.stringify(currentBrandVoiceProfile.profile_data));
+
+    switch (sectionKey) {
+        case 'overall_tone':
+            profileData.overall_tone = document.getElementById('bvEdit_overall_tone').value.trim();
+            break;
+        case 'writing_style':
+            profileData.writing_style = {
+                ...profileData.writing_style,
+                formality_level: document.getElementById('bvEdit_ws_formality').value.trim(),
+                voice: document.getElementById('bvEdit_ws_voice').value.trim(),
+                sentence_length: document.getElementById('bvEdit_ws_sentences').value.trim(),
+                paragraph_structure: document.getElementById('bvEdit_ws_structure').value.trim()
+            };
+            break;
+        case 'content_themes':
+            profileData.content_themes = document.getElementById('bvEdit_content_themes').value
+                .split(',').map(t => t.trim()).filter(t => t.length > 0);
+            break;
+        case 'vocabulary':
+            profileData.vocabulary = {
+                ...profileData.vocabulary,
+                common_phrases: document.getElementById('bvEdit_vocab_phrases').value
+                    .split(',').map(p => p.trim()).filter(p => p.length > 0),
+                power_words: document.getElementById('bvEdit_vocab_power').value
+                    .split(',').map(w => w.trim()).filter(w => w.length > 0)
+            };
+            break;
+        case 'formatting':
+            profileData.formatting = {
+                ...profileData.formatting,
+                emoji_usage: document.getElementById('bvEdit_fmt_emoji').value.trim(),
+                hashtag_style: document.getElementById('bvEdit_fmt_hashtag').value.trim(),
+                call_to_action_style: document.getElementById('bvEdit_fmt_cta').value.trim()
+            };
+            break;
+        case 'emotional_register':
+            profileData.emotional_register = document.getElementById('bvEdit_emotional').value.trim();
+            break;
+        case 'unique_characteristics':
+            profileData.unique_characteristics = document.getElementById('bvEdit_unique').value
+                .split('\n').map(c => c.trim()).filter(c => c.length > 0);
+            break;
+    }
+
+    try {
+        const response = await apiPatch(
+            `/api/marketing/brand-voice/profiles/${currentBrandVoiceProfile.id}`,
+            { profile_data: profileData }
+        );
+        currentBrandVoiceProfile = response.profile;
+        renderBrandVoiceProfileSummary(currentBrandVoiceProfile);
+        showToast('Profile updated', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function closeBrandVoiceDetail() {
+    currentBrandVoiceProfile = null;
+    if (brandVoicePollingTimer) {
+        clearInterval(brandVoicePollingTimer);
+        brandVoicePollingTimer = null;
+    }
+    document.getElementById('brandVoiceDetail').classList.add('hidden');
+    document.getElementById('brandVoiceProfilesList').classList.remove('hidden');
+    document.getElementById('bvGeneratedContent').classList.add('hidden');
+    loadBrandVoiceProfiles();
+}
+
+async function refreshCurrentProfile() {
+    if (!currentBrandVoiceProfile) return;
+    try {
+        await apiPost(`/api/marketing/brand-voice/profiles/${currentBrandVoiceProfile.id}/refresh`);
+        showToast('Refreshing brand voice analysis...', 'success');
+        startBrandVoicePolling(currentBrandVoiceProfile.id);
+        openBrandVoiceDetail(currentBrandVoiceProfile.id);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function deleteCurrentProfile() {
+    if (!currentBrandVoiceProfile) return;
+    if (!confirm(`Delete brand voice profile "${currentBrandVoiceProfile.name}"? This cannot be undone.`)) return;
+
+    try {
+        await apiDelete(`/api/marketing/brand-voice/profiles/${currentBrandVoiceProfile.id}`);
+        showToast('Profile deleted', 'success');
+        closeBrandVoiceDetail();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function generateBrandVoiceContent() {
+    if (!currentBrandVoiceProfile) return;
+
+    const topic = document.getElementById('bvGenerateTopic').value.trim();
+    const btn = document.getElementById('bvGenerateBtn');
+    const contentDiv = document.getElementById('bvGeneratedContent');
+    const textEl = document.getElementById('bvGeneratedText');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating...';
+
+    try {
+        const body = {
+            profileId: currentBrandVoiceProfile.id,
+            topic: topic || undefined,
+            count: 1
+        };
+
+        const response = await apiPost('/api/marketing/brand-voice/generate', body);
+
+        const posts = response.posts || [];
+        if (posts.length > 0) {
+            textEl.textContent = posts[0].text;
+            contentDiv.classList.remove('hidden');
+            renderBvShareButtons();
+
+            // Refresh history to show the newly generated post
+            loadBvHistory(currentBrandVoiceProfile.id);
+        }
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            Generate Post
+        `;
+    }
+}
+
+const BV_SHARE_PLATFORMS = [
+    { key: 'twitter',   name: 'Twitter/X',  color: '#1DA1F2', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>' },
+    { key: 'linkedin',  name: 'LinkedIn',    color: '#0A66C2', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>' },
+    { key: 'facebook',  name: 'Facebook',    color: '#1877F2', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>' },
+    { key: 'instagram', name: 'Instagram',   color: '#E4405F', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>' },
+    { key: 'reddit',    name: 'Reddit',      color: '#FF4500', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>' },
+    { key: 'telegram',  name: 'Telegram',    color: '#0088cc', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>' },
+    { key: 'whatsapp',  name: 'WhatsApp',    color: '#25D366', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>' },
+    { key: 'tiktok',    name: 'TikTok',      color: '#010101', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>' },
+    { key: 'threads',   name: 'Threads',     color: '#000000', icon: '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.186 24h-.007c-3.581-.024-6.334-1.205-8.184-3.509C2.35 18.44 1.5 15.586 1.472 12.01v-.017c.03-3.579.879-6.43 2.525-8.482C5.845 1.205 8.6.024 12.18 0h.014c2.746.02 5.043.725 6.826 2.098 1.677 1.29 2.858 3.13 3.509 5.467l-2.04.569c-1.104-3.96-3.898-5.984-8.304-6.015-2.91.022-5.11.936-6.54 2.717C4.307 6.504 3.616 8.914 3.589 12c.027 3.086.718 5.496 2.057 7.164 1.43 1.783 3.631 2.698 6.54 2.717 2.623-.02 4.358-.631 5.8-2.045 1.647-1.613 1.618-3.593 1.09-4.798-.31-.71-.873-1.3-1.634-1.75-.192 1.352-.622 2.446-1.284 3.272-.886 1.102-2.14 1.704-3.73 1.79-1.202.065-2.361-.218-3.259-.801-1.063-.689-1.685-1.74-1.752-2.96-.065-1.17.408-2.263 1.334-3.076.862-.757 2.063-1.196 3.395-1.242.92-.03 1.77.08 2.553.312-.025-1.268-.244-2.22-.679-2.889-.493-.757-1.272-1.14-2.317-1.14h-.037c-.748.007-1.39.211-1.847.59-.374.31-.6.7-.674 1.15l-2.03-.354c.201-1.156.795-2.1 1.72-2.726.868-.588 1.979-.903 3.218-.91h.054c1.677 0 2.96.577 3.81 1.715.706.946 1.073 2.27 1.116 3.932.536.242 1.024.54 1.46.897 1.157.944 1.928 2.263 2.23 3.812.354 1.819.044 4.074-1.673 5.757-1.862 1.826-4.175 2.622-7.268 2.644z"/></svg>' }
+];
+
+function renderBvShareButtons() {
+    const container = document.getElementById('bvPlatformButtons');
+    container.innerHTML = BV_SHARE_PLATFORMS.map(p => `
+        <button onclick="shareBvPost('${p.key}')"
+            class="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-200 transition-all text-sm font-medium
+            hover:shadow-sm hover:border-surface-300"
+            style="--platform-color: ${p.color}"
+            onmouseenter="this.style.borderColor='${p.color}'; this.style.background='${p.color}10'"
+            onmouseleave="this.style.borderColor=''; this.style.background=''"
+            title="Share on ${p.name}">
+            <span style="color: ${p.color}">${p.icon}</span>
+            <span class="text-ink-600">${p.name}</span>
+            <svg class="w-3 h-3 text-ink-300 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+        </button>
+    `).join('');
+}
+
+function shareBvPost(platform) {
+    const textEl = document.getElementById('bvGeneratedText');
+    const text = textEl.textContent;
+    if (!text) return;
+
+    const encoded = encodeURIComponent(text);
+
+    // Platforms with native share URL support for pre-filled text
+    const shareUrls = {
+        twitter:  `https://twitter.com/intent/tweet?text=${encoded}`,
+        reddit:   `https://www.reddit.com/submit?selftext=true&title=${encodeURIComponent(text.substring(0, 120))}&text=${encoded}`,
+        telegram: `https://t.me/share/url?url=&text=${encoded}`,
+        whatsapp: `https://wa.me/?text=${encoded}`
+    };
+
+    // Platforms that don't support pre-filled text — copy to clipboard + open compose
+    const copyThenOpen = {
+        linkedin:  'https://www.linkedin.com/feed/?shareActive=true',
+        facebook:  'https://www.facebook.com/',
+        instagram: 'https://www.instagram.com/',
+        tiktok:    'https://www.tiktok.com/upload',
+        threads:   'https://www.threads.net/'
+    };
+
+    if (shareUrls[platform]) {
+        window.open(shareUrls[platform], '_blank', 'noopener,noreferrer');
+    } else if (copyThenOpen[platform]) {
+        // Copy text to clipboard first, then open the platform
+        copyToClipboard(text).then(() => {
+            showToast(`Post copied to clipboard! Paste it on ${getBvPlatformName(platform)}.`, 'success');
+            window.open(copyThenOpen[platform], '_blank', 'noopener,noreferrer');
+        });
+    }
+}
+
+function getBvPlatformName(key) {
+    const found = BV_SHARE_PLATFORMS.find(p => p.key === key);
+    return found ? found.name : key;
+}
+
+function copyToClipboard(text) {
+    return navigator.clipboard.writeText(text).catch(() => {
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        return Promise.resolve();
+    });
+}
+
+function copyGeneratedContent() {
+    const textEl = document.getElementById('bvGeneratedText');
+    const text = textEl.textContent;
+    copyToClipboard(text).then(() => {
+        showToast('Copied to clipboard!', 'success');
+    });
+}
+
+// ============================================
+// BRAND VOICE — GENERATED POSTS HISTORY
+// ============================================
+
+const BV_PLATFORM_COLORS = {
+    twitter: '#1DA1F2', linkedin: '#0A66C2', facebook: '#1877F2',
+    instagram: '#E4405F', reddit: '#FF4500', telegram: '#0088cc',
+    whatsapp: '#25D366', tiktok: '#010101', threads: '#000000'
+};
+
+function bvRelativeTime(dateStr) {
+    const now = Date.now();
+    const diff = now - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+}
+
+async function loadBvHistory(profileId) {
+    const listEl = document.getElementById('bvHistoryList');
+    const emptyEl = document.getElementById('bvHistoryEmpty');
+    const loadingEl = document.getElementById('bvHistoryLoading');
+
+    loadingEl.classList.remove('hidden');
+    emptyEl.classList.add('hidden');
+    listEl.innerHTML = '';
+
+    try {
+        const response = await apiGet(`/api/marketing/brand-voice/profiles/${profileId}/generated`);
+        const posts = response.posts || [];
+
+        loadingEl.classList.add('hidden');
+
+        if (posts.length === 0) {
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        listEl.innerHTML = posts.map(post => renderBvHistoryCard(post)).join('');
+    } catch (error) {
+        loadingEl.classList.add('hidden');
+        listEl.innerHTML = `<p class="text-sm text-red-500 text-center py-4">Failed to load history</p>`;
+    }
+}
+
+function renderBvHistoryCard(post) {
+    const platformColor = BV_PLATFORM_COLORS[post.platform] || '#6B7280';
+    const platformName = getBvPlatformName(post.platform) || post.platform || 'Auto';
+    const timeAgo = bvRelativeTime(post.created_at);
+    const contentEscaped = escapeHtml(post.content);
+    const topicLabel = post.topic ? escapeHtml(post.topic) : '';
+
+    return `
+        <div class="bg-surface-50 rounded-xl p-4 group" id="bvHistory_${post.id}">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style="background: ${platformColor}15; color: ${platformColor}">
+                        ${platformName}
+                    </span>
+                    ${topicLabel ? `<span class="text-xs text-ink-400">${topicLabel}</span>` : ''}
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-ink-400">${timeAgo}</span>
+                    <button onclick="copyBvHistoryPost('${post.id}')" class="text-ink-300 hover:text-ink-600 transition-colors p-1" title="Copy">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteBvHistoryPost('${post.id}')" class="text-ink-300 hover:text-red-500 transition-colors p-1" title="Delete">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="text-sm text-ink-600 whitespace-pre-wrap leading-relaxed bv-history-content">${contentEscaped}</div>
+        </div>
+    `;
+}
+
+function copyBvHistoryPost(postId) {
+    const card = document.getElementById(`bvHistory_${postId}`);
+    if (!card) return;
+    const text = card.querySelector('.bv-history-content').textContent;
+    copyToClipboard(text).then(() => {
+        showToast('Copied to clipboard!', 'success');
+    });
+}
+
+async function deleteBvHistoryPost(postId) {
+    if (!confirm('Delete this generated post?')) return;
+
+    try {
+        await apiDelete(`/api/marketing/brand-voice/generated/${postId}`);
+        const card = document.getElementById(`bvHistory_${postId}`);
+        if (card) {
+            card.style.transition = 'opacity 0.2s, transform 0.2s';
+            card.style.opacity = '0';
+            card.style.transform = 'translateX(20px)';
+            setTimeout(() => {
+                card.remove();
+                // Check if list is now empty
+                const listEl = document.getElementById('bvHistoryList');
+                if (!listEl.children.length) {
+                    document.getElementById('bvHistoryEmpty').classList.remove('hidden');
+                }
+            }, 200);
+        }
+        showToast('Post deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
