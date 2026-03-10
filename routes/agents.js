@@ -58,6 +58,9 @@ const AGENT_LIMITS = {
   business: -1 // unlimited
 };
 
+// Platforms blocked for free tier (video platforms require paid plan)
+const FREE_TIER_BLOCKED_PLATFORMS = ['tiktok', 'youtube'];
+
 /**
  * Get agent limit for a tier
  */
@@ -99,10 +102,16 @@ router.get('/available-connections', authenticateToken, async (req, res) => {
   try {
     const connections = await getUserConnections(req.user.id);
     const agents = await getUserAgents(req.user.id);
+    const tier = req.user.subscription?.tier || 'free';
 
     const agentConnectionIds = agents.map(a => a.connection_id);
     const availableConnections = connections
-      .filter(c => c.status === 'active' && !agentConnectionIds.includes(c.id))
+      .filter(c => {
+        if (c.status !== 'active' || agentConnectionIds.includes(c.id)) return false;
+        // Hide blocked video platforms for free tier
+        if (tier === 'free' && FREE_TIER_BLOCKED_PLATFORMS.includes(c.platform)) return false;
+        return true;
+      })
       .map(c => ({
         id: c.id,
         platform: c.platform,
@@ -203,6 +212,14 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Connection is not active. Please reconnect the platform first.'
+      });
+    }
+
+    // Block video platforms for free tier
+    if (tier === 'free' && FREE_TIER_BLOCKED_PLATFORMS.includes(connection.platform)) {
+      return res.status(403).json({
+        success: false,
+        error: `${connection.platform.charAt(0).toUpperCase() + connection.platform.slice(1)} agents require a paid plan. Upgrade to Starter or above to create video platform agents.`
       });
     }
 
