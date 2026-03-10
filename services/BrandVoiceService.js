@@ -87,7 +87,7 @@ class BrandVoiceService {
    * @param {Array|null} platforms - Specific platforms to collect from, or null for all
    * @returns {Object} Collection stats
    */
-  async collectPosts(userId, profileId, days = 180, platforms = null) {
+  async collectPosts(userId, profileId, days = 90, platforms = null) {
     logger.info(`Starting post collection for user ${userId}, profile ${profileId}, last ${days} days, platforms=${platforms ? platforms.join(', ') : 'all'}`);
 
     await updateBrandVoiceProfile(profileId, userId, { status: 'collecting' });
@@ -177,6 +177,96 @@ class BrandVoiceService {
         }
       } else {
         logger.info('Skipping Instagram collection (not in selected platforms)');
+      }
+
+      // Source 4: Twitter posts (external)
+      if (!platforms || platforms.includes('twitter')) {
+        try {
+          const twitterPosts = await marketingService.fetchTwitterPosts(userId, days);
+          logger.info(`Found ${twitterPosts.length} Twitter posts`);
+
+          for (const post of twitterPosts) {
+            if (!post.content || post.content.trim().length === 0) continue;
+
+            collectedPosts.push({
+              user_id: userId,
+              profile_id: profileId,
+              platform: 'twitter',
+              source: 'api',
+              external_post_id: post.platform_post_id,
+              content: post.content,
+              media_type: 'text',
+              engagement: post.engagement || {},
+              posted_at: post.published_at
+            });
+
+            platformCounts.twitter = (platformCounts.twitter || 0) + 1;
+          }
+        } catch (err) {
+          logger.warn(`Could not fetch Twitter posts: ${err.message}`);
+        }
+      } else {
+        logger.info('Skipping Twitter collection (not in selected platforms)');
+      }
+
+      // Source 5: Reddit posts (external)
+      if (!platforms || platforms.includes('reddit')) {
+        try {
+          const redditPosts = await marketingService.fetchRedditPosts(userId, days);
+          logger.info(`Found ${redditPosts.length} Reddit posts`);
+
+          for (const post of redditPosts) {
+            if (!post.content || post.content.trim().length === 0) continue;
+
+            collectedPosts.push({
+              user_id: userId,
+              profile_id: profileId,
+              platform: 'reddit',
+              source: 'api',
+              external_post_id: post.platform_post_id,
+              content: post.content,
+              media_type: 'text',
+              engagement: post.engagement || {},
+              posted_at: post.published_at
+            });
+
+            platformCounts.reddit = (platformCounts.reddit || 0) + 1;
+          }
+        } catch (err) {
+          logger.warn(`Could not fetch Reddit posts: ${err.message}`);
+        }
+      } else {
+        logger.info('Skipping Reddit collection (not in selected platforms)');
+      }
+
+      // Source 6: Threads posts (external)
+      if (!platforms || platforms.includes('threads')) {
+        try {
+          const threadsPosts = await marketingService.fetchThreadsPosts(userId, days);
+          logger.info(`Found ${threadsPosts.length} Threads posts`);
+
+          for (const post of threadsPosts) {
+            if (!post.content || post.content.trim().length === 0) continue;
+
+            collectedPosts.push({
+              user_id: userId,
+              profile_id: profileId,
+              platform: 'threads',
+              source: 'api',
+              external_post_id: post.platform_post_id,
+              content: post.content,
+              media_type: 'text',
+              engagement: post.engagement || {},
+              posted_at: post.published_at
+            });
+
+            platformCounts.threads = (platformCounts.threads || 0) + 1;
+          }
+        } catch (err) {
+          logger.warn(`Could not fetch Threads posts: ${err.message}`);
+        }
+      } else {
+        logger.info('Skipping Threads collection (not in selected platforms)');
       }
 
       // Deduplicate by (platform, external_post_id) — internal and API posts may overlap
@@ -564,7 +654,7 @@ class BrandVoiceService {
    * @param {Array|null} platforms - Specific platforms to collect from, or null for all
    * @returns {Object} { stats, profileData }
    */
-  async buildProfile(userId, profileId, days = 180, platforms = null) {
+  async buildProfile(userId, profileId, days = 90, platforms = null) {
     logger.info(`Building profile ${profileId}: days=${days}, platforms=${platforms ? platforms.join(', ') : 'all'}`);
     const stats = await this.collectPosts(userId, profileId, days, platforms);
     const profileData = await this.analyzeVoice(userId, profileId);
@@ -581,7 +671,7 @@ class BrandVoiceService {
    * @param {number} days - Days of history to collect
    * @returns {Object} { stats, profileData }
    */
-  async refreshProfile(userId, profileId, days = 180) {
+  async refreshProfile(userId, profileId, days = 90) {
     const profile = await getBrandVoiceProfileById(profileId, userId);
     const platforms = profile?.selected_platforms || null;
     logger.info(`Refreshing profile ${profileId}: days=${days}, platforms=${platforms ? platforms.join(', ') : 'all (inherited)'}`);

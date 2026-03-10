@@ -2291,6 +2291,9 @@ function openCreateProfileModal() {
     const modal = document.getElementById('createBvProfileModal');
     document.getElementById('bvProfileNameInput').value = '';
 
+    // Platforms with full API history access (all posts, not just app-published)
+    const fullApiPlatforms = ['twitter', 'facebook', 'instagram', 'reddit', 'threads'];
+
     const platformConfig = [
         { key: 'twitter',   name: 'Twitter/X',  color: '#1DA1F2' },
         { key: 'linkedin',  name: 'LinkedIn',    color: '#0A66C2' },
@@ -2304,15 +2307,19 @@ function openCreateProfileModal() {
     ];
 
     const checkboxesEl = document.getElementById('bvPlatformCheckboxes');
-    checkboxesEl.innerHTML = platformConfig.map(p => `
+    checkboxesEl.innerHTML = platformConfig.map(p => {
+        const hasFullApi = fullApiPlatforms.includes(p.key);
+        return `
         <label class="flex items-center gap-2 p-2 rounded-lg border border-surface-200 hover:bg-surface-50 cursor-pointer transition-colors">
             <input type="checkbox" name="bvPlatform" value="${p.key}" class="rounded text-brand-600 focus:ring-brand-500">
-            <div class="w-5 h-5 rounded-full flex items-center justify-center" style="background: ${p.color}15">
+            <div class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style="background: ${p.color}15">
                 <div class="w-2.5 h-2.5 rounded-full" style="background: ${p.color}"></div>
             </div>
-            <span class="text-sm text-ink-700">${p.name}</span>
-        </label>
-    `).join('');
+            <span class="text-sm text-ink-700 flex-1">${p.name}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${hasFullApi
+                ? 'bg-green-50 text-green-600' : 'bg-surface-100 text-ink-400'}">${hasFullApi ? 'All posts' : 'App posts'}</span>
+        </label>`;
+    }).join('');
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');

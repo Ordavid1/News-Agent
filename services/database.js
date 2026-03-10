@@ -2730,7 +2730,7 @@ export async function deleteBrandVoiceGeneratedPost(postId, userId) {
 /**
  * Get all published posts for a user across all platforms (for brand voice collection)
  */
-export async function getAllPublishedPosts(userId, { days = 180, limit = 500 } = {}) {
+export async function getAllPublishedPosts(userId, { days = 90, limit = 500 } = {}) {
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await supabaseAdmin

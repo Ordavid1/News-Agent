@@ -10,6 +10,7 @@
  */
 
 import axios from 'axios';
+import { TwitterApi } from 'twitter-api-v2';
 import winston from 'winston';
 import TokenManager, { TokenDecryptionError } from './TokenManager.js';
 import {
@@ -614,6 +615,256 @@ class MarketingService {
     this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
 
     logger.info(`Fetched ${normalized.length} Instagram posts for user ${userId} (last ${days} days)`);
+    return normalized;
+  }
+
+  // ============================================
+  // PLATFORM POST HISTORY (for Brand Voice)
+  // ============================================
+
+  /**
+   * Fetch a user's tweets from their connected Twitter/X account.
+   * Uses the Twitter API v2 userTimeline endpoint.
+   *
+   * @param {string} userId - User ID
+   * @param {number} days - How many days of history to fetch (default 180)
+   * @returns {Array} Normalized post objects
+   */
+  async fetchTwitterPosts(userId, days = 90) {
+    const cacheKey = `tw:${userId}:${days}`;
+    const cached = this._pagePostsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PAGE_POSTS_CACHE_TTL) {
+      return cached.data;
+    }
+
+    const connection = await TokenManager.getTokens(userId, 'twitter');
+    if (!connection || connection.status !== 'active') {
+      logger.info(`No active Twitter connection for user ${userId}, skipping tweet fetch`);
+      return [];
+    }
+
+    const accessToken = connection.access_token;
+    const platformUserId = connection.platform_user_id;
+    if (!platformUserId) {
+      logger.warn(`Twitter connection for user ${userId} has no platform_user_id`);
+      return [];
+    }
+
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const client = new TwitterApi(accessToken);
+
+    const allTweets = [];
+
+    try {
+      let pagination_token;
+      do {
+        const params = {
+          max_results: 100,
+          start_time: sinceDate.toISOString(),
+          exclude: ['replies', 'retweets'],
+          'tweet.fields': 'id,text,created_at,public_metrics'
+        };
+        if (pagination_token) params.pagination_token = pagination_token;
+
+        const result = await client.v2.userTimeline(platformUserId, params);
+
+        if (result.data?.data) {
+          allTweets.push(...result.data.data);
+        }
+
+        pagination_token = result.data?.meta?.next_token || null;
+      } while (pagination_token && allTweets.length < 300);
+    } catch (err) {
+      logger.error(`Twitter API error fetching tweets: ${err.message}`);
+      return [];
+    }
+
+    const normalized = allTweets.map(tweet => ({
+      id: tweet.id,
+      platform_post_id: tweet.id,
+      platform: 'twitter',
+      content: tweet.text || '',
+      published_at: tweet.created_at,
+      permalink_url: `https://twitter.com/i/status/${tweet.id}`,
+      engagement: {
+        likes: tweet.public_metrics?.like_count || 0,
+        retweets: tweet.public_metrics?.retweet_count || 0,
+        replies: tweet.public_metrics?.reply_count || 0
+      },
+      source: 'api'
+    }));
+
+    this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
+    logger.info(`Fetched ${normalized.length} Twitter posts for user ${userId} (last ${days} days)`);
+    return normalized;
+  }
+
+  /**
+   * Fetch a user's Reddit submissions from their connected Reddit account.
+   * Uses the Reddit OAuth API.
+   *
+   * @param {string} userId - User ID
+   * @param {number} days - How many days of history to fetch (default 180)
+   * @returns {Array} Normalized post objects
+   */
+  async fetchRedditPosts(userId, days = 90) {
+    const cacheKey = `rd:${userId}:${days}`;
+    const cached = this._pagePostsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PAGE_POSTS_CACHE_TTL) {
+      return cached.data;
+    }
+
+    const connection = await TokenManager.getTokens(userId, 'reddit');
+    if (!connection || connection.status !== 'active') {
+      logger.info(`No active Reddit connection for user ${userId}, skipping Reddit fetch`);
+      return [];
+    }
+
+    const accessToken = connection.access_token;
+    const username = connection.platform_username;
+    if (!username) {
+      logger.warn(`Reddit connection for user ${userId} has no platform_username`);
+      return [];
+    }
+
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const sinceEpoch = Math.floor(sinceDate.getTime() / 1000);
+
+    const allPosts = [];
+    let after = null;
+
+    try {
+      do {
+        const url = new URL(`https://oauth.reddit.com/user/${username}/submitted`);
+        url.searchParams.set('sort', 'new');
+        url.searchParams.set('limit', '100');
+        url.searchParams.set('raw_json', '1');
+        if (after) url.searchParams.set('after', after);
+
+        const response = await axios.get(url.toString(), {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'User-Agent': 'NewsAgentSaaS/1.0 (by /u/' + username + ')'
+          }
+        });
+
+        const children = response.data?.data?.children || [];
+        if (children.length === 0) break;
+
+        for (const child of children) {
+          const post = child.data;
+          if (post.created_utc < sinceEpoch) {
+            after = null; // Stop paginating — posts are older than cutoff
+            break;
+          }
+          allPosts.push(post);
+        }
+
+        if (after !== null) {
+          after = response.data?.data?.after || null;
+        }
+      } while (after && allPosts.length < 300);
+    } catch (err) {
+      logger.error(`Reddit API error fetching posts: ${err.message}`);
+      return [];
+    }
+
+    const normalized = allPosts.map(post => ({
+      id: post.id,
+      platform_post_id: post.name, // Reddit fullname (t3_xxx)
+      platform: 'reddit',
+      content: post.selftext || post.title || '',
+      published_at: new Date(post.created_utc * 1000).toISOString(),
+      permalink_url: `https://www.reddit.com${post.permalink}`,
+      engagement: {
+        upvotes: post.score || 0,
+        comments: post.num_comments || 0
+      },
+      source: 'api'
+    }));
+
+    this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
+    logger.info(`Fetched ${normalized.length} Reddit posts for user ${userId} (last ${days} days)`);
+    return normalized;
+  }
+
+  /**
+   * Fetch a user's Threads posts from their connected Threads account.
+   * Uses the Threads Graph API.
+   *
+   * @param {string} userId - User ID
+   * @param {number} days - How many days of history to fetch (default 180)
+   * @returns {Array} Normalized post objects
+   */
+  async fetchThreadsPosts(userId, days = 90) {
+    const cacheKey = `th:${userId}:${days}`;
+    const cached = this._pagePostsCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < PAGE_POSTS_CACHE_TTL) {
+      return cached.data;
+    }
+
+    const connection = await TokenManager.getTokens(userId, 'threads');
+    if (!connection || connection.status !== 'active') {
+      logger.info(`No active Threads connection for user ${userId}, skipping Threads fetch`);
+      return [];
+    }
+
+    const threadsUserId = connection.platform_user_id || connection.platform_metadata?.threadsUserId;
+    const accessToken = connection.access_token;
+    if (!threadsUserId) {
+      logger.warn(`Threads connection for user ${userId} has no threadsUserId`);
+      return [];
+    }
+
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const allPosts = [];
+    let nextUrl = `https://graph.threads.net/v1.0/${threadsUserId}/threads?fields=id,text,timestamp,like_count,reply_count,permalink&access_token=${accessToken}&limit=100`;
+
+    try {
+      while (nextUrl && allPosts.length < 300) {
+        const response = await axios.get(nextUrl);
+        const result = response.data;
+
+        if (result.error) {
+          logger.error(`Threads API error: ${result.error.message}`);
+          break;
+        }
+
+        if (result.data) {
+          const filtered = result.data.filter(post => new Date(post.timestamp) >= sinceDate);
+          allPosts.push(...filtered);
+
+          // Stop paginating if batch contains posts older than cutoff
+          const oldest = result.data[result.data.length - 1];
+          if (oldest && new Date(oldest.timestamp) < sinceDate) {
+            break;
+          }
+        }
+
+        nextUrl = result.paging?.next || null;
+      }
+    } catch (err) {
+      logger.error(`Threads API error fetching posts: ${err.message}`);
+      return [];
+    }
+
+    const normalized = allPosts.map(post => ({
+      id: post.id,
+      platform_post_id: post.id,
+      platform: 'threads',
+      content: post.text || '',
+      published_at: post.timestamp,
+      permalink_url: post.permalink || null,
+      engagement: {
+        likes: post.like_count || 0,
+        replies: post.reply_count || 0
+      },
+      source: 'api'
+    }));
+
+    this._pagePostsCache.set(cacheKey, { data: normalized, timestamp: Date.now() });
+    logger.info(`Fetched ${normalized.length} Threads posts for user ${userId} (last ${days} days)`);
     return normalized;
   }
 
