@@ -132,15 +132,8 @@ router.post('/resume', async (req, res) => {
 
 // Helper function to get allowed platforms by tier
 function getAllowedPlatforms(tier) {
-  const platformsByTier = {
-    free: ['linkedin', 'reddit', 'telegram'],
-    starter: ['linkedin', 'reddit', 'facebook', 'instagram', 'telegram'],
-    growth: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
-    professional: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp'],
-    business: ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp', 'tiktok', 'youtube']
-  };
-
-  return platformsByTier[tier] || ['linkedin', 'reddit', 'telegram'];
+  // All platforms available on all tiers - post volume is what differentiates plans
+  return ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'telegram', 'whatsapp', 'threads', 'tiktok', 'youtube'];
 }
 
 export default router;

@@ -8,16 +8,16 @@ let currentPost = null;
 // Platform configurations
 // Note: 'disabled' platforms are shown faded with "Coming Soon" - integration not yet set up
 const PLATFORMS = {
-    twitter: { name: 'Twitter', icon: '🐦', available: ['growth', 'professional', 'business'] },
+    twitter: { name: 'Twitter', icon: '🐦', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     linkedin: { name: 'LinkedIn', icon: '💼', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     reddit: { name: 'Reddit', icon: '🔴', available: ['free', 'starter', 'growth', 'professional', 'business'] },
     telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    facebook: { name: 'Facebook', icon: '📘', available: ['starter', 'growth', 'professional', 'business'] },
-    threads: { name: 'Threads', icon: '@', available: [], disabled: true, disabledReason: 'Coming Soon' },
-    whatsapp: { name: 'WhatsApp', icon: '💬', available: ['growth', 'professional', 'business'] },
-    instagram: { name: 'Instagram', icon: '📸', available: ['starter', 'growth', 'professional', 'business'] },
-    tiktok: { name: 'TikTok', icon: '🎵', available: ['business'] },
-    youtube: { name: 'YouTube', icon: '▶️', available: ['business'] }
+    facebook: { name: 'Facebook', icon: '📘', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    threads: { name: 'Threads', icon: '@', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    whatsapp: { name: 'WhatsApp', icon: '💬', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    instagram: { name: 'Instagram', icon: '📸', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    tiktok: { name: 'TikTok', icon: '🎵', available: ['free', 'starter', 'growth', 'professional', 'business'] },
+    youtube: { name: 'YouTube', icon: '▶️', available: ['free', 'starter', 'growth', 'professional', 'business'] }
 };
 
 // Initialize dashboard

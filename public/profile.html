@@ -447,17 +447,24 @@
                     <!-- Starter Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-starter">
                         <h5 class="font-semibold text-lg mb-2 text-ink-800">Starter</h5>
-                        <p class="text-3xl font-bold text-ink-900 mb-4">$49<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <div class="mb-2">
+                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                        </div>
+                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$50</span>$25<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                10 posts/day (300/mo)
+                                6 text posts/day (180/mo)
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                5 platforms
+                                2 video posts/month (TikTok, YouTube)
                             </li>
-                            <li class="text-xs text-ink-400 ml-6">LinkedIn, Reddit, Facebook, Instagram, Telegram</li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                All 9 platforms
+                            </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Basic analytics
@@ -486,17 +493,24 @@
                             <h5 class="font-semibold text-lg text-ink-800">Growth</h5>
                             <span class="badge-primary text-xs">Popular</span>
                         </div>
-                        <p class="text-3xl font-bold text-ink-900 mb-4">$149<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <div class="mb-2">
+                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                        </div>
+                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$150</span>$75<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                20 posts/day (600/mo)
+                                12 text posts/day (360/mo)
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                7 platforms
+                                10 videos/month
                             </li>
-                            <li class="text-xs text-ink-400 ml-6">+ Twitter, WhatsApp</li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                All 9 platforms
+                            </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Advanced analytics
@@ -510,25 +524,32 @@
                                 Priority support
                             </li>
                         </ul>
-                        <button onclick="openBetaPlanModal('growth')" class="btn-outline w-full py-2.5 opacity-75">
-                            Coming Soon
+                        <button onclick="selectPlan('growth')" class="btn-secondary w-full py-2.5">
+                            Select Plan
                         </button>
                     </div>
 
                     <!-- Business Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-business">
                         <h5 class="font-semibold text-lg mb-2 text-ink-800">Business</h5>
-                        <p class="text-3xl font-bold text-ink-900 mb-4">$499<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <div class="mb-2">
+                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                        </div>
+                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$500</span>$250<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                45 posts/day (1,350/mo)
+                                30 text posts/day (900/mo)
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                50 videos/month
                             </li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 All 9 platforms
                             </li>
-                            <li class="text-xs text-ink-400 ml-6">+ TikTok, YouTube</li>
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                 Custom analytics
@@ -542,8 +563,8 @@
                                 24/7 Phone support
                             </li>
                         </ul>
-                        <button onclick="openBetaPlanModal('business')" class="btn-outline w-full py-2.5 opacity-75">
-                            Coming Soon
+                        <button onclick="selectPlan('business')" class="btn-secondary w-full py-2.5">
+                            Select Plan
                         </button>
                     </div>
                 </div>

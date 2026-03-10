@@ -817,10 +817,10 @@ async function selectPlan(plan) {
         try {
             // Confirm the change with the user
             const tierNames = {
-                'starter': 'Starter ($49/mo)',
-                'growth': 'Growth ($149/mo)',
-                'professional': 'Professional ($399/mo)',
-                'business': 'Business ($799/mo)'
+                'starter': 'Starter ($25/mo)',
+                'growth': 'Growth ($75/mo)',
+                'professional': 'Professional ($75/mo)',
+                'business': 'Business ($250/mo)'
             };
             const isUpgrade = getPlanIndex(tier) > getPlanIndex(currentTier);
             const actionText = isUpgrade ? 'upgrade' : 'change';
