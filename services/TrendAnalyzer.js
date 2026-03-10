@@ -40,6 +40,7 @@ class TrendAnalyzer {
       twitter: 0.3,
       google: 0.3,
       reddit: 0.2,
+      hackernews: 0.15,
       tiktok: 0.2
     };
     
@@ -317,21 +318,21 @@ async getOptimizedTwitterTrends(location = 'US') {
   const now = new Date();
   const todayFetchTime = new Date();
   todayFetchTime.setHours(this.trendsFetchSchedule.fetchHour, 0, 0, 0);
-  
+
   // Check if we should fetch fresh trends (once per day at specified hour)
-  const shouldFetchFresh = 
-    now >= todayFetchTime && 
+  const shouldFetchFresh =
+    now >= todayFetchTime &&
     this.trendsFetchSchedule.lastFetch < todayFetchTime.getTime();
-  
+
   if (shouldFetchFresh) {
     logger.info('Performing daily trends fetch...');
-    const trends = await this.getPersonalizedTrends(location);
+    const trends = await this.getTwitterTrends(location);
     if (trends && trends.length > 0) {
       this.trendsFetchSchedule.lastFetch = Date.now();
       return trends;
     }
   }
-  
+
   // For all other times, use search-based trends
   logger.debug('Using search-based trends (preserving daily trends quota)');
   return await this.getSearchBasedTrends(location);
@@ -402,6 +403,9 @@ async getOptimizedTwitterTrends(location = 'US') {
       case 'tiktok':
         trends = await this.getTikTokTrends(location);
         break;
+      case 'hackernews':
+        trends = await this.getHackerNewsTrends();
+        break;
       default:
         logger.warn(`Unknown trend source: ${source}`);
     }
@@ -431,61 +435,45 @@ async getTwitterTrends(location = 'worldwide') {
   }
 
   try {
-    // First, try v2 personalized trends (once per day)
-    const personalizedTrends = await this.getPersonalizedTrends(location);
-    if (personalizedTrends && personalizedTrends.length > 0) {
-      return personalizedTrends;
-    }
-    } catch (error) {
-    logger.debug('Personalized trends not available:', error.message);
-  }
-
-  try {
     // Map location to WOEID (Where On Earth ID)
-    const woeids = { 
-    'worldwide': 1, 'US': 23424977, 'UK': 23424975, 'IL': 23424852, 'CA': 23424775, 'AU': 23424748,
-    'IN': 23424848, 'JP': 23424856, 'BR': 23424768, 'MX': 23424900, 'ES': 23424950, 'FR': 23424819, 'DE': 23424829,
-    'IT': 23424853, 'NL': 23424909, 'SE': 23424954, 'NO': 23424910, 'DK': 23424796, 'FI': 23424812, 'PL': 23424923,
-    'RU': 23424936, 'TR': 23424969, 'SA': 23424938, 'AE': 23424738, 'ZA': 23424942, 'NG': 23424908, 'EG': 23424802,
-    'KE': 23424863, 'AR': 23424747, 'CL': 23424782, 'CO': 23424787, 'PE': 23424919, 'VE': 23424982, 'SG': 23424948,
-    'MY': 23424901, 'TH': 23424960, 'ID': 23424846, 'PH': 23424934, 'VN': 23424984, 'KR': 23424868, 'CN': 23424781,
-    'HK': 23424865, 'TW': 23424971, 'NZ': 23424916 
-  };
-    
+    const woeids = {
+      'worldwide': 1, 'US': 23424977, 'UK': 23424975, 'IL': 23424852, 'CA': 23424775, 'AU': 23424748,
+      'IN': 23424848, 'JP': 23424856, 'BR': 23424768, 'MX': 23424900, 'ES': 23424950, 'FR': 23424819, 'DE': 23424829,
+      'IT': 23424853, 'NL': 23424909, 'SE': 23424954, 'NO': 23424910, 'DK': 23424796, 'FI': 23424812, 'PL': 23424923,
+      'RU': 23424936, 'TR': 23424969, 'SA': 23424938, 'AE': 23424738, 'ZA': 23424942, 'NG': 23424908, 'EG': 23424802,
+      'KE': 23424863, 'AR': 23424747, 'CL': 23424782, 'CO': 23424787, 'PE': 23424919, 'VE': 23424982, 'SG': 23424948,
+      'MY': 23424901, 'TH': 23424960, 'ID': 23424846, 'PH': 23424934, 'VN': 23424984, 'KR': 23424868, 'CN': 23424781,
+      'HK': 23424865, 'TW': 23424971, 'NZ': 23424916
+    };
+
     const woeid = woeids[location] || woeids['worldwide'];
-    
-    // Check if we have elevated access (trends endpoint requires it)
+
+    // X API v2 trends endpoint (replaces deprecated v1.1 trends/place.json)
     try {
-      const trendsResponse = await this.sources.twitter.v1.get('trends/place.json', {
-        id: woeid
-      });
-      
-      if (!trendsResponse || !trendsResponse[0]?.trends) {
+      const trendsResponse = await this.sources.twitter.v2.get(`trends/by/woeid/${woeid}`);
+
+      if (!trendsResponse.data || !Array.isArray(trendsResponse.data)) {
         throw new Error('Invalid trends response');
       }
-      
-      // Process trends with enhanced metadata
-      const trends = trendsResponse[0].trends.map(trend => ({
-        topic: trend.name.replace(/^#/, ''),
-        query: trend.query,
-        volume: trend.tweet_volume || this.estimateVolume(trend),
+
+      const trends = trendsResponse.data.map(trend => ({
+        topic: (trend.trend_name || trend.name || '').replace(/^#/, ''),
+        query: trend.name || trend.trend_name,
+        volume: trend.tweet_count || 0,
         metadata: {
-          source: 'twitter_trends_api',
-          promoted: trend.promoted_content || false,
-          url: trend.url,
+          source: 'twitter_v2_trends',
           woeid: woeid,
           location: location,
           timestamp: new Date().toISOString()
         }
       }));
-      
-      // Cache successful response
+
       this.lastSuccessfulTrendsCall = Date.now();
-      
+      logger.info(`✅ Twitter v2 trends - Found ${trends.length} trends for WOEID ${woeid}`);
       return trends;
-      
+
     } catch (trendsError) {
-      // 402/403 = billing or access issue — search will fail too, so bail out entirely
+      // 402/403 = billing or access issue — bail out, don't waste credits on search
       if (trendsError.code === 402 || trendsError.code === 403) {
         this.twitterRateLimitReset = Date.now() + (60 * 60 * 1000);
         logger.warn(`Twitter Trends API returned ${trendsError.code} (${trendsError.code === 402 ? 'Payment Required' : 'Forbidden'}). Twitter trends disabled for 1 hour.`);
@@ -496,72 +484,10 @@ async getTwitterTrends(location = 'worldwide') {
       // Fallback to search-based trends only for non-billing errors
       return await this.getSearchBasedTrends(location);
     }
-    
+
   } catch (error) {
     logger.error('Twitter trends error:', error);
     return [];
-  }
-}
-
-async getPersonalizedTrends(location = 'US') {
-  if (!this.sources.twitter) {
-    logger.warn('Twitter client not initialized');
-    return [];
-  }
-
-  try {
-    // Check if we've already fetched trends today
-    const lastFetchKey = 'twitter_personalized_trends_last_fetch';
-    const cached = this.trendCache.get(lastFetchKey);
-    
-    if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
-      logger.info('Using cached personalized trends (24-hour limit)');
-      return cached.data;
-    }
-
-    logger.info('Fetching v2 personalized trends (once per day limit)...');
-    
-    // v2 endpoint requires user context, but we can try with app-only auth
-    const response = await this.sources.twitter.v2.get('users/personalized_trends', {
-      'trend.fields': ['context', 'description', 'entity', 'name', 'trend_name']
-    });
-
-    if (!response.data) {
-      throw new Error('No trends data received');
-    }
-
-    const trends = response.data.map(trend => ({
-      topic: trend.trend_name || trend.name,
-      query: trend.name,
-      volume: 0, // v2 doesn't provide volume
-      metadata: {
-        source: 'twitter_v2_personalized',
-        description: trend.description,
-        context: trend.context,
-        timestamp: new Date().toISOString()
-      }
-    }));
-
-    // Cache for 24 hours due to rate limit
-    this.trendCache.set(lastFetchKey, {
-      data: trends,
-      timestamp: Date.now()
-    });
-
-    logger.info(`✅ Fetched ${trends.length} personalized trends (cached for 24 hours)`);
-    return trends;
-
-  } catch (error) {
-    // 402 = pay-per-use credits insufficient; 403 = endpoint not available on current tier
-    // In both cases, don't fall back to search — it will also fail and waste credit attempts
-    if (error.code === 402 || error.code === 403) {
-      this.twitterRateLimitReset = Date.now() + (60 * 60 * 1000); // Back off for 1 hour
-      logger.warn(`Personalized trends returned ${error.code}. Twitter trends disabled for 1 hour.`);
-      return [];
-    }
-    logger.error('Personalized trends error:', error.message);
-    // Fall back to search-based trends only for non-billing errors
-    return await this.getSearchBasedTrends(location);
   }
 }
 
@@ -808,45 +734,47 @@ async getGoogleTrendsViaSerpAPI(location) {
   try {
     const response = await axios.get('https://serpapi.com/search', {
       params: {
-        engine: 'google_trends',
-        q: '', // Empty query gets trending searches
-        data_type: 'TIMESERIES',
+        engine: 'google_trends_trending_now',
         geo: location,
+        hours: 24,
+        hl: 'en',
         api_key: process.env.SERPAPI_KEY
       },
-      timeout: 10000 // 10 second timeout
+      timeout: 10000
     });
-    
-    // Check if we have trending searches
-    const trendingSearches = response.data.trending_searches?.daily || [];
-    
-    return trendingSearches.flatMap(day =>
-      day.searches?.map(search => {
+
+    // google_trends_trending_now returns daily_searches[].searches[]
+    const dailySearches = response.data?.daily_searches || [];
+
+    return dailySearches.flatMap(day =>
+      (day.searches || []).map(search => {
         const firstArticle = search.articles?.[0] || {};
         return {
           topic: search.query,
           query: search.query,
-          url: firstArticle.url || null,
+          url: firstArticle.link || null,
           title: firstArticle.title || search.query,
-          volume: parseInt(search.formattedTraffic?.replace(/[+,]/g, '') || '0'),
+          description: firstArticle.snippet || null,
+          volume: typeof search.traffic === 'number' ? search.traffic : parseInt(String(search.traffic || '0').replace(/[+,K]/gi, '')) * (String(search.traffic).includes('K') ? 1000 : 1),
           metadata: {
             source: 'google_trends_serpapi',
-            articles: search.articles?.slice(0, 3).map(a => ({
+            articles: (search.articles || []).slice(0, 3).map(a => ({
               title: a.title,
               source: a.source,
-              url: a.url
-            })) || [],
+              url: a.link
+            })),
+            relatedQueries: (search.related_queries || []).slice(0, 5).map(rq => rq.query),
             timestamp: new Date().toISOString()
           }
         };
-      }) || []
+      })
     );
-    
+
   } catch (error) {
     if (error.response?.status === 401) {
       logger.error('SerpAPI authentication failed - check API key');
     } else {
-      logger.debug('SerpAPI error:', error.message);
+      logger.warn('SerpAPI error:', error.response?.status || error.code, error.message);
     }
     return [];
   }
@@ -1204,6 +1132,58 @@ async fetchRedditHot(subreddit, token) {
         }
       }))
       .sort((a, b) => b.volume - a.volume);
+  }
+
+  /**
+   * Hacker News Trends — free, no auth, always available.
+   * Fetches top stories and extracts trending topics from titles.
+   */
+  async getHackerNewsTrends() {
+    try {
+      // Get top story IDs
+      const idsResponse = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json', {
+        timeout: 10000
+      });
+
+      const storyIds = (idsResponse.data || []).slice(0, 30); // Top 30 stories
+
+      if (storyIds.length === 0) {
+        logger.warn('Hacker News returned 0 top stories');
+        return [];
+      }
+
+      // Fetch story details in parallel (batch of 30)
+      const storyPromises = storyIds.map(id =>
+        axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, { timeout: 5000 })
+          .then(res => res.data)
+          .catch(() => null)
+      );
+
+      const stories = (await Promise.all(storyPromises)).filter(s => s && s.title && s.type === 'story');
+
+      const trends = stories.map(story => ({
+        topic: story.title,
+        query: story.title,
+        url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+        title: story.title,
+        volume: (story.score || 0) * 100, // HN score as volume proxy
+        metadata: {
+          source: 'hackernews',
+          hnId: story.id,
+          score: story.score || 0,
+          comments: story.descendants || 0,
+          author: story.by,
+          timestamp: new Date((story.time || 0) * 1000).toISOString()
+        }
+      }));
+
+      logger.info(`✅ Hacker News - Found ${trends.length} trends`);
+      return trends;
+
+    } catch (error) {
+      logger.warn('Hacker News trends error:', error.message);
+      return [];
+    }
   }
 
   /**

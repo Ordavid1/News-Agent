@@ -82,13 +82,15 @@ class MediaAssetService {
   // ============================================
 
   /**
-   * Ensure the storage bucket exists. Called lazily on first upload.
+   * Ensure the storage bucket exists and is public. Called lazily on first upload.
    */
   async ensureBucket() {
-    const { data: buckets } = await supabaseAdmin.storage.listBuckets();
-    const exists = buckets?.some(b => b.name === STORAGE_BUCKET);
+    if (this._bucketVerified) return;
 
-    if (!exists) {
+    const { data: buckets } = await supabaseAdmin.storage.listBuckets();
+    const existing = buckets?.find(b => b.name === STORAGE_BUCKET);
+
+    if (!existing) {
       const { error } = await supabaseAdmin.storage.createBucket(STORAGE_BUCKET, {
         public: true,
         fileSizeLimit: 10 * 1024 * 1024, // 10MB per file
@@ -99,7 +101,21 @@ class MediaAssetService {
         throw error;
       }
       logger.info(`Created storage bucket: ${STORAGE_BUCKET}`);
+    } else if (!existing.public) {
+      // Bucket exists but isn't public — fix it
+      const { error } = await supabaseAdmin.storage.updateBucket(STORAGE_BUCKET, {
+        public: true,
+        fileSizeLimit: 10 * 1024 * 1024,
+        allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp']
+      });
+      if (error) {
+        logger.error('Error updating storage bucket to public:', error);
+        throw error;
+      }
+      logger.info(`Updated storage bucket ${STORAGE_BUCKET} to public`);
     }
+
+    this._bucketVerified = true;
   }
 
   /**
@@ -377,8 +393,11 @@ class MediaAssetService {
     }
 
     // Build the model reference
+    // replicate_model_version may be a full ref (owner/model:hash) or just a hash
     const modelName = `media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
-    const modelRef = `${this.replicateOwner}/${modelName}:${job.replicate_model_version}`;
+    const modelRef = job.replicate_model_version.includes('/')
+      ? job.replicate_model_version
+      : `${this.replicateOwner}/${modelName}:${job.replicate_model_version}`;
 
     logger.info(`Generating image with model ${modelRef}, prompt: "${prompt.slice(0, 80)}..."`);
 
@@ -635,7 +654,7 @@ class MediaAssetService {
       try {
         await this.replicate.models.create(this.replicateOwner, modelName, {
           visibility: 'private',
-          hardware: 'gpu-a40-large',
+          hardware: 'gpu-l40s',
           description: 'Brand media LoRA fine-tune'
         });
         logger.info(`Created destination model: ${this.replicateOwner}/${modelName}`);
@@ -667,24 +686,54 @@ class MediaAssetService {
 
   /**
    * Parse training progress from Replicate logs.
+   *
+   * The ostris/flux-dev-lora-trainer outputs tqdm-style progress lines like:
+   *   flux_train_replicate:  10%|█         | 100/1000 [01:23<11:07, 1.35it/s]
+   *
+   * Preprocessing lines like "loaded 10/10 images" must NOT be matched,
+   * so we require total >= 100 (training uses ~1000 steps).
    */
   _parseProgress(logs) {
     try {
-      // Replicate logs contain lines like "step 150/1000"
-      const matches = logs.match(/step\s+(\d+)\s*\/\s*(\d+)/gi);
-      if (matches && matches.length > 0) {
-        const lastMatch = matches[matches.length - 1];
-        const [, current, total] = lastMatch.match(/step\s+(\d+)\s*\/\s*(\d+)/i);
+      // 1. Try Replicate SDK's built-in progress parser first (purpose-built)
+      const parsed = Replicate.parseProgressFromLogs?.(logs);
+      if (parsed && parsed.percentage != null) {
         return {
-          current: parseInt(current, 10),
-          total: parseInt(total, 10),
-          percentage: parseInt(current, 10) / parseInt(total, 10)
+          current: parsed.current ?? Math.round(parsed.percentage * DEFAULT_TRAINING_STEPS),
+          total: parsed.total ?? DEFAULT_TRAINING_STEPS,
+          percentage: parsed.percentage
         };
       }
 
-      // Also try the Replicate SDK's parser
-      const parsed = Replicate.parseProgressFromLogs?.(logs);
-      if (parsed) return parsed;
+      // 2. Match tqdm-style progress: "100/1000 [" (bracket distinguishes from preprocessing)
+      const tqdmMatches = logs.match(/\b(\d+)\/(\d+)\s*\[/g);
+      if (tqdmMatches && tqdmMatches.length > 0) {
+        const lastMatch = tqdmMatches[tqdmMatches.length - 1];
+        const parts = lastMatch.match(/(\d+)\/(\d+)\s*\[/);
+        if (parts) {
+          const current = parseInt(parts[1], 10);
+          const total = parseInt(parts[2], 10);
+          // Only accept if total looks like actual training steps (not preprocessing like 10/10)
+          if (total >= 100) {
+            return { current, total, percentage: current / total };
+          }
+        }
+      }
+
+      // 3. Fallback: match percentage patterns like "10%|" from tqdm
+      const pctMatches = logs.match(/(\d+)%\|/g);
+      if (pctMatches && pctMatches.length > 0) {
+        const lastPct = pctMatches[pctMatches.length - 1];
+        const pctParts = lastPct.match(/(\d+)%\|/);
+        if (pctParts) {
+          const pct = parseInt(pctParts[1], 10) / 100;
+          return {
+            current: Math.round(pct * DEFAULT_TRAINING_STEPS),
+            total: DEFAULT_TRAINING_STEPS,
+            percentage: pct
+          };
+        }
+      }
     } catch {
       // Ignore parse errors
     }

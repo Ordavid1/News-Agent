@@ -23,6 +23,7 @@ class NewsService {
     this.gnewsApiKey = process.env.GNEWS_API_KEY;
     this.googleApiKey = process.env.GOOGLE_CSE_API_KEY;
     this.googleCseId = process.env.GOOGLE_CSE_ID;
+    this.newsAiKey = process.env.NEWSAI_KEY;
 
     // Topic mappings are now loaded dynamically from config
     // This allows for better scalability and easier maintenance
@@ -50,7 +51,11 @@ class NewsService {
    * @param {Array} keywords - Array of keyword strings
    * @returns {boolean} Whether to use Hebrew search
    */
-  shouldUseHebrewSearch(region, topics = [], keywords = []) {
+  shouldUseHebrewSearch(region, topics = [], keywords = [], contentLanguage = null) {
+    // Explicit language preference takes priority
+    if (contentLanguage === 'en') return false;
+    if (contentLanguage === 'he') return true;
+
     // Check if region is Israel
     if (region && region.toLowerCase() === 'il') {
       return true;
@@ -79,10 +84,10 @@ class NewsService {
       geoFilter = {}
     } = options;
 
-    const { region = '', includeGlobal = true } = geoFilter;
+    const { region = '', includeGlobal = true, contentLanguage = null } = geoFilter;
 
     // Determine if we should use Hebrew search based on region, topics, or keywords
-    const useHebrewSearch = this.shouldUseHebrewSearch(region, topics, keywords);
+    const useHebrewSearch = this.shouldUseHebrewSearch(region, topics, keywords, contentLanguage);
     const effectiveLanguage = useHebrewSearch ? 'he' : language;
 
     logger.info(`Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}, language: ${effectiveLanguage}, useHebrewSearch: ${useHebrewSearch}`);
@@ -145,10 +150,23 @@ class NewsService {
           }
         }
 
-        // If no real APIs available or no results, use Google Custom Search
-        if (topicNews.length === 0 && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+        // FALLBACK 2: Try NewsAPI.ai (Event Registry) if GNews+NewsAPI returned no results
+        if (topicNews.length === 0 && this.newsAiKey && this.newsAiKey !== 'mock-key') {
           try {
-            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { keywords, region });
+            logger.info(`GNews+NewsAPI returned 0, falling back to NewsAPI.ai for topic: ${topic}`);
+            const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region });
+            topicNews.push(...newsAiResults);
+          } catch (error) {
+            logger.error(`NewsAPI.ai error for topic ${topic}:`, error.message);
+          }
+        }
+
+        // Google CSE is configured for Israeli news outlets — only use for Israel/Global geo
+        const isIsraelOrGlobal = useHebrewSearch || (region && region.toLowerCase() === 'il') || includeGlobal;
+        if (topicNews.length === 0 && isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+          try {
+            logger.info(`GNews+NewsAPI returned 0, falling back to Google CSE (Israel/Global) for topic: ${topic}`);
+            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region });
             topicNews.push(...googleResults);
           } catch (error) {
             logger.error(`Google CSE error for topic ${topic}:`, error.message);
@@ -160,7 +178,7 @@ class NewsService {
       if (useHebrewSearch && includeGlobal && topicNews.length < limit) {
         try {
           logger.info(`Fetching global news to supplement Hebrew results for topic: ${topic}`);
-          const globalResults = await this.fetchFromGoogleCSE(topic, 'en', { keywords, region: '' });
+          const globalResults = await this.fetchFromGoogleCSE(topic, 'en', { region: '' });
           // Add global results but mark them
           globalResults.forEach(article => {
             article.isGlobal = true;
@@ -275,32 +293,35 @@ class NewsService {
   }
 
   /**
-   * Filter articles by keywords - article must contain at least one keyword
+   * Filter articles by keywords - article must contain at least one keyword.
+   * Multi-word keywords use token-based matching: all tokens must appear in the
+   * article text (in any order/position). Single-word keywords use direct substring match.
    */
   filterByKeywords(articles, keywords) {
     if (!keywords || keywords.length === 0) return articles;
 
-    const cleanKeywords = keywords.map(k => k.replace(/^#/, '').toLowerCase());
+    // Prepare keyword matchers: each keyword becomes an array of tokens
+    const keywordMatchers = keywords.map(k => {
+      const clean = k.replace(/^#/, '').toLowerCase().trim();
+      const tokens = clean.split(/\s+/).filter(t => t.length > 0);
+      return tokens;
+    });
 
     return articles.filter(article => {
       const text = `${article.title || ''} ${article.description || ''} ${article.content || ''}`.toLowerCase();
-      return cleanKeywords.some(keyword => text.includes(keyword));
+      // Article passes if ANY keyword matches (all its tokens present in text)
+      return keywordMatchers.some(tokens =>
+        tokens.every(token => text.includes(token))
+      );
     });
   }
 
   async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { keywords = [], region = '' } = filters;
+    const { region = '' } = filters;
 
-    // Use dynamic topic queries from config
+    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-
-    // Build query with keywords if provided
-    let queryParts = [...searchQueries];
-    if (keywords.length > 0) {
-      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
-      queryParts.push(...cleanKeywords);
-    }
-    const query = queryParts.join(' OR ') || topic;
+    const query = searchQueries.join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
@@ -347,18 +368,11 @@ class NewsService {
   }
 
   async fetchFromGNews(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { keywords = [], region = '' } = filters;
+    const { region = '' } = filters;
 
-    // Use dynamic topic queries from config
+    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-
-    // Build query with keywords if provided
-    let queryParts = [...searchQueries];
-    if (keywords.length > 0) {
-      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
-      queryParts.push(...cleanKeywords);
-    }
-    const query = queryParts.join(' OR ') || topic;
+    const query = searchQueries.join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
@@ -412,18 +426,11 @@ class NewsService {
   }
 
   async fetchFromGoogleCSE(topic, language = 'en', filters = {}) {
-    const { keywords = [], region = '' } = filters;
+    const { region = '' } = filters;
 
-    // Use dynamic topic queries from config
+    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-
-    // Build query with keywords if provided
-    let queryParts = [...searchQueries];
-    if (keywords.length > 0) {
-      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
-      queryParts.push(...cleanKeywords);
-    }
-    const query = queryParts.join(' OR ') || topic;
+    const query = searchQueries.join(' OR ') || topic;
 
     const params = {
       key: this.googleApiKey,
@@ -481,6 +488,96 @@ class NewsService {
 
     } catch (error) {
       logger.error('Google CSE error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch articles from NewsAPI.ai (Event Registry)
+   * Used as fallback when GNews + NewsAPI.org both return 0 results.
+   * Free tier: 2,000 searches/month.
+   */
+  async fetchFromNewsApiAi(topic, language = 'en', filters = {}) {
+    const { region = '' } = filters;
+
+    // Event Registry uses 3-letter language codes
+    const langMap = {
+      'en': 'eng', 'he': 'heb', 'es': 'spa', 'fr': 'fra', 'de': 'deu',
+      'pt': 'por', 'it': 'ita', 'ja': 'jpn', 'ko': 'kor', 'zh': 'zho',
+      'ar': 'ara', 'ru': 'rus', 'nl': 'nld', 'sv': 'swe', 'no': 'nor'
+    };
+    const erLang = langMap[language] || 'eng';
+
+    const searchQueries = getTopicSearchQueries(topic);
+    const keywords = searchQueries.length > 0 ? searchQueries : [topic];
+
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - 7);
+
+    const requestBody = {
+      action: 'getArticles',
+      keyword: keywords,
+      keywordOper: 'or',
+      lang: erLang,
+      dateStart: fromDate.toISOString().split('T')[0],
+      dateEnd: new Date().toISOString().split('T')[0],
+      articlesPage: 1,
+      articlesCount: 20,
+      articlesSortBy: 'rel',
+      resultType: 'articles',
+      isDuplicateFilter: 'skipDuplicates',
+      apiKey: this.newsAiKey
+    };
+
+    // Add source location filter if region is specified
+    if (region) {
+      const locationMap = {
+        'us': 'http://en.wikipedia.org/wiki/United_States',
+        'gb': 'http://en.wikipedia.org/wiki/United_Kingdom',
+        'il': 'http://en.wikipedia.org/wiki/Israel',
+        'ca': 'http://en.wikipedia.org/wiki/Canada',
+        'au': 'http://en.wikipedia.org/wiki/Australia',
+        'de': 'http://en.wikipedia.org/wiki/Germany',
+        'fr': 'http://en.wikipedia.org/wiki/France'
+      };
+      if (locationMap[region.toLowerCase()]) {
+        requestBody.sourceLocationUri = locationMap[region.toLowerCase()];
+      }
+    }
+
+    try {
+      const response = await axios.post(
+        'https://eventregistry.org/api/v1/article/getArticles',
+        requestBody,
+        { timeout: 15000 }
+      );
+
+      const results = response.data?.articles?.results || [];
+
+      logger.info(`NewsAPI.ai returned ${results.length} articles for topic: ${topic}`);
+
+      return results.map(article => ({
+        title: article.title,
+        description: article.body ? article.body.substring(0, 300) : '',
+        content: article.body,
+        url: article.url,
+        urlToImage: article.image || null,
+        publishedAt: article.dateTimePub || article.dateTime,
+        source: {
+          name: article.source?.title || 'Unknown',
+          api: 'newsapi-ai'
+        },
+        topic,
+        sentiment: article.sentiment || null,
+        relevanceScore: this.calculateRelevanceScore(article, topic)
+      }));
+
+    } catch (error) {
+      if (error.response?.status === 401) {
+        logger.error('NewsAPI.ai authentication failed - check NEWSAI_KEY');
+      } else if (error.response?.status === 429) {
+        logger.warn('NewsAPI.ai token limit reached');
+      }
       throw error;
     }
   }

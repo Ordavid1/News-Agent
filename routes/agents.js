@@ -251,7 +251,8 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
         keywords,
         geoFilter: {
           region: settings.geoFilter?.region ?? '',
-          includeGlobal: settings.geoFilter?.includeGlobal ?? true
+          includeGlobal: settings.geoFilter?.includeGlobal ?? true,
+          ...(settings.geoFilter?.contentLanguage && { contentLanguage: settings.geoFilter.contentLanguage })
         },
         schedule: {
           postsPerDay: parseInt(settings.schedule?.postsPerDay) || 3,
@@ -348,7 +349,10 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
         keywords,
         geoFilter: {
           region: settings.geoFilter?.region ?? agent.settings?.geoFilter?.region ?? '',
-          includeGlobal: settings.geoFilter?.includeGlobal ?? agent.settings?.geoFilter?.includeGlobal ?? true
+          includeGlobal: settings.geoFilter?.includeGlobal ?? agent.settings?.geoFilter?.includeGlobal ?? true,
+          ...((settings.geoFilter?.contentLanguage || agent.settings?.geoFilter?.contentLanguage) && {
+            contentLanguage: settings.geoFilter?.contentLanguage ?? agent.settings?.geoFilter?.contentLanguage
+          })
         },
         schedule: {
           postsPerDay: parseInt(settings.schedule?.postsPerDay) || agent.settings?.schedule?.postsPerDay || 3,

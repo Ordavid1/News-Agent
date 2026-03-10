@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize platform-specific toggles
     initializeRedditSubredditToggle();
     initializeTwitterPremiumToggle();
+    initializeGeoLanguageToggle();
 });
 
 /**
@@ -474,6 +475,25 @@ function initializeTwitterPremiumToggle() {
         // Toggle on change
         twitterCheckbox.addEventListener('change', (e) => {
             premiumConfig.classList.toggle('hidden', !e.target.checked);
+        });
+    }
+}
+
+/**
+ * Initialize geographic region language toggle
+ * Shows/hides the content language radio buttons when Israel is selected
+ */
+function initializeGeoLanguageToggle() {
+    const geoRegionSelect = document.querySelector('select[name="geoRegion"]');
+    const languageRow = document.getElementById('israelLanguageRow');
+
+    if (geoRegionSelect && languageRow) {
+        // Initial state
+        languageRow.classList.toggle('hidden', geoRegionSelect.value !== 'il');
+
+        // Toggle on change
+        geoRegionSelect.addEventListener('change', () => {
+            languageRow.classList.toggle('hidden', geoRegionSelect.value !== 'il');
         });
     }
 }
@@ -924,9 +944,19 @@ function populateForm(settings) {
 
         if (geoRegion && settings.geoFilter.region !== undefined) {
             geoRegion.value = settings.geoFilter.region || '';
+            // Show/hide Israel language row based on loaded region
+            const languageRow = document.getElementById('israelLanguageRow');
+            if (languageRow) {
+                languageRow.classList.toggle('hidden', geoRegion.value !== 'il');
+            }
         }
         if (includeGlobalNews && settings.geoFilter.includeGlobal !== undefined) {
             includeGlobalNews.checked = settings.geoFilter.includeGlobal;
+        }
+        // Restore content language preference for Israel
+        if (settings.geoFilter.contentLanguage) {
+            const langRadio = document.querySelector(`input[name="contentLanguage"][value="${settings.geoFilter.contentLanguage}"]`);
+            if (langRadio) langRadio.checked = true;
         }
     }
 
@@ -1110,7 +1140,10 @@ async function saveAgentWithSettings() {
         keywords: keywords,
         geoFilter: {
             region: geoRegionSelect ? geoRegionSelect.value : '',
-            includeGlobal: includeGlobalNewsCheckbox ? includeGlobalNewsCheckbox.checked : true
+            includeGlobal: includeGlobalNewsCheckbox ? includeGlobalNewsCheckbox.checked : true,
+            ...(geoRegionSelect?.value === 'il' && {
+                contentLanguage: document.querySelector('input[name="contentLanguage"]:checked')?.value || 'he'
+            })
         },
         schedule: {
             postsPerDay: parseInt(document.querySelector('select[name="postsPerDay"]')?.value) || 3,
@@ -1423,9 +1456,19 @@ function populateFormWithAgentSettings(settings) {
 
         if (geoRegion && settings.geoFilter.region !== undefined) {
             geoRegion.value = settings.geoFilter.region || '';
+            // Show/hide Israel language row based on loaded region
+            const languageRow = document.getElementById('israelLanguageRow');
+            if (languageRow) {
+                languageRow.classList.toggle('hidden', geoRegion.value !== 'il');
+            }
         }
         if (includeGlobalNews && settings.geoFilter.includeGlobal !== undefined) {
             includeGlobalNews.checked = settings.geoFilter.includeGlobal;
+        }
+        // Restore content language preference for Israel
+        if (settings.geoFilter.contentLanguage) {
+            const langRadio = document.querySelector(`input[name="contentLanguage"][value="${settings.geoFilter.contentLanguage}"]`);
+            if (langRadio) langRadio.checked = true;
         }
     }
 
@@ -1597,7 +1640,10 @@ async function saveAgentSettings() {
         keywords: keywords,
         geoFilter: {
             region: geoRegionSelect ? geoRegionSelect.value : '',
-            includeGlobal: includeGlobalNewsCheckbox ? includeGlobalNewsCheckbox.checked : true
+            includeGlobal: includeGlobalNewsCheckbox ? includeGlobalNewsCheckbox.checked : true,
+            ...(geoRegionSelect?.value === 'il' && {
+                contentLanguage: document.querySelector('input[name="contentLanguage"]:checked')?.value || 'he'
+            })
         },
         schedule: {
             postsPerDay: parseInt(document.querySelector('select[name="postsPerDay"]').value) || 3,

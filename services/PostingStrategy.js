@@ -72,8 +72,9 @@ async getOptimalTrend(options = {}) {
     excludeCategories = [],
     retryAttempts = 3,
     cacheTrends = true,
-    returnMultiple = false, // NEW: Option to return multiple trends
-    timeout = 30000 // 30 second timeout
+    returnMultiple = false,
+    userId = null,
+    timeout = 30000
   } = options;
   
   try {
@@ -117,7 +118,8 @@ async getOptimalTrend(options = {}) {
         // Apply multi-stage filtering with relaxed rules
         const filteredTrends = await this.applyAdvancedFiltering(trends, {
           excludeCategories,
-          preferredCategory
+          preferredCategory,
+          userId
         });
         
         logger.info(`${filteredTrends.length} trends passed filtering`);
@@ -203,132 +205,76 @@ async getOptimalTrend(options = {}) {
 }
 
 async applyAdvancedFiltering(trends, options) {
-  const { excludeCategories, preferredCategory } = options;
-  
-  // First pass: basic safety filtering
+  const { excludeCategories, preferredCategory, userId } = options;
+
+  // Pass 1: Basic safety filtering (cheap, in-memory)
   let safeTrends = await trendAnalyzer.filterTrends(trends, {
     excludeControversial: true,
     excludeAdult: true,
     minConfidence: this.qualityThresholds.minConfidence
   });
-  
+
   logger.debug(`${safeTrends.length} trends passed safety filtering`);
-  
-  // NEW: Filter out exact duplicates posted recently - with performance optimization
-  logger.info(`Checking ${safeTrends.length} trends for duplicates...`);
-  
-  // Batch check for better performance
-  const duplicateCheckPromises = safeTrends.map(async (trend) => {
-    const isDuplicate = await this.checkExactDuplicatePosted(trend, 8); // Check last 8 hours
-    return { trend, isDuplicate };
-  });
-  
-  // Process in batches of 10 to avoid overwhelming the database
-  const batchSize = 10;
-  const nonDuplicateTrends = [];
-  
-  for (let i = 0; i < duplicateCheckPromises.length; i += batchSize) {
-    const batch = duplicateCheckPromises.slice(i, i + batchSize);
-    const results = await Promise.all(batch);
-    
-    for (const { trend, isDuplicate } of results) {
-      if (!isDuplicate) {
-        nonDuplicateTrends.push(trend);
-      } else {
-        logger.info(`Filtered out duplicate trend: "${trend.topic}"`);
-      }
-    }
-    
-    // Log progress
-    if (i + batchSize < duplicateCheckPromises.length) {
-      logger.debug(`Duplicate check progress: ${Math.min(i + batchSize, duplicateCheckPromises.length)}/${duplicateCheckPromises.length}`);
-    }
-  }
-  
-  safeTrends = nonDuplicateTrends;
-  logger.info(`${safeTrends.length} trends passed duplicate filtering`);
-  
-  // NEW: Apply category-based filtering
+
+  // Pass 2: Category filtering (cheap, in-memory — run BEFORE expensive duplicate check)
   const enabledCategories = getEnabledCategories();
   logger.info(`Filtering for enabled categories: ${enabledCategories.join(', ')}`);
-  
+
   safeTrends = safeTrends.filter(trend => {
     const categoryCheck = isTopicInEnabledCategory(trend.topic);
-    
+
     if (!categoryCheck.allowed) {
-      logger.debug(`Filtered out "${trend.topic}" - not in enabled categories`);
       return false;
     }
-    
-    logger.debug(`Trend "${trend.topic}" matched category: ${categoryCheck.category}`);
-    
-    // Store the matched category for later use
+
     trend.matchedCategory = categoryCheck.category;
-    
     return true;
   });
-  
+
   logger.info(`${safeTrends.length} trends passed category filtering`);
-  
+
   // Additional political content filtering (if politics is disabled)
   if (!TOPIC_CATEGORIES.politics.enabled) {
     const politicalKeywords = TOPIC_CATEGORIES.politics.keywords;
-    
+
     safeTrends = safeTrends.filter(trend => {
       const topicLower = trend.topic.toLowerCase();
-      const isPolitical = politicalKeywords.some(keyword => 
+      return !politicalKeywords.some(keyword =>
         topicLower.includes(keyword.toLowerCase())
       );
-      
-      if (isPolitical) {
-        logger.debug(`Filtered out political trend: "${trend.topic}"`);
-        return false;
-      }
-      
-      return true;
     });
   }
-  
-  // Rest of your existing filtering logic continues here...
-  // Second pass: quality filtering with relaxed rules
+
+  // Pass 3: Quality filtering (cheap, in-memory)
   safeTrends = safeTrends.filter(trend => {
-    // FIXED: More flexible source checking
     const sourceCount = Array.isArray(trend.sources) ? trend.sources.length : 1;
-    
+
     if (sourceCount < this.qualityThresholds.minSourceCount) {
-      logger.debug(`Filtered out "${trend.topic}" - only ${sourceCount} source(s)`);
       return false;
     }
-    
+
     // Apply category weight bonus
     if (trend.matchedCategory && TOPIC_CATEGORIES[trend.matchedCategory]) {
       const categoryWeight = TOPIC_CATEGORIES[trend.matchedCategory].weight;
       trend.score = (trend.score || 1) * categoryWeight;
-      logger.debug(`Applied category weight ${categoryWeight} to "${trend.topic}"`);
     }
-    
-    // Rest of your existing quality checks...
+
     const volume = trend.volume || 0;
     if (volume > 0 && volume < this.qualityThresholds.minEngagementScore) {
-      logger.debug(`Filtered out "${trend.topic}" - low engagement: ${volume}`);
       return false;
     }
-    
+
     if (trend.topic.split(' ').length === 1 && trend.topic.length < 4) {
-      logger.debug(`Filtered out "${trend.topic}" - too generic`);
       return false;
     }
-    
+
     return true;
   });
-  
-  // Third pass: content quality check
-  return safeTrends.filter(trend => {
 
-    // Filter out single words that are likely not real trends
+  // Content quality check
+  safeTrends = safeTrends.filter(trend => {
     const lowQualityWords = ['failed', 'error', 'undefined', 'null', 'test', 'example'];
     if (trend.topic.split(' ').length === 1 && lowQualityWords.includes(trend.topic.toLowerCase())) {
-      logger.debug(`Filtered out "${trend.topic}" - low quality single word`);
       return false;
     }
 
@@ -339,18 +285,23 @@ async applyAdvancedFiltering(trends, options) {
       /shocking/i,
       /\d+ reasons why/i
     ];
-    
-    const hasClickbait = clickbaitPatterns.some(pattern => 
-      pattern.test(trend.topic)
-    );
-    
-    if (hasClickbait) {
-      logger.debug(`Filtered out "${trend.topic}" - clickbait pattern`);
+
+    if (clickbaitPatterns.some(pattern => pattern.test(trend.topic))) {
       return false;
     }
-    
+
     return true;
   });
+
+  logger.info(`${safeTrends.length} trends passed category+quality filtering`);
+
+  // Pass 4: Duplicate check (expensive DB query — now runs LAST on smaller set)
+  // Single query: fetch recent posts once, compare all trends in-memory
+  safeTrends = await this.filterDuplicateTrends(safeTrends, { hours: 8, userId });
+
+  logger.info(`${safeTrends.length} trends passed all filtering`);
+
+  return safeTrends;
 }
 
   // ADDED: Relaxed filtering for when strict filtering yields no results
@@ -481,66 +432,81 @@ async getTopicUsageCount(normalizedTopic, hours = 24) {
 }
 
 // NEW: Check for exact duplicate articles posted recently
-async checkExactDuplicatePosted(trend, hours = 8) {
+/**
+ * Batch duplicate filter: fetches recent posts ONCE, then filters all trends in-memory.
+ * Scoped to the current user when userId is provided (multi-tenant isolation).
+ */
+async filterDuplicateTrends(trends, { hours = 8, userId = null } = {}) {
+  if (!trends || trends.length === 0) return trends;
+
   try {
     const since = new Date();
     since.setHours(since.getHours() - hours);
 
-    // Check published posts for exact title/topic match
-    const { data: posts, error } = await this.db
+    // Single DB query — scoped to user if available
+    let query = this.db
       .from('published_posts')
       .select('trend, topic, content')
       .gt('published_at', since.toISOString())
-      .limit(100);
+      .limit(200);
+
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+
+    const { data: posts, error } = await query;
 
     if (error) {
-      logger.error('Error checking exact duplicates:', error.message);
-      return false;
+      logger.error('Error fetching recent posts for duplicate check:', error.message);
+      return trends; // On error, don't filter anything
     }
 
-    // Early return if no posts
-    if (!posts || posts.length === 0) return false;
+    if (!posts || posts.length === 0) return trends;
 
-    // Normalize the trend topic once
-    const trendTopicLower = trend.topic ? trend.topic.toLowerCase() : '';
-    const trendTitleLower = trend.title ? trend.title.toLowerCase() : '';
+    // Pre-process posted topics/titles for efficient comparison
+    const postedEntries = posts
+      .map(post => ({
+        topic: (post.trend?.topic || post.topic || '').toLowerCase(),
+        title: (post.trend?.title || '').toLowerCase()
+      }))
+      .filter(e => e.topic || e.title);
 
-    // Check for exact matches in recent posts
-    for (const post of posts) {
-      const postedTopic = post.trend?.topic || post.topic || '';
-      const postedTitle = post.trend?.title || '';
+    logger.info(`Checking ${trends.length} trends against ${postedEntries.length} recent posts for duplicates...`);
 
-      // Skip empty posts
-      if (!postedTopic && !postedTitle) continue;
+    const nonDuplicates = trends.filter(trend => {
+      const trendTopicLower = (trend.topic || '').toLowerCase();
+      const trendTitleLower = (trend.title || '').toLowerCase();
 
-      // Check exact topic match
-      if (postedTopic && trendTopicLower &&
-          postedTopic.toLowerCase() === trendTopicLower) {
-        logger.warn(`DUPLICATE: Exact topic match found: "${trend.topic}"`);
-        return true;
-      }
+      for (const posted of postedEntries) {
+        // Exact topic match
+        if (posted.topic && trendTopicLower && posted.topic === trendTopicLower) {
+          logger.warn(`DUPLICATE: Exact topic match found: "${trend.topic}"`);
+          return false;
+        }
 
-      // Check title match (for news articles)
-      if (trendTitleLower && postedTitle &&
-          postedTitle.toLowerCase() === trendTitleLower) {
-        logger.warn(`DUPLICATE: Exact title match found: "${trend.title}"`);
-        return true;
-      }
+        // Exact title match
+        if (posted.title && trendTitleLower && posted.title === trendTitleLower) {
+          logger.warn(`DUPLICATE: Exact title match found: "${trend.title}"`);
+          return false;
+        }
 
-      // Check for very similar topics (80% similarity) - only for longer topics
-      if (postedTopic && trend.topic && trend.topic.length > 10) {
-        const similarity = this.calculateSimilarity(postedTopic, trend.topic);
-        if (similarity > 0.8) {
-          logger.warn(`DUPLICATE: High similarity (${(similarity * 100).toFixed(0)}%) found: "${trend.topic}" vs "${postedTopic}"`);
-          return true;
+        // High similarity check (80%+) for longer topics
+        if (posted.topic && trendTopicLower && trendTopicLower.length > 10) {
+          const similarity = this.calculateSimilarity(posted.topic, trendTopicLower);
+          if (similarity > 0.8) {
+            logger.warn(`DUPLICATE: High similarity (${(similarity * 100).toFixed(0)}%) found: "${trend.topic}"`);
+            return false;
+          }
         }
       }
-    }
 
-    return false;
+      return true;
+    });
+
+    return nonDuplicates;
   } catch (error) {
-    logger.error('Error checking exact duplicates:', error);
-    return false;
+    logger.error('Error in batch duplicate check:', error);
+    return trends; // On error, don't filter anything
   }
 }
 
@@ -706,6 +672,9 @@ getOptimalSources() {
     }
   }
     
+    // Hacker News — free, no auth, always available as a tech trend supplement
+    availableSources.push('hackernews');
+
     // Only include TikTok if explicitly enabled and working
     if (process.env.ENABLE_TIKTOK_SCRAPING === 'true') {
       availableSources.push('tiktok');

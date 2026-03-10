@@ -76,7 +76,7 @@ async function workerTick() {
         const organicResult = await marketingService.syncOrganicMetrics(userId);
         logger.info(`[MarketingMetrics] User ${userId}: synced ${organicResult.synced} organic posts`);
       } catch (error) {
-        logger.error(`[MarketingMetrics] Error syncing user ${userId}:`, error.message);
+        logger.error(`[MarketingMetrics] Error syncing user ${userId}: ${error.message}`);
       }
     }
 

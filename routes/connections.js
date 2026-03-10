@@ -1172,7 +1172,34 @@ router.get('/facebook/marketing/initiate', authenticateToken, async (req, res) =
       }
 
       if (existingConnection.platform_metadata?.marketingEnabled) {
-        // Marketing is already fully enabled
+        // Marketing flag is set — but ad accounts may have been deleted (e.g. after disconnect/reconnect).
+        // Re-discover ad accounts if none exist.
+        const { getUserAdAccounts, upsertAdAccount, getMarketingAddon } = await import('../services/database-wrapper.js');
+        const existingAccounts = await getUserAdAccounts(userId);
+
+        if (existingAccounts.length === 0) {
+          logger.info(`[MARKETING-AUTH] marketingEnabled=true but no ad accounts — re-discovering for user ${userId}`);
+          const adAccounts = await ConnectionManager.discoverAdAccounts(existingConnection.access_token);
+          const addon = await getMarketingAddon(userId);
+          const maxAdAccounts = addon?.max_ad_accounts || 1;
+          const accountsToStore = adAccounts.slice(0, maxAdAccounts);
+
+          for (const account of accountsToStore) {
+            await upsertAdAccount({
+              userId,
+              ...account,
+              isSelected: accountsToStore.length === 1
+            });
+          }
+
+          return res.json({
+            success: true,
+            alreadyAuthorized: true,
+            storedAccounts: accountsToStore.length,
+            message: 'Marketing re-enabled — ad accounts discovered.'
+          });
+        }
+
         return res.json({
           success: true,
           alreadyAuthorized: true,

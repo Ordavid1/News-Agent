@@ -310,6 +310,10 @@ export async function updateTokens(connectionId, {
  * Mark connection as expired/error and auto-pause any associated agent
  */
 export async function markConnectionError(connectionId, errorMessage) {
+  // Log the status change with a stack trace so we can identify the caller
+  const callerStack = new Error().stack.split('\n').slice(1, 4).map(l => l.trim()).join(' <- ');
+  logger.warn(`[TokenManager] markConnectionError called for connection ${connectionId}: ${errorMessage} | Caller: ${callerStack}`);
+
   const { error } = await supabaseAdmin
     .from('social_connections')
     .update({
@@ -458,6 +462,28 @@ async function pauseAgentForConnection(connectionId, reason) {
   }
 }
 
+/**
+ * Get connection status and metadata WITHOUT decrypting tokens.
+ * Safe for read-only checks (UI status display, marketing tab checks).
+ * Will never trigger markConnectionError since no decryption occurs.
+ */
+export async function getConnectionStatus(userId, platform) {
+  const { data, error } = await supabaseAdmin
+    .from('social_connections')
+    .select('id, platform, platform_username, platform_display_name, platform_metadata, status, scopes, token_expires_at, last_error, created_at, updated_at')
+    .eq('user_id', userId)
+    .eq('platform', platform)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting connection status:', error);
+    throw error;
+  }
+
+  return data || null;
+}
+
 export default {
   TokenDecryptionError,
   encryptToken,
@@ -465,6 +491,7 @@ export default {
   storeTokens,
   getTokens,
   getTokensByConnectionId,
+  getConnectionStatus,
   updateTokens,
   markConnectionError,
   markConnectionExpired,

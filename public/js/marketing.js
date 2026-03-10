@@ -2481,13 +2481,16 @@ function startBrandVoicePolling(profileId) {
                     loadBrandVoiceProfiles();
                 }
             } else {
-                // Update the status badge in the list if visible
-                loadBrandVoiceProfiles();
+                // Update the status badge inline (avoid full list reload to save rate limit)
+                const statusBadge = document.querySelector(`[data-bv-profile-id="${profileId}"] .bv-status-badge`);
+                if (statusBadge) {
+                    statusBadge.textContent = profile.status === 'building' ? 'Analyzing...' : profile.status;
+                }
             }
         } catch (err) {
             // Silently continue polling
         }
-    }, 5000); // Poll every 5 seconds
+    }, 10000); // Poll every 10 seconds
 }
 
 async function openBrandVoiceDetail(profileId) {
@@ -3109,31 +3112,46 @@ async function loadMediaAssets() {
 
     const acctId = selectedAdAccount.id;
 
-    try {
-        // Load assets, training status, and generated media in parallel
-        const [assetsRes, trainingRes, generatedRes] = await Promise.all([
-            apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
-            apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`),
-            apiGet(`/api/marketing/media-assets/generated?adAccountId=${acctId}`)
-        ]);
+    // Load each section independently — one failure must not break the others
+    const [assetsResult, trainingResult, generatedResult] = await Promise.allSettled([
+        apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
+        apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`),
+        apiGet(`/api/marketing/media-assets/generated?adAccountId=${acctId}`)
+    ]);
 
-        mediaAssets = assetsRes.assets || [];
-        mediaTrainingJob = trainingRes.job || null;
-        generatedMedia = generatedRes.media || [];
+    // Assets
+    if (assetsResult.status === 'fulfilled') {
+        mediaAssets = assetsResult.value.assets || [];
+    } else {
+        console.error('[MediaAssets] Failed to load assets:', assetsResult.reason);
+        mediaAssets = [];
+    }
+    renderMediaAssetGrid();
 
-        renderMediaAssetGrid();
-        renderTrainingStatus();
-        renderGenerationSection();
-        renderGeneratedMedia();
-        initMediaDropZone();
+    // Training status
+    if (trainingResult.status === 'fulfilled') {
+        mediaTrainingJob = trainingResult.value.job || null;
+    } else {
+        console.error('[MediaAssets] Failed to load training status:', trainingResult.reason);
+        mediaTrainingJob = null;
+    }
+    renderTrainingStatus();
+    renderGenerationSection();
 
-        // If training is in progress, start polling
-        if (mediaTrainingJob && mediaTrainingJob.status === 'training') {
-            startTrainingPolling();
-        }
-    } catch (error) {
-        console.error('Failed to load media assets:', error);
-        showToast('Failed to load media assets', 'error');
+    // Generated images
+    if (generatedResult.status === 'fulfilled') {
+        generatedMedia = generatedResult.value.media || [];
+    } else {
+        console.error('[MediaAssets] Failed to load generated media:', generatedResult.reason);
+        generatedMedia = [];
+    }
+    renderGeneratedMedia();
+
+    initMediaDropZone();
+
+    // If training is in progress, start polling
+    if (mediaTrainingJob && mediaTrainingJob.status === 'training') {
+        startTrainingPolling();
     }
 }
 
@@ -3315,10 +3333,12 @@ function renderMediaAssetGrid() {
     }
 
     empty.classList.add('hidden');
+    console.log('[MediaAssets] Rendering grid with', count, 'assets. First URL:', mediaAssets[0]?.public_url);
     grid.innerHTML = mediaAssets.map(asset => `
         <div class="group relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
             <img src="${escapeHtml(asset.public_url)}" alt="${escapeHtml(asset.file_name)}"
-                class="w-full h-full object-cover">
+                class="w-full h-full object-cover"
+                onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-ink-300\\' title=\\'Image failed to load: ${escapeHtml(asset.public_url).replace(/'/g, '')}\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>';">
             <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                 <button onclick="deleteMediaAsset('${asset.id}')"
                     class="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600">

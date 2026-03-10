@@ -21,21 +21,24 @@ const containsHebrew = (text) => {
  * @returns {boolean} Whether to use Hebrew language
  */
 const isHebrewLanguage = (agentSettings) => {
-  const region = agentSettings?.geoFilter?.region || '';
-  const topics = agentSettings?.topics || [];
-  const keywords = agentSettings?.keywords || [];
+  const contentLanguage = agentSettings?.geoFilter?.contentLanguage;
 
-  // Check if region is Israel
+  // Explicit language preference takes priority
+  if (contentLanguage === 'en') return false;
+  if (contentLanguage === 'he') return true;
+
+  // Auto-detection: region, topics, keywords
+  const region = agentSettings?.geoFilter?.region || '';
   if (region.toLowerCase() === 'il') {
     return true;
   }
 
-  // Check if any topic contains Hebrew characters
+  const topics = agentSettings?.topics || [];
   if (topics.some(topic => containsHebrew(topic))) {
     return true;
   }
 
-  // Check if any keyword contains Hebrew characters
+  const keywords = agentSettings?.keywords || [];
   if (keywords.some(keyword => containsHebrew(keyword))) {
     return true;
   }

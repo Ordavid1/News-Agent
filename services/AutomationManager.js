@@ -513,7 +513,8 @@ class AutomationManager {
 
       const generalTrend = await this.postingStrategy.getOptimalTrend({
         preferredCategory: this.mapPlatformToCategory(agent.platform),
-        returnMultiple: false
+        returnMultiple: false,
+        userId: agent.user_id
       });
 
       if (!generalTrend) return null;

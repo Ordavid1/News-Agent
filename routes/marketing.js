@@ -117,13 +117,14 @@ async function resolveAdAccountId(req) {
  */
 router.get('/ad-accounts', async (req, res) => {
   try {
-    // Verify user has an active Facebook connection before returning ad accounts
+    // Verify user has an active Facebook connection before returning ad accounts.
+    // Use getConnectionStatus (no decryption) to avoid triggering markConnectionError
+    // on read-only status checks — decryption side-effects can permanently kill connections.
     const TokenManager = (await import('../services/TokenManager.js')).default;
-    const connection = await TokenManager.getTokens(req.user.id, 'facebook');
+    const connection = await TokenManager.getConnectionStatus(req.user.id, 'facebook');
 
     if (!connection || connection.status !== 'active') {
-      // Clean up stale accounts from a previous connection
-      await deleteAllUserAdAccounts(req.user.id);
+      logger.info(`[ad-accounts] Facebook connection status for user ${req.user.id}: ${connection?.status || 'null'}`);
       return res.json({ success: true, accounts: [], needsConnection: true });
     }
 
@@ -1409,12 +1410,19 @@ router.get('/media-assets/training/status', async (req, res) => {
       return res.status(400).json({ error: 'adAccountId query parameter is required' });
     }
 
-    // If training is in progress, check Replicate for updates
+    // Get job from DB first (always works regardless of Replicate availability)
     const existingJob = await mediaAssetService.getTrainingJob(req.user.id, adAccountId);
     let job = existingJob;
 
+    // If training is in progress, try to check Replicate for updates
+    // but don't fail the entire request if Replicate is unavailable
     if (existingJob && existingJob.status === 'training') {
-      job = await mediaAssetService.checkTrainingStatus(req.user.id, adAccountId);
+      try {
+        job = await mediaAssetService.checkTrainingStatus(req.user.id, adAccountId);
+      } catch (replicateErr) {
+        logger.warn(`[MediaAssets] Replicate status check failed (returning cached job): ${replicateErr.message}`);
+        // Return the existing DB job — progress won't update but data is preserved
+      }
     }
 
     res.json({ job });
