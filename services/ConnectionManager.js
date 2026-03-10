@@ -516,33 +516,88 @@ async function fetchFacebookPageInfo(accessToken) {
  * Exchange a short-lived Facebook/Instagram token for a long-lived token.
  * Short-lived tokens last ~1-2 hours. Long-lived tokens last ~60 days.
  * Page tokens derived from long-lived user tokens are never-expiring.
+ *
+ * IMPORTANT: This function throws on failure instead of falling back to the
+ * short-lived token. A short-lived token is unusable in a SaaS context where
+ * posts may be scheduled hours or days later. The caller's error handling
+ * will show the user a clear "please try again" message.
+ *
  * @param {string} shortLivedToken - The short-lived access token from OAuth code exchange
  * @returns {Object} { accessToken, expiresIn } - Long-lived token and its expiry in seconds
+ * @throws {Error} If the exchange fails after retries
  */
 async function exchangeForLongLivedToken(shortLivedToken) {
   const clientId = getClientId('facebook');
   const clientSecret = getClientSecret('facebook');
 
-  try {
-    const response = await fetch(
-      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token?` +
-      `grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}` +
-      `&fb_exchange_token=${shortLivedToken}`
+  const url = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token?` +
+    `grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}` +
+    `&fb_exchange_token=${shortLivedToken}`;
+
+  const response = await fetchWithRetry(
+    () => fetch(url),
+    { maxRetries: 3, baseDelayMs: 2000, context: 'Facebook long-lived token exchange' }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error('Failed to exchange for long-lived Facebook token after retries:', errorText);
+    throw new Error(
+      'Failed to obtain a long-lived Facebook token. Your connection would expire within 1-2 hours. Please try connecting again.'
     );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.warn('Failed to exchange for long-lived token:', errorText);
-      return { accessToken: shortLivedToken, expiresIn: null };
-    }
-
-    const data = await response.json();
-    logger.info(`Exchanged for long-lived Facebook token (expires in ${data.expires_in}s)`);
-    return { accessToken: data.access_token, expiresIn: data.expires_in };
-  } catch (error) {
-    logger.warn('Long-lived token exchange error:', error.message);
-    return { accessToken: shortLivedToken, expiresIn: null };
   }
+
+  const data = await response.json();
+  logger.info(`Long-lived token exchange response keys: ${JSON.stringify(Object.keys(data))}`);
+
+  if (!data.access_token) {
+    logger.error('Facebook long-lived token response missing access_token:', JSON.stringify(data));
+    throw new Error('Facebook returned an invalid long-lived token response. Please try connecting again.');
+  }
+
+  // Resolve token expiry — Facebook may return:
+  //   - expires_in: duration in seconds (standard)
+  //   - expires: epoch timestamp in seconds (legacy)
+  //   - neither: use debug_token endpoint to determine actual expiry
+  let expiresIn = data.expires_in;
+
+  if (!expiresIn && data.expires) {
+    // Convert epoch timestamp to duration
+    expiresIn = Math.max(0, Math.floor(data.expires - Date.now() / 1000));
+    logger.info(`Resolved expires_in from epoch timestamp: ${expiresIn}s`);
+  }
+
+  if (!expiresIn) {
+    // Neither field present — query debug_token to get actual expiry
+    try {
+      const debugResponse = await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/debug_token?` +
+        `input_token=${encodeURIComponent(data.access_token)}&access_token=${encodeURIComponent(data.access_token)}`
+      );
+      if (debugResponse.ok) {
+        const debugData = await debugResponse.json();
+        const expiresAt = debugData.data?.expires_at;
+        if (expiresAt && expiresAt > 0) {
+          expiresIn = Math.max(0, expiresAt - Math.floor(Date.now() / 1000));
+          logger.info(`Resolved expires_in from debug_token: ${expiresIn}s (expires_at: ${expiresAt})`);
+        } else {
+          // debug_token returns expires_at=0 for never-expiring tokens
+          logger.info('Token appears to be non-expiring per debug_token (expires_at=0)');
+        }
+      }
+    } catch (debugErr) {
+      logger.warn(`debug_token lookup failed: ${debugErr.message}`);
+    }
+  }
+
+  // Final fallback: assume standard 60-day long-lived token if we still have no expiry
+  if (!expiresIn) {
+    expiresIn = 5184000; // 60 days in seconds
+    logger.warn(`Could not determine token expiry from Facebook response — defaulting to 60 days (${expiresIn}s)`);
+  }
+
+  logger.info(`Exchanged for long-lived Facebook token (expires in ${expiresIn}s / ~${Math.round(expiresIn / 86400)} days)`);
+  return { accessToken: data.access_token, expiresIn };
 }
 
 /**
@@ -1053,6 +1108,22 @@ export async function exchangeMarketingCode(code, state) {
   const allScopes = [...new Set([...config.scopes, ...MARKETING_SCOPES])];
   const pageInfo = await fetchFacebookPageInfo(accessToken);
 
+  // Fetch the Facebook user ID to preserve identity fields in the UPSERT.
+  // Without this, storeTokens() would overwrite platform_user_id/username/display_name with null.
+  let fbUserId = null;
+  try {
+    const meResponse = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?fields=id&access_token=${accessToken}`
+    );
+    if (meResponse.ok) {
+      const meData = await meResponse.json();
+      fbUserId = meData.id || null;
+    }
+  } catch (meErr) {
+    logger.warn('Failed to fetch Facebook user ID during marketing auth:', meErr.message);
+  }
+  const displayIdentity = pageInfo?.name || null;
+
   // Build complete platform_metadata with marketingEnabled flag
   const platformMetadata = {
     marketingEnabled: true
@@ -1064,13 +1135,17 @@ export async function exchangeMarketingCode(code, state) {
     platformMetadata.pictureUrl = pageInfo.pictureUrl;
   }
 
-  // Store tokens with complete metadata atomically (prevents marketingEnabled from being wiped)
+  // Store tokens with complete metadata AND identity fields atomically.
+  // The UPSERT replaces all columns, so we must pass identity fields to prevent wiping them.
   await TokenManager.storeTokens({
     userId: stateData.userId,
     platform: 'facebook',
     accessToken,
     refreshToken: tokens.refresh_token,
     expiresIn: longLived.expiresIn || null,
+    platformUserId: fbUserId,
+    platformUsername: displayIdentity,
+    platformDisplayName: displayIdentity,
     platformMetadata,
     scopes: allScopes
   });
@@ -1154,6 +1229,7 @@ export default {
   getUserConnections,
   disconnectPlatform,
   checkConnections,
+  checkGrantedScopes,
   PLATFORM_CONFIGS,
   // Marketing
   getMarketingAuthorizationUrl,

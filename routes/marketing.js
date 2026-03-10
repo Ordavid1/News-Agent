@@ -11,11 +11,13 @@
  */
 
 import express from 'express';
+import multer from 'multer';
 import { authenticateToken } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
 import { requireMarketingAddon } from '../middleware/subscription.js';
 import marketingService from '../services/MarketingService.js';
 import brandVoiceService from '../services/BrandVoiceService.js';
+import mediaAssetService from '../services/MediaAssetService.js';
 import {
   getUserAdAccounts,
   getSelectedAdAccount,
@@ -65,6 +67,20 @@ import winston from 'winston';
 
 const router = express.Router();
 
+// Multer config for media asset uploads (memory storage, no disk)
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: JPEG, PNG, WebP`));
+    }
+  }
+});
+
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -78,6 +94,18 @@ const logger = winston.createLogger({
 router.use(authenticateToken);
 router.use(csrfProtection);
 router.use(requireMarketingAddon());
+
+/**
+ * Resolve the ad account from the request.
+ * Checks query param (GET) or body (POST/PUT), falls back to user's selected account.
+ * Returns the DB UUID of the ad account, or null if none available.
+ */
+async function resolveAdAccountId(req) {
+  const explicit = req.query.adAccountId || req.body?.adAccountId;
+  if (explicit) return explicit;
+  const selected = await getSelectedAdAccount(req.user.id);
+  return selected ? selected.id : null;
+}
 
 // ============================================
 // AD ACCOUNT MANAGEMENT
@@ -604,7 +632,11 @@ router.delete('/ads/:id', async (req, res) => {
  */
 router.get('/audiences', async (req, res) => {
   try {
-    const templates = await getUserAudienceTemplates(req.user.id);
+    const adAccountId = await resolveAdAccountId(req);
+    if (!adAccountId) {
+      return res.json({ success: true, audiences: [] });
+    }
+    const templates = await getUserAudienceTemplates(req.user.id, { adAccountId });
     res.json({ success: true, audiences: templates });
   } catch (error) {
     logger.error('Error getting audiences:', error);
@@ -631,14 +663,19 @@ router.post('/audiences/sync', async (req, res) => {
  */
 router.post('/audiences', async (req, res) => {
   try {
+    const adAccountId = await resolveAdAccountId(req);
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'No ad account selected. Please select an ad account first.' });
+    }
+
     const { name, description, targeting, platforms, isDefault } = req.body;
 
     if (!name || !targeting) {
       return res.status(400).json({ error: 'name and targeting are required' });
     }
 
-    // Check audience template limit
-    const count = await countUserAudienceTemplates(req.user.id);
+    // Check audience template limit (scoped to ad account)
+    const count = await countUserAudienceTemplates(req.user.id, adAccountId);
     const limit = req.marketingLimits.maxAudienceTemplates;
     if (limit !== -1 && count >= limit) {
       return res.status(403).json({ error: `Audience template limit reached (${count}/${limit})` });
@@ -646,6 +683,7 @@ router.post('/audiences', async (req, res) => {
 
     const template = await createAudienceTemplate({
       userId: req.user.id,
+      adAccountId,
       name, description, targeting,
       platforms: platforms || ['facebook', 'instagram'],
       isDefault: isDefault || false
@@ -757,7 +795,11 @@ router.get('/locations/search', async (req, res) => {
  */
 router.get('/rules', async (req, res) => {
   try {
-    const rules = await getUserMarketingRules(req.user.id);
+    const adAccountId = await resolveAdAccountId(req);
+    if (!adAccountId) {
+      return res.json({ success: true, rules: [] });
+    }
+    const rules = await getUserMarketingRules(req.user.id, { adAccountId });
     res.json({ success: true, rules });
   } catch (error) {
     logger.error('Error getting rules:', error);
@@ -770,14 +812,19 @@ router.get('/rules', async (req, res) => {
  */
 router.post('/rules', async (req, res) => {
   try {
+    const adAccountId = await resolveAdAccountId(req);
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'No ad account selected. Please select an ad account first.' });
+    }
+
     const { name, ruleType, conditions, actions, appliesTo, cooldownHours } = req.body;
 
     if (!name || !ruleType || !conditions || !actions) {
       return res.status(400).json({ error: 'name, ruleType, conditions, and actions are required' });
     }
 
-    // Check rule limit
-    const count = await countUserMarketingRules(req.user.id);
+    // Check rule limit (scoped to ad account)
+    const count = await countUserMarketingRules(req.user.id, adAccountId);
     const limit = req.marketingLimits.maxAutoBoostRules;
     if (limit !== -1 && count >= limit) {
       return res.status(403).json({ error: `Rule limit reached (${count}/${limit})` });
@@ -785,6 +832,7 @@ router.post('/rules', async (req, res) => {
 
     const rule = await createMarketingRule({
       userId: req.user.id,
+      adAccountId,
       name, ruleType, conditions, actions,
       appliesTo: appliesTo || {},
       cooldownHours: cooldownHours || 24
@@ -935,8 +983,12 @@ router.post('/sync-metrics', async (req, res) => {
  */
 router.get('/brand-voice/profiles', async (req, res) => {
   try {
-    logger.info(`[BrandVoice] GET /profiles - user=${req.user.id}`);
-    const profiles = await getUserBrandVoiceProfiles(req.user.id);
+    const adAccountId = await resolveAdAccountId(req);
+    const filters = {};
+    if (adAccountId) filters.adAccountId = adAccountId;
+
+    logger.info(`[BrandVoice] GET /profiles - user=${req.user.id}, adAccount=${adAccountId || 'none'}`);
+    const profiles = await getUserBrandVoiceProfiles(req.user.id, filters);
     logger.info(`[BrandVoice] GET /profiles - returning ${profiles.length} profiles`);
     res.json({ profiles });
   } catch (error) {
@@ -968,8 +1020,13 @@ router.get('/brand-voice/profiles/:id', async (req, res) => {
  */
 router.post('/brand-voice/profiles', async (req, res) => {
   try {
+    const adAccountId = await resolveAdAccountId(req);
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'No ad account selected. Please select an ad account first.' });
+    }
+
     const { name, days, platforms } = req.body;
-    logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
+    logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, adAccount=${adAccountId}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Profile name is required' });
@@ -985,8 +1042,8 @@ router.post('/brand-voice/profiles', async (req, res) => {
       }
     }
 
-    // Check limits
-    const currentCount = await countUserBrandVoiceProfiles(req.user.id);
+    // Check limits (scoped to ad account)
+    const currentCount = await countUserBrandVoiceProfiles(req.user.id, adAccountId);
     const limits = req.marketingLimits;
     const maxProfiles = limits.maxBrandVoiceProfiles || 2;
     if (maxProfiles !== -1 && currentCount >= maxProfiles) {
@@ -997,8 +1054,8 @@ router.post('/brand-voice/profiles', async (req, res) => {
       });
     }
 
-    // Create profile record
-    const profile = await createBrandVoiceProfile(req.user.id, name.trim());
+    // Create profile record (scoped to ad account)
+    const profile = await createBrandVoiceProfile(req.user.id, name.trim(), adAccountId);
 
     // Store selected platforms if specified
     if (selectedPlatforms) {
@@ -1229,6 +1286,205 @@ router.delete('/brand-voice/generated/:postId', async (req, res) => {
   } catch (error) {
     logger.error(`[BrandVoice] DELETE /generated/:postId failed: ${error.message}`);
     res.status(500).json({ error: error.message || 'Failed to delete generated post' });
+  }
+});
+
+// ============================================
+// MEDIA ASSETS
+// ============================================
+
+/**
+ * POST /api/marketing/media-assets/upload
+ * Upload reference images for LoRA training.
+ * Accepts up to 20 images per request.
+ */
+router.post('/media-assets/upload', mediaUpload.array('images', 20), async (req, res) => {
+  try {
+    const { adAccountId } = req.body;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId is required' });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    logger.info(`[MediaAssets] POST /upload - user=${req.user.id}, account=${adAccountId}, files=${req.files.length}`);
+
+    const results = [];
+    const errors = [];
+
+    for (const file of req.files) {
+      try {
+        const asset = await mediaAssetService.uploadAsset(req.user.id, adAccountId, file);
+        results.push(asset);
+      } catch (err) {
+        errors.push({ file: file.originalname, error: err.message });
+      }
+    }
+
+    logger.info(`[MediaAssets] POST /upload - uploaded ${results.length}, errors ${errors.length}`);
+    res.json({ assets: results, errors, uploaded: results.length });
+  } catch (error) {
+    logger.error(`[MediaAssets] POST /upload failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Upload failed' });
+  }
+});
+
+/**
+ * GET /api/marketing/media-assets
+ * List uploaded assets for an ad account.
+ */
+router.get('/media-assets', async (req, res) => {
+  try {
+    const { adAccountId } = req.query;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId query parameter is required' });
+    }
+
+    const assets = await mediaAssetService.getAssets(req.user.id, adAccountId);
+    const count = assets.length;
+
+    res.json({ assets, count });
+  } catch (error) {
+    logger.error(`[MediaAssets] GET /media-assets failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load assets' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/media-assets/:id
+ * Delete a single uploaded asset.
+ */
+router.delete('/media-assets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    logger.info(`[MediaAssets] DELETE /media-assets/${id} - user=${req.user.id}`);
+
+    const deleted = await mediaAssetService.deleteAsset(id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`[MediaAssets] DELETE /media-assets/:id failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete asset' });
+  }
+});
+
+/**
+ * POST /api/marketing/media-assets/training/start
+ * Start LoRA training on Replicate using uploaded images.
+ */
+router.post('/media-assets/training/start', async (req, res) => {
+  try {
+    const { adAccountId } = req.body;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId is required' });
+    }
+
+    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}`);
+
+    const job = await mediaAssetService.startTraining(req.user.id, adAccountId);
+
+    logger.info(`[MediaAssets] Training started: job=${job.id}, replicate_id=${job.replicate_training_id}`);
+    res.json({ job });
+  } catch (error) {
+    logger.error(`[MediaAssets] POST /training/start failed: ${error.message}`);
+    const status = error.message.includes('At least') || error.message.includes('already in progress')
+      ? 400 : 500;
+    res.status(status).json({ error: error.message || 'Failed to start training' });
+  }
+});
+
+/**
+ * GET /api/marketing/media-assets/training/status
+ * Get training job status for an ad account.
+ */
+router.get('/media-assets/training/status', async (req, res) => {
+  try {
+    const { adAccountId } = req.query;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId query parameter is required' });
+    }
+
+    // If training is in progress, check Replicate for updates
+    const existingJob = await mediaAssetService.getTrainingJob(req.user.id, adAccountId);
+    let job = existingJob;
+
+    if (existingJob && existingJob.status === 'training') {
+      job = await mediaAssetService.checkTrainingStatus(req.user.id, adAccountId);
+    }
+
+    res.json({ job });
+  } catch (error) {
+    logger.error(`[MediaAssets] GET /training/status failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to get training status' });
+  }
+});
+
+/**
+ * POST /api/marketing/media-assets/generate
+ * Generate an image using the trained LoRA model.
+ */
+router.post('/media-assets/generate', async (req, res) => {
+  try {
+    const { adAccountId, prompt } = req.body;
+    if (!adAccountId || !prompt) {
+      return res.status(400).json({ error: 'adAccountId and prompt are required' });
+    }
+
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}`);
+
+    const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt);
+
+    logger.info(`[MediaAssets] Image generated: ${media.id}`);
+    res.json({ media });
+  } catch (error) {
+    logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);
+    const status = error.message.includes('No completed training') ? 400 : 500;
+    res.status(status).json({ error: error.message || 'Failed to generate image' });
+  }
+});
+
+/**
+ * GET /api/marketing/media-assets/generated
+ * List generated images for an ad account.
+ */
+router.get('/media-assets/generated', async (req, res) => {
+  try {
+    const { adAccountId } = req.query;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId query parameter is required' });
+    }
+
+    const media = await mediaAssetService.getGeneratedImages(req.user.id, adAccountId);
+    res.json({ media });
+  } catch (error) {
+    logger.error(`[MediaAssets] GET /generated failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load generated images' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/media-assets/generated/:id
+ * Delete a generated image.
+ */
+router.delete('/media-assets/generated/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    logger.info(`[MediaAssets] DELETE /generated/${id} - user=${req.user.id}`);
+
+    const deleted = await mediaAssetService.deleteGeneratedImage(id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Generated image not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`[MediaAssets] DELETE /generated/:id failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete generated image' });
   }
 });
 

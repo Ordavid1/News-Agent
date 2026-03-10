@@ -19,6 +19,13 @@ var brandVoiceProfiles = [];
 var currentBrandVoiceProfile = null;
 var brandVoicePollingTimer = null;
 
+// Media Assets state
+var mediaAssets = [];
+var mediaTrainingJob = null;
+var generatedMedia = [];
+var mediaTrainingPollingTimer = null;
+var latestGeneratedImageUrl = null;
+
 // Current modal state
 var currentBoostPost = null;
 var editingAudienceId = null;
@@ -281,10 +288,29 @@ async function loadAdAccounts() {
 
             // Update dropdown to reflect current state
             populateAdAccountDropdown();
+
+            // Update create button states based on ad account availability
+            updateCreateButtonStates();
         }
     } catch (error) {
         console.error('Error loading ad accounts:', error);
     }
+}
+
+/**
+ * Enable/disable create buttons based on ad account selection.
+ * Zero-trust: cannot create marketing data without an ad account.
+ */
+function updateCreateButtonStates() {
+    const disabled = !selectedAdAccount;
+    const btnIds = ['createAudienceBtn', 'createRuleBtn', 'createBvProfileBtn', 'createCampaignBtn', 'syncCampaignsBtn', 'syncAudiencesBtn', 'syncMetricsBtn'];
+    btnIds.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = disabled;
+            btn.title = disabled ? 'Select an ad account first' : '';
+        }
+    });
 }
 
 function showAdAccountBanner(message, needsSetup) {
@@ -307,7 +333,11 @@ async function setupAdAccount() {
             });
             if (response.ok) {
                 const data = await response.json();
-                if (data.authUrl) {
+                if (data.alreadyAuthorized) {
+                    // Marketing was enabled using the existing Facebook connection — no redirect needed
+                    showToast(data.message || 'Marketing enabled!', 'success');
+                    await loadAdAccounts();
+                } else if (data.authUrl) {
                     window.location.href = data.authUrl;
                 }
             } else {
@@ -492,6 +522,12 @@ function showMarketingTab(tabName) {
     const selectedTab = document.getElementById(`mkt-tab-${tabName}`);
     if (selectedTab) selectedTab.classList.add('tab-active');
 
+    // Zero-trust: if no ad account selected, don't load data.
+    // The adAccountBanner (shown by loadAdAccounts) handles the prompt.
+    if (!selectedAdAccount) {
+        return;
+    }
+
     // Load tab-specific data
     switch (tabName) {
         case 'overview':
@@ -512,6 +548,9 @@ function showMarketingTab(tabName) {
         case 'brandvoice':
             loadBrandVoiceProfiles();
             break;
+        case 'mediaassets':
+            loadMediaAssets();
+            break;
     }
 }
 
@@ -520,12 +559,27 @@ function showMarketingTab(tabName) {
 // ============================================
 
 async function loadOverview() {
+    if (!selectedAdAccount) {
+        // Zero-trust: clear all overview metrics when no ad account
+        const zeroIds = ['overviewSpend', 'overviewReach', 'overviewClicks', 'overviewImpressions'];
+        zeroIds.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '0'; });
+        const el = document.getElementById('overviewSpend'); if (el) el.textContent = '$0.00';
+        const ctr = document.getElementById('overviewCTR'); if (ctr) ctr.textContent = '0.00% CTR';
+        const cpc = document.getElementById('overviewCPC'); if (cpc) cpc.textContent = '$0.00';
+        const cpm = document.getElementById('overviewCPM'); if (cpm) cpm.textContent = '$0.00';
+        const ac = document.getElementById('overviewActiveCampaigns'); if (ac) ac.textContent = '0';
+        const tc = document.getElementById('overviewTotalCampaigns'); if (tc) tc.textContent = '0 total';
+        const aa = document.getElementById('overviewActiveAds'); if (aa) aa.textContent = '0';
+        renderOverviewCampaigns([]);
+        return;
+    }
+
     const days = document.getElementById('overviewDateRange')?.value || 30;
     const endDate = new Date().toISOString().split('T')[0];
     const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     try {
-        const acctParam = selectedAdAccount ? `&adAccountId=${selectedAdAccount.id}` : '';
+        const acctParam = `&adAccountId=${selectedAdAccount.id}`;
         const response = await apiGet(`/api/marketing/analytics/overview?startDate=${startDate}&endDate=${endDate}${acctParam}`);
         if (response.success) {
             overviewData = response.overview;
@@ -535,9 +589,9 @@ async function loadOverview() {
         console.error('Error loading overview:', error);
     }
 
-    // Also load campaigns for the summary
+    // Also load campaigns for the summary (scoped to ad account)
     try {
-        const response = await apiGet('/api/marketing/campaigns?status=active');
+        const response = await apiGet(`/api/marketing/campaigns?status=active&adAccountId=${selectedAdAccount.id}`);
         if (response.success) {
             renderOverviewCampaigns(response.campaigns || []);
         }
@@ -624,6 +678,18 @@ async function syncMetrics() {
 // ============================================
 
 async function loadBoostTab() {
+    if (!selectedAdAccount) {
+        // Zero-trust: show empty states for boost sub-sections
+        const list = document.getElementById('boostablePostsList');
+        const empty = document.getElementById('boostablePostsEmpty');
+        const loading = document.getElementById('boostablePostsLoading');
+        if (list) list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        if (loading) loading.classList.add('hidden');
+        const boostSection = document.getElementById('activeBoostsSection');
+        if (boostSection) boostSection.classList.add('hidden');
+        return;
+    }
     await Promise.all([loadBoostablePosts(), loadActiveBoosts()]);
 }
 
@@ -639,7 +705,7 @@ async function loadBoostablePosts() {
         // Fetch both app-published posts and Meta page posts in parallel
         const [appResponse, metaResponse] = await Promise.allSettled([
             apiGet('/api/marketing/boostable-posts?limit=50'),
-            apiGet('/api/marketing/page-posts?days=30')
+            apiGet('/api/marketing/page-posts?days=90')
         ]);
 
         const appPosts = appResponse.status === 'fulfilled' && appResponse.value.success
@@ -1002,6 +1068,14 @@ async function loadCampaigns() {
     const detail = document.getElementById('campaignDetail');
 
     detail.classList.add('hidden');
+
+    if (!selectedAdAccount) {
+        if (loading) loading.classList.add('hidden');
+        list.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
@@ -1322,11 +1396,18 @@ async function loadAudiences() {
     const loading = document.getElementById('audiencesLoading');
     const empty = document.getElementById('audiencesEmpty');
 
+    if (!selectedAdAccount) {
+        if (loading) loading.classList.add('hidden');
+        list.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
     // Auto-sync from Meta if not recently synced and ad account is connected
-    if (selectedAdAccount && Date.now() - lastAudienceSync > AUTO_SYNC_INTERVAL) {
+    if (Date.now() - lastAudienceSync > AUTO_SYNC_INTERVAL) {
         try {
             await apiPost('/api/marketing/audiences/sync');
             lastAudienceSync = Date.now();
@@ -1336,7 +1417,7 @@ async function loadAudiences() {
     }
 
     try {
-        const response = await apiGet('/api/marketing/audiences');
+        const response = await apiGet(`/api/marketing/audiences?adAccountId=${selectedAdAccount.id}`);
         if (response.success) {
             audiences = response.audiences || [];
             if (loading) loading.classList.add('hidden');
@@ -1588,7 +1669,7 @@ async function submitAudience() {
         if (editingAudienceId) {
             response = await apiPut(`/api/marketing/audiences/${editingAudienceId}`, { name, description, targeting, platforms });
         } else {
-            response = await apiPost('/api/marketing/audiences', { name, description, targeting, platforms });
+            response = await apiPost('/api/marketing/audiences', { name, description, targeting, platforms, adAccountId: selectedAdAccount?.id });
         }
 
         if (response.success) {
@@ -1628,12 +1709,18 @@ async function loadRules() {
     const loading = document.getElementById('rulesLoading');
     const empty = document.getElementById('rulesEmpty');
 
+    if (!selectedAdAccount) {
+        if (loading) loading.classList.add('hidden');
+        list.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
     try {
-        const acctParam = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
-        const response = await apiGet(`/api/marketing/rules${acctParam}`);
+        const response = await apiGet(`/api/marketing/rules?adAccountId=${selectedAdAccount.id}`);
         if (response.success) {
             rules = response.rules || [];
             if (loading) loading.classList.add('hidden');
@@ -1825,7 +1912,7 @@ async function submitRule() {
             });
         } else {
             response = await apiPost('/api/marketing/rules', {
-                name, ruleType, conditions, actions, cooldownHours
+                name, ruleType, conditions, actions, cooldownHours, adAccountId: selectedAdAccount?.id
             });
         }
 
@@ -2209,11 +2296,18 @@ async function loadBrandVoiceProfiles() {
     // If viewing a profile detail, don't reload the list
     if (detailEl && !detailEl.classList.contains('hidden')) return;
 
+    if (!selectedAdAccount) {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (listEl) listEl.innerHTML = '';
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+    }
+
     if (loadingEl) loadingEl.classList.remove('hidden');
     if (emptyEl) emptyEl.classList.add('hidden');
 
     try {
-        const response = await apiGet('/api/marketing/brand-voice/profiles');
+        const response = await apiGet(`/api/marketing/brand-voice/profiles?adAccountId=${selectedAdAccount.id}`);
         brandVoiceProfiles = response.profiles || [];
 
         if (loadingEl) loadingEl.classList.add('hidden');
@@ -2346,7 +2440,7 @@ async function submitCreateBvProfile() {
     btn.textContent = 'Creating...';
 
     try {
-        const body = { name };
+        const body = { name, adAccountId: selectedAdAccount?.id };
         if (platforms.length > 0) body.platforms = platforms;
 
         const response = await apiPost('/api/marketing/brand-voice/profiles', body);
@@ -2995,6 +3089,545 @@ async function deleteBvHistoryPost(postId) {
             }, 200);
         }
         showToast('Post deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ============================================
+// MEDIA ASSETS TAB
+// ============================================
+
+/**
+ * Load all media assets data for the selected ad account.
+ */
+async function loadMediaAssets() {
+    if (!selectedAdAccount) {
+        showToast('Please select an ad account first', 'error');
+        return;
+    }
+
+    const acctId = selectedAdAccount.id;
+
+    try {
+        // Load assets, training status, and generated media in parallel
+        const [assetsRes, trainingRes, generatedRes] = await Promise.all([
+            apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
+            apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`),
+            apiGet(`/api/marketing/media-assets/generated?adAccountId=${acctId}`)
+        ]);
+
+        mediaAssets = assetsRes.assets || [];
+        mediaTrainingJob = trainingRes.job || null;
+        generatedMedia = generatedRes.media || [];
+
+        renderMediaAssetGrid();
+        renderTrainingStatus();
+        renderGenerationSection();
+        renderGeneratedMedia();
+        initMediaDropZone();
+
+        // If training is in progress, start polling
+        if (mediaTrainingJob && mediaTrainingJob.status === 'training') {
+            startTrainingPolling();
+        }
+    } catch (error) {
+        console.error('Failed to load media assets:', error);
+        showToast('Failed to load media assets', 'error');
+    }
+}
+
+/**
+ * Initialize drag-and-drop zone for image uploads.
+ */
+function initMediaDropZone() {
+    const dropZone = document.getElementById('mediaDropZone');
+    const fileInput = document.getElementById('mediaFileInput');
+
+    if (!dropZone || dropZone._mediaInitialized) return;
+    dropZone._mediaInitialized = true;
+
+    // Click to browse
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleMediaFileSelect(e.target.files);
+            e.target.value = ''; // Reset for re-selection
+        }
+    });
+
+    // Drag events
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-brand-500', 'bg-brand-50/50');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-brand-500', 'bg-brand-50/50');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-brand-500', 'bg-brand-50/50');
+        if (e.dataTransfer.files.length > 0) {
+            handleMediaFileSelect(e.dataTransfer.files);
+        }
+    });
+}
+
+/**
+ * Validate selected files and upload them.
+ */
+function handleMediaFileSelect(fileList) {
+    const files = Array.from(fileList);
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    const maxSize = 10 * 1024 * 1024; // 10MB
+
+    const valid = [];
+    const errors = [];
+
+    for (const file of files) {
+        if (!allowed.includes(file.type)) {
+            errors.push(`${file.name}: Invalid type (use JPEG, PNG, or WebP)`);
+        } else if (file.size > maxSize) {
+            errors.push(`${file.name}: Too large (max 10MB)`);
+        } else {
+            valid.push(file);
+        }
+    }
+
+    if (valid.length > 20) {
+        showToast('Maximum 20 files per upload', 'error');
+        return;
+    }
+
+    if (errors.length > 0) {
+        showToast(errors[0], 'error');
+    }
+
+    if (valid.length > 0) {
+        uploadMediaFiles(valid);
+    }
+}
+
+/**
+ * Upload files to the backend via FormData.
+ */
+async function uploadMediaFiles(files) {
+    if (!selectedAdAccount) return;
+
+    const progressEl = document.getElementById('mediaUploadProgress');
+    const barEl = document.getElementById('mediaUploadBar');
+    const textEl = document.getElementById('mediaUploadText');
+
+    progressEl.classList.remove('hidden');
+    barEl.style.width = '0%';
+    textEl.textContent = `Uploading ${files.length} file(s)...`;
+
+    try {
+        const formData = new FormData();
+        formData.append('adAccountId', selectedAdAccount.id);
+        for (const file of files) {
+            formData.append('images', file);
+        }
+
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/marketing/media-assets/upload', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
+            },
+            credentials: 'include',
+            body: formData
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        // Update local state with new assets
+        if (data.assets && data.assets.length > 0) {
+            mediaAssets = [...data.assets, ...mediaAssets];
+        }
+
+        barEl.style.width = '100%';
+        textEl.textContent = `Uploaded ${data.uploaded} file(s)`;
+
+        if (data.errors && data.errors.length > 0) {
+            showToast(`${data.uploaded} uploaded, ${data.errors.length} failed`, 'warning');
+        } else {
+            showToast(`${data.uploaded} image(s) uploaded successfully`, 'success');
+        }
+
+        renderMediaAssetGrid();
+        updateTrainButtonState();
+
+        // Hide progress after a moment
+        setTimeout(() => progressEl.classList.add('hidden'), 2000);
+    } catch (error) {
+        progressEl.classList.add('hidden');
+        showToast(error.message, 'error');
+    }
+}
+
+/**
+ * Delete an uploaded media asset.
+ */
+async function deleteMediaAsset(assetId) {
+    if (!confirm('Delete this image?')) return;
+
+    try {
+        await apiDelete(`/api/marketing/media-assets/${assetId}`);
+        mediaAssets = mediaAssets.filter(a => a.id !== assetId);
+        renderMediaAssetGrid();
+        updateTrainButtonState();
+        showToast('Image deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+/**
+ * Render the uploaded image thumbnail grid.
+ */
+function renderMediaAssetGrid() {
+    const grid = document.getElementById('mediaAssetGrid');
+    const empty = document.getElementById('mediaAssetEmpty');
+    const badge = document.getElementById('mediaAssetCountBadge');
+
+    if (!grid) return;
+
+    const count = mediaAssets.length;
+    badge.textContent = `${count} / 10 min`;
+    badge.className = count >= 10
+        ? 'text-sm font-medium text-green-700 bg-green-100 px-3 py-1 rounded-full'
+        : 'text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full';
+
+    if (count === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+
+    empty.classList.add('hidden');
+    grid.innerHTML = mediaAssets.map(asset => `
+        <div class="group relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
+            <img src="${escapeHtml(asset.public_url)}" alt="${escapeHtml(asset.file_name)}"
+                class="w-full h-full object-cover">
+            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                <button onclick="deleteMediaAsset('${asset.id}')"
+                    class="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <p class="text-[10px] text-white truncate">${escapeHtml(asset.file_name)}</p>
+            </div>
+        </div>
+    `).join('');
+}
+
+/**
+ * Enable/disable Train button based on asset count.
+ */
+function updateTrainButtonState() {
+    const btn = document.getElementById('mediaTrainBtn');
+    if (btn) {
+        btn.disabled = mediaAssets.length < 10;
+    }
+}
+
+// ============================================
+// MEDIA ASSETS - TRAINING
+// ============================================
+
+/**
+ * Start LoRA training for the selected ad account.
+ */
+async function startMediaTraining() {
+    if (!selectedAdAccount) return;
+
+    if (mediaTrainingJob && mediaTrainingJob.status === 'completed') {
+        if (!confirm('This will re-train your model with the current images. The previous model will be replaced. Continue?')) {
+            return;
+        }
+    }
+
+    try {
+        // Show training in progress immediately
+        showTrainingState('progress');
+
+        const data = await apiPost('/api/marketing/media-assets/training/start', {
+            adAccountId: selectedAdAccount.id
+        });
+
+        mediaTrainingJob = data.job;
+        showToast('Training started! This takes about 5-10 minutes.', 'success');
+        startTrainingPolling();
+    } catch (error) {
+        showToast(error.message, 'error');
+        // Revert UI if training hasn't started
+        renderTrainingStatus();
+    }
+}
+
+/**
+ * Poll for training status every 10 seconds.
+ */
+function startTrainingPolling() {
+    if (mediaTrainingPollingTimer) clearInterval(mediaTrainingPollingTimer);
+
+    mediaTrainingPollingTimer = setInterval(async () => {
+        if (!selectedAdAccount) {
+            clearInterval(mediaTrainingPollingTimer);
+            return;
+        }
+
+        try {
+            const data = await apiGet(`/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}`);
+            mediaTrainingJob = data.job;
+
+            // Update progress UI
+            if (mediaTrainingJob) {
+                if (mediaTrainingJob.progress) {
+                    const pct = Math.round(mediaTrainingJob.progress.percentage * 100);
+                    const bar = document.getElementById('mediaTrainingBar');
+                    const pctEl = document.getElementById('mediaTrainingPercentage');
+                    const textEl = document.getElementById('mediaTrainingProgressText');
+
+                    if (bar) bar.style.width = `${pct}%`;
+                    if (pctEl) pctEl.textContent = `${pct}%`;
+                    if (textEl) textEl.textContent = `Step ${mediaTrainingJob.progress.current} of ${mediaTrainingJob.progress.total}`;
+                }
+
+                if (['completed', 'failed'].includes(mediaTrainingJob.status)) {
+                    clearInterval(mediaTrainingPollingTimer);
+                    mediaTrainingPollingTimer = null;
+                    renderTrainingStatus();
+                    renderGenerationSection();
+                }
+            }
+        } catch (error) {
+            console.error('Training poll error:', error);
+        }
+    }, 10000);
+}
+
+/**
+ * Show a specific training state in the UI.
+ */
+function showTrainingState(state) {
+    const idle = document.getElementById('mediaTrainingIdle');
+    const progress = document.getElementById('mediaTrainingProgress');
+    const complete = document.getElementById('mediaTrainingComplete');
+    const failed = document.getElementById('mediaTrainingFailed');
+
+    [idle, progress, complete, failed].forEach(el => {
+        if (el) el.classList.add('hidden');
+    });
+
+    switch (state) {
+        case 'idle':
+            if (idle) idle.classList.remove('hidden');
+            break;
+        case 'progress':
+            if (progress) progress.classList.remove('hidden');
+            break;
+        case 'complete':
+            if (complete) complete.classList.remove('hidden');
+            break;
+        case 'failed':
+            if (failed) failed.classList.remove('hidden');
+            break;
+    }
+}
+
+/**
+ * Render the current training status.
+ */
+function renderTrainingStatus() {
+    updateTrainButtonState();
+
+    if (!mediaTrainingJob) {
+        showTrainingState('idle');
+        return;
+    }
+
+    switch (mediaTrainingJob.status) {
+        case 'training':
+        case 'pending':
+            showTrainingState('progress');
+            break;
+        case 'completed': {
+            showTrainingState('complete');
+            const info = document.getElementById('mediaTrainingInfo');
+            if (info) {
+                const date = new Date(mediaTrainingJob.completed_at).toLocaleDateString();
+                info.textContent = `Trained on ${mediaTrainingJob.image_count} images — completed ${date}`;
+            }
+            break;
+        }
+        case 'failed': {
+            showTrainingState('failed');
+            const errEl = document.getElementById('mediaTrainingError');
+            if (errEl) {
+                errEl.textContent = mediaTrainingJob.error_message || 'Unknown error';
+            }
+            break;
+        }
+        default:
+            showTrainingState('idle');
+    }
+}
+
+// ============================================
+// MEDIA ASSETS - GENERATION
+// ============================================
+
+/**
+ * Show/hide generation section based on training status.
+ */
+function renderGenerationSection() {
+    const disabled = document.getElementById('mediaGenerateDisabled');
+    const form = document.getElementById('mediaGenerateForm');
+
+    if (mediaTrainingJob && mediaTrainingJob.status === 'completed') {
+        if (disabled) disabled.classList.add('hidden');
+        if (form) form.classList.remove('hidden');
+    } else {
+        if (disabled) disabled.classList.remove('hidden');
+        if (form) form.classList.add('hidden');
+    }
+}
+
+/**
+ * Generate an image using the trained model.
+ */
+async function generateMediaImage() {
+    if (!selectedAdAccount) return;
+
+    const promptInput = document.getElementById('mediaGeneratePrompt');
+    const prompt = promptInput?.value?.trim();
+    if (!prompt) {
+        showToast('Please enter a description for the image', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('mediaGenerateBtn');
+    const loading = document.getElementById('mediaGenerateLoading');
+    const result = document.getElementById('mediaGenerateResult');
+
+    if (btn) btn.disabled = true;
+    if (loading) loading.classList.remove('hidden');
+    if (result) result.classList.add('hidden');
+
+    try {
+        const data = await apiPost('/api/marketing/media-assets/generate', {
+            adAccountId: selectedAdAccount.id,
+            prompt
+        });
+
+        const media = data.media;
+        latestGeneratedImageUrl = media.public_url;
+
+        // Show preview
+        const preview = document.getElementById('mediaGeneratedPreview');
+        if (preview) preview.src = media.public_url;
+        if (result) result.classList.remove('hidden');
+
+        // Add to gallery
+        generatedMedia = [media, ...generatedMedia];
+        renderGeneratedMedia();
+
+        showToast('Image generated successfully!', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+        if (loading) loading.classList.add('hidden');
+    }
+}
+
+/**
+ * Download the latest generated image.
+ */
+function downloadLatestGeneratedImage() {
+    if (!latestGeneratedImageUrl) return;
+    const a = document.createElement('a');
+    a.href = latestGeneratedImageUrl;
+    a.download = `generated-${Date.now()}.png`;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+/**
+ * Render the generated images gallery.
+ */
+function renderGeneratedMedia() {
+    const grid = document.getElementById('mediaGalleryGrid');
+    const empty = document.getElementById('mediaGalleryEmpty');
+    const loading = document.getElementById('mediaGalleryLoading');
+
+    if (loading) loading.classList.add('hidden');
+
+    if (!generatedMedia || generatedMedia.length === 0) {
+        if (grid) grid.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+
+    if (empty) empty.classList.add('hidden');
+
+    if (grid) {
+        grid.innerHTML = generatedMedia.map(media => `
+            <div class="group relative rounded-xl overflow-hidden border border-surface-200 bg-surface-50">
+                <div class="aspect-square">
+                    <img src="${escapeHtml(media.public_url)}" alt="Generated image"
+                        class="w-full h-full object-cover">
+                </div>
+                <div class="p-3 border-t border-surface-200">
+                    <p class="text-xs text-ink-500 truncate" title="${escapeHtml(media.prompt)}">${escapeHtml(media.prompt)}</p>
+                    <p class="text-[10px] text-ink-300 mt-1">${new Date(media.created_at).toLocaleDateString()}</p>
+                </div>
+                <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <a href="${escapeHtml(media.public_url)}" download="generated-${media.id}.png" target="_blank"
+                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-white shadow-sm">
+                        <svg class="w-3.5 h-3.5 text-ink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                    </a>
+                    <button onclick="deleteGeneratedMedia('${media.id}')"
+                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-red-50 shadow-sm">
+                        <svg class="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+/**
+ * Delete a generated image.
+ */
+async function deleteGeneratedMedia(mediaId) {
+    if (!confirm('Delete this generated image?')) return;
+
+    try {
+        await apiDelete(`/api/marketing/media-assets/generated/${mediaId}`);
+        generatedMedia = generatedMedia.filter(m => m.id !== mediaId);
+        renderGeneratedMedia();
+        showToast('Image deleted', 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }

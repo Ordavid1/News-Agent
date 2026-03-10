@@ -1963,12 +1963,17 @@ export async function deleteAd(adId) {
 /**
  * Get all audience templates for a user
  */
-export async function getUserAudienceTemplates(userId) {
-  const { data, error } = await supabaseAdmin
+export async function getUserAudienceTemplates(userId, filters = {}) {
+  let query = supabaseAdmin
     .from('audience_templates')
     .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (filters.adAccountId) {
+    query = query.eq('ad_account_id', filters.adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting user audience templates:', error);
@@ -2000,13 +2005,18 @@ export async function getAudienceTemplateById(templateId) {
 /**
  * Get audience template by Facebook Custom Audience ID for a specific user
  */
-export async function getAudienceTemplateByFbId(userId, fbAudienceId) {
-  const { data, error } = await supabaseAdmin
+export async function getAudienceTemplateByFbId(userId, fbAudienceId, adAccountId = null) {
+  let query = supabaseAdmin
     .from('audience_templates')
     .select('*')
     .eq('user_id', userId)
-    .eq('fb_audience_id', fbAudienceId)
-    .single();
+    .eq('fb_audience_id', fbAudienceId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.single();
 
   if (error) {
     if (error.code === 'PGRST116') return null;
@@ -2021,10 +2031,11 @@ export async function getAudienceTemplateByFbId(userId, fbAudienceId) {
  * Create an audience template
  */
 export async function createAudienceTemplate(templateData) {
-  const { userId, ...rest } = templateData;
+  const { userId, adAccountId, ...rest } = templateData;
 
   const record = {
     user_id: userId,
+    ad_account_id: adAccountId,
     name: rest.name,
     description: rest.description || null,
     targeting: rest.targeting,
@@ -2093,11 +2104,17 @@ export async function deleteAudienceTemplate(templateId) {
 /**
  * Count audience templates for a user
  */
-export async function countUserAudienceTemplates(userId) {
-  const { count, error } = await supabaseAdmin
+export async function countUserAudienceTemplates(userId, adAccountId = null) {
+  let query = supabaseAdmin
     .from('audience_templates')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     logger.error('Error counting audience templates:', error);
@@ -2114,12 +2131,17 @@ export async function countUserAudienceTemplates(userId) {
 /**
  * Get all marketing rules for a user
  */
-export async function getUserMarketingRules(userId) {
-  const { data, error } = await supabaseAdmin
+export async function getUserMarketingRules(userId, filters = {}) {
+  let query = supabaseAdmin
     .from('marketing_rules')
     .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (filters.adAccountId) {
+    query = query.eq('ad_account_id', filters.adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting user marketing rules:', error);
@@ -2169,10 +2191,11 @@ export async function getMarketingRuleById(ruleId) {
  * Create a marketing rule
  */
 export async function createMarketingRule(ruleData) {
-  const { userId, ...rest } = ruleData;
+  const { userId, adAccountId, ...rest } = ruleData;
 
   const record = {
     user_id: userId,
+    ad_account_id: adAccountId,
     name: rest.name,
     rule_type: rest.ruleType,
     conditions: rest.conditions,
@@ -2238,12 +2261,18 @@ export async function deleteMarketingRule(ruleId) {
 /**
  * Count active marketing rules for a user
  */
-export async function countUserMarketingRules(userId) {
-  const { count, error } = await supabaseAdmin
+export async function countUserMarketingRules(userId, adAccountId = null) {
+  let query = supabaseAdmin
     .from('marketing_rules')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('status', 'active');
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     logger.error('Error counting marketing rules:', error);
@@ -2510,12 +2539,17 @@ export async function getBoostablePublishedPosts(userId, limit = 50) {
 /**
  * Get all brand voice profiles for a user
  */
-export async function getUserBrandVoiceProfiles(userId) {
-  const { data, error } = await supabaseAdmin
+export async function getUserBrandVoiceProfiles(userId, filters = {}) {
+  let query = supabaseAdmin
     .from('brand_voice_profiles')
     .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (filters.adAccountId) {
+    query = query.eq('ad_account_id', filters.adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting brand voice profiles:', error);
@@ -2548,11 +2582,12 @@ export async function getBrandVoiceProfileById(profileId, userId) {
 /**
  * Create a new brand voice profile
  */
-export async function createBrandVoiceProfile(userId, name) {
+export async function createBrandVoiceProfile(userId, name, adAccountId) {
   const { data, error } = await supabaseAdmin
     .from('brand_voice_profiles')
     .insert({
       user_id: userId,
+      ad_account_id: adAccountId,
       name,
       status: 'pending'
     })
@@ -2608,11 +2643,17 @@ export async function deleteBrandVoiceProfile(profileId, userId) {
 /**
  * Count user's brand voice profiles
  */
-export async function countUserBrandVoiceProfiles(userId) {
-  const { count, error } = await supabaseAdmin
+export async function countUserBrandVoiceProfiles(userId, adAccountId = null) {
+  let query = supabaseAdmin
     .from('brand_voice_profiles')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     logger.error('Error counting brand voice profiles:', error);
@@ -2780,6 +2821,226 @@ export async function getAllPublishedPosts(userId, { days = 90, limit = 500 } = 
   return data || [];
 }
 
+// ============================================
+// MEDIA ASSET FUNCTIONS
+// ============================================
+
+/**
+ * Get all media assets for a user's ad account
+ */
+export async function getUserMediaAssets(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('media_assets')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting media assets:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Create a media asset record
+ */
+export async function createMediaAsset(userId, adAccountId, assetData) {
+  const { data, error } = await supabaseAdmin
+    .from('media_assets')
+    .insert({
+      user_id: userId,
+      ad_account_id: adAccountId,
+      file_name: assetData.file_name,
+      storage_path: assetData.storage_path,
+      public_url: assetData.public_url,
+      file_size: assetData.file_size,
+      mime_type: assetData.mime_type
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating media asset:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a media asset by ID (scoped to user)
+ */
+export async function deleteMediaAsset(assetId, userId) {
+  // First get the asset to return storage_path for cleanup
+  const { data: asset, error: fetchError } = await supabaseAdmin
+    .from('media_assets')
+    .select('storage_path')
+    .eq('id', assetId)
+    .eq('user_id', userId)
+    .single();
+
+  if (fetchError) {
+    if (fetchError.code === 'PGRST116') return null;
+    logger.error('Error fetching media asset for delete:', fetchError);
+    throw fetchError;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('media_assets')
+    .delete()
+    .eq('id', assetId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting media asset:', error);
+    throw error;
+  }
+
+  return asset;
+}
+
+/**
+ * Count media assets for a user's ad account
+ */
+export async function countMediaAssets(userId, adAccountId) {
+  const { count, error } = await supabaseAdmin
+    .from('media_assets')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId);
+
+  if (error) {
+    logger.error('Error counting media assets:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+/**
+ * Get the training job for an ad account (one per account)
+ */
+export async function getMediaTrainingJob(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting media training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Upsert a media training job (insert or update on ad_account_id conflict)
+ */
+export async function upsertMediaTrainingJob(userId, adAccountId, jobData) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .upsert({
+      user_id: userId,
+      ad_account_id: adAccountId,
+      ...jobData,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'ad_account_id'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting media training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get generated media for an ad account
+ */
+export async function getGeneratedMedia(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('generated_media')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting generated media:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Create a generated media record
+ */
+export async function createGeneratedMedia(userId, adAccountId, mediaData) {
+  const { data, error } = await supabaseAdmin
+    .from('generated_media')
+    .insert({
+      user_id: userId,
+      ad_account_id: adAccountId,
+      training_job_id: mediaData.training_job_id,
+      prompt: mediaData.prompt,
+      storage_path: mediaData.storage_path,
+      public_url: mediaData.public_url,
+      replicate_prediction_id: mediaData.replicate_prediction_id
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating generated media:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a generated media item (scoped to user)
+ */
+export async function deleteGeneratedMedia(mediaId, userId) {
+  const { data: media, error: fetchError } = await supabaseAdmin
+    .from('generated_media')
+    .select('storage_path')
+    .eq('id', mediaId)
+    .eq('user_id', userId)
+    .single();
+
+  if (fetchError) {
+    if (fetchError.code === 'PGRST116') return null;
+    logger.error('Error fetching generated media for delete:', fetchError);
+    throw fetchError;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('generated_media')
+    .delete()
+    .eq('id', mediaId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting generated media:', error);
+    throw error;
+  }
+
+  return media;
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -2887,5 +3148,15 @@ export default {
   insertBrandVoiceGeneratedPost,
   getBrandVoiceGeneratedPosts,
   deleteBrandVoiceGeneratedPost,
-  getAllPublishedPosts
+  getAllPublishedPosts,
+  // Media asset functions
+  getUserMediaAssets,
+  createMediaAsset,
+  deleteMediaAsset,
+  countMediaAssets,
+  getMediaTrainingJob,
+  upsertMediaTrainingJob,
+  getGeneratedMedia,
+  createGeneratedMedia,
+  deleteGeneratedMedia
 };

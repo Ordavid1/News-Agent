@@ -1088,13 +1088,100 @@ router.post('/whatsapp/webhook', async (req, res) => {
 
 /**
  * GET /api/connections/facebook/marketing/initiate
- * Start the marketing scope upgrade flow for Facebook
+ * Start the marketing scope upgrade flow for Facebook.
+ *
+ * If the user already has an active Facebook connection with the required
+ * marketing scopes (ads_management, ads_read), this endpoint enables marketing
+ * on the existing connection and discovers ad accounts — no re-auth needed.
+ * Otherwise, it initiates the OAuth scope upgrade flow.
  */
 router.get('/facebook/marketing/initiate', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     logger.info(`[MARKETING-AUTH] Initiating marketing scope upgrade for user ${userId}`);
 
+    // Check if user already has an active Facebook connection with marketing scopes
+    const TokenManager = (await import('../services/TokenManager.js')).default;
+    let existingConnection = null;
+    try {
+      existingConnection = await TokenManager.getTokens(userId, 'facebook');
+    } catch (e) {
+      // Token decryption errors or other issues — proceed with OAuth flow
+      logger.warn(`[MARKETING-AUTH] Could not read existing Facebook connection: ${e.message}`);
+    }
+
+    if (existingConnection && existingConnection.status === 'active') {
+      // Check ACTUAL granted scopes from Facebook API, not stored scopes.
+      // The stored scopes array only contains requested scopes from the OAuth flow,
+      // but Facebook may have already granted marketing scopes from a prior authorization.
+      let hasMarketingScopes = false;
+      try {
+        const grantedScopes = await ConnectionManager.checkGrantedScopes(existingConnection.access_token);
+        hasMarketingScopes = grantedScopes.includes('ads_management') && grantedScopes.includes('ads_read');
+        logger.info(`[MARKETING-AUTH] Live scope check for user ${userId}: ads_management=${grantedScopes.includes('ads_management')}, ads_read=${grantedScopes.includes('ads_read')}`);
+      } catch (scopeErr) {
+        logger.warn(`[MARKETING-AUTH] Could not check live scopes: ${scopeErr.message}`);
+      }
+
+      if (hasMarketingScopes && !existingConnection.platform_metadata?.marketingEnabled) {
+        // Connection already has marketing scopes but marketingEnabled flag is not set.
+        // Enable marketing on the existing connection without re-auth.
+        logger.info(`[MARKETING-AUTH] User ${userId} already has marketing scopes — enabling without re-auth`);
+
+        const updatedMetadata = {
+          ...existingConnection.platform_metadata,
+          marketingEnabled: true
+        };
+
+        const { supabaseAdmin: adminClient } = await import('../services/supabase.js');
+        await adminClient
+          .from('social_connections')
+          .update({
+            platform_metadata: updatedMetadata,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingConnection.id);
+
+        // Discover and store ad accounts using the existing token
+        const adAccounts = await ConnectionManager.discoverAdAccounts(existingConnection.access_token);
+
+        const { getUserAdAccounts, upsertAdAccount, getMarketingAddon } = await import('../services/database-wrapper.js');
+        const addon = await getMarketingAddon(userId);
+        const maxAdAccounts = addon?.max_ad_accounts || 1;
+        const existingAccounts = await getUserAdAccounts(userId);
+        const slotsAvailable = Math.max(0, maxAdAccounts - existingAccounts.length);
+
+        const existingIds = new Set(existingAccounts.map(a => a.account_id));
+        const newAccounts = adAccounts.filter(a => !existingIds.has(a.accountId));
+        const accountsToStore = newAccounts.slice(0, slotsAvailable);
+
+        for (const account of accountsToStore) {
+          await upsertAdAccount({
+            userId,
+            ...account,
+            isSelected: existingAccounts.length === 0 && accountsToStore.length === 1
+          });
+        }
+
+        return res.json({
+          success: true,
+          alreadyAuthorized: true,
+          storedAccounts: accountsToStore.length,
+          message: 'Marketing enabled using your existing Facebook connection.'
+        });
+      }
+
+      if (existingConnection.platform_metadata?.marketingEnabled) {
+        // Marketing is already fully enabled
+        return res.json({
+          success: true,
+          alreadyAuthorized: true,
+          message: 'Marketing is already enabled on your Facebook connection.'
+        });
+      }
+    }
+
+    // Existing connection doesn't have marketing scopes — initiate OAuth scope upgrade
     const authUrl = ConnectionManager.getMarketingAuthorizationUrl(
       userId,
       `${FRONTEND_URL}/profile.html?tab=marketing`

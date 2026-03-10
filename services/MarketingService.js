@@ -1187,7 +1187,7 @@ class MarketingService {
     let created = 0, updated = 0;
 
     for (const fbAudience of audiences) {
-      const existing = await getAudienceTemplateByFbId(userId, fbAudience.id);
+      const existing = await getAudienceTemplateByFbId(userId, fbAudience.id, creds.adAccountDbId);
 
       const audienceData = {
         name: fbAudience.name,
@@ -1206,6 +1206,7 @@ class MarketingService {
       } else {
         await createAudienceTemplate({
           userId,
+          adAccountId: creds.adAccountDbId,
           ...audienceData
         });
         created++;

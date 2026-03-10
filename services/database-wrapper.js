@@ -117,5 +117,15 @@ export {
   insertBrandVoiceGeneratedPost,
   getBrandVoiceGeneratedPosts,
   deleteBrandVoiceGeneratedPost,
-  getAllPublishedPosts
+  getAllPublishedPosts,
+  // Media asset functions
+  getUserMediaAssets,
+  createMediaAsset,
+  deleteMediaAsset,
+  countMediaAssets,
+  getMediaTrainingJob,
+  upsertMediaTrainingJob,
+  getGeneratedMedia,
+  createGeneratedMedia,
+  deleteGeneratedMedia
 } from './database.js';

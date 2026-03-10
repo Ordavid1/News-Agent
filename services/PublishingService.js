@@ -225,35 +225,100 @@ class PublishingService {
 
   /**
    * Detect and handle authentication failures during publishing.
-   * If the error is a 401/403 or platform-specific auth error, marks the
-   * connection as 'error' which also auto-pauses the associated agent.
+   * Uses platform-aware error classification to distinguish definitive auth
+   * failures (expired/invalid token) from transient errors (rate limiting,
+   * temporary API issues). Only marks connection as 'error' for definitive
+   * failures to prevent transient issues from permanently killing connections.
    */
   async handleAuthFailure(userId, platform, error) {
     const status = error.response?.status || error.code;
-    const fbErrorCode = error.response?.data?.error?.code;
-    const isAuthError = status === 401 || status === 403 || fbErrorCode === 190;
+    const fbError = error.response?.data?.error || {};
+    const fbErrorCode = fbError.code;
+    const fbErrorSubcode = fbError.error_subcode;
 
-    if (isAuthError) {
-      logger.warn(`Auth failure detected for ${platform} (user: ${userId}) — HTTP ${status}. Marking connection as error.`);
+    const META_PLATFORMS = ['facebook', 'instagram', 'threads'];
+    const isMetaPlatform = META_PLATFORMS.includes(platform);
+
+    // Meta-specific definitive auth errors:
+    //   Code 190: Invalid/expired OAuth access token
+    //   Code 102: API session has expired
+    //   Subcode 463: Token has expired
+    //   Subcode 467: Token has been invalidated
+    const isDefinitiveMetaAuthError =
+      [190, 102].includes(fbErrorCode) ||
+      [463, 467].includes(fbErrorSubcode);
+
+    // For non-Meta platforms, a 401 is a definitive auth error
+    const isDefinitiveAuthError = isMetaPlatform
+      ? isDefinitiveMetaAuthError
+      : (status === 401);
+
+    if (!isDefinitiveAuthError) {
+      // Log transient errors (rate limiting, temporary 403, etc.) but do NOT mark connection as error.
+      // Meta returns 403 for rate limiting (error codes 4, 32) and permission issues on specific
+      // actions that don't indicate an expired token.
+      logger.warn(
+        `Non-definitive auth response for ${platform} (user: ${userId}) — ` +
+        `HTTP ${status}, fbErrorCode: ${fbErrorCode || 'none'}, fbSubcode: ${fbErrorSubcode || 'none'}. ` +
+        `NOT marking connection as error.`
+      );
+      return;
+    }
+
+    // For Meta platforms, verify the token is actually invalid before marking as error.
+    // This provides a second confirmation and prevents edge cases where the error code
+    // is misleading (e.g., temporary infrastructure issues returning 190).
+    if (isMetaPlatform) {
       try {
-        const { supabaseAdmin } = await import('./supabase.js');
-        const { data: connection } = await supabaseAdmin
-          .from('social_connections')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('platform', platform)
-          .single();
-
-        if (connection) {
-          await TokenManager.markConnectionError(
-            connection.id,
-            `Publishing auth failure (HTTP ${status}): ${error.message}`
+        const connection = await TokenManager.getTokens(userId, platform);
+        if (connection?.access_token) {
+          const verifyResponse = await fetch(
+            `https://graph.facebook.com/v24.0/debug_token?` +
+            `input_token=${encodeURIComponent(connection.access_token)}` +
+            `&access_token=${encodeURIComponent(connection.access_token)}`
           );
-          // Agent auto-pause happens inside markConnectionError
+          if (verifyResponse.ok) {
+            const debugData = await verifyResponse.json();
+            if (debugData.data?.is_valid) {
+              logger.info(
+                `Token for ${platform} (user: ${userId}) is still valid per debug_token. ` +
+                `Skipping error marking despite error code ${fbErrorCode}.`
+              );
+              return;
+            }
+            logger.info(`Token for ${platform} (user: ${userId}) confirmed invalid via debug_token.`);
+          }
         }
-      } catch (markErr) {
-        logger.error(`Failed to mark connection error after auth failure:`, markErr.message);
+      } catch (verifyErr) {
+        // Verification itself failed — proceed with marking as error since we have a definitive error code
+        logger.warn(`Token verification failed for ${platform}: ${verifyErr.message}. Proceeding with error marking.`);
       }
+    }
+
+    // Definitive auth failure confirmed — mark connection as error (with auto-pause of agents)
+    logger.warn(
+      `Definitive auth failure for ${platform} (user: ${userId}) — ` +
+      `HTTP ${status}, fbErrorCode: ${fbErrorCode || 'none'}. Marking connection as error.`
+    );
+
+    try {
+      const { supabaseAdmin } = await import('./supabase.js');
+      const { data: connection } = await supabaseAdmin
+        .from('social_connections')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('platform', platform)
+        .single();
+
+      if (connection) {
+        await TokenManager.markConnectionError(
+          connection.id,
+          `Publishing auth failure (HTTP ${status}, code ${fbErrorCode || 'none'}): ${error.message}`
+        );
+        // Agent auto-pause happens inside markConnectionError
+      }
+    } catch (markErr) {
+      logger.error(`Failed to mark connection error after auth failure:`, markErr.message);
     }
   }
 
