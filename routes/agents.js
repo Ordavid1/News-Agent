@@ -28,10 +28,11 @@ import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
+import { checkVideoQuota } from '../middleware/subscription.js';
 import winston from 'winston';
 
 // Tiers that have access to image extraction feature (Starter and above)
-const TIERS_WITH_IMAGES = ['starter', 'growth', 'professional', 'business'];
+const TIERS_WITH_IMAGES = ['starter', 'growth', 'business'];
 // SECURITY: Input validation
 import { agentCreateValidation, agentUpdateValidation, agentStatusValidation, idParam } from '../utils/validators.js';
 
@@ -54,7 +55,6 @@ const AGENT_LIMITS = {
   free: 1,
   starter: 2,
   growth: 5,
-  professional: 10,
   business: -1 // unlimited
 };
 
@@ -817,8 +817,21 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       console.log(`[Agent Test] User tier "${userTier}" - image extraction not available (Growth+ required)`);
     }
 
-    // Step 2.5: For TikTok — generate video from image + caption
+    // Step 2.5: For TikTok — check video quota then generate video from image + caption
     if (platform === 'tiktok') {
+      // Check video quota before expensive video generation
+      const videoQuota = await checkVideoQuota(userId, req.user.subscription);
+      if (!videoQuota.allowed) {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', videoQuota.error);
+        return res.status(403).json({
+          success: false,
+          error: videoQuota.error,
+          videosRemaining: videoQuota.videosRemaining,
+          videoMonthlyLimit: videoQuota.videoMonthlyLimit,
+          step: 'video_quota'
+        });
+      }
+
       if (!imageUrl) {
         testProgressEmitter.emitProgress(userId, agentId, 'error', 'TikTok requires an image for video generation — none found');
         return res.status(400).json({
@@ -887,6 +900,12 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         generatedContent.videoBuffer = videoResult.videoBuffer || null;
         testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Video generated (${videoResult.model}, ${videoResult.duration}s)`);
         console.log(`[Agent Test] Video generated — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
+
+        // Decrement video quota after successful generation
+        const { supabaseAdmin } = await import('../services/supabase.js');
+        await supabaseAdmin.rpc('decrement_videos_remaining', { p_user_id: userId });
+        req.user.subscription.videosRemaining = Math.max(0, (req.user.subscription.videosRemaining || 1) - 1);
+        console.log(`[Agent Test] Video quota decremented — ${req.user.subscription.videosRemaining} videos remaining`);
       } catch (videoError) {
         console.error(`[Agent Test] Video generation error:`, videoError);
         const errorMsg = videoError.isContentFilter

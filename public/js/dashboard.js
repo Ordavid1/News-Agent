@@ -8,16 +8,16 @@ let currentPost = null;
 // Platform configurations
 // Note: 'disabled' platforms are shown faded with "Coming Soon" - integration not yet set up
 const PLATFORMS = {
-    twitter: { name: 'Twitter', icon: '🐦', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    linkedin: { name: 'LinkedIn', icon: '💼', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    reddit: { name: 'Reddit', icon: '🔴', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    facebook: { name: 'Facebook', icon: '📘', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    threads: { name: 'Threads', icon: '@', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    whatsapp: { name: 'WhatsApp', icon: '💬', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    instagram: { name: 'Instagram', icon: '📸', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    tiktok: { name: 'TikTok', icon: '🎵', available: ['free', 'starter', 'growth', 'professional', 'business'] },
-    youtube: { name: 'YouTube', icon: '▶️', available: ['free', 'starter', 'growth', 'professional', 'business'] }
+    twitter: { name: 'Twitter', icon: '🐦', available: ['free', 'starter', 'growth', 'business'] },
+    linkedin: { name: 'LinkedIn', icon: '💼', available: ['free', 'starter', 'growth', 'business'] },
+    reddit: { name: 'Reddit', icon: '🔴', available: ['free', 'starter', 'growth', 'business'] },
+    telegram: { name: 'Telegram', icon: '✈️', available: ['free', 'starter', 'growth', 'business'] },
+    facebook: { name: 'Facebook', icon: '📘', available: ['free', 'starter', 'growth', 'business'] },
+    threads: { name: 'Threads', icon: '@', available: ['free', 'starter', 'growth', 'business'] },
+    whatsapp: { name: 'WhatsApp', icon: '💬', available: ['free', 'starter', 'growth', 'business'] },
+    instagram: { name: 'Instagram', icon: '📸', available: ['free', 'starter', 'growth', 'business'] },
+    tiktok: { name: 'TikTok', icon: '🎵', available: ['free', 'starter', 'growth', 'business'] },
+    youtube: { name: 'YouTube', icon: '▶️', available: ['free', 'starter', 'growth', 'business'] }
 };
 
 // Initialize dashboard
@@ -63,9 +63,22 @@ function updateUI() {
     if (!currentUser) return;
     
     // Update posts remaining
-    document.getElementById('postsRemaining').textContent = 
+    document.getElementById('postsRemaining').textContent =
         `${currentUser.subscription.postsRemaining}/${currentUser.subscription.dailyLimit || getTierLimit(currentUser.subscription.tier)}`;
     document.getElementById('subPostsRemaining').textContent = currentUser.subscription.postsRemaining;
+
+    // Update videos remaining (only show for paid tiers with video quota)
+    const videoMonthlyLimit = currentUser.subscription.videoMonthlyLimit || 0;
+    const videoQuotaCard = document.getElementById('videoQuotaCard');
+    if (videoQuotaCard) {
+        if (videoMonthlyLimit > 0) {
+            videoQuotaCard.style.display = '';
+            document.getElementById('videosRemaining').textContent =
+                `${currentUser.subscription.videosRemaining ?? 0}/${videoMonthlyLimit}`;
+        } else {
+            videoQuotaCard.style.display = 'none';
+        }
+    }
     
     // Update subscription info
     document.getElementById('currentTier').textContent = 
@@ -86,10 +99,9 @@ function updateUI() {
 function getTierLimit(tier) {
     const limits = {
         free: 1,          // 1 post/week
-        starter: 10,      // 10 posts/day
-        growth: 20,       // 20 posts/day
-        professional: 30, // 30 posts/day
-        business: 45      // 45 posts/day
+        starter: 6,       // 6 posts/day
+        growth: 12,       // 12 posts/day
+        business: 30      // 30 posts/day
     };
     return limits[tier] || 1;
 }

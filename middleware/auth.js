@@ -143,7 +143,7 @@ export function requireAdmin(req, res, next) {
  * Require specific subscription tier
  */
 export function requireTier(minTier) {
-  const tierOrder = ['free', 'starter', 'growth', 'professional', 'business'];
+  const tierOrder = ['free', 'starter', 'growth', 'business'];
 
   return (req, res, next) => {
     if (!req.user) {

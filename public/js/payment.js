@@ -45,7 +45,6 @@ async function checkout(plan) {
         'starter': 'starter',
         'pro': 'growth',
         'growth': 'growth',
-        'professional': 'professional',
         'enterprise': 'business',
         'business': 'business'
     };

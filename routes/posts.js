@@ -13,7 +13,7 @@ import { postGenerateValidation, bulkGenerateValidation, paginationQuery } from 
 // AutomationManager instance is accessed via req.app.locals.automationManager
 
 // Tiers that get image extraction feature (Starter and above)
-const TIERS_WITH_IMAGES = ['starter', 'growth', 'professional', 'business'];
+const TIERS_WITH_IMAGES = ['starter', 'growth', 'business'];
 
 const router = express.Router();
 
@@ -165,7 +165,7 @@ router.post('/:postId/schedule', requireTier('growth'), async (req, res) => {
 });
 
 // Bulk generate posts (Professional tier and above)
-router.post('/bulk-generate', requireTier('professional'), postGenerationLimiter, bulkGenerateValidation, async (req, res) => {
+router.post('/bulk-generate', requireTier('growth'), postGenerationLimiter, bulkGenerateValidation, async (req, res) => {
   try {
     const { topics, platforms } = req.body;
     const userId = req.user.id;

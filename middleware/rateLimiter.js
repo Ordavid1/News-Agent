@@ -88,7 +88,6 @@ export const postGenerationLimiter = (req, res, next) => {
     free: 5,
     starter: 20,
     growth: 50,
-    professional: 100,
     business: 200
   };
 

@@ -33,16 +33,16 @@ function showSuccess(message) {
 // Platform availability by tier
 // Note: platforms with empty array and disabled:true are globally disabled (integration not set up)
 const platformTiers = {
-    twitter: ['growth', 'professional', 'business'],
-    linkedin: ['free', 'starter', 'growth', 'professional', 'business'],
-    reddit: ['free', 'starter', 'growth', 'professional', 'business'],
-    telegram: ['free', 'starter', 'growth', 'professional', 'business'],
-    facebook: [], // Disabled - Coming Soon
-    threads: [], // Disabled - Coming Soon
-    whatsapp: [], // Disabled - Coming Soon
-    instagram: ['professional', 'business'],
-    tiktok: ['business'],
-    youtube: ['business']
+    twitter: ['free', 'starter', 'growth', 'business'],
+    linkedin: ['free', 'starter', 'growth', 'business'],
+    reddit: ['free', 'starter', 'growth', 'business'],
+    telegram: ['free', 'starter', 'growth', 'business'],
+    facebook: ['free', 'starter', 'growth', 'business'],
+    threads: ['free', 'starter', 'growth', 'business'],
+    whatsapp: ['free', 'starter', 'growth', 'business'],
+    instagram: ['free', 'starter', 'growth', 'business'],
+    tiktok: ['free', 'starter', 'growth', 'business'],
+    youtube: ['free', 'starter', 'growth', 'business']
 };
 
 // Platforms that are globally disabled (integration not yet set up)
@@ -54,10 +54,9 @@ const disabledPlatforms = {
 
 // Daily limits by plan
 const planLimits = {
-    starter: 10,
-    growth: 20,
-    professional: 30,
-    business: 45
+    starter: 6,
+    growth: 12,
+    business: 30
 };
 
 // Sample content for preview

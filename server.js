@@ -331,7 +331,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
 
   // Helper to get post limit by tier (free = 1 post/week, others = posts/day)
   const getTierPostLimit = (tier) => {
-    const limits = { free: 1, starter: 10, growth: 20, professional: 30, business: 45 };
+    const limits = { free: 1, starter: 6, growth: 12, business: 30 };
     return limits[tier] || 1;
   };
 
@@ -339,7 +339,6 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   const VARIANT_TIERS = {
     [process.env.LEMON_SQUEEZY_49_VARIANT_ID]: 'starter',
     [process.env.LEMON_SQUEEZY_149_VARIANT_ID]: 'growth',
-    [process.env.LEMON_SQUEEZY_399_VARIANT_ID]: 'professional',
     [process.env.LEMON_SQUEEZY_799_VARIANT_ID]: 'business'
   };
 

@@ -422,7 +422,16 @@ function setupEventHandlers() {
 }
 
 function highlightCurrentPlan(tier) {
-    const plans = ['starter', 'growth', 'professional', 'business'];
+    // Handle free tier card badge visibility
+    const freeCard = document.getElementById('plan-card-free');
+    if (freeCard) {
+        const freeBadge = freeCard.querySelector('.bg-green-100');
+        if (freeBadge) {
+            freeBadge.style.display = tier === 'free' ? '' : 'none';
+        }
+    }
+
+    const plans = ['starter', 'growth', 'business'];
     plans.forEach(plan => {
         const card = document.getElementById(`plan-card-${plan}`);
         if (card) {
@@ -752,7 +761,6 @@ async function selectPlan(plan) {
         'starter': 'starter',
         'pro': 'growth',
         'growth': 'growth',
-        'professional': 'professional',
         'enterprise': 'business',
         'business': 'business'
     };
@@ -819,7 +827,6 @@ async function selectPlan(plan) {
             const tierNames = {
                 'starter': 'Starter ($25/mo)',
                 'growth': 'Growth ($75/mo)',
-                'professional': 'Professional ($75/mo)',
                 'business': 'Business ($250/mo)'
             };
             const isUpgrade = getPlanIndex(tier) > getPlanIndex(currentTier);
@@ -2160,7 +2167,7 @@ document.addEventListener('click', (e) => {
 
 // Get plan index for comparison (higher = more expensive)
 function getPlanIndex(tier) {
-    const planOrder = ['free', 'starter', 'growth', 'professional', 'business'];
+    const planOrder = ['free', 'starter', 'growth', 'business'];
     return planOrder.indexOf(tier);
 }
 

@@ -25,10 +25,9 @@ const TARGET_TIER = 'business';
 // Post limits by tier (free = 1 post/week, others = posts/day)
 const TIER_LIMITS = {
   free: 1,
-  starter: 10,
-  growth: 20,
-  professional: 30,
-  business: 45
+  starter: 6,
+  growth: 12,
+  business: 30
 };
 
 async function setAdminSubscription() {

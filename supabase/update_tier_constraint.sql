@@ -8,4 +8,4 @@ DROP CONSTRAINT IF EXISTS profiles_subscription_tier_check;
 -- Add the updated constraint with all tiers
 ALTER TABLE public.profiles
 ADD CONSTRAINT profiles_subscription_tier_check
-CHECK (subscription_tier IN ('free', 'basic', 'starter', 'growth', 'professional', 'business', 'enterprise'));
+CHECK (subscription_tier IN ('free', 'starter', 'growth', 'business'));

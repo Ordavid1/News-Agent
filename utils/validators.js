@@ -244,7 +244,7 @@ export const agentStatusValidation = [
 export const checkoutValidation = [
   body('tier')
     .isString()
-    .isIn(['starter', 'growth', 'professional', 'business'])
+    .isIn(['starter', 'growth', 'business'])
     .withMessage('Invalid subscription tier'),
 
   validate
@@ -253,7 +253,7 @@ export const checkoutValidation = [
 export const changePlanValidation = [
   body('tier')
     .isString()
-    .isIn(['starter', 'growth', 'professional', 'business'])
+    .isIn(['starter', 'growth', 'business'])
     .withMessage('Invalid subscription tier'),
 
   validate

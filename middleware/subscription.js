@@ -13,10 +13,9 @@ export async function checkSubscriptionLimits(req, res, next) {
       // Reset post limit - free tier gets 1 post/week, paid tiers get daily limits
       const postLimits = {
         free: 1,         // 1 post/week
-        starter: 10,     // 10 posts/day
-        growth: 20,      // 20 posts/day
-        professional: 30, // 30 posts/day
-        business: 45     // 45 posts/day
+        starter: 6,      // 6 posts/day
+        growth: 12,      // 12 posts/day
+        business: 30     // 30 posts/day
       };
 
       const tier = user.subscription.tier;
@@ -37,7 +36,7 @@ export async function checkSubscriptionLimits(req, res, next) {
     // Check if user has posts remaining
     if (user.subscription.postsRemaining <= 0) {
       return res.status(403).json({ 
-        error: 'Daily post limit reached',
+        error: 'Post limit reached',
         subscription: user.subscription
       });
     }
@@ -62,10 +61,9 @@ export function requireTier(minTier) {
     free: 0,
     starter: 1,
     growth: 2,
-    professional: 3,
-    business: 4
+    business: 3
   };
-  
+
   return (req, res, next) => {
     const userTierLevel = tierHierarchy[req.user.subscription.tier] || 0;
     const requiredTierLevel = tierHierarchy[minTier] || 0;
@@ -97,12 +95,85 @@ function getNextResetDate(tier = 'free') {
   return resetDate;
 }
 
+// ============================================
+// VIDEO LIMITS
+// ============================================
+
+// Monthly video post limits per subscription tier
+export const VIDEO_LIMITS = {
+  free: 0,
+  starter: 2,
+  growth: 10,
+  business: 50
+};
+
+/**
+ * Get video limit for a subscription tier
+ * @param {string} tier - Subscription tier name
+ * @returns {number} Monthly video limit
+ */
+export function getVideoLimit(tier) {
+  return VIDEO_LIMITS[tier] ?? 0;
+}
+
+/**
+ * Check video quota for a user. Called before video generation (TikTok).
+ * Handles monthly reset and returns remaining count or throws.
+ * @param {string} userId - User ID
+ * @param {object} subscription - User's subscription object
+ * @returns {Promise<{allowed: boolean, videosRemaining: number, videoMonthlyLimit: number}>}
+ */
+export async function checkVideoQuota(userId, subscription) {
+  const tier = subscription.tier || 'free';
+  const limit = getVideoLimit(tier);
+
+  // Free tier has no video access
+  if (limit === 0) {
+    return { allowed: false, videosRemaining: 0, videoMonthlyLimit: 0, error: 'Video posts require a paid subscription' };
+  }
+
+  const now = new Date();
+  const videoResetDate = subscription.videoResetDate ? new Date(subscription.videoResetDate) : new Date(0);
+
+  // Check if monthly reset is needed
+  if (now >= videoResetDate) {
+    const nextReset = getMonthlyVideoResetDate();
+    await updateUser(userId, {
+      'subscription.videosRemaining': limit,
+      'subscription.videoMonthlyLimit': limit,
+      'subscription.videoResetDate': nextReset
+    });
+
+    // Refresh in-memory
+    subscription.videosRemaining = limit;
+    subscription.videoMonthlyLimit = limit;
+    subscription.videoResetDate = nextReset;
+  }
+
+  if ((subscription.videosRemaining ?? 0) <= 0) {
+    return { allowed: false, videosRemaining: 0, videoMonthlyLimit: limit, error: 'Monthly video limit reached' };
+  }
+
+  return { allowed: true, videosRemaining: subscription.videosRemaining, videoMonthlyLimit: limit };
+}
+
+function getMonthlyVideoResetDate() {
+  const now = new Date();
+  const resetDate = new Date(now);
+  resetDate.setMonth(resetDate.getMonth() + 1);
+  resetDate.setHours(0, 0, 0, 0);
+  return resetDate;
+}
+
+// ============================================
+// AGENT LIMITS
+// ============================================
+
 // Agent limits per subscription tier
 export const AGENT_LIMITS = {
   free: 1,
   starter: 2,
   growth: 5,
-  professional: 10,
   business: -1 // unlimited
 };
 
@@ -158,8 +229,7 @@ export function requireMarketingAddon() {
     free: 0,
     starter: 1,
     growth: 2,
-    professional: 3,
-    business: 4
+    business: 3
   };
 
   return async (req, res, next) => {

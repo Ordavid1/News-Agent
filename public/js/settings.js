@@ -59,10 +59,9 @@ let currentUser = null;
 // Note: free tier is 1 post/week, paid tiers are posts/day
 const PLAN_POST_LIMITS = {
     free: 1,          // 1 post/week
-    starter: 10,      // 10 posts/day
-    growth: 20,       // 20 posts/day
-    professional: 30, // 30 posts/day
-    business: 45      // 45 posts/day
+    starter: 6,       // 6 posts/day
+    growth: 12,       // 12 posts/day
+    business: 30      // 30 posts/day
 };
 
 document.addEventListener('DOMContentLoaded', async () => {

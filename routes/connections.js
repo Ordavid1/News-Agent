@@ -742,7 +742,7 @@ router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
   try {
     // Check tier - WhatsApp is for Starter plan and above
     const tier = req.user.subscription?.tier || req.user.subscription_tier || 'free';
-    const allowedTiers = ['starter', 'growth', 'professional', 'business', 'enterprise'];
+    const allowedTiers = ['starter', 'growth', 'business'];
     if (!allowedTiers.includes(tier)) {
       return res.status(403).json({
         success: false,

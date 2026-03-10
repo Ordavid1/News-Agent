@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
+import { getVideoLimit } from '../middleware/subscription.js';
 // Supabase for plan interest tracking
 import { supabaseAdmin, isConfigured as isSupabaseConfigured } from '../services/supabase.js';
 
@@ -14,31 +15,27 @@ const router = express.Router();
 const PRICING_TIERS = {
   starter: {
     name: 'Starter Package',
-    monthlyPrice: 4900, // $49 in cents
-    postsPerDay: 10,
+    monthlyPrice: 2500, // $25 in cents
+    postsPerDay: 6,
+    videosPerMonth: 2,
     variantId: process.env.LEMON_SQUEEZY_49_VARIANT_ID,
-    features: ['10 posts/day (300/mo)', '3 platforms (LinkedIn, Reddit, Telegram)', 'Basic analytics', 'Email support']
+    features: ['6 text posts/day (180/mo)', '2 video posts/month', 'All 9 platforms', 'Basic analytics', 'Email support']
   },
   growth: {
     name: 'Growth Package',
-    monthlyPrice: 14900, // $149
-    postsPerDay: 20,
+    monthlyPrice: 7500, // $75
+    postsPerDay: 12,
+    videosPerMonth: 10,
     variantId: process.env.LEMON_SQUEEZY_149_VARIANT_ID,
-    features: ['20 posts/day (600/mo)', '4 platforms (+ Twitter)', 'Advanced analytics', 'Post scheduling', 'Priority support']
-  },
-  professional: {
-    name: 'Professional Package',
-    monthlyPrice: 39900, // $399
-    postsPerDay: 30,
-    variantId: process.env.LEMON_SQUEEZY_399_VARIANT_ID,
-    features: ['30 posts/day (900/mo)', '5 platforms (+ Instagram)', 'Bulk generation', 'API access', 'Custom posting schedules', 'Dedicated support']
+    features: ['12 text posts/day (360/mo)', '10 video posts/month', 'All 9 platforms', 'Advanced analytics', 'Post scheduling', 'Priority support']
   },
   business: {
     name: 'Business Package',
-    monthlyPrice: 79900, // $799
-    postsPerDay: 45,
+    monthlyPrice: 25000, // $250
+    postsPerDay: 30,
+    videosPerMonth: 50,
     variantId: process.env.LEMON_SQUEEZY_799_VARIANT_ID,
-    features: ['45 posts/day (1,350/mo)', '7 platforms (+ TikTok, YouTube)', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
+    features: ['30 text posts/day (900/mo)', '50 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
   }
 };
 
@@ -46,10 +43,9 @@ const PRICING_TIERS = {
 function getTierPostLimit(tier) {
   const limits = {
     free: 1,          // 1 post/week
-    starter: 10,      // 10 posts/day
-    growth: 20,       // 20 posts/day
-    professional: 30, // 30 posts/day
-    business: 45      // 45 posts/day
+    starter: 6,       // 6 posts/day
+    growth: 12,       // 12 posts/day
+    business: 30      // 30 posts/day
   };
   return limits[tier] || 1;
 }
@@ -686,7 +682,7 @@ router.post('/downgrade-to-free', async (req, res) => {
     resetDate.setDate(resetDate.getDate() + 7);
     resetDate.setHours(0, 0, 0, 0);
 
-    // Update user to free tier immediately
+    // Update user to free tier immediately (0 videos for free tier)
     await updateUser(req.user.id, {
       subscription: {
         tier: 'free',
@@ -694,6 +690,8 @@ router.post('/downgrade-to-free', async (req, res) => {
         postsRemaining: 1,
         dailyLimit: 1,
         resetDate: resetDate,
+        videosRemaining: 0,
+        videoMonthlyLimit: 0,
         cancelAtPeriodEnd: false,
         endsAt: null,
         pendingTier: null,
@@ -727,7 +725,7 @@ router.post('/plan-interest', async (req, res) => {
     const { plan } = req.body;
 
     // Validate plan name
-    const validPlans = ['growth', 'professional', 'business'];
+    const validPlans = ['growth', 'business'];
     if (!plan || !validPlans.includes(plan)) {
       return res.status(400).json({ error: 'Invalid plan name' });
     }
@@ -831,7 +829,7 @@ router.post('/marketing-checkout', async (req, res) => {
   console.log('[MARKETING-CHECKOUT] POST /marketing-checkout - User:', req.user?.id);
   try {
     // Verify user has at least starter tier
-    const tierHierarchy = { free: 0, starter: 1, growth: 2, professional: 3, business: 4 };
+    const tierHierarchy = { free: 0, starter: 1, growth: 2, business: 3 };
     const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
 
     if (userTierLevel < 1) {
@@ -1154,13 +1152,21 @@ async function handleSubscriptionCreated(payload, customData) {
     currentPeriodEnd: subscriptionData.renews_at
   });
 
-  // Update user profile with new subscription details
+  // Update user profile with new subscription details (posts + video limits)
+  const videoLimit = getVideoLimit(actualTier);
+  const videoResetDate = new Date();
+  videoResetDate.setMonth(videoResetDate.getMonth() + 1);
+  videoResetDate.setHours(0, 0, 0, 0);
+
   await updateUser(user_id, {
     subscription: {
       tier: actualTier,
       status: 'active',
       postsRemaining: getTierPostLimit(actualTier),
       dailyLimit: getTierPostLimit(actualTier),
+      videosRemaining: videoLimit,
+      videoMonthlyLimit: videoLimit,
+      videoResetDate: videoResetDate,
       cancelAtPeriodEnd: false
     },
     lsCustomerId: String(subscriptionData.customer_id),
@@ -1207,13 +1213,21 @@ async function handleSubscriptionUpdated(payload) {
     currentPeriodEnd: subscriptionData.renews_at
   });
 
-  // Update user profile
+  // Update user profile (posts + video limits)
+  const updatedVideoLimit = getVideoLimit(newTier);
+  const updatedVideoResetDate = new Date();
+  updatedVideoResetDate.setMonth(updatedVideoResetDate.getMonth() + 1);
+  updatedVideoResetDate.setHours(0, 0, 0, 0);
+
   await updateUser(subscription.userId, {
     subscription: {
       tier: newTier,
       status,
       postsRemaining: getTierPostLimit(newTier),
       dailyLimit: getTierPostLimit(newTier),
+      videosRemaining: updatedVideoLimit,
+      videoMonthlyLimit: updatedVideoLimit,
+      videoResetDate: updatedVideoResetDate,
       cancelAtPeriodEnd: isCancelled,
       endsAt: isCancelled ? subscriptionData.ends_at : null
     }
@@ -1302,13 +1316,15 @@ async function handleSubscriptionExpired(payload) {
     cancelAtPeriodEnd: false
   });
 
-  // Downgrade to free tier (1 post per week)
+  // Downgrade to free tier (1 post per week, 0 videos)
   await updateUser(subscription.userId, {
     subscription: {
       tier: 'free',
       status: 'expired',
       postsRemaining: 1,
       dailyLimit: 1,
+      videosRemaining: 0,
+      videoMonthlyLimit: 0,
       cancelAtPeriodEnd: false,
       endsAt: null,
       pendingTier: null,
@@ -1338,13 +1354,21 @@ async function handlePaymentSuccess(payload) {
     cancelAtPeriodEnd: false
   });
 
-  // Reset daily limits on successful renewal
+  // Reset daily limits and video limits on successful renewal
+  const renewalVideoLimit = getVideoLimit(subscription.tier);
+  const renewalVideoResetDate = new Date();
+  renewalVideoResetDate.setMonth(renewalVideoResetDate.getMonth() + 1);
+  renewalVideoResetDate.setHours(0, 0, 0, 0);
+
   await updateUser(subscription.userId, {
     subscription: {
       tier: subscription.tier,
       status: 'active',
       postsRemaining: getTierPostLimit(subscription.tier),
       dailyLimit: getTierPostLimit(subscription.tier),
+      videosRemaining: renewalVideoLimit,
+      videoMonthlyLimit: renewalVideoLimit,
+      videoResetDate: renewalVideoResetDate,
       cancelAtPeriodEnd: false,
       endsAt: null
     }

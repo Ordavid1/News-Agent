@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   api_key TEXT,  -- Legacy API key for backwards compatibility
 
   -- Subscription
-  subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'basic', 'starter', 'growth', 'professional', 'business', 'enterprise')),
+  subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'starter', 'growth', 'business')),
   subscription_status TEXT DEFAULT 'active' CHECK (subscription_status IN ('active', 'cancelled', 'suspended', 'past_due', 'expired')),
   cancel_at_period_end BOOLEAN DEFAULT FALSE,
   subscription_ends_at TIMESTAMPTZ,

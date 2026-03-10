@@ -16,8 +16,10 @@ import {
   getAgentsReadyForPosting,
   resetDailyAgentPosts,
   incrementAgentPost,
-  logAgentAutomation
+  logAgentAutomation,
+  getUserById
 } from './database-wrapper.js';
+import { checkVideoQuota } from '../middleware/subscription.js';
 import {
   publishToTwitter,
   publishToLinkedIn,
@@ -314,8 +316,23 @@ class AutomationManager {
       }
     }
 
-    // 3.7 For TikTok: generate video from image + caption using AI video model
+    // 3.7 For TikTok: check video quota then generate video from image + caption
     if (platform === 'tiktok') {
+      // Check video quota before expensive video generation
+      try {
+        const user = await getUserById(userId);
+        if (user?.subscription) {
+          const videoQuota = await checkVideoQuota(userId, user.subscription);
+          if (!videoQuota.allowed) {
+            agentLog('warn', `Video quota exhausted: ${videoQuota.error} — skipping TikTok post`);
+            return { success: false, error: 'video_limit_reached' };
+          }
+        }
+      } catch (quotaError) {
+        agentLog('error', `Video quota check failed: ${quotaError.message}`);
+        // Don't block on quota check failure — allow post to proceed
+      }
+
       if (!content.imageUrl) {
         agentLog('warn', 'TikTok requires an image for video generation but none available — post blocked');
         return { success: false, error: 'tiktok_no_image_for_video' };
@@ -373,6 +390,15 @@ class AutomationManager {
         content.videoUrl = videoResult.videoUrl;
         content.videoBuffer = videoResult.videoBuffer || null;
         agentLog('info', `Video generated successfully — model: ${videoResult.model}, duration: ${videoResult.duration}s`);
+
+        // Decrement video quota after successful generation
+        try {
+          const { supabaseAdmin } = await import('./supabase.js');
+          await supabaseAdmin.rpc('decrement_videos_remaining', { p_user_id: userId });
+          agentLog('info', 'Video quota decremented');
+        } catch (decrementError) {
+          agentLog('error', `Failed to decrement video quota: ${decrementError.message}`);
+        }
       } catch (videoError) {
         const errorDetail = videoError.isContentFilter
           ? `Video blocked by content filter even after rephrasing: ${videoError.message}`

@@ -73,7 +73,7 @@ router.get('/usage', requireTier('growth'), async (req, res) => {
 });
 
 // Get performance metrics (Professional tier and above)
-router.get('/performance', requireTier('professional'), async (req, res) => {
+router.get('/performance', requireTier('growth'), async (req, res) => {
   try {
     // TODO: Implement performance tracking
     // This would include engagement rates, best performing topics, optimal posting times, etc.

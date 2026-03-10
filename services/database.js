@@ -117,6 +117,9 @@ export async function createUser(userData) {
     posts_remaining: rest.postsRemaining || getTierPostLimit(tier),
     daily_limit: rest.dailyLimit || getTierPostLimit(tier),
     reset_date: getResetDateForTier(tier),
+    videos_remaining: rest.videosRemaining ?? getTierVideoLimit(tier),
+    video_monthly_limit: rest.videoMonthlyLimit ?? getTierVideoLimit(tier),
+    video_reset_date: rest.videoResetDate || getMonthlyVideoResetDate(),
     default_platforms: rest.defaultPlatforms || [],
     preferred_topics: rest.preferredTopics || [],
     timezone: rest.timezone || 'UTC',
@@ -588,12 +591,29 @@ export async function hasActiveConnection(userId, platform) {
 function getTierPostLimit(tier) {
   const limits = {
     free: 1,          // 1 post/week
-    starter: 10,      // 10 posts/day
-    growth: 20,       // 20 posts/day
-    professional: 30, // 30 posts/day
-    business: 45      // 45 posts/day
+    starter: 6,       // 6 posts/day
+    growth: 12,       // 12 posts/day
+    business: 30      // 30 posts/day
   };
   return limits[tier] || 1;
+}
+
+function getTierVideoLimit(tier) {
+  const limits = {
+    free: 0,
+    starter: 2,
+    growth: 10,
+    business: 50
+  };
+  return limits[tier] || 0;
+}
+
+function getMonthlyVideoResetDate() {
+  const now = new Date();
+  const nextMonth = new Date(now);
+  nextMonth.setMonth(nextMonth.getMonth() + 1);
+  nextMonth.setUTCHours(0, 0, 0, 0);
+  return nextMonth;
 }
 
 function getDailyResetDate() {
@@ -645,6 +665,9 @@ function formatUserForLegacy(profile) {
       postsRemaining: profile.posts_remaining,
       dailyLimit: profile.daily_limit,
       resetDate: profile.reset_date,
+      videosRemaining: profile.videos_remaining ?? 0,
+      videoMonthlyLimit: profile.video_monthly_limit ?? 0,
+      videoResetDate: profile.video_reset_date,
       cancelAtPeriodEnd: profile.cancel_at_period_end || false,
       endsAt: profile.subscription_ends_at,
       pendingTier: profile.pending_tier,
@@ -690,6 +713,9 @@ function convertUpdatesToSupabase(updates) {
     if (updates.subscription.endsAt !== undefined) converted.subscription_ends_at = updates.subscription.endsAt;
     if (updates.subscription.pendingTier !== undefined) converted.pending_tier = updates.subscription.pendingTier;
     if (updates.subscription.pendingChangeAt !== undefined) converted.pending_change_at = updates.subscription.pendingChangeAt;
+    if (updates.subscription.videosRemaining !== undefined) converted.videos_remaining = updates.subscription.videosRemaining;
+    if (updates.subscription.videoMonthlyLimit !== undefined) converted.video_monthly_limit = updates.subscription.videoMonthlyLimit;
+    if (updates.subscription.videoResetDate !== undefined) converted.video_reset_date = updates.subscription.videoResetDate;
   }
 
   // Handle nested settings object
@@ -735,7 +761,10 @@ function convertUpdatesToSupabase(updates) {
         cancelAtPeriodEnd: 'cancel_at_period_end',
         endsAt: 'subscription_ends_at',
         pendingTier: 'pending_tier',
-        pendingChangeAt: 'pending_change_at'
+        pendingChangeAt: 'pending_change_at',
+        videosRemaining: 'videos_remaining',
+        videoMonthlyLimit: 'video_monthly_limit',
+        videoResetDate: 'video_reset_date'
       };
       if (mapping[field]) converted[mapping[field]] = value;
     }
