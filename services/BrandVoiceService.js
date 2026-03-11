@@ -776,6 +776,73 @@ class BrandVoiceService {
     return results;
   }
 
+  // ============================================
+  // IMAGE PROMPT GENERATION (for LoRA models)
+  // ============================================
+
+  /**
+   * Generate a LoRA-compatible image prompt based on a brand voice post.
+   * Uses the LLM to translate a text post into a visual scene description
+   * that includes the LoRA trigger word for brand-consistent image generation.
+   *
+   * @param {string} postText - The generated text post content
+   * @param {string} triggerWord - The LoRA model trigger word (e.g., "BRAND123ABC")
+   * @param {Object} profileData - The brand voice profile_data for context
+   * @returns {string} An image generation prompt optimized for Flux LoRA
+   */
+  async generateImagePrompt(postText, triggerWord, profileData) {
+    if (!this.openai) {
+      throw new Error('OpenAI not configured — image prompt generation unavailable');
+    }
+
+    const brandContext = [];
+    if (profileData?.brand_identity?.industry) {
+      brandContext.push(`Industry: ${profileData.brand_identity.industry}`);
+    }
+    if (profileData?.brand_identity?.brand_personality) {
+      brandContext.push(`Brand personality: ${profileData.brand_identity.brand_personality}`);
+    }
+    if (profileData?.tone?.primary) {
+      brandContext.push(`Tone: ${profileData.tone.primary}`);
+    }
+    if (profileData?.visual_style) {
+      brandContext.push(`Visual style: ${JSON.stringify(profileData.visual_style)}`);
+    }
+
+    const systemPrompt = `You are an expert at creating image generation prompts for Flux LoRA fine-tuned models.
+
+Your task is to create a vivid, descriptive image prompt that:
+1. Visually represents the essence of a social media post
+2. MUST include the trigger word "${triggerWord}" naturally in the prompt (e.g., "a photo in the style of ${triggerWord} showing...")
+3. Is optimized for Flux image generation — be descriptive, focus on visual elements
+4. Captures the brand's visual identity and aesthetic
+5. Avoids text, words, or letters in the image (these render poorly in AI images)
+6. Is a single paragraph, 1-3 sentences, no more than 150 words
+
+${brandContext.length > 0 ? `Brand context:\n${brandContext.join('\n')}` : ''}
+
+Return ONLY the image prompt text, nothing else.`;
+
+    const userPrompt = `Create an image prompt for this social media post:\n\n"${postText}"`;
+
+    logger.info(`Generating image prompt for LoRA model (trigger: ${triggerWord}, post: ${postText.substring(0, 80)}...)`);
+    const startTime = Date.now();
+
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-5-nano',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    });
+
+    const imagePrompt = completion.choices[0].message.content.trim();
+    const elapsed = Date.now() - startTime;
+    logger.info(`Image prompt generated in ${elapsed}ms (${imagePrompt.length} chars, tokens=${completion.usage?.total_tokens || 'N/A'})`);
+
+    return imagePrompt;
+  }
+
   /**
    * Parse a JSON response from the LLM, handling potential markdown code fences.
    * Since gpt-5-nano does not support response_format, the LLM may return JSON

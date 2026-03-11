@@ -117,6 +117,7 @@ export {
   insertBrandVoiceGeneratedPost,
   getBrandVoiceGeneratedPosts,
   deleteBrandVoiceGeneratedPost,
+  updateBrandVoiceGeneratedPost,
   getAllPublishedPosts,
   // Media asset functions
   getUserMediaAssets,
@@ -129,6 +130,7 @@ export {
   createMediaTrainingJob,
   updateMediaTrainingJob,
   setDefaultTrainingJob,
+  getDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,

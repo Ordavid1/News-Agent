@@ -2738,7 +2738,7 @@ export async function deleteBrandVoicePosts(profileId, userId) {
 /**
  * Insert a generated brand voice post into history
  */
-export async function insertBrandVoiceGeneratedPost(userId, profileId, { platform, topic, content }) {
+export async function insertBrandVoiceGeneratedPost(userId, profileId, { platform, topic, content, image_url }) {
   const { data, error } = await supabaseAdmin
     .from('brand_voice_generated_posts')
     .insert({
@@ -2746,7 +2746,8 @@ export async function insertBrandVoiceGeneratedPost(userId, profileId, { platfor
       profile_id: profileId,
       platform: platform || null,
       topic: topic || null,
-      content
+      content,
+      image_url: image_url || null
     })
     .select()
     .single();
@@ -2795,6 +2796,26 @@ export async function deleteBrandVoiceGeneratedPost(postId, userId) {
   }
 
   return true;
+}
+
+/**
+ * Update a brand voice generated post (e.g., to attach an image URL)
+ */
+export async function updateBrandVoiceGeneratedPost(postId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_voice_generated_posts')
+    .update(updates)
+    .eq('id', postId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating brand voice generated post:', error);
+    throw error;
+  }
+
+  return data;
 }
 
 /**
@@ -3066,6 +3087,27 @@ export async function setDefaultTrainingJob(jobId, userId, adAccountId) {
 
   if (error) {
     logger.error('Error setting default training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get the default training job for an ad account (is_default=true, status='completed')
+ */
+export async function getDefaultTrainingJob(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .eq('is_default', true)
+    .eq('status', 'completed')
+    .maybeSingle();
+
+  if (error) {
+    logger.error('Error getting default training job:', error);
     throw error;
   }
 

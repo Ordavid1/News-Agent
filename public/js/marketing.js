@@ -3068,12 +3068,15 @@ function showCompactCheckout(checkoutUrl, anchorEl) {
  */
 async function generateBrandVoiceContentWithImage(purchaseId) {
     const topic = document.getElementById('bvGenerateTopic').value.trim();
-    const btn = document.getElementById('bvGenerateBtn');
+    const generateBtn = document.getElementById('bvGenerateBtn');
+    const imageBtn = document.getElementById('bvImageGenBtn');
     const contentDiv = document.getElementById('bvGeneratedContent');
     const textEl = document.getElementById('bvGeneratedText');
 
-    btn.disabled = true;
-    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating...';
+    // Disable both buttons during generation
+    generateBtn.disabled = true;
+    imageBtn.disabled = true;
+    imageBtn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating post + image...';
 
     try {
         const body = {
@@ -3091,19 +3094,30 @@ async function generateBrandVoiceContentWithImage(purchaseId) {
             contentDiv.classList.remove('hidden');
             renderBvShareButtons();
 
-            // Show generated image if present (future phase)
+            // Show generated image if present
             const imageDiv = document.getElementById('bvGeneratedImage');
             const imagePreview = document.getElementById('bvGeneratedImagePreview');
             if (posts[0].imageUrl && imageDiv && imagePreview) {
                 imagePreview.src = posts[0].imageUrl;
                 imageDiv.classList.remove('hidden');
+            } else if (imageDiv) {
+                imageDiv.classList.add('hidden');
             }
+
+            // Warn if image generation failed but text was still returned
+            if (posts[0].imageError) {
+                showToast(posts[0].imageErrorMessage || 'Image generation failed, but your post was created.', 'warning');
+            }
+
+            // Refresh history to show the newly generated post
+            loadBvHistory(currentBrandVoiceProfile.id);
         }
     } catch (error) {
         showToast(error.message || 'Failed to generate content', 'error');
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Generate Post';
+        generateBtn.disabled = false;
+        imageBtn.disabled = false;
+        imageBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> Generate Post +Image — $0.75';
     }
 }
 
@@ -3116,10 +3130,12 @@ async function generateBrandVoiceContent() {
 
     const topic = document.getElementById('bvGenerateTopic').value.trim();
     const btn = document.getElementById('bvGenerateBtn');
+    const imageBtn = document.getElementById('bvImageGenBtn');
     const contentDiv = document.getElementById('bvGeneratedContent');
     const textEl = document.getElementById('bvGeneratedText');
 
     btn.disabled = true;
+    if (imageBtn) imageBtn.disabled = true;
     btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating...';
 
     try {
@@ -3154,6 +3170,7 @@ async function generateBrandVoiceContent() {
         showToast(error.message, 'error');
     } finally {
         btn.disabled = false;
+        if (imageBtn) imageBtn.disabled = false;
         btn.innerHTML = `
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
@@ -3192,10 +3209,14 @@ function renderBvShareButtons() {
     `).join('');
 }
 
-function shareBvPost(platform) {
+async function shareBvPost(platform) {
     const textEl = document.getElementById('bvGeneratedText');
     const text = textEl.textContent;
     if (!text) return;
+
+    const imagePreview = document.getElementById('bvGeneratedImagePreview');
+    const imageDiv = document.getElementById('bvGeneratedImage');
+    const hasImage = imageDiv && !imageDiv.classList.contains('hidden') && imagePreview?.src;
 
     const encoded = encodeURIComponent(text);
 
@@ -3217,13 +3238,41 @@ function shareBvPost(platform) {
     };
 
     if (shareUrls[platform]) {
+        // These platforms support pre-filled text via URL params
+        // Also copy text+image to clipboard as a bonus for manual paste
+        if (hasImage) {
+            await copyTextAndImage(text, imagePreview.src);
+            showToast(`Post & image copied to clipboard! Opening ${getBvPlatformName(platform)}...`, 'success');
+        }
         window.open(shareUrls[platform], '_blank', 'noopener,noreferrer');
     } else if (copyThenOpen[platform]) {
-        // Copy text to clipboard first, then open the platform
-        copyToClipboard(text).then(() => {
-            showToast(`Post copied to clipboard! Paste it on ${getBvPlatformName(platform)}.`, 'success');
-            window.open(copyThenOpen[platform], '_blank', 'noopener,noreferrer');
-        });
+        // These platforms require manual paste — copy to clipboard first
+        if (hasImage) {
+            await copyTextAndImage(text, imagePreview.src);
+        } else {
+            await copyToClipboard(text);
+        }
+        showToast(`Post${hasImage ? ' & image' : ''} copied to clipboard! Paste it on ${getBvPlatformName(platform)}.`, 'success');
+        window.open(copyThenOpen[platform], '_blank', 'noopener,noreferrer');
+    }
+}
+
+async function copyTextAndImage(text, imageSrc) {
+    try {
+        const response = await fetch(imageSrc);
+        const blob = await response.blob();
+        // Use ClipboardItem API for multi-type clipboard (text + image)
+        const items = [
+            new ClipboardItem({
+                'text/plain': new Blob([text], { type: 'text/plain' }),
+                [blob.type]: blob
+            })
+        ];
+        await navigator.clipboard.write(items);
+    } catch (err) {
+        // Fallback: copy text only if image clipboard fails (Safari/older browsers)
+        console.warn('Image clipboard not supported, falling back to text only:', err);
+        await copyToClipboard(text);
     }
 }
 
@@ -3334,17 +3383,27 @@ function renderBvHistoryCard(post) {
                 </div>
             </div>
             <div class="text-sm text-ink-600 whitespace-pre-wrap leading-relaxed bv-history-content">${contentEscaped}</div>
+            ${post.image_url ? `
+                <div class="mt-3">
+                    <img src="${escapeHtml(post.image_url)}" alt="Generated image" class="w-full max-w-xs rounded-lg border border-surface-200">
+                </div>
+            ` : ''}
         </div>
     `;
 }
 
-function copyBvHistoryPost(postId) {
+async function copyBvHistoryPost(postId) {
     const card = document.getElementById(`bvHistory_${postId}`);
     if (!card) return;
     const text = card.querySelector('.bv-history-content').textContent;
-    copyToClipboard(text).then(() => {
+    const img = card.querySelector('img');
+    if (img && img.src) {
+        await copyTextAndImage(text, img.src);
+        showToast('Post & image copied to clipboard!', 'success');
+    } else {
+        await copyToClipboard(text);
         showToast('Copied to clipboard!', 'success');
-    });
+    }
 }
 
 async function deleteBvHistoryPost(postId) {

@@ -62,6 +62,7 @@ import {
   insertBrandVoiceGeneratedPost,
   getBrandVoiceGeneratedPosts,
   deleteBrandVoiceGeneratedPost,
+  updateBrandVoiceGeneratedPost,
   getPerUsePurchase,
   updatePerUsePurchase
 } from '../services/database-wrapper.js';
@@ -1230,6 +1231,16 @@ router.post('/brand-voice/generate', async (req, res) => {
       if (purchase.reference_id) {
         return res.status(409).json({ error: 'This purchase has already been used' });
       }
+
+      // Pre-flight: verify ad account and trained model exist before generating text
+      const preflightAdAccount = await getSelectedAdAccount(req.user.id);
+      if (!preflightAdAccount) {
+        return res.status(400).json({ error: 'No ad account selected. Please select an ad account in Brand Media first.' });
+      }
+      const preflightDefaultJob = await mediaAssetService.getDefaultTrainingJob(req.user.id, preflightAdAccount.id);
+      if (!preflightDefaultJob) {
+        return res.status(400).json({ error: 'No trained model available. Train a model in Brand Media first.' });
+      }
     }
 
     // Platform is optional — if not provided, the service auto-detects the dominant platform
@@ -1265,16 +1276,62 @@ router.post('/brand-voice/generate', async (req, res) => {
       }
     }));
 
-    // If image generation was purchased, mark the purchase as consumed
-    // (Actual image generation logic will be wired up in a future phase)
+    // If image generation was purchased, generate a brand-consistent image using the default LoRA model
     if (generateWithImage && purchaseId && postsWithIds[0]?.id) {
       try {
+        // Mark purchase as consumed first
         await updatePerUsePurchase(purchaseId, {
           reference_id: postsWithIds[0].id,
           reference_type: 'brand_voice_generated_post'
         });
-      } catch (updateErr) {
-        logger.error(`[BrandVoice] Failed to update purchase reference: ${updateErr.message}`);
+
+        // Get the user's selected ad account
+        const adAccount = await getSelectedAdAccount(req.user.id);
+        if (!adAccount) {
+          logger.warn(`[BrandVoice] No ad account selected — skipping image generation`);
+          postsWithIds[0].imageError = true;
+          postsWithIds[0].imageErrorMessage = 'No ad account selected. Please select an ad account in Brand Media first.';
+        } else {
+          // Get the default LoRA model
+          const defaultJob = await mediaAssetService.getDefaultTrainingJob(req.user.id, adAccount.id);
+          if (!defaultJob) {
+            logger.warn(`[BrandVoice] No default training model — skipping image generation`);
+            postsWithIds[0].imageError = true;
+            postsWithIds[0].imageErrorMessage = 'No trained model available. Train a model in Brand Media first.';
+          } else {
+            // Generate an image prompt from the post text using the brand voice profile
+            const profile = await getBrandVoiceProfileById(profileId, req.user.id);
+            const imagePrompt = await brandVoiceService.generateImagePrompt(
+              postsWithIds[0].text,
+              defaultJob.trigger_word,
+              profile?.profile_data || {}
+            );
+
+            // Generate the image using the LoRA model
+            const generatedMedia = await mediaAssetService.generateImage(
+              req.user.id,
+              adAccount.id,
+              imagePrompt,
+              defaultJob.id
+            );
+
+            // Attach image URL to the post response
+            postsWithIds[0].imageUrl = generatedMedia.public_url;
+
+            // Update the DB record with the image
+            await updateBrandVoiceGeneratedPost(postsWithIds[0].id, req.user.id, {
+              image_url: generatedMedia.public_url,
+              generated_media_id: generatedMedia.id
+            });
+
+            logger.info(`[BrandVoice] Image generated successfully: ${generatedMedia.public_url}`);
+          }
+        }
+      } catch (imageErr) {
+        // Image generation failed — still return the text post
+        logger.error(`[BrandVoice] Image generation failed: ${imageErr.message}`);
+        postsWithIds[0].imageError = true;
+        postsWithIds[0].imageErrorMessage = `Image generation failed: ${imageErr.message}`;
       }
     }
 

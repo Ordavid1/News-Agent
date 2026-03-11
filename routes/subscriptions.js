@@ -1234,11 +1234,22 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create image generation checkout session' });
     }
 
-    const checkoutUrl = data.data.attributes.url;
-    console.log('[IMAGE-GEN-CHECKOUT] Success! Checkout URL created');
+    // Append pre-fill query params to the checkout URL (most reliable pre-fill method)
+    const checkoutUrl = new URL(data.data.attributes.url);
+    checkoutUrl.searchParams.set('checkout[email]', checkoutData.email);
+    checkoutUrl.searchParams.set('checkout[name]', checkoutData.name);
+    if (checkoutData.billing_address) {
+      const ba = checkoutData.billing_address;
+      if (ba.country) checkoutUrl.searchParams.set('checkout[billing_address][country]', ba.country);
+      if (ba.state) checkoutUrl.searchParams.set('checkout[billing_address][state]', ba.state);
+      if (ba.zip) checkoutUrl.searchParams.set('checkout[billing_address][zip]', ba.zip);
+    }
+
+    const finalUrl = checkoutUrl.toString();
+    console.log('[IMAGE-GEN-CHECKOUT] Success! Checkout URL created with pre-fill params');
 
     res.json({
-      checkoutUrl,
+      checkoutUrl: finalUrl,
       expiresAt: data.data.attributes.expires_at
     });
   } catch (error) {

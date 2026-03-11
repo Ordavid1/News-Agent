@@ -1249,16 +1249,22 @@ router.get('/facebook/marketing/callback', async (req, res) => {
     const maxAdAccounts = addon?.max_ad_accounts || 1;
     const existingAccounts = await getUserAdAccounts(result.userId);
 
-    // Calculate how many slots are available
+    // Filter discovered accounts to only those NOT already stored (by account_id).
+    // This prevents "limit reached" errors when reconnecting — existing accounts
+    // from a previous connection don't consume new slots.
+    const existingAccountIds = new Set(existingAccounts.map(a => a.account_id));
+    const newAccounts = result.adAccounts.filter(a => !existingAccountIds.has(a.accountId));
+
+    // Calculate how many slots are available for genuinely NEW accounts
     const slotsAvailable = Math.max(0, maxAdAccounts - existingAccounts.length);
 
-    if (slotsAvailable === 0) {
+    if (newAccounts.length > 0 && slotsAvailable === 0) {
       logger.warn(`[MARKETING-AUTH] User ${result.userId} already at ad account limit (${maxAdAccounts})`);
       return res.redirect(`${FRONTEND_URL}/profile.html?tab=marketing&error=${encodeURIComponent('Ad account limit reached. Remove an existing account before adding a new one.')}`);
     }
 
-    // Only store up to the available slot count (skip accounts already stored via upsert's ON CONFLICT)
-    const accountsToStore = result.adAccounts.slice(0, slotsAvailable);
+    // Store new accounts (up to available slots) via upsert
+    const accountsToStore = newAccounts.slice(0, slotsAvailable);
 
     for (const account of accountsToStore) {
       await upsertAdAccount({
@@ -1268,8 +1274,8 @@ router.get('/facebook/marketing/callback', async (req, res) => {
       });
     }
 
-    const storedCount = accountsToStore.length;
-    const totalAfter = existingAccounts.length + storedCount;
+    // If no new accounts were stored but existing ones are present, this is a reconnect — success
+    const totalAfter = existingAccounts.length + accountsToStore.length;
     const redirectUrl = totalAfter > 1
       ? `${FRONTEND_URL}/profile.html?tab=marketing&select_account=true`
       : `${FRONTEND_URL}/profile.html?tab=marketing&marketing_connected=true`;

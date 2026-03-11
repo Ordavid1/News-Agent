@@ -27,6 +27,7 @@ import {
   createMediaTrainingJob,
   updateMediaTrainingJob,
   setDefaultTrainingJob,
+  getDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,
@@ -408,6 +409,14 @@ class MediaAssetService {
    */
   async setDefaultTrainingJob(jobId, userId, adAccountId) {
     return setDefaultTrainingJob(jobId, userId, adAccountId);
+  }
+
+  /**
+   * Get the default training job for an account (is_default=true, completed).
+   * Returns null if no default model exists.
+   */
+  async getDefaultTrainingJob(userId, adAccountId) {
+    return getDefaultTrainingJob(userId, adAccountId);
   }
 
   // ============================================
