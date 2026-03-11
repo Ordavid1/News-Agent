@@ -10,6 +10,65 @@ import { supabaseAdmin, isConfigured as isSupabaseConfigured } from '../services
 
 const router = express.Router();
 
+/**
+ * Fetch billing address from LS for pre-filling checkout.
+ * Tries the user's most recent LS order first (has full billing address),
+ * then falls back to LS customer record (country + region only).
+ *
+ * @param {string} email - User's email for order lookup
+ * @param {string|null} lsCustomerId - LS customer ID for fallback
+ * @returns {{ country?: string, state?: string, zip?: string } | null}
+ */
+async function fetchLsBillingAddress(email, lsCustomerId) {
+  const apiKey = process.env.LEMON_SQUEEZY_API_KEY;
+  if (!apiKey) return null;
+
+  const headers = {
+    'Accept': 'application/vnd.api+json',
+    'Authorization': `Bearer ${apiKey}`
+  };
+
+  try {
+    // Try most recent order (has full billing info)
+    const ordersResponse = await fetch(
+      `https://api.lemonsqueezy.com/v1/orders?filter[user_email]=${encodeURIComponent(email)}&sort=-created_at&page[size]=1`,
+      { headers }
+    );
+    if (ordersResponse.ok) {
+      const ordersData = await ordersResponse.json();
+      const lastOrder = ordersData.data?.[0]?.attributes;
+      if (lastOrder) {
+        const addr = {};
+        if (lastOrder.country) addr.country = lastOrder.country;
+        if (lastOrder.region) addr.state = lastOrder.region;
+        if (lastOrder.zip) addr.zip = lastOrder.zip;
+        if (Object.keys(addr).length > 0) return addr;
+      }
+    }
+
+    // Fallback: customer record (country + region only)
+    if (lsCustomerId) {
+      const custResponse = await fetch(
+        `https://api.lemonsqueezy.com/v1/customers/${lsCustomerId}`,
+        { headers }
+      );
+      if (custResponse.ok) {
+        const custData = await custResponse.json();
+        const attrs = custData.data?.attributes;
+        if (attrs) {
+          const addr = {};
+          if (attrs.country) addr.country = attrs.country;
+          if (attrs.region) addr.state = attrs.region;
+          if (Object.keys(addr).length > 0) return addr;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[LS-PREFILL] Failed to fetch billing info:', e.message);
+  }
+  return null;
+}
+
 // Pricing configuration with Lemon Squeezy variant IDs
 // Note: Facebook is disabled (Coming Soon) - not included in platform counts
 const PRICING_TIERS = {
@@ -219,17 +278,21 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
       return res.status(500).json({ error: 'Payment configuration error' });
     }
 
+    const userName = req.user.name || req.user.email.split('@')[0];
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
           checkout_data: {
             email: req.user.email,
-            name: req.user.name || req.user.email.split('@')[0],
+            name: userName,
             custom: {
               user_id: req.user.id,
               tier: tier
-            }
+            },
+            ...(billing && { billing_address: billing })
           },
           product_options: {
             name: tierConfig.name,
@@ -261,8 +324,6 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
     };
 
     console.log('[CHECKOUT] Creating LS checkout for tier:', tier);
-    console.log('[CHECKOUT] Store ID configured:', !!process.env.LEMON_SQUEEZY_STORE_ID);
-    console.log('[CHECKOUT] API Key configured:', !!process.env.LEMON_SQUEEZY_API_KEY);
 
     // Create Lemon Squeezy checkout
     const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
@@ -276,8 +337,6 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
     });
 
     const data = await response.json();
-    console.log('[CHECKOUT] LS API Response status:', response.status);
-    console.log('[CHECKOUT] LS API Response received, checkout URL:', data?.data?.attributes?.url ? 'present' : 'missing');
 
     if (!response.ok) {
       console.error('[CHECKOUT] Lemon Squeezy checkout error:', data);
@@ -285,10 +344,10 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[CHECKOUT] Success! Checkout URL:', checkoutUrl);
+    console.log('[CHECKOUT] Success! Checkout URL created with pre-fill');
 
     res.json({
-      checkoutUrl: checkoutUrl,
+      checkoutUrl,
       expiresAt: data.data.attributes.expires_at
     });
 
@@ -851,17 +910,21 @@ router.post('/marketing-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Marketing add-on configuration error' });
     }
 
+    const userName = req.user.name || req.user.email.split('@')[0];
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
           checkout_data: {
             email: req.user.email,
-            name: req.user.name || req.user.email.split('@')[0],
+            name: userName,
             custom: {
               user_id: req.user.id,
               addon_type: 'marketing'
-            }
+            },
+            ...(billing && { billing_address: billing })
           },
           product_options: {
             name: addonConfig.name,
@@ -910,7 +973,7 @@ router.post('/marketing-checkout', async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[MARKETING-CHECKOUT] Success! Checkout URL created');
+    console.log('[MARKETING-CHECKOUT] Success! Checkout URL created with pre-fill');
 
     res.json({
       checkoutUrl,
@@ -1011,28 +1074,36 @@ router.post('/training-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Training checkout configuration error' });
     }
 
+    const userName = req.user.name || req.user.email.split('@')[0];
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
           checkout_data: {
             email: req.user.email,
-            name: req.user.name || req.user.email.split('@')[0],
+            name: userName,
             custom: {
               user_id: req.user.id,
               purchase_type: 'model_training',
               ad_account_id: adAccountId
-            }
+            },
+            ...(billing && { billing_address: billing })
           },
           product_options: {
             name: pricing.description,
             description: 'One-time purchase to train a LoRA model on your brand assets',
-            redirect_url: `${process.env.FRONTEND_URL}/profile.html?tab=marketing&subtab=mediaassets&payment=training_success`,
+            enabled_variants: [parseInt(pricing.variantId)],
             receipt_thank_you_note: 'Your brand asset model training will begin shortly.'
           },
           checkout_options: {
-            embed: false,
-            media: false
+            embed: true,
+            media: false,
+            logo: false,
+            desc: false,
+            discount: false,
+            button_color: '#6366F1'
           }
         },
         relationships: {
@@ -1070,7 +1141,7 @@ router.post('/training-checkout', async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[TRAINING-CHECKOUT] Success! Checkout URL created');
+    console.log('[TRAINING-CHECKOUT] Success! Checkout URL created with pre-fill');
 
     res.json({
       checkoutUrl,
@@ -1112,79 +1183,22 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Image generation checkout configuration error' });
     }
 
-    // Build checkout_data with maximum pre-fill for fastest checkout
-    const checkoutData = {
-      email: req.user.email,
-      name: req.user.name || req.user.email.split('@')[0],
-      custom: {
-        user_id: req.user.id,
-        purchase_type: 'image_generation'
-      }
-    };
-
-    // Pre-fill billing address from user's most recent LS order (has full billing info)
-    const lsCustomerId = req.user.lsCustomerId;
-    if (lsCustomerId) {
-      try {
-        const ordersResponse = await fetch(
-          `https://api.lemonsqueezy.com/v1/orders?filter[user_email]=${encodeURIComponent(req.user.email)}&sort=-created_at&page[size]=1`,
-          {
-            headers: {
-              'Accept': 'application/vnd.api+json',
-              'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-            }
-          }
-        );
-        if (ordersResponse.ok) {
-          const ordersData = await ordersResponse.json();
-          const lastOrder = ordersData.data?.[0]?.attributes;
-          if (lastOrder) {
-            const billingAddress = {};
-            if (lastOrder.user_name) checkoutData.name = lastOrder.user_name;
-            // LS orders store: country, country_formatted, billing info in status_formatted
-            // The checkout pre-fill uses country (2-letter ISO), state, zip
-            if (lastOrder.country) billingAddress.country = lastOrder.country;
-            if (lastOrder.region) billingAddress.state = lastOrder.region;
-            if (lastOrder.zip) billingAddress.zip = lastOrder.zip;
-            if (Object.keys(billingAddress).length > 0) {
-              checkoutData.billing_address = billingAddress;
-              console.log('[IMAGE-GEN-CHECKOUT] Pre-filled billing from last LS order:', Object.keys(billingAddress).join(', '));
-            }
-          }
-        }
-        // Fallback: if no order found, try customer record for country/region
-        if (!checkoutData.billing_address) {
-          const custResponse = await fetch(`https://api.lemonsqueezy.com/v1/customers/${lsCustomerId}`, {
-            headers: {
-              'Accept': 'application/vnd.api+json',
-              'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-            }
-          });
-          if (custResponse.ok) {
-            const custData = await custResponse.json();
-            const attrs = custData.data?.attributes;
-            if (attrs) {
-              const billingAddress = {};
-              if (attrs.country) billingAddress.country = attrs.country;
-              if (attrs.region) billingAddress.state = attrs.region;
-              if (Object.keys(billingAddress).length > 0) {
-                checkoutData.billing_address = billingAddress;
-                console.log('[IMAGE-GEN-CHECKOUT] Pre-filled billing from LS customer:', Object.keys(billingAddress).join(', '));
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[IMAGE-GEN-CHECKOUT] Failed to fetch LS billing info:', e.message);
-        // Non-fatal — checkout proceeds without pre-filled billing
-      }
-    }
+    const userName = req.user.name || req.user.email.split('@')[0];
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: checkoutData,
+          checkout_data: {
+            email: req.user.email,
+            name: userName,
+            custom: {
+              user_id: req.user.id,
+              purchase_type: 'image_generation'
+            },
+            ...(billing && { billing_address: billing })
+          },
           product_options: {
             name: pricing.description,
             description: 'Generate a branded image for your post',
@@ -1234,22 +1248,11 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Failed to create image generation checkout session' });
     }
 
-    // Append pre-fill query params to the checkout URL (most reliable pre-fill method)
-    const checkoutUrl = new URL(data.data.attributes.url);
-    checkoutUrl.searchParams.set('checkout[email]', checkoutData.email);
-    checkoutUrl.searchParams.set('checkout[name]', checkoutData.name);
-    if (checkoutData.billing_address) {
-      const ba = checkoutData.billing_address;
-      if (ba.country) checkoutUrl.searchParams.set('checkout[billing_address][country]', ba.country);
-      if (ba.state) checkoutUrl.searchParams.set('checkout[billing_address][state]', ba.state);
-      if (ba.zip) checkoutUrl.searchParams.set('checkout[billing_address][zip]', ba.zip);
-    }
-
-    const finalUrl = checkoutUrl.toString();
-    console.log('[IMAGE-GEN-CHECKOUT] Success! Checkout URL created with pre-fill params');
+    const checkoutUrl = data.data.attributes.url;
+    console.log('[IMAGE-GEN-CHECKOUT] Success! Checkout URL created with pre-fill');
 
     res.json({
-      checkoutUrl: finalUrl,
+      checkoutUrl,
       expiresAt: data.data.attributes.expires_at
     });
   } catch (error) {

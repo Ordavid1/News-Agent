@@ -60,8 +60,6 @@ async function initMarketing() {
     const urlParams = new URLSearchParams(window.location.search);
     const paymentType = urlParams.get('payment');
     const isMarketingPaymentReturn = paymentType === 'marketing_success';
-    const isTrainingPaymentReturn = paymentType === 'training_success';
-
     // Check marketing addon status
     let hasAddon = await checkMarketingAddon();
 
@@ -83,19 +81,6 @@ async function initMarketing() {
 
         // Load initial data
         await loadOverview();
-
-        // If returning from training payment, handle it
-        if (isTrainingPaymentReturn) {
-            // Clean URL params
-            const cleanUrl = new URL(window.location);
-            cleanUrl.searchParams.delete('payment');
-            cleanUrl.searchParams.delete('subtab');
-            window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
-
-            // Switch to media assets tab and start training
-            showMarketingTab('mediaassets');
-            await handleTrainingPaymentReturn();
-        }
     }
 }
 
@@ -3720,8 +3705,7 @@ function updateTrainButtonState() {
 
 /**
  * Start LoRA training for the selected ad account.
- * Redirects to Lemon Squeezy checkout for $5 per-use payment first.
- * After payment, user is redirected back and training starts automatically.
+ * Opens compact LS checkout popup ($5 per-use payment), then starts training on success.
  */
 async function startMediaTraining() {
     if (!selectedAdAccount) return;
@@ -3729,84 +3713,55 @@ async function startMediaTraining() {
     const name = prompt('Name this training session:', `Training ${new Date().toLocaleDateString()}`);
     if (!name || !name.trim()) return; // User canceled or empty
 
-    // Store the session name for use after payment redirect
-    sessionStorage.setItem('pendingTrainingName', name.trim());
-    sessionStorage.setItem('pendingTrainingAdAccountId', selectedAdAccount.id);
+    const btn = document.getElementById('mediaTrainBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
 
     try {
-        // Create LS checkout for $5 training purchase
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/subscriptions/training-checkout', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCsrfToken()
-            },
-            credentials: 'include',
-            body: JSON.stringify({ adAccountId: selectedAdAccount.id })
+        // 1. Create LS checkout via backend (pre-filled, embed mode)
+        const { checkoutUrl } = await apiPost('/api/subscriptions/training-checkout', {
+            adAccountId: selectedAdAccount.id
         });
 
-        if (response.ok) {
-            const data = await response.json();
-            if (data.checkoutUrl) {
-                window.location.href = data.checkoutUrl;
-            }
-        } else {
-            const err = await response.json();
-            showToast(err.error || 'Failed to start training checkout', 'error');
+        // 2. Show compact checkout popup with iframe
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $5...';
+        const paid = await showCompactCheckout(checkoutUrl, btn);
+
+        if (!paid) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
         }
-    } catch (error) {
-        showToast('Network error. Please try again.', 'error');
-    }
-}
 
-/**
- * Resume training after returning from LS checkout payment.
- * Polls for purchase confirmation, then starts training automatically.
- */
-async function handleTrainingPaymentReturn() {
-    const pendingName = sessionStorage.getItem('pendingTrainingName');
-    const pendingAdAccountId = sessionStorage.getItem('pendingTrainingAdAccountId');
-
-    if (!pendingName || !pendingAdAccountId) {
-        showToast('Training payment received but session info was lost. Please try again.', 'error');
-        return;
-    }
-
-    // Clean up session storage
-    sessionStorage.removeItem('pendingTrainingName');
-    sessionStorage.removeItem('pendingTrainingAdAccountId');
-
-    showToast('Payment received! Starting model training...', 'success');
-
-    // Poll for the purchase to appear in the database (webhook may take a few seconds)
-    let purchase = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-            const result = await apiGet('/api/subscriptions/training-purchase-status');
-            if (result.hasPurchase) {
-                purchase = result.purchase;
-                break;
-            }
-        } catch (e) {
-            // Continue polling
+        // 3. Poll for webhook confirmation (order_created may take a few seconds)
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Confirming...';
+        let purchase = null;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const result = await apiGet('/api/subscriptions/training-purchase-status');
+                if (result.hasPurchase) {
+                    purchase = result.purchase;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
         }
-    }
 
-    if (!purchase) {
-        showToast('Payment processing is taking longer than expected. Please refresh and try training again.', 'error');
-        return;
-    }
+        if (!purchase) {
+            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
 
-    // Start training with the confirmed purchase
-    try {
+        // 4. Start training with confirmed purchase
+        showToast('Payment confirmed! Starting model training...', 'success');
         showTrainingState('progress');
 
         const data = await apiPost('/api/marketing/media-assets/training/start', {
-            adAccountId: pendingAdAccountId,
-            name: pendingName,
+            adAccountId: selectedAdAccount.id,
+            name: name.trim(),
             purchaseId: purchase.id
         });
 
@@ -3816,9 +3771,13 @@ async function handleTrainingPaymentReturn() {
 
         showToast('Training started! This takes about 5-10 minutes.', 'success');
         startTrainingPolling();
+
     } catch (error) {
-        showToast(error.message, 'error');
+        showToast(error.message || 'Payment failed. Please try again.', 'error');
         renderActiveTrainingStatus();
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 
