@@ -227,15 +227,18 @@ async function loadAdAccounts() {
             if (response.needsConnection) {
                 // Facebook is not connected — prompt to connect
                 showAdAccountBanner('Connect your Facebook account with marketing permissions to get started.', true);
-            } else if (response.marketingEnabled === false) {
-                // Facebook is connected but marketing scopes not authorized
-                showAdAccountBanner('Facebook is connected but marketing permissions are not authorized. Click to authorize ads management.', true);
-            } else if (!selectedAdAccount && adAccounts.length === 0) {
-                showAdAccountBanner('No ad account found. Connect your Facebook account with marketing permissions.', true);
-            } else if (!selectedAdAccount && adAccounts.length > 0) {
-                showAdAccountBanner('Please select an ad account to use for marketing.', false);
-            } else {
+            } else if (selectedAdAccount) {
+                // Has a selected ad account — everything is working, hide the banner
                 document.getElementById('adAccountBanner').classList.add('hidden');
+            } else if (adAccounts.length > 0) {
+                // Accounts exist but none selected — prompt to select
+                showAdAccountBanner('Please select an ad account to use for marketing.', false);
+            } else if (response.marketingEnabled === false) {
+                // No accounts and marketing scopes not authorized
+                showAdAccountBanner('Facebook is connected but marketing permissions are not authorized. Click to authorize ads management.', true);
+            } else {
+                // No accounts but marketing is enabled — prompt to set up
+                showAdAccountBanner('No ad account found. Connect your Facebook account with marketing permissions.', true);
             }
 
             // Update dropdown to reflect current state

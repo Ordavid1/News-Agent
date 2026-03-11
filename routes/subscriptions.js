@@ -30,23 +30,28 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
 
   try {
     // Try most recent order (has full billing info)
-    const ordersResponse = await fetch(
-      `https://api.lemonsqueezy.com/v1/orders?filter[user_email]=${encodeURIComponent(email)}&sort=-created_at&page[size]=1`,
-      { headers }
-    );
-    if (ordersResponse.ok) {
-      const ordersData = await ordersResponse.json();
-      const lastOrder = ordersData.data?.[0]?.attributes;
-      if (lastOrder) {
-        const addr = {};
-        if (lastOrder.country) addr.country = lastOrder.country;
-        if (lastOrder.region) addr.state = lastOrder.region;
-        if (lastOrder.zip) addr.zip = lastOrder.zip;
-        if (Object.keys(addr).length > 0) return addr;
+    if (email) {
+      const ordersResponse = await fetch(
+        `https://api.lemonsqueezy.com/v1/orders?filter[user_email]=${encodeURIComponent(email)}&sort=-created_at&page[size]=1`,
+        { headers }
+      );
+      if (ordersResponse.ok) {
+        const ordersData = await ordersResponse.json();
+        const lastOrder = ordersData.data?.[0]?.attributes;
+        if (lastOrder) {
+          const addr = {};
+          // Only include fields documented for checkout_data.billing_address: country, zip
+          if (lastOrder.country) addr.country = lastOrder.country;
+          if (lastOrder.zip) addr.zip = lastOrder.zip;
+          if (Object.keys(addr).length > 0) {
+            console.log('[LS-PREFILL] Billing from recent order:', JSON.stringify(addr));
+            return addr;
+          }
+        }
       }
     }
 
-    // Fallback: customer record (country + region only)
+    // Fallback: customer record (country only - customers don't have zip)
     if (lsCustomerId) {
       const custResponse = await fetch(
         `https://api.lemonsqueezy.com/v1/customers/${lsCustomerId}`,
@@ -58,15 +63,73 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
         if (attrs) {
           const addr = {};
           if (attrs.country) addr.country = attrs.country;
-          if (attrs.region) addr.state = attrs.region;
-          if (Object.keys(addr).length > 0) return addr;
+          if (Object.keys(addr).length > 0) {
+            console.log('[LS-PREFILL] Billing from customer record:', JSON.stringify(addr));
+            return addr;
+          }
         }
       }
     }
   } catch (e) {
     console.warn('[LS-PREFILL] Failed to fetch billing info:', e.message);
   }
+  console.log('[LS-PREFILL] No billing info found for', email ? `${email.substring(0, 3)}***` : 'unknown');
   return null;
+}
+
+/**
+ * Build a validated checkout_data object for the LS Checkout API.
+ * Only includes fields that are documented in the LS API spec.
+ * Omits null/undefined values to prevent LS from rejecting the payload.
+ *
+ * @param {object} user - req.user object from auth middleware
+ * @param {object} customFields - custom data (user_id, tier, addon_type, etc.)
+ * @param {object|null} billing - billing address from fetchLsBillingAddress
+ * @param {string} logPrefix - log tag, e.g. '[CHECKOUT]'
+ * @returns {object} checkout_data ready for LS API
+ */
+function buildCheckoutData(user, customFields, billing, logPrefix) {
+  const email = user.email;
+  const name = user.name || (email ? email.split('@')[0] : null);
+
+  if (!email) {
+    console.warn(`${logPrefix} WARNING: user.email is null/undefined for user ${user.id}`);
+  }
+  if (!name) {
+    console.warn(`${logPrefix} WARNING: Could not derive name for user ${user.id}`);
+  }
+
+  const checkoutData = {
+    ...(email && { email }),
+    ...(name && { name }),
+    custom: customFields
+  };
+
+  if (billing) {
+    checkoutData.billing_address = billing;
+  }
+
+  console.log(`${logPrefix} checkout_data built:`, JSON.stringify({
+    email: email ? `${email.substring(0, 3)}***` : null,
+    name: name || null,
+    hasBilling: !!billing,
+    customKeys: Object.keys(customFields)
+  }));
+
+  return checkoutData;
+}
+
+/**
+ * Log the checkout_data returned by LS to verify pre-fill acceptance.
+ */
+function logLsCheckoutResponse(data, logPrefix) {
+  const cd = data.data?.attributes?.checkout_data;
+  console.log(`${logPrefix} LS response checkout_data:`, JSON.stringify({
+    emailSet: !!cd?.email,
+    nameSet: !!cd?.name,
+    billingAddress: cd?.billing_address || null,
+    customKeys: cd?.custom ? Object.keys(cd.custom) : []
+  }));
 }
 
 // Pricing configuration with Lemon Squeezy variant IDs
@@ -278,22 +341,19 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
       return res.status(500).json({ error: 'Payment configuration error' });
     }
 
-    const userName = req.user.name || req.user.email.split('@')[0];
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+    const checkoutData = buildCheckoutData(
+      req.user,
+      { user_id: req.user.id, tier: tier },
+      billing,
+      '[CHECKOUT]'
+    );
 
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: {
-            email: req.user.email,
-            name: userName,
-            custom: {
-              user_id: req.user.id,
-              tier: tier
-            },
-            ...(billing && { billing_address: billing })
-          },
+          checkout_data: checkoutData,
           product_options: {
             name: tierConfig.name,
             description: tierConfig.features.join(', '),
@@ -325,7 +385,6 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
 
     console.log('[CHECKOUT] Creating LS checkout for tier:', tier);
 
-    // Create Lemon Squeezy checkout
     const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
       method: 'POST',
       headers: {
@@ -344,7 +403,7 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[CHECKOUT] Success! Checkout URL created with pre-fill');
+    logLsCheckoutResponse(data, '[CHECKOUT]');
 
     res.json({
       checkoutUrl,
@@ -910,22 +969,19 @@ router.post('/marketing-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Marketing add-on configuration error' });
     }
 
-    const userName = req.user.name || req.user.email.split('@')[0];
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+    const checkoutData = buildCheckoutData(
+      req.user,
+      { user_id: req.user.id, addon_type: 'marketing' },
+      billing,
+      '[MARKETING-CHECKOUT]'
+    );
 
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: {
-            email: req.user.email,
-            name: userName,
-            custom: {
-              user_id: req.user.id,
-              addon_type: 'marketing'
-            },
-            ...(billing && { billing_address: billing })
-          },
+          checkout_data: checkoutData,
           product_options: {
             name: addonConfig.name,
             description: addonConfig.features.join(', '),
@@ -976,7 +1032,7 @@ router.post('/marketing-checkout', async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[MARKETING-CHECKOUT] Success! Checkout URL created with pre-fill');
+    logLsCheckoutResponse(data, '[MARKETING-CHECKOUT]');
 
     res.json({
       checkoutUrl,
@@ -1077,23 +1133,19 @@ router.post('/training-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Training checkout configuration error' });
     }
 
-    const userName = req.user.name || req.user.email.split('@')[0];
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+    const checkoutData = buildCheckoutData(
+      req.user,
+      { user_id: req.user.id, purchase_type: 'model_training', ad_account_id: adAccountId },
+      billing,
+      '[TRAINING-CHECKOUT]'
+    );
 
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: {
-            email: req.user.email,
-            name: userName,
-            custom: {
-              user_id: req.user.id,
-              purchase_type: 'model_training',
-              ad_account_id: adAccountId
-            },
-            ...(billing && { billing_address: billing })
-          },
+          checkout_data: checkoutData,
           product_options: {
             name: pricing.description,
             description: 'One-time purchase to train a LoRA model on your brand assets',
@@ -1144,7 +1196,7 @@ router.post('/training-checkout', async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[TRAINING-CHECKOUT] Success! Checkout URL created with pre-fill');
+    logLsCheckoutResponse(data, '[TRAINING-CHECKOUT]');
 
     res.json({
       checkoutUrl,
@@ -1186,22 +1238,19 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Image generation checkout configuration error' });
     }
 
-    const userName = req.user.name || req.user.email.split('@')[0];
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+    const checkoutData = buildCheckoutData(
+      req.user,
+      { user_id: req.user.id, purchase_type: 'image_generation' },
+      billing,
+      '[IMAGE-GEN-CHECKOUT]'
+    );
 
     const checkoutPayload = {
       data: {
         type: 'checkouts',
         attributes: {
-          checkout_data: {
-            email: req.user.email,
-            name: userName,
-            custom: {
-              user_id: req.user.id,
-              purchase_type: 'image_generation'
-            },
-            ...(billing && { billing_address: billing })
-          },
+          checkout_data: checkoutData,
           product_options: {
             name: pricing.description,
             description: 'Generate a branded image for your post',
@@ -1252,7 +1301,7 @@ router.post('/image-gen-checkout', async (req, res) => {
     }
 
     const checkoutUrl = data.data.attributes.url;
-    console.log('[IMAGE-GEN-CHECKOUT] Success! Checkout URL created with pre-fill');
+    logLsCheckoutResponse(data, '[IMAGE-GEN-CHECKOUT]');
 
     res.json({
       checkoutUrl,
