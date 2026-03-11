@@ -929,13 +929,16 @@ router.post('/marketing-checkout', async (req, res) => {
           product_options: {
             name: addonConfig.name,
             description: addonConfig.features.join(', '),
-            redirect_url: `${process.env.FRONTEND_URL}/profile.html?tab=marketing&payment=marketing_success`,
             receipt_thank_you_note: 'Thank you for activating Marketing! Your campaigns dashboard is now available.'
           },
           checkout_options: {
-            embed: false,
+            embed: true,
             media: false,
-            subscription_preview: true
+            logo: false,
+            desc: false,
+            discount: false,
+            subscription_preview: true,
+            button_color: '#6366F1'
           }
         },
         relationships: {

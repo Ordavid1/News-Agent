@@ -56,24 +56,8 @@ const AUTO_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 // Marketing initialization - called from DOMContentLoaded or profile.js
 async function initMarketing() {
-    // Detect if user just returned from a payment
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentType = urlParams.get('payment');
-    const isMarketingPaymentReturn = paymentType === 'marketing_success';
     // Check marketing addon status
-    let hasAddon = await checkMarketingAddon();
-
-    // If returning from marketing addon payment but addon not active yet, the webhook
-    // may not have arrived. Poll a few times before giving up.
-    if (!hasAddon && isMarketingPaymentReturn) {
-        hasAddon = await pollForMarketingAddon();
-
-        // Clean the payment param from URL regardless of outcome
-        const cleanUrl = new URL(window.location);
-        cleanUrl.searchParams.delete('payment');
-        cleanUrl.searchParams.delete('subtab');
-        window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
-    }
+    const hasAddon = await checkMarketingAddon();
 
     if (hasAddon) {
         // Load ad accounts first
@@ -82,65 +66,6 @@ async function initMarketing() {
         // Load initial data
         await loadOverview();
     }
-}
-
-/**
- * Poll for marketing addon activation after payment redirect.
- * The Lemon Squeezy webhook may take a few seconds to arrive and be processed.
- */
-async function pollForMarketingAddon() {
-    const banner = document.getElementById('addonRequiredBanner');
-    const activeBanner = document.getElementById('addonActiveBanner');
-
-    // Show a processing state in the purchase banner
-    if (banner) {
-        banner.classList.remove('hidden');
-        banner.innerHTML = `
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <div class="loader" style="width:16px;height:16px;"></div>
-                </div>
-                <div>
-                    <h4 class="font-semibold text-ink-800">Activating Marketing Add-on...</h4>
-                    <p class="text-sm text-ink-500">Your payment was received. Setting up your marketing tools — this usually takes a few seconds.</p>
-                </div>
-            </div>
-        `;
-    }
-    if (activeBanner) activeBanner.classList.add('hidden');
-
-    // Poll up to 10 times with 3-second intervals (30 seconds total)
-    for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        const active = await checkMarketingAddon();
-        if (active) {
-            showToast('Marketing add-on activated successfully!', 'success');
-            return true;
-        }
-    }
-
-    // Still not active after polling — restore the original purchase banner
-    if (banner) {
-        banner.innerHTML = `
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <h4 class="font-semibold text-ink-800">Payment Processing</h4>
-                        <p class="text-sm text-ink-500">Your payment was received but activation is still processing. Please refresh the page in a minute or contact support if it doesn't activate.</p>
-                    </div>
-                </div>
-                <button onclick="location.reload()" class="btn-primary btn-sm whitespace-nowrap">
-                    Refresh
-                </button>
-            </div>
-        `;
-    }
-    return false;
 }
 
 // DOMContentLoaded: set up event listeners that don't depend on marketing init
@@ -199,28 +124,52 @@ async function checkMarketingAddon() {
 }
 
 async function purchaseAddon() {
-    const token = localStorage.getItem('token');
-    try {
-        const response = await fetch('/api/subscriptions/marketing-checkout', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCsrfToken()
-            }
-        });
+    const btn = document.querySelector('#addonRequiredBanner button');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
+    }
 
-        if (response.ok) {
-            const data = await response.json();
-            if (data.checkoutUrl) {
-                window.location.href = data.checkoutUrl;
-            }
-        } else {
-            const err = await response.json();
-            showToast(err.error || 'Failed to start checkout', 'error');
+    try {
+        // 1. Create LS checkout via backend (pre-filled, embed mode)
+        const { checkoutUrl } = await apiPost('/api/subscriptions/marketing-checkout');
+
+        // 2. Show compact checkout popup (always pops down from banner button)
+        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $39/mo...';
+        const paid = await showCompactCheckout(checkoutUrl, btn || document.getElementById('addonRequiredBanner'), { direction: 'down' });
+
+        if (!paid) {
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+            return;
         }
+
+        // 3. Poll for webhook confirmation (subscription_created may take a few seconds)
+        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Activating...';
+        let activated = false;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                activated = await checkMarketingAddon();
+                if (activated) break;
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (!activated) {
+            showToast('Payment received but activation pending. Please refresh in a moment.', 'warning');
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+            return;
+        }
+
+        // 4. Addon activated — load marketing data
+        showToast('Marketing add-on activated successfully!', 'success');
+        await loadAdAccounts();
+        await loadOverview();
+
     } catch (error) {
-        showToast('Network error. Please try again.', 'error');
+        showToast(error.message || 'Payment failed. Please try again.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }
 
@@ -2924,9 +2873,12 @@ async function purchaseImageGeneration() {
  *
  * @param {string} checkoutUrl - LS checkout URL (embed-enabled)
  * @param {HTMLElement} anchorEl - Element to anchor the popup near
+ * @param {object} [options] - Optional configuration
+ * @param {'up'|'down'} [options.direction='up'] - Pop direction relative to anchor
  * @returns {Promise<boolean>} true if payment succeeded, false if cancelled
  */
-function showCompactCheckout(checkoutUrl, anchorEl) {
+function showCompactCheckout(checkoutUrl, anchorEl, options = {}) {
+    const direction = options.direction || 'up';
     return new Promise((resolve) => {
         // Remove any existing popup
         const existing = document.getElementById('lsCheckoutPopup');
@@ -2958,16 +2910,18 @@ function showCompactCheckout(checkoutUrl, anchorEl) {
         const popupWidth = 420;
         const popupHeight = 560;
 
-        // Position above button, centered horizontally
+        // Position popup relative to button based on direction
         let left = rect.left + (rect.width / 2) - (popupWidth / 2);
-        let top = rect.top - popupHeight - 12;
+        let top;
+        if (direction === 'down') {
+            top = rect.bottom + 12;
+        } else {
+            top = rect.top - popupHeight - 12;
+        }
 
         // Clamp to viewport bounds
         left = Math.max(12, Math.min(left, window.innerWidth - popupWidth - 12));
-        if (top < 12) {
-            // Not enough space above — show below button
-            top = rect.bottom + 12;
-        }
+        top = Math.max(12, Math.min(top, window.innerHeight - popupHeight - 12));
 
         popup.style.left = left + 'px';
         popup.style.top = top + 'px';
