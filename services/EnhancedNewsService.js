@@ -28,7 +28,7 @@ class EnhancedNewsService extends NewsService {
       language = 'en',
       sortBy = 'relevance',
       sources = ['newsapi', 'gnews'],
-      userId = 'demo-user',
+      userId = 'anonymous',
       keywords = [],
       geoFilter = {}
     } = options;

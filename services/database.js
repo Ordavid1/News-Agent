@@ -1057,6 +1057,20 @@ export function getDb() {
   return supabaseAdmin;
 }
 
+/**
+ * Atomically decrement a user's posts_remaining counter.
+ * Uses the existing decrement_posts_remaining RPC for atomicity.
+ * @param {string} userId - User ID
+ * @returns {Promise<void>}
+ */
+export async function decrementPostsRemaining(userId) {
+  const { error } = await supabaseAdmin.rpc('decrement_posts_remaining', { p_user_id: userId });
+  if (error) {
+    logger.error(`Failed to decrement posts_remaining for user ${userId}:`, error);
+    throw error;
+  }
+}
+
 // ============================================
 // AGENT AUTOMATION FUNCTIONS
 // ============================================
@@ -1065,7 +1079,7 @@ export function getDb() {
  * Calculate posting interval in milliseconds based on schedule
  * Example: 3 posts/day in 12-hour window = 4 hours between posts
  */
-function calculatePostingInterval(schedule) {
+export function calculatePostingInterval(schedule) {
   const { postsPerDay, startTime, endTime } = schedule;
 
   // Parse times (HH:MM format)

@@ -22,17 +22,11 @@ const PLATFORMS = {
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', async () => {
-    // Check if we're in demo mode
-    const demoConfig = sessionStorage.getItem('demoConfig');
-    if (demoConfig && !authToken) {
-        // Demo mode - no auth required
-        initializeDemoMode();
-    } else if (!authToken) {
+    if (!authToken) {
         window.location.href = '/';
         return;
-    } else {
-        await loadUserProfile();
     }
+    await loadUserProfile();
     
     setupPlatformOptions();
     showSection('posts'); // Show posts by default to see demo posts
@@ -222,23 +216,17 @@ async function generatePost(event) {
     generateBtn.innerHTML = '<div class="loader mx-auto"></div>';
     
     try {
-        // Check if we're in demo mode
-        const isDemoMode = currentUser && currentUser.id === 'demo-user';
-        const endpoint = isDemoMode ? '/api/demo/generate' : `${API_URL}/posts/generate`;
+        const endpoint = `${API_URL}/posts/generate`;
         const headers = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
         };
-        
-        if (!isDemoMode) {
-            headers['Authorization'] = `Bearer ${authToken}`;
-        }
-        
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
                 topic: formData.get('topic'),
-                topics: [formData.get('topic')], // For demo endpoint
                 platforms: platforms,
                 plan: currentUser.subscription.tier
             })
@@ -250,18 +238,8 @@ async function generatePost(event) {
             currentPost = data.post;
             displayGeneratedPost(data.post);
             
-            // If demo mode, save to sessionStorage
-            if (currentUser && currentUser.id === 'demo-user') {
-                const existingPosts = JSON.parse(sessionStorage.getItem('demoPosts') || '[]');
-                existingPosts.unshift(data.post); // Add new post at the beginning
-                sessionStorage.setItem('demoPosts', JSON.stringify(existingPosts));
-                
-                // Update posts remaining for demo
-                currentUser.subscription.postsRemaining--;
-            } else {
-                // Update posts remaining from server response
-                currentUser.subscription.postsRemaining = data.postsRemaining;
-            }
+            // Update posts remaining from server response
+            currentUser.subscription.postsRemaining = data.postsRemaining;
             
             document.getElementById('postsRemaining').textContent = 
                 `${currentUser.subscription.postsRemaining}/${currentUser.subscription.dailyLimit || getTierLimit(currentUser.subscription.tier)}`;
@@ -302,12 +280,6 @@ function displayGeneratedPost(post) {
 
 // Load posts
 async function loadPosts() {
-    // Check if we're in demo mode
-    if (currentUser && currentUser.id === 'demo-user') {
-        loadDemoPosts();
-        return;
-    }
-    
     try {
         const response = await fetch(`${API_URL}/posts`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
@@ -483,46 +455,8 @@ function showSuccess(message) {
 
 function logout() {
     localStorage.removeItem('authToken');
-    sessionStorage.clear(); // Clear demo data too
+    sessionStorage.clear();
     window.location.href = '/';
-}
-
-// Demo mode functions
-function initializeDemoMode() {
-    const config = JSON.parse(sessionStorage.getItem('demoConfig'));
-    
-    // Create mock user for demo
-    currentUser = {
-        id: 'demo-user',
-        email: 'demo@example.com',
-        name: 'Demo User',
-        subscription: {
-            tier: config.plan || 'starter',
-            postsRemaining: 10,
-            dailyLimit: getTierLimit(config.plan || 'starter'),
-            resetDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-        }
-    };
-    
-    // Display demo configuration
-    const demoConfigDisplay = document.getElementById('demoConfigDisplay');
-    if (demoConfigDisplay) {
-        demoConfigDisplay.classList.remove('hidden');
-        document.getElementById('demoPlan').textContent = config.plan.charAt(0).toUpperCase() + config.plan.slice(1);
-        document.getElementById('demoTopics').textContent = config.topics.join(', ');
-        document.getElementById('demoPlatforms').textContent = config.platforms.join(', ');
-    }
-    
-    updateUI();
-    loadDemoPosts();
-}
-
-// Load demo posts from sessionStorage
-function loadDemoPosts() {
-    const demoPosts = JSON.parse(sessionStorage.getItem('demoPosts') || '[]');
-    if (demoPosts.length > 0) {
-        displayPosts(demoPosts);
-    }
 }
 
 // Add loader styles

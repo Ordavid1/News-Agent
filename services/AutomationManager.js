@@ -17,9 +17,10 @@ import {
   resetDailyAgentPosts,
   incrementAgentPost,
   logAgentAutomation,
-  getUserById
+  getUserById,
+  calculatePostingInterval
 } from './database-wrapper.js';
-import { checkVideoQuota } from '../middleware/subscription.js';
+import { checkVideoQuota, checkAndDecrementPostQuota } from '../middleware/subscription.js';
 import {
   publishToTwitter,
   publishToLinkedIn,
@@ -430,6 +431,25 @@ class AutomationManager {
         agentLog('warn', `Agent already at ${freshPostsToday}/${maxPosts} posts (concurrent post detected) — skipping`);
         return { success: false, error: 'daily_limit_reached_after_generation' };
       }
+
+      // Guard against duplicate posts: re-check interval since last publish
+      if (freshAgent.last_posted_at) {
+        const schedule = settings.schedule || { postsPerDay: 3, startTime: '09:00', endTime: '21:00' };
+        const intervalMs = calculatePostingInterval(schedule);
+        const timeSinceLastPost = Date.now() - new Date(freshAgent.last_posted_at).getTime();
+        if (timeSinceLastPost < intervalMs) {
+          const minutesLeft = Math.ceil((intervalMs - timeSinceLastPost) / 60000);
+          agentLog('warn', `Published too recently (${minutesLeft} min until next allowed) — skipping`);
+          return { success: false, error: 'interval_not_met' };
+        }
+      }
+    }
+
+    // 3.10 Check user's subscription post quota before publishing
+    const quotaResult = await checkAndDecrementPostQuota(userId);
+    if (!quotaResult.allowed) {
+      agentLog('warn', `User post quota exhausted (${quotaResult.error}) — skipping`);
+      return { success: false, error: quotaResult.error };
     }
 
     // 4. Publish using user's OAuth credentials

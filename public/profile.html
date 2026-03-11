@@ -1231,75 +1231,22 @@
                         </div>
                     </div>
 
-                    <!-- Section 1: Reference Images Upload -->
+                    <!-- Section 1: Your Models (Training History + Train button + progress) -->
                     <div class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Reference Images</h4>
-                                <p class="text-sm text-ink-400 mt-0.5">Upload at least 10 images that represent your brand's visual style</p>
-                            </div>
-                            <div id="mediaAssetCountBadge" class="text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full">
-                                0 / 10 min
-                            </div>
-                        </div>
-
-                        <!-- Drop Zone -->
-                        <div id="mediaDropZone" class="border-2 border-dashed border-surface-300 rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-brand-400 hover:bg-brand-50/30">
-                            <svg class="w-10 h-10 mx-auto text-ink-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                            </svg>
-                            <p class="text-sm font-medium text-ink-600">Drag & drop images here, or click to browse</p>
-                            <p class="text-xs text-ink-400 mt-1">JPEG, PNG, WebP — up to 10MB each — max 20 per upload</p>
-                        </div>
-                        <input type="file" id="mediaFileInput" multiple accept="image/jpeg,image/png,image/webp" class="hidden">
-
-                        <!-- Upload Progress -->
-                        <div id="mediaUploadProgress" class="hidden mt-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex-1 h-2 bg-surface-200 rounded-full overflow-hidden">
-                                    <div id="mediaUploadBar" class="h-full bg-brand-500 rounded-full transition-all duration-300" style="width: 0%"></div>
-                                </div>
-                                <span id="mediaUploadText" class="text-xs text-ink-500 whitespace-nowrap">Uploading...</span>
-                            </div>
-                        </div>
-
-                        <!-- Image Grid -->
-                        <div id="mediaAssetGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-4"></div>
-
-                        <!-- Empty State -->
-                        <div id="mediaAssetEmpty" class="text-center py-6">
-                            <p class="text-sm text-ink-400">No images uploaded yet. Start by dropping images above.</p>
-                        </div>
-                    </div>
-
-                    <!-- Section 2: Train New Model -->
-                    <div class="card-gradient p-6 mb-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <div>
-                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Train New Model</h4>
-                                <p class="text-sm text-ink-400 mt-0.5">Train an AI model to generate images in your brand's visual style ($5 per training)</p>
+                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Your Models</h4>
+                                <p class="text-sm text-ink-400 mt-0.5">Select a model to view its content and generate images</p>
                             </div>
                             <div class="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center">
                                 <svg class="w-5 h-5 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                 </svg>
                             </div>
                         </div>
 
-                        <!-- Idle State — Train button -->
-                        <div id="mediaTrainingIdle" class="text-center py-4">
-                            <p class="text-sm text-ink-500 mb-4">Upload at least 10 reference images, then train your custom model.</p>
-                            <button id="mediaTrainBtn" onclick="startMediaTraining()" disabled
-                                class="btn-primary px-6 py-2.5 flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                </svg>
-                                Train New Model ($5)
-                            </button>
-                        </div>
-
-                        <!-- Training In Progress -->
-                        <div id="mediaTrainingProgress" class="hidden">
+                        <!-- Training In Progress (shown inline when active) -->
+                        <div id="mediaTrainingProgress" class="hidden mb-4">
                             <div class="flex items-center gap-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                                 <div class="loader" style="width:24px;height:24px;border-color:#f59e0b;border-top-color:transparent;"></div>
                                 <div class="flex-1">
@@ -1312,27 +1259,43 @@
                                 <div id="mediaTrainingBar" class="h-full bg-amber-500 rounded-full transition-all duration-500" style="width: 0%"></div>
                             </div>
                         </div>
+
+                        <!-- Model History List -->
+                        <div id="mediaTrainingHistoryList" class="space-y-3">
+                            <p class="text-sm text-ink-400 text-center py-4">No models yet. Upload reference images and train your first model below.</p>
+                        </div>
+
+                        <!-- Train New Model Button -->
+                        <div id="mediaTrainingIdle" class="mt-4 pt-4 border-t border-surface-200">
+                            <button id="mediaTrainBtn" onclick="startMediaTraining()" disabled
+                                class="btn-primary w-full flex items-center justify-center gap-2 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Train New Model ($5)
+                            </button>
+                            <p id="mediaTrainHint" class="text-xs text-ink-400 text-center mt-2">Upload at least 10 reference images before training</p>
+                        </div>
                     </div>
 
-                    <!-- Section 3: Training History -->
+                    <!-- Section 2: Training Images (images used for the selected model) -->
                     <div class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Training History</h4>
-                                <p class="text-sm text-ink-400 mt-0.5">Your past training sessions — select a model to generate images from</p>
+                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Training Images</h4>
+                                <p id="mediaTrainingImagesSubtitle" class="text-sm text-ink-400 mt-0.5">Images used to train the selected model</p>
                             </div>
-                            <div class="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center">
-                                <svg class="w-5 h-5 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
+                            <div id="mediaTrainingImageCountBadge" class="text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full">
+                                0 images
                             </div>
                         </div>
-                        <div id="mediaTrainingHistoryList" class="space-y-3">
-                            <p class="text-sm text-ink-400 text-center py-4">No training sessions yet. Train your first model above.</p>
+                        <div id="mediaTrainingImagesGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+                        <div id="mediaTrainingImagesEmpty" class="text-center py-4">
+                            <p class="text-sm text-ink-400">Select a model above to view the images it was trained on.</p>
                         </div>
                     </div>
 
-                    <!-- Section 4: Generate Images -->
+                    <!-- Section 3: Generate Images -->
                     <div id="mediaGenerationSection" class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-5">
                             <div>
@@ -1346,22 +1309,19 @@
                             </div>
                         </div>
 
-                        <!-- No Model Selected -->
-                        <div id="mediaGenerateDisabled" class="text-center py-4">
-                            <p class="text-sm text-ink-400">Train a model and select it from Training History to start generating images.</p>
-                        </div>
+                        <!-- Status label (changes based on selection) -->
+                        <p id="mediaGenerateSelectedModel" class="text-sm font-medium text-ink-400 mb-3">Select a model from Your Models to start generating images.</p>
 
-                        <!-- Generation Form (shown when a completed model is selected) -->
-                        <div id="mediaGenerateForm" class="hidden">
-                            <p id="mediaGenerateSelectedModel" class="text-sm font-medium text-brand-600 mb-3"></p>
+                        <!-- Generation Form (inputs always visible, button disabled until model selected) -->
+                        <div id="mediaGenerateForm">
                             <div class="mb-4">
                                 <label class="block text-sm font-medium text-ink-600 mb-1">Describe the image you want to create</label>
                                 <input type="text" id="mediaGeneratePrompt" class="input-field"
                                     placeholder="e.g., Professional product photo on a marble countertop, studio lighting">
                             </div>
 
-                            <button onclick="generateMediaImage()" id="mediaGenerateBtn"
-                                class="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                            <button onclick="generateMediaImage()" id="mediaGenerateBtn" disabled
+                                class="btn-primary w-full flex items-center justify-center gap-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                                 </svg>
@@ -1402,12 +1362,12 @@
                         </div>
                     </div>
 
-                    <!-- Section 5: Generated Images Gallery -->
-                    <div class="card-gradient p-6">
+                    <!-- Section 4: Generated Images Gallery -->
+                    <div class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
                                 <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Generated Images</h4>
-                                <p class="text-sm text-ink-400 mt-0.5">Your previously generated images</p>
+                                <p class="text-sm text-ink-400 mt-0.5">Images generated with the selected model</p>
                             </div>
                             <div class="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center">
                                 <svg class="w-5 h-5 text-ink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1419,10 +1379,51 @@
                             <div class="loader mx-auto" style="width:24px;height:24px;"></div>
                             <p class="text-sm text-ink-400 mt-2">Loading gallery...</p>
                         </div>
-                        <div id="mediaGalleryEmpty" class="hidden text-center py-6">
-                            <p class="text-sm text-ink-400">No images generated yet. Train your model and create your first image above!</p>
+                        <div id="mediaGalleryEmpty" class="text-center py-6">
+                            <p class="text-sm text-ink-400">Select a model to view its generated images.</p>
                         </div>
                         <div id="mediaGalleryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                    </div>
+
+                    <!-- Section 5: Reference Images Upload -->
+                    <div class="card-gradient p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Reference Images</h4>
+                                <p class="text-sm text-ink-400 mt-0.5">Upload at least 10 images for your next model training</p>
+                            </div>
+                            <div id="mediaAssetCountBadge" class="text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full">
+                                0 / 10 min
+                            </div>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="mediaDropZone" class="border-2 border-dashed border-surface-300 rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-brand-400 hover:bg-brand-50/30">
+                            <svg class="w-10 h-10 mx-auto text-ink-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            <p class="text-sm font-medium text-ink-600">Drag & drop images here, or click to browse</p>
+                            <p class="text-xs text-ink-400 mt-1">JPEG, PNG, WebP — up to 10MB each — max 20 per upload</p>
+                        </div>
+                        <input type="file" id="mediaFileInput" multiple accept="image/jpeg,image/png,image/webp" class="hidden">
+
+                        <!-- Upload Progress -->
+                        <div id="mediaUploadProgress" class="hidden mt-4">
+                            <div class="flex items-center gap-3">
+                                <div class="flex-1 h-2 bg-surface-200 rounded-full overflow-hidden">
+                                    <div id="mediaUploadBar" class="h-full bg-brand-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                                <span id="mediaUploadText" class="text-xs text-ink-500 whitespace-nowrap">Uploading...</span>
+                            </div>
+                        </div>
+
+                        <!-- Image Grid -->
+                        <div id="mediaAssetGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-4"></div>
+
+                        <!-- Empty State -->
+                        <div id="mediaAssetEmpty" class="text-center py-6">
+                            <p class="text-sm text-ink-400">No images uploaded yet. Start by dropping images above.</p>
+                        </div>
                     </div>
                 </div>
 

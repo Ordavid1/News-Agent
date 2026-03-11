@@ -3385,12 +3385,12 @@ async function loadMediaAssets() {
 
     const acctId = selectedAdAccount.id;
 
-    // Load each section independently — one failure must not break the others
-    const [assetsResult, historyResult, activeResult, generatedResult] = await Promise.allSettled([
+    // Load assets, training history, and active training status
+    // Generated media is loaded on-demand when a model is selected
+    const [assetsResult, historyResult, activeResult] = await Promise.allSettled([
         apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
         apiGet(`/api/marketing/media-assets/training/history?adAccountId=${acctId}`),
-        apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`),
-        apiGet(`/api/marketing/media-assets/generated?adAccountId=${acctId}`)
+        apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`)
     ]);
 
     // Assets
@@ -3418,22 +3418,14 @@ async function loadMediaAssets() {
         activeTrainingJob = null;
     }
 
-    // Select the default model, or fall back to most recent completed training
-    selectedTrainingJob = mediaTrainingJobs.find(j => j.is_default && j.status === 'completed')
-        || mediaTrainingJobs.find(j => j.status === 'completed')
-        || null;
+    // Start clean — no model selected, no generated media loaded
+    selectedTrainingJob = null;
+    generatedMedia = [];
 
     renderActiveTrainingStatus();
     renderTrainingHistory();
+    renderTrainingImages();
     renderGenerationSection();
-
-    // Generated images
-    if (generatedResult.status === 'fulfilled') {
-        generatedMedia = generatedResult.value.media || [];
-    } else {
-        console.error('[MediaAssets] Failed to load generated media:', generatedResult.reason);
-        generatedMedia = [];
-    }
     renderGeneratedMedia();
 
     initMediaDropZone();
@@ -3648,8 +3640,14 @@ function renderMediaAssetGrid() {
  */
 function updateTrainButtonState() {
     const btn = document.getElementById('mediaTrainBtn');
+    const hint = document.getElementById('mediaTrainHint');
     if (btn) {
         btn.disabled = mediaAssets.length < 10;
+    }
+    if (hint) {
+        hint.textContent = mediaAssets.length < 10
+            ? `Upload at least ${10 - mediaAssets.length} more reference image${10 - mediaAssets.length === 1 ? '' : 's'} before training`
+            : `${mediaAssets.length} reference images ready for training`;
     }
 }
 
@@ -3784,12 +3782,15 @@ function startTrainingPolling() {
                         mediaTrainingJobs.forEach(j => j.is_default = false);
                         job.is_default = true;
                         selectedTrainingJob = job;
+                        generatedMedia = []; // New model, no generated images yet
                     }
 
                     activeTrainingJob = null;
                     renderActiveTrainingStatus();
                     renderTrainingHistory();
+                    renderTrainingImages();
                     renderGenerationSection();
+                    renderGeneratedMedia();
                 }
             }
         } catch (error) {
@@ -3799,38 +3800,20 @@ function startTrainingPolling() {
 }
 
 /**
- * Show a specific training state in the UI (idle or progress).
- * Completed/failed states now live in the training history section.
- */
-function showTrainingState(state) {
-    const idle = document.getElementById('mediaTrainingIdle');
-    const progress = document.getElementById('mediaTrainingProgress');
-
-    if (idle) idle.classList.add('hidden');
-    if (progress) progress.classList.add('hidden');
-
-    switch (state) {
-        case 'idle':
-            if (idle) idle.classList.remove('hidden');
-            break;
-        case 'progress':
-            if (progress) progress.classList.remove('hidden');
-            break;
-    }
-}
-
-/**
- * Render the active training status (idle or in-progress only).
+ * Render the active training status.
+ * The train button is always visible. Only the progress bar is toggled.
  */
 function renderActiveTrainingStatus() {
     updateTrainButtonState();
 
-    if (!activeTrainingJob || !['training', 'pending'].includes(activeTrainingJob.status)) {
-        showTrainingState('idle');
-        return;
-    }
+    const progress = document.getElementById('mediaTrainingProgress');
+    if (!progress) return;
 
-    showTrainingState('progress');
+    if (activeTrainingJob && ['training', 'pending'].includes(activeTrainingJob.status)) {
+        progress.classList.remove('hidden');
+    } else {
+        progress.classList.add('hidden');
+    }
 }
 
 /**
@@ -3841,7 +3824,7 @@ function renderTrainingHistory() {
     if (!container) return;
 
     if (!mediaTrainingJobs || mediaTrainingJobs.length === 0) {
-        container.innerHTML = '<p class="text-sm text-ink-400 text-center py-4">No training sessions yet. Train your first model above.</p>';
+        container.innerHTML = '<p class="text-sm text-ink-400 text-center py-4">No models yet. Upload reference images and train your first model below.</p>';
         return;
     }
 
@@ -3928,6 +3911,42 @@ function renderTrainingHistory() {
 }
 
 /**
+ * Render the training images snapshot for the selected model.
+ * Shows the images that were used to train the selected model (read-only grid).
+ */
+function renderTrainingImages() {
+    const grid = document.getElementById('mediaTrainingImagesGrid');
+    const empty = document.getElementById('mediaTrainingImagesEmpty');
+    const badge = document.getElementById('mediaTrainingImageCountBadge');
+    const subtitle = document.getElementById('mediaTrainingImagesSubtitle');
+
+    if (!grid) return;
+
+    const urls = selectedTrainingJob?.training_image_urls || [];
+
+    if (!selectedTrainingJob || urls.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        if (badge) badge.textContent = '0 images';
+        if (subtitle) subtitle.textContent = selectedTrainingJob
+            ? 'No image snapshot available for this training session'
+            : 'Select a model above to view the images it was trained on';
+        return;
+    }
+
+    if (empty) empty.classList.add('hidden');
+    if (badge) badge.textContent = `${urls.length} images`;
+    if (subtitle) subtitle.textContent = `Images used to train "${selectedTrainingJob.name || 'Untitled'}"`;
+
+    grid.innerHTML = urls.map(url => `
+        <div class="relative group rounded-xl overflow-hidden border border-surface-200 aspect-square bg-surface-50">
+            <img src="${url}" alt="Training image" class="w-full h-full object-cover"
+                onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center w-full h-full text-ink-300\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>'">
+        </div>
+    `).join('');
+}
+
+/**
  * Select a completed training session for image generation.
  */
 function selectTrainingForGeneration(jobId) {
@@ -3936,9 +3955,10 @@ function selectTrainingForGeneration(jobId) {
 
     selectedTrainingJob = job;
     renderTrainingHistory();
+    renderTrainingImages();
     renderGenerationSection();
 
-    // Reload generated images filtered to this training job
+    // Load generated images filtered to this training job
     if (selectedAdAccount) {
         apiGet(`/api/marketing/media-assets/generated?adAccountId=${selectedAdAccount.id}&trainingJobId=${jobId}`)
             .then(data => {
@@ -3971,6 +3991,7 @@ async function setTrainingAsDefault(jobId) {
         }
 
         renderTrainingHistory();
+        renderTrainingImages();
         renderGenerationSection();
         showToast('Default model updated', 'success');
     } catch (error) {
@@ -3983,21 +4004,28 @@ async function setTrainingAsDefault(jobId) {
 // ============================================
 
 /**
- * Show/hide generation section based on whether a completed training is selected.
+ * Update the generation section label and button state based on selected model.
  */
 function renderGenerationSection() {
-    const disabled = document.getElementById('mediaGenerateDisabled');
-    const form = document.getElementById('mediaGenerateForm');
     const selectedLabel = document.getElementById('mediaGenerateSelectedModel');
+    const generateBtn = document.getElementById('mediaGenerateBtn');
+    const result = document.getElementById('mediaGenerateResult');
 
     if (selectedTrainingJob && selectedTrainingJob.status === 'completed') {
-        if (disabled) disabled.classList.add('hidden');
-        if (form) form.classList.remove('hidden');
-        if (selectedLabel) selectedLabel.textContent = `Generating from: ${selectedTrainingJob.name || 'Untitled'}`;
+        if (selectedLabel) {
+            selectedLabel.textContent = `Generating from: ${selectedTrainingJob.name || 'Untitled'}`;
+            selectedLabel.classList.remove('text-ink-400');
+            selectedLabel.classList.add('text-brand-600');
+        }
+        if (generateBtn) generateBtn.disabled = false;
     } else {
-        if (disabled) disabled.classList.remove('hidden');
-        if (form) form.classList.add('hidden');
-        if (selectedLabel) selectedLabel.textContent = '';
+        if (selectedLabel) {
+            selectedLabel.textContent = 'Select a model from Your Models to start generating images.';
+            selectedLabel.classList.remove('text-brand-600');
+            selectedLabel.classList.add('text-ink-400');
+        }
+        if (generateBtn) generateBtn.disabled = true;
+        if (result) result.classList.add('hidden');
     }
 }
 

@@ -1,5 +1,5 @@
 // middleware/subscription.js
-import { getSubscription, updateUser, getMarketingAddon } from '../services/database-wrapper.js';
+import { getSubscription, updateUser, getMarketingAddon, getUserById, decrementPostsRemaining } from '../services/database-wrapper.js';
 
 export async function checkSubscriptionLimits(req, res, next) {
   try {
@@ -11,15 +11,8 @@ export async function checkSubscriptionLimits(req, res, next) {
     
     if (now >= resetDate) {
       // Reset post limit - free tier gets 1 post/week, paid tiers get daily limits
-      const postLimits = {
-        free: 1,         // 1 post/week
-        starter: 6,      // 6 posts/day
-        growth: 12,      // 12 posts/day
-        business: 30     // 30 posts/day
-      };
-
       const tier = user.subscription.tier;
-      const limit = postLimits[tier] || 1;
+      const limit = POST_LIMITS[tier] || 1;
 
       await updateUser(user.id, {
         'subscription.postsRemaining': limit,
@@ -79,7 +72,61 @@ export function requireTier(minTier) {
   };
 }
 
-function getNextResetDate(tier = 'free') {
+/**
+ * Post limit constants — shared between middleware and automation service.
+ */
+export const POST_LIMITS = {
+  free: 1,         // 1 post/week
+  starter: 6,      // 6 posts/day
+  growth: 12,      // 12 posts/day
+  business: 30     // 30 posts/day
+};
+
+/**
+ * Check and atomically decrement a user's post quota.
+ * Callable from both HTTP middleware and background automation.
+ * Handles reset-date rollover automatically.
+ *
+ * @param {string} userId
+ * @returns {Promise<{allowed: boolean, postsRemaining?: number, error?: string}>}
+ */
+export async function checkAndDecrementPostQuota(userId) {
+  const user = await getUserById(userId);
+  if (!user || !user.subscription) {
+    return { allowed: false, error: 'user_not_found' };
+  }
+
+  const sub = user.subscription;
+  const tier = sub.tier || 'free';
+  const now = new Date();
+  const resetDate = sub.resetDate ? new Date(sub.resetDate) : new Date(0);
+
+  // Reset quota if past reset date
+  if (now >= resetDate) {
+    const limit = POST_LIMITS[tier] || 1;
+    const nextReset = getNextResetDate(tier);
+
+    await updateUser(userId, {
+      'subscription.postsRemaining': limit,
+      'subscription.dailyLimit': limit,
+      'subscription.resetDate': nextReset
+    });
+
+    sub.postsRemaining = limit;
+    sub.resetDate = nextReset;
+  }
+
+  if ((sub.postsRemaining ?? 0) <= 0) {
+    return { allowed: false, error: 'post_limit_reached', postsRemaining: 0 };
+  }
+
+  // Atomically decrement
+  await decrementPostsRemaining(userId);
+
+  return { allowed: true, postsRemaining: (sub.postsRemaining ?? 1) - 1 };
+}
+
+export function getNextResetDate(tier = 'free') {
   const now = new Date();
   const resetDate = new Date(now);
 

@@ -142,5 +142,8 @@ export {
   getPerUsePurchaseByIdempotencyKey,
   updatePerUsePurchase,
   getUserPerUsePurchases,
-  getLatestUnusedPurchase
+  getLatestUnusedPurchase,
+  // Quota enforcement
+  decrementPostsRemaining,
+  calculatePostingInterval
 } from './database.js';
