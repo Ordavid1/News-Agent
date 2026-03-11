@@ -259,9 +259,23 @@ class MarketingService {
 
     // Step 2: Create Ad Set with targeting and budget
     const adSetName = `${campaignName} - Ad Set`;
+
+    // Build promoted_object — required for OUTCOME_ENGAGEMENT campaigns.
+    // For Instagram boosts, include both page_id and instagram_actor_id.
+    const promotedObject = { page_id: creds.pageId };
+    if (sourcePlatform === 'instagram') {
+      const connection = await TokenManager.getTokens(userId, 'instagram');
+      const igAccountId = connection?.platform_metadata?.instagramAccountId;
+      if (igAccountId) {
+        promotedObject.instagram_actor_id = igAccountId;
+      }
+    }
+
     const adSetParams = {
       campaign_id: fbCampaign.id,
       name: adSetName,
+      optimization_goal: 'POST_ENGAGEMENT',
+      promoted_object: JSON.stringify(promotedObject),
       billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: JSON.stringify({ ...targeting, targeting_automation: { advantage_audience: 0 } }),

@@ -96,7 +96,10 @@ app.set('trust proxy', 1);
 // Render's internal health checker doesn't send Origin headers
 app.get('/api/health', (req, res) => {
   const uptime = Math.floor((Date.now() - serverState.startTime) / 1000);
-  console.log(`[HEALTH] Health check request received - status: ${serverState.status}, uptime: ${uptime}s`);
+  // Only log health checks when status is not ready (useful for debugging startup issues)
+  if (serverState.status !== 'ready') {
+    console.log(`[HEALTH] Health check - status: ${serverState.status}, uptime: ${uptime}s`);
+  }
   res.json({
     status: serverState.status === 'ready' ? 'healthy' : serverState.status,
     ready: serverState.status === 'ready',
