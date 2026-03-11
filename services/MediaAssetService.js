@@ -26,6 +26,7 @@ import {
   getActiveMediaTrainingJob,
   createMediaTrainingJob,
   updateMediaTrainingJob,
+  setDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,
@@ -363,6 +364,17 @@ class MediaAssetService {
     updates.status = newStatus;
     const updatedJob = await updateMediaTrainingJob(jobId, userId, updates);
 
+    // Auto-set newly completed training as the default model
+    if (newStatus === 'completed') {
+      try {
+        await setDefaultTrainingJob(jobId, userId, job.ad_account_id);
+        updatedJob.is_default = true;
+        logger.info(`Training ${jobId} auto-set as default model for account ${job.ad_account_id}`);
+      } catch (err) {
+        logger.warn(`Failed to auto-set default training job: ${err.message}`);
+      }
+    }
+
     return {
       ...updatedJob,
       progress
@@ -388,6 +400,14 @@ class MediaAssetService {
    */
   async getActiveTrainingJob(userId, adAccountId) {
     return getActiveMediaTrainingJob(userId, adAccountId);
+  }
+
+  /**
+   * Set a completed training job as the default model for generation.
+   * Unsets any previous default for the same ad account.
+   */
+  async setDefaultTrainingJob(jobId, userId, adAccountId) {
+    return setDefaultTrainingJob(jobId, userId, adAccountId);
   }
 
   // ============================================

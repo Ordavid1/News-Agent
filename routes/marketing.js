@@ -61,7 +61,9 @@ import {
   getBrandVoicePosts,
   insertBrandVoiceGeneratedPost,
   getBrandVoiceGeneratedPosts,
-  deleteBrandVoiceGeneratedPost
+  deleteBrandVoiceGeneratedPost,
+  getPerUsePurchase,
+  updatePerUsePurchase
 } from '../services/database-wrapper.js';
 import winston from 'winston';
 
@@ -1202,11 +1204,32 @@ router.get('/brand-voice/profiles/:id/posts', async (req, res) => {
  */
 router.post('/brand-voice/generate', async (req, res) => {
   try {
-    const { profileId, platform, topic, count } = req.body;
-    logger.info(`[BrandVoice] POST /generate - user=${req.user.id}, profileId=${profileId}, platform=${platform || 'auto'}, topic=${topic || 'auto'}`);
+    const { profileId, platform, topic, count, generateWithImage, purchaseId } = req.body;
+    logger.info(`[BrandVoice] POST /generate - user=${req.user.id}, profileId=${profileId}, platform=${platform || 'auto'}, topic=${topic || 'auto'}, withImage=${!!generateWithImage}`);
 
     if (!profileId) {
       return res.status(400).json({ error: 'profileId is required' });
+    }
+
+    // If generating with image, verify the per-use purchase ($0.75)
+    if (generateWithImage) {
+      if (!purchaseId) {
+        return res.status(402).json({ error: 'Image generation requires a $0.75 per-use purchase', code: 'PURCHASE_REQUIRED' });
+      }
+
+      const purchase = await getPerUsePurchase(purchaseId, req.user.id);
+      if (!purchase) {
+        return res.status(404).json({ error: 'Purchase not found' });
+      }
+      if (purchase.purchase_type !== 'image_generation') {
+        return res.status(400).json({ error: 'Invalid purchase type for image generation' });
+      }
+      if (purchase.status !== 'completed') {
+        return res.status(402).json({ error: 'Purchase payment not completed', code: 'PURCHASE_PENDING' });
+      }
+      if (purchase.reference_id) {
+        return res.status(409).json({ error: 'This purchase has already been used' });
+      }
     }
 
     // Platform is optional — if not provided, the service auto-detects the dominant platform
@@ -1241,6 +1264,19 @@ router.post('/brand-voice/generate', async (req, res) => {
         return post; // Return without id if storage fails — non-blocking
       }
     }));
+
+    // If image generation was purchased, mark the purchase as consumed
+    // (Actual image generation logic will be wired up in a future phase)
+    if (generateWithImage && purchaseId && postsWithIds[0]?.id) {
+      try {
+        await updatePerUsePurchase(purchaseId, {
+          reference_id: postsWithIds[0].id,
+          reference_type: 'brand_voice_generated_post'
+        });
+      } catch (updateErr) {
+        logger.error(`[BrandVoice] Failed to update purchase reference: ${updateErr.message}`);
+      }
+    }
 
     logger.info(`[BrandVoice] POST /generate - generated ${postsWithIds.length} post(s) on ${postsWithIds[0]?.platform || 'unknown'}`);
     res.json({ posts: postsWithIds });
@@ -1381,7 +1417,7 @@ router.delete('/media-assets/:id', async (req, res) => {
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId, name } = req.body;
+    const { adAccountId, name, purchaseId } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
     }
@@ -1395,11 +1431,36 @@ router.post('/media-assets/training/start', async (req, res) => {
       return res.status(400).json({ error: 'Training session name must be 100 characters or less' });
     }
 
-    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}"`);
+    // Verify per-use purchase ($5 training charge)
+    if (!purchaseId) {
+      return res.status(402).json({ error: 'Training requires a $5 per-use purchase', code: 'PURCHASE_REQUIRED' });
+    }
+
+    const purchase = await getPerUsePurchase(purchaseId, req.user.id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    if (purchase.purchase_type !== 'model_training') {
+      return res.status(400).json({ error: 'Invalid purchase type for training' });
+    }
+    if (purchase.status !== 'completed') {
+      return res.status(402).json({ error: 'Purchase payment not completed', code: 'PURCHASE_PENDING' });
+    }
+    if (purchase.reference_id) {
+      return res.status(409).json({ error: 'This purchase has already been used for a training session' });
+    }
+
+    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}", purchaseId=${purchaseId}`);
 
     const job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName);
 
-    logger.info(`[MediaAssets] Training started: job=${job.id}, replicate_id=${job.replicate_training_id}`);
+    // Mark purchase as consumed by linking it to the training job
+    await updatePerUsePurchase(purchaseId, {
+      reference_id: job.id,
+      reference_type: 'media_training_job'
+    });
+
+    logger.info(`[MediaAssets] Training started: job=${job.id}, replicate_id=${job.replicate_training_id}, purchase=${purchaseId}`);
     res.json({ job });
   } catch (error) {
     logger.error(`[MediaAssets] POST /training/start failed: ${error.message}`);
@@ -1464,6 +1525,29 @@ router.get('/media-assets/training/history', async (req, res) => {
   } catch (error) {
     logger.error(`[MediaAssets] GET /training/history failed: ${error.message}`);
     res.status(500).json({ error: error.message || 'Failed to get training history' });
+  }
+});
+
+/**
+ * PUT /api/marketing/media-assets/training/:id/set-default
+ * Mark a completed training job as the default model for generation.
+ */
+router.put('/media-assets/training/:id/set-default', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adAccountId } = req.body;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId is required' });
+    }
+
+    logger.info(`[MediaAssets] PUT /training/${id}/set-default - user=${req.user.id}, account=${adAccountId}`);
+
+    const job = await mediaAssetService.setDefaultTrainingJob(id, req.user.id, adAccountId);
+    res.json({ success: true, job });
+  } catch (error) {
+    logger.error(`[MediaAssets] PUT /training/:id/set-default failed: ${error.message}`);
+    const status = error.code === 'PGRST116' ? 404 : 500;
+    res.status(status).json({ error: error.message || 'Failed to set default training' });
   }
 });
 

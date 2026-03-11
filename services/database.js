@@ -3036,6 +3036,43 @@ export async function updateMediaTrainingJob(jobId, userId, updates) {
 }
 
 /**
+ * Set a training job as the default for its ad account.
+ * Unsets any existing default for the same account first.
+ */
+export async function setDefaultTrainingJob(jobId, userId, adAccountId) {
+  // Unset existing default(s) for this account
+  const { error: unsetError } = await supabaseAdmin
+    .from('media_training_jobs')
+    .update({ is_default: false, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .eq('is_default', true);
+
+  if (unsetError) {
+    logger.error('Error unsetting default training job:', unsetError);
+    throw unsetError;
+  }
+
+  // Set the new default
+  const { data, error } = await supabaseAdmin
+    .from('media_training_jobs')
+    .update({ is_default: true, updated_at: new Date().toISOString() })
+    .eq('id', jobId)
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .eq('status', 'completed')
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error setting default training job:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
  * Get generated media for an ad account
  */
 export async function getGeneratedMedia(userId, adAccountId) {
@@ -3129,6 +3166,171 @@ export async function deleteGeneratedMedia(mediaId, userId) {
   }
 
   return media;
+}
+
+// ============================================
+// PER-USE PURCHASES
+// ============================================
+
+/**
+ * Create a per-use purchase record (pending or completed).
+ */
+export async function createPerUsePurchase(userId, purchaseData) {
+  const record = {
+    user_id: userId,
+    purchase_type: purchaseData.purchaseType,
+    amount_cents: purchaseData.amountCents,
+    currency: purchaseData.currency || 'usd',
+    status: purchaseData.status || 'pending',
+    payment_provider: purchaseData.paymentProvider,
+    provider_reference_id: purchaseData.providerReferenceId || null,
+    reference_id: purchaseData.referenceId || null,
+    reference_type: purchaseData.referenceType || null,
+    idempotency_key: purchaseData.idempotencyKey || null,
+    description: purchaseData.description || null,
+    metadata: purchaseData.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating per-use purchase:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get a per-use purchase by ID (scoped to user).
+ */
+export async function getPerUsePurchase(purchaseId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('id', purchaseId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting per-use purchase:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get a per-use purchase by provider reference ID (e.g., LS order ID or Stripe PI).
+ */
+export async function getPerUsePurchaseByProviderId(providerReferenceId) {
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('provider_reference_id', providerReferenceId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting per-use purchase by provider ref:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get a per-use purchase by idempotency key.
+ */
+export async function getPerUsePurchaseByIdempotencyKey(idempotencyKey) {
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('idempotency_key', idempotencyKey)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting per-use purchase by idempotency key:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update a per-use purchase record.
+ */
+export async function updatePerUsePurchase(purchaseId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .update(updateData)
+    .eq('id', purchaseId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating per-use purchase:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get user's per-use purchase history with optional filters.
+ */
+export async function getUserPerUsePurchases(userId, { purchaseType, status, limit = 50, offset = 0 } = {}) {
+  let query = supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (purchaseType) query = query.eq('purchase_type', purchaseType);
+  if (status) query = query.eq('status', status);
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error('Error getting user per-use purchases:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get the latest unused completed purchase for a given type and user.
+ * Useful for checking if user has a valid, unconsumed purchase.
+ */
+export async function getLatestUnusedPurchase(userId, purchaseType) {
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('purchase_type', purchaseType)
+    .eq('status', 'completed')
+    .is('reference_id', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting latest unused purchase:', error);
+    throw error;
+  }
+
+  return data;
 }
 
 export default {
@@ -3249,8 +3451,17 @@ export default {
   getActiveMediaTrainingJob,
   createMediaTrainingJob,
   updateMediaTrainingJob,
+  setDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,
-  deleteGeneratedMedia
+  deleteGeneratedMedia,
+  // Per-use purchase functions
+  createPerUsePurchase,
+  getPerUsePurchase,
+  getPerUsePurchaseByProviderId,
+  getPerUsePurchaseByIdempotencyKey,
+  updatePerUsePurchase,
+  getUserPerUsePurchases,
+  getLatestUnusedPurchase
 };

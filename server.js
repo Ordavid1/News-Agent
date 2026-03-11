@@ -113,13 +113,13 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       // SECURITY: Removed 'unsafe-eval', kept 'unsafe-inline' for now (requires frontend refactor to fully remove)
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://js.stripe.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com", "https://lmsqueezy.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://www.googletagmanager.com", "https://www.google-analytics.com", "https://app.lemonsqueezy.com", "https://assets.lemonsqueezy.com", "https://lmsqueezy.com"],
       scriptSrcAttr: ["'unsafe-inline'"], // TODO: Remove after refactoring inline event handlers
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com", "https://api.fontshare.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.fontshare.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"],
+      connectSrc: ["'self'", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
+      frameSrc: ["'self'", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
@@ -584,9 +584,35 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
         break;
       }
 
-      case 'order_created':
+      case 'order_created': {
         console.log(`[WEBHOOK] Order created: ${payload.data.id}`);
+        const purchaseType = customData?.purchase_type;
+        if (purchaseType && customData?.user_id) {
+          const PER_USE_CONFIG = {
+            model_training: { amountCents: 500, description: 'Brand Asset Model Training' },
+            image_generation: { amountCents: 75, description: 'Brand Image Generation' }
+          };
+          const config = PER_USE_CONFIG[purchaseType];
+          if (config) {
+            const { createPerUsePurchase } = await import('./services/database-wrapper.js');
+            await createPerUsePurchase(customData.user_id, {
+              purchaseType,
+              amountCents: config.amountCents,
+              currency: 'usd',
+              status: 'completed',
+              paymentProvider: 'lemon_squeezy',
+              providerReferenceId: String(payload.data.id),
+              description: config.description,
+              metadata: {
+                ad_account_id: customData.ad_account_id || null,
+                ls_order_number: payload.data.attributes?.order_number
+              }
+            });
+            console.log(`[WEBHOOK] Per-use purchase recorded: ${purchaseType} for user ${customData.user_id}`);
+          }
+        }
         break;
+      }
 
       default:
         console.log(`[WEBHOOK] Unhandled event: ${eventName}`);

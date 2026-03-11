@@ -56,21 +56,24 @@ const AUTO_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
 
 // Marketing initialization - called from DOMContentLoaded or profile.js
 async function initMarketing() {
-    // Detect if user just returned from marketing payment
+    // Detect if user just returned from a payment
     const urlParams = new URLSearchParams(window.location.search);
-    const isPaymentReturn = urlParams.get('payment') === 'marketing_success';
+    const paymentType = urlParams.get('payment');
+    const isMarketingPaymentReturn = paymentType === 'marketing_success';
+    const isTrainingPaymentReturn = paymentType === 'training_success';
 
     // Check marketing addon status
     let hasAddon = await checkMarketingAddon();
 
-    // If returning from payment but addon not active yet, the webhook
+    // If returning from marketing addon payment but addon not active yet, the webhook
     // may not have arrived. Poll a few times before giving up.
-    if (!hasAddon && isPaymentReturn) {
+    if (!hasAddon && isMarketingPaymentReturn) {
         hasAddon = await pollForMarketingAddon();
 
         // Clean the payment param from URL regardless of outcome
         const cleanUrl = new URL(window.location);
         cleanUrl.searchParams.delete('payment');
+        cleanUrl.searchParams.delete('subtab');
         window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
     }
 
@@ -80,6 +83,19 @@ async function initMarketing() {
 
         // Load initial data
         await loadOverview();
+
+        // If returning from training payment, handle it
+        if (isTrainingPaymentReturn) {
+            // Clean URL params
+            const cleanUrl = new URL(window.location);
+            cleanUrl.searchParams.delete('payment');
+            cleanUrl.searchParams.delete('subtab');
+            window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
+
+            // Switch to media assets tab and start training
+            showMarketingTab('mediaassets');
+            await handleTrainingPaymentReturn();
+        }
     }
 }
 
@@ -2848,6 +2864,253 @@ async function deleteCurrentProfile() {
     }
 }
 
+// ============================================
+// BRAND IMAGE — PER-USE PAYMENT (Lemon Squeezy Compact Checkout)
+// ============================================
+
+/**
+ * Purchase image generation via compact LS embedded checkout ($0.75).
+ * Shows a small popup near the button with an embedded LS checkout iframe.
+ * All fields are pre-filled for fastest possible checkout experience.
+ * LS supports Link, Apple Pay, Google Pay — returning users pay with one tap.
+ */
+async function purchaseImageGeneration() {
+    if (!currentBrandVoiceProfile) {
+        showToast('Select a Brand Voice profile first', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('bvImageGenBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
+
+    try {
+        // 1. Create LS checkout via backend (pre-filled, embed mode)
+        const { checkoutUrl } = await apiPost('/api/subscriptions/image-gen-checkout');
+
+        // 2. Show compact checkout popup with iframe
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $0.75...';
+        const paid = await showCompactCheckout(checkoutUrl, btn);
+
+        if (!paid) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
+
+        // 3. Poll for webhook confirmation (order_created may take a few seconds)
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Confirming...';
+        let purchase = null;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const result = await apiGet('/api/subscriptions/image-gen-purchase-status');
+                if (result.hasPurchase) {
+                    purchase = result.purchase;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (!purchase) {
+            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
+
+        // 4. Trigger generation with purchaseId
+        showToast('Payment confirmed! Generating content with image...', 'success');
+        await generateBrandVoiceContentWithImage(purchase.id);
+
+    } catch (error) {
+        showToast(error.message || 'Payment failed. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+/**
+ * Show a compact checkout popup positioned near the trigger button.
+ * Embeds the LS checkout in a small iframe with genie animation.
+ * Listens for postMessage from the LS iframe for payment completion.
+ *
+ * @param {string} checkoutUrl - LS checkout URL (embed-enabled)
+ * @param {HTMLElement} anchorEl - Element to anchor the popup near
+ * @returns {Promise<boolean>} true if payment succeeded, false if cancelled
+ */
+function showCompactCheckout(checkoutUrl, anchorEl) {
+    return new Promise((resolve) => {
+        // Remove any existing popup
+        const existing = document.getElementById('lsCheckoutPopup');
+        if (existing) existing.remove();
+
+        // Create popup container
+        const popup = document.createElement('div');
+        popup.id = 'lsCheckoutPopup';
+        popup.className = 'ls-checkout-popup';
+
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ls-checkout-close';
+        closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+        closeBtn.title = 'Close';
+
+        // Iframe for LS checkout
+        const iframe = document.createElement('iframe');
+        iframe.src = checkoutUrl;
+        iframe.className = 'ls-checkout-iframe';
+        iframe.setAttribute('allowtransparency', 'true');
+        iframe.setAttribute('allow', 'payment');
+
+        popup.appendChild(closeBtn);
+        popup.appendChild(iframe);
+
+        // Position popup near the anchor button
+        const rect = anchorEl.getBoundingClientRect();
+        const popupWidth = 420;
+        const popupHeight = 560;
+
+        // Position above button, centered horizontally
+        let left = rect.left + (rect.width / 2) - (popupWidth / 2);
+        let top = rect.top - popupHeight - 12;
+
+        // Clamp to viewport bounds
+        left = Math.max(12, Math.min(left, window.innerWidth - popupWidth - 12));
+        if (top < 12) {
+            // Not enough space above — show below button
+            top = rect.bottom + 12;
+        }
+
+        popup.style.left = left + 'px';
+        popup.style.top = top + 'px';
+        popup.style.width = popupWidth + 'px';
+        popup.style.height = popupHeight + 'px';
+
+        // Set transform origin for genie animation from button center
+        const btnCenterX = rect.left + rect.width / 2;
+        const btnCenterY = rect.top + rect.height / 2;
+        const originX = btnCenterX - left;
+        const originY = btnCenterY - top;
+        popup.style.transformOrigin = `${originX}px ${originY}px`;
+
+        // Backdrop overlay (semi-transparent, click to close)
+        const backdrop = document.createElement('div');
+        backdrop.id = 'lsCheckoutBackdrop';
+        backdrop.className = 'ls-checkout-backdrop';
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(popup);
+
+        // Trigger genie animation
+        requestAnimationFrame(() => {
+            backdrop.classList.add('active');
+            popup.classList.add('active');
+        });
+
+        let resolved = false;
+
+        function cleanup() {
+            if (resolved) return;
+            resolved = true;
+            popup.classList.remove('active');
+            backdrop.classList.remove('active');
+            setTimeout(() => {
+                popup.remove();
+                backdrop.remove();
+            }, 250);
+            window.removeEventListener('message', messageHandler);
+            clearTimeout(timeout);
+        }
+
+        function messageHandler(event) {
+            // LS checkout posts messages for events
+            if (event.data?.event === 'Checkout.Success') {
+                cleanup();
+                resolve(true);
+            }
+        }
+
+        const timeout = setTimeout(() => {
+            cleanup();
+            resolve(false);
+        }, 5 * 60 * 1000); // 5 min timeout
+
+        window.addEventListener('message', messageHandler);
+
+        closeBtn.addEventListener('click', () => {
+            cleanup();
+            resolve(false);
+        });
+
+        backdrop.addEventListener('click', () => {
+            cleanup();
+            resolve(false);
+        });
+
+        // Close on Escape key
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                document.removeEventListener('keydown', escHandler);
+                cleanup();
+                resolve(false);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    });
+}
+
+/**
+ * Generate brand voice content with image flag (called after payment).
+ * Separated so the main generateBrandVoiceContent() stays clean for text-only.
+ */
+async function generateBrandVoiceContentWithImage(purchaseId) {
+    const topic = document.getElementById('bvGenerateTopic').value.trim();
+    const btn = document.getElementById('bvGenerateBtn');
+    const contentDiv = document.getElementById('bvGeneratedContent');
+    const textEl = document.getElementById('bvGeneratedText');
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating...';
+
+    try {
+        const body = {
+            profileId: currentBrandVoiceProfile.id,
+            topic: topic || undefined,
+            count: 1,
+            generateWithImage: true,
+            purchaseId
+        };
+
+        const response = await apiPost('/api/marketing/brand-voice/generate', body);
+        const posts = response.posts || [];
+        if (posts.length > 0) {
+            textEl.textContent = posts[0].text;
+            contentDiv.classList.remove('hidden');
+            renderBvShareButtons();
+
+            // Show generated image if present (future phase)
+            const imageDiv = document.getElementById('bvGeneratedImage');
+            const imagePreview = document.getElementById('bvGeneratedImagePreview');
+            if (posts[0].imageUrl && imageDiv && imagePreview) {
+                imagePreview.src = posts[0].imageUrl;
+                imageDiv.classList.remove('hidden');
+            }
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to generate content', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Generate Post';
+    }
+}
+
+// ============================================
+// BRAND VOICE - CONTENT GENERATION
+// ============================================
+
 async function generateBrandVoiceContent() {
     if (!currentBrandVoiceProfile) return;
 
@@ -2873,6 +3136,16 @@ async function generateBrandVoiceContent() {
             textEl.textContent = posts[0].text;
             contentDiv.classList.remove('hidden');
             renderBvShareButtons();
+
+            // Show generated image if present (future phase)
+            const imageDiv = document.getElementById('bvGeneratedImage');
+            const imagePreview = document.getElementById('bvGeneratedImagePreview');
+            if (posts[0].imageUrl && imageDiv && imagePreview) {
+                imagePreview.src = posts[0].imageUrl;
+                imageDiv.classList.remove('hidden');
+            } else if (imageDiv) {
+                imageDiv.classList.add('hidden');
+            }
 
             // Refresh history to show the newly generated post
             loadBvHistory(currentBrandVoiceProfile.id);
@@ -3147,8 +3420,10 @@ async function loadMediaAssets() {
         activeTrainingJob = null;
     }
 
-    // Auto-select the most recent completed training for generation
-    selectedTrainingJob = mediaTrainingJobs.find(j => j.status === 'completed') || null;
+    // Select the default model, or fall back to most recent completed training
+    selectedTrainingJob = mediaTrainingJobs.find(j => j.is_default && j.status === 'completed')
+        || mediaTrainingJobs.find(j => j.status === 'completed')
+        || null;
 
     renderActiveTrainingStatus();
     renderTrainingHistory();
@@ -3386,7 +3661,8 @@ function updateTrainButtonState() {
 
 /**
  * Start LoRA training for the selected ad account.
- * Prompts user for a session name before starting.
+ * Redirects to Lemon Squeezy checkout for $5 per-use payment first.
+ * After payment, user is redirected back and training starts automatically.
  */
 async function startMediaTraining() {
     if (!selectedAdAccount) return;
@@ -3394,17 +3670,88 @@ async function startMediaTraining() {
     const name = prompt('Name this training session:', `Training ${new Date().toLocaleDateString()}`);
     if (!name || !name.trim()) return; // User canceled or empty
 
+    // Store the session name for use after payment redirect
+    sessionStorage.setItem('pendingTrainingName', name.trim());
+    sessionStorage.setItem('pendingTrainingAdAccountId', selectedAdAccount.id);
+
     try {
-        // Show training in progress immediately
+        // Create LS checkout for $5 training purchase
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/subscriptions/training-checkout', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            },
+            credentials: 'include',
+            body: JSON.stringify({ adAccountId: selectedAdAccount.id })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            }
+        } else {
+            const err = await response.json();
+            showToast(err.error || 'Failed to start training checkout', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
+/**
+ * Resume training after returning from LS checkout payment.
+ * Polls for purchase confirmation, then starts training automatically.
+ */
+async function handleTrainingPaymentReturn() {
+    const pendingName = sessionStorage.getItem('pendingTrainingName');
+    const pendingAdAccountId = sessionStorage.getItem('pendingTrainingAdAccountId');
+
+    if (!pendingName || !pendingAdAccountId) {
+        showToast('Training payment received but session info was lost. Please try again.', 'error');
+        return;
+    }
+
+    // Clean up session storage
+    sessionStorage.removeItem('pendingTrainingName');
+    sessionStorage.removeItem('pendingTrainingAdAccountId');
+
+    showToast('Payment received! Starting model training...', 'success');
+
+    // Poll for the purchase to appear in the database (webhook may take a few seconds)
+    let purchase = null;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            const result = await apiGet('/api/subscriptions/training-purchase-status');
+            if (result.hasPurchase) {
+                purchase = result.purchase;
+                break;
+            }
+        } catch (e) {
+            // Continue polling
+        }
+    }
+
+    if (!purchase) {
+        showToast('Payment processing is taking longer than expected. Please refresh and try training again.', 'error');
+        return;
+    }
+
+    // Start training with the confirmed purchase
+    try {
         showTrainingState('progress');
 
         const data = await apiPost('/api/marketing/media-assets/training/start', {
-            adAccountId: selectedAdAccount.id,
-            name: name.trim()
+            adAccountId: pendingAdAccountId,
+            name: pendingName,
+            purchaseId: purchase.id
         });
 
         activeTrainingJob = data.job;
-        // Add to history at the top
         mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
         renderTrainingHistory();
 
@@ -3459,8 +3806,11 @@ function startTrainingPolling() {
                     const idx = mediaTrainingJobs.findIndex(j => j.id === job.id);
                     if (idx !== -1) mediaTrainingJobs[idx] = job;
 
-                    // If completed, auto-select for generation
+                    // If completed, auto-select and mark as default
+                    // (backend already set is_default via checkTrainingStatus)
                     if (job.status === 'completed') {
+                        mediaTrainingJobs.forEach(j => j.is_default = false);
+                        job.is_default = true;
                         selectedTrainingJob = job;
                     }
 
@@ -3551,19 +3901,30 @@ function renderTrainingHistory() {
 
         // Is this the selected model for generation?
         const isSelected = selectedTrainingJob && selectedTrainingJob.id === job.id;
+        const isDefault = !!job.is_default;
 
-        // Action button
+        // Action buttons
         let actionBtn = '';
         if (job.status === 'completed') {
+            const defaultBadge = isDefault
+                ? `<span class="inline-flex items-center gap-1 text-[10px] font-medium text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">Default</span>`
+                : `<button onclick="setTrainingAsDefault('${job.id}')" class="text-[10px] text-ink-400 hover:text-brand-600 underline">Set as Default</button>`;
+
             if (isSelected) {
-                actionBtn = `<span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                    Selected
-                </span>`;
+                actionBtn = `<div class="flex flex-col items-end gap-1">
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        Selected
+                    </span>
+                    ${defaultBadge}
+                </div>`;
             } else {
-                actionBtn = `<button onclick="selectTrainingForGeneration('${job.id}')" class="btn-outline btn-sm text-xs">Use for Generation</button>`;
+                actionBtn = `<div class="flex flex-col items-end gap-1">
+                    <button onclick="selectTrainingForGeneration('${job.id}')" class="btn-outline btn-sm text-xs">Use for Generation</button>
+                    ${defaultBadge}
+                </div>`;
             }
         } else if (job.status === 'failed') {
             actionBtn = `<button onclick="startMediaTraining()" class="btn-outline btn-sm text-xs">Retry</button>`;
@@ -3615,6 +3976,33 @@ function selectTrainingForGeneration(jobId) {
             .catch(err => {
                 console.error('[MediaAssets] Failed to load generated media for job:', err);
             });
+    }
+}
+
+/**
+ * Mark a training job as the default model (persisted in DB).
+ */
+async function setTrainingAsDefault(jobId) {
+    if (!selectedAdAccount) return;
+
+    try {
+        await apiPut(`/api/marketing/media-assets/training/${jobId}/set-default`, {
+            adAccountId: selectedAdAccount.id
+        });
+
+        // Update local state: clear old default, set new one
+        mediaTrainingJobs.forEach(j => j.is_default = false);
+        const job = mediaTrainingJobs.find(j => j.id === jobId);
+        if (job) {
+            job.is_default = true;
+            selectedTrainingJob = job;
+        }
+
+        renderTrainingHistory();
+        renderGenerationSection();
+        showToast('Default model updated', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to set default', 'error');
     }
 }
 

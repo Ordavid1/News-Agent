@@ -128,8 +128,17 @@ export {
   getActiveMediaTrainingJob,
   createMediaTrainingJob,
   updateMediaTrainingJob,
+  setDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,
-  deleteGeneratedMedia
+  deleteGeneratedMedia,
+  // Per-use purchase functions
+  createPerUsePurchase,
+  getPerUsePurchase,
+  getPerUsePurchaseByProviderId,
+  getPerUsePurchaseByIdempotencyKey,
+  updatePerUsePurchase,
+  getUserPerUsePurchases,
+  getLatestUnusedPurchase
 } from './database.js';
