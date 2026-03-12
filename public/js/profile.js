@@ -243,7 +243,7 @@ function updateProfileUI() {
 }
 
 function updateConnectionsUI() {
-    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok'];
+    const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok', 'youtube'];
     let connectedCount = 0;
 
     platforms.forEach(platform => {
@@ -315,7 +315,7 @@ function updateConnectionsUI() {
     // Total connectable platforms: Twitter, LinkedIn, Reddit, Telegram, WhatsApp, Instagram, TikTok, YouTube = 8
     const connectionCount = document.getElementById('connectionCount');
     if (connectionCount) {
-        connectionCount.textContent = `${connectedCount}/8`;
+        connectionCount.textContent = `${connectedCount}/${platforms.length}`;
         if (connectedCount > 0) {
             connectionCount.classList.remove('bg-gray-700');
             connectionCount.classList.add('bg-green-500/20', 'text-green-400');
@@ -1927,6 +1927,11 @@ async function testAgentPost(agentId) {
     }
 
     // Fire the actual test POST request
+    // 15-minute abort timeout — video platforms (TikTok, YouTube) require video generation
+    // which can take 5-10 minutes. Without an explicit timeout the browser/proxy may cut
+    // the connection prematurely.
+    const abortController = new AbortController();
+    const fetchTimeoutId = setTimeout(() => abortController.abort(), 15 * 60 * 1000);
     try {
         const response = await fetch(`/api/agents/${agentId}/test`, {
             method: 'POST',
@@ -1934,8 +1939,10 @@ async function testAgentPost(agentId) {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': getCsrfToken()
-            }
+            },
+            signal: abortController.signal
         });
+        clearTimeout(fetchTimeoutId);
 
         const result = await response.json();
 
@@ -1962,14 +1969,19 @@ async function testAgentPost(agentId) {
         }, 3000);
 
     } catch (error) {
+        clearTimeout(fetchTimeoutId);
         console.error('Agent test error:', error);
 
         if (eventSource) {
             eventSource.close();
         }
 
+        const isTimeout = error.name === 'AbortError';
         if (progressText) {
-            updateProgressText(progressText, progressDot, 'Network error occurred', 'error');
+            updateProgressText(progressText, progressDot,
+                isTimeout ? 'Request timed out — video generation may have exceeded 15 minutes' : 'Network error occurred',
+                'error'
+            );
         }
 
         showAgentTestResults({

@@ -3427,7 +3427,6 @@ async function loadMediaAssets() {
 
     renderActiveTrainingStatus();
     renderTrainingHistory();
-    renderTrainingImages();
     renderGenerationSection();
     renderGeneratedMedia();
 
@@ -3791,7 +3790,6 @@ function startTrainingPolling() {
                     activeTrainingJob = null;
                     renderActiveTrainingStatus();
                     renderTrainingHistory();
-                    renderTrainingImages();
                     renderGenerationSection();
                     renderGeneratedMedia();
                 }
@@ -3914,42 +3912,6 @@ function renderTrainingHistory() {
 }
 
 /**
- * Render the training images snapshot for the selected model.
- * Shows the images that were used to train the selected model (read-only grid).
- */
-function renderTrainingImages() {
-    const grid = document.getElementById('mediaTrainingImagesGrid');
-    const empty = document.getElementById('mediaTrainingImagesEmpty');
-    const badge = document.getElementById('mediaTrainingImageCountBadge');
-    const subtitle = document.getElementById('mediaTrainingImagesSubtitle');
-
-    if (!grid) return;
-
-    const urls = selectedTrainingJob?.training_image_urls || [];
-
-    if (!selectedTrainingJob || urls.length === 0) {
-        grid.innerHTML = '';
-        if (empty) empty.classList.remove('hidden');
-        if (badge) badge.textContent = '0 images';
-        if (subtitle) subtitle.textContent = selectedTrainingJob
-            ? 'No image snapshot available for this training session'
-            : 'Select a model above to view the images it was trained on';
-        return;
-    }
-
-    if (empty) empty.classList.add('hidden');
-    if (badge) badge.textContent = `${urls.length} images`;
-    if (subtitle) subtitle.textContent = `Images used to train "${selectedTrainingJob.name || 'Untitled'}"`;
-
-    grid.innerHTML = urls.map(url => `
-        <div class="relative group rounded-xl overflow-hidden border border-surface-200 aspect-square bg-surface-50">
-            <img src="${url}" alt="Training image" class="w-full h-full object-cover"
-                onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center w-full h-full text-ink-300\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>'">
-        </div>
-    `).join('');
-}
-
-/**
  * Select a completed training session for image generation.
  */
 function selectTrainingForGeneration(jobId) {
@@ -3958,7 +3920,6 @@ function selectTrainingForGeneration(jobId) {
 
     selectedTrainingJob = job;
     renderTrainingHistory();
-    renderTrainingImages();
     renderGenerationSection();
 
     // Load generated images filtered to this training job
@@ -3994,7 +3955,6 @@ async function setTrainingAsDefault(jobId) {
         }
 
         renderTrainingHistory();
-        renderTrainingImages();
         renderGenerationSection();
         showToast('Default model updated', 'success');
     } catch (error) {
@@ -4023,7 +3983,7 @@ function renderGenerationSection() {
         if (generateBtn) generateBtn.disabled = false;
     } else {
         if (selectedLabel) {
-            selectedLabel.textContent = 'Select a model from Your Models to start generating images.';
+            selectedLabel.textContent = 'Select a model from Past Models to start generating images.';
             selectedLabel.classList.remove('text-brand-600');
             selectedLabel.classList.add('text-ink-400');
         }

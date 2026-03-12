@@ -23,7 +23,7 @@ import {
 import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToTikTok } from '../services/PublishingService.js';
+import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToTikTok, publishToYouTube } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
@@ -802,7 +802,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
       testProgressEmitter.emitProgress(userId, agentId, 'media', 'Extracting media from article...');
-      const requiresMedia = ['instagram', 'tiktok'].includes(platform);
+      const requiresMedia = ['instagram', 'tiktok', 'youtube'].includes(platform);
       console.log(`[Agent Test] User tier "${userTier}" - extracting image${requiresMedia ? ` [${platform} — retry enabled]` : ''}...`);
       try {
         const imageExtractor = new ImageExtractor();
@@ -838,8 +838,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       console.log(`[Agent Test] User tier "${userTier}" - image extraction not available (Growth+ required)`);
     }
 
-    // Step 2.5: For TikTok — check video quota then generate video from image + caption
-    if (platform === 'tiktok') {
+    // Step 2.5: For video platforms (TikTok, YouTube) — check video quota then generate video from image + caption
+    const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
+    if (VIDEO_PLATFORMS.includes(platform)) {
       // Check video quota before expensive video generation
       const videoQuota = await checkVideoQuota(userId, req.user.subscription);
       if (!videoQuota.allowed) {
@@ -854,16 +855,16 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       }
 
       if (!imageUrl) {
-        testProgressEmitter.emitProgress(userId, agentId, 'error', 'TikTok requires an image for video generation — none found');
+        testProgressEmitter.emitProgress(userId, agentId, 'error', `${platformDisplayName} requires an image for video generation — none found`);
         return res.status(400).json({
           success: false,
-          error: 'TikTok requires an image to generate a video. No media was found for this article.',
+          error: `${platformDisplayName} requires an image to generate a video. No media was found for this article.`,
           step: 'video_generation'
         });
       }
 
       testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Generating video from article image...');
-      console.log(`[Agent Test] Generating video for TikTok...`);
+      console.log(`[Agent Test] Generating video for ${platformDisplayName}...`);
 
       try {
         const ContentGenerator = (await import('../services/ContentGenerator.js')).default;
@@ -1004,6 +1005,20 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           }
           content.videoUrl = generatedContent.videoUrl;
           publishResult = await publishToTikTok(content, userId, generatedContent.videoUrl, {
+            videoBuffer: generatedContent.videoBuffer
+          });
+          break;
+        case 'youtube':
+          if (!generatedContent.videoUrl) {
+            testProgressEmitter.emitProgress(userId, agentId, 'error', 'YouTube requires a video — generation failed');
+            return res.status(400).json({
+              success: false,
+              error: 'YouTube requires a video but video generation was not completed.',
+              step: 'publishing'
+            });
+          }
+          content.videoUrl = generatedContent.videoUrl;
+          publishResult = await publishToYouTube(content, userId, generatedContent.videoUrl, {
             videoBuffer: generatedContent.videoBuffer
           });
           break;

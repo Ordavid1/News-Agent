@@ -5,7 +5,7 @@ import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads } from '../services/PublishingService.js';
+import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToYouTube } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 // SECURITY: Input validation
@@ -501,6 +501,15 @@ router.post('/test', async (req, res) => {
             break;
           case 'whatsapp':
             result = await publishToWhatsApp(content, userId);
+            break;
+          case 'youtube':
+            // YouTube requires a video URL — video generation must have run beforehand
+            if (!content.videoUrl) {
+              console.log(`[Test Post] YouTube requires a video — no videoUrl in content, skipping`);
+              results.failed.push({ platform, error: 'YouTube requires a video. Video generation must complete before publishing.' });
+              continue;
+            }
+            result = await publishToYouTube(content, userId, content.videoUrl);
             break;
           default:
             console.log(`[Test Post] Platform ${platform} not yet supported for publishing`);

@@ -13,6 +13,7 @@ import { getInstagramSystemPrompt, getInstagramUserPrompt } from '../public/comp
 import { getThreadsSystemPrompt, getThreadsUserPrompt } from '../public/components/threadsPrompts.mjs';
 import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/components/whatsappPrompts.mjs';
 import { getTikTokSystemPrompt, getTikTokUserPrompt } from '../public/components/tiktokPrompts.mjs';
+import { getYouTubeSystemPrompt, getYouTubeUserPrompt } from '../public/components/youtubePrompts.mjs';
 import { getVideoPromptSystemPrompt, getVideoPromptUserPrompt, getVideoRephraseSystemPrompt, getVideoRephraseUserPrompt } from '../public/components/videoPrompts.mjs';
 
 // Legacy import for fallback
@@ -48,7 +49,8 @@ class ContentGenerator {
       telegram: this.getTelegramPrompt,
       threads: this.getThreadsPrompt,
       whatsapp: this.getWhatsAppPrompt,
-      tiktok: this.getTikTokPrompt
+      tiktok: this.getTikTokPrompt,
+      youtube: this.getYouTubePrompt
     };
   }
 
@@ -130,6 +132,11 @@ class ContentGenerator {
         // Use TikTok-specific prompts (short-form video captions, viral hooks)
         systemPrompt = getTikTokSystemPrompt(agentSettings);
         userPrompt = getTikTokUserPrompt(article, agentSettings);
+
+      } else if (platform === 'youtube') {
+        // Use YouTube Shorts-specific prompts (clickable title + short description)
+        systemPrompt = getYouTubeSystemPrompt(agentSettings);
+        userPrompt = getYouTubeUserPrompt(article, agentSettings);
 
       } else {
         // Fallback for unsupported platforms

@@ -171,6 +171,28 @@ export async function storeTokens({
     throw error;
   }
 
+  // Clean up stale token_refresh_queue entries for this connection.
+  // When a user reconnects (OAuth callback), old pending/processing refresh jobs
+  // become obsolete — the tokens are brand new and don't need refresh. Stale entries
+  // cause the worker to call refreshTokens() unnecessarily, which can race with
+  // active publishing operations and kill the connection on transient API errors.
+  if (data?.id) {
+    try {
+      const { error: cleanupErr } = await supabaseAdmin
+        .from('token_refresh_queue')
+        .delete()
+        .eq('connection_id', data.id)
+        .in('status', ['pending', 'processing']);
+
+      if (cleanupErr) {
+        logger.warn(`Failed to clean up stale refresh queue for connection ${data.id}:`, cleanupErr.message);
+      }
+    } catch (cleanupEx) {
+      // Non-fatal — don't fail the connection on queue cleanup errors
+      logger.warn(`Exception cleaning up refresh queue for connection ${data.id}:`, cleanupEx.message);
+    }
+  }
+
   logger.info(`Stored ${platform} tokens for user ${userId}`);
   return data;
 }
@@ -209,8 +231,37 @@ export async function getTokens(userId, platform) {
     };
   } catch (decryptError) {
     if (decryptError instanceof TokenDecryptionError) {
+      // Diagnostic logging — helps trace intermittent decryption failures
+      const atLen = data.access_token?.length || 0;
+      const rtLen = data.refresh_token?.length || 0;
+      const atParts = data.access_token?.split(':').length || 0;
+      const rtParts = data.refresh_token?.split(':').length || 0;
       const callerStack = new Error().stack.split('\n').slice(2, 5).map(l => l.trim()).join(' <- ');
-      logger.error(`[TokenManager] Token decryption failed for ${platform} (user: ${userId}, conn: ${data.id}). Caller: ${callerStack}`);
+      logger.error(
+        `[TokenManager] Token decryption failed for ${platform} (user: ${userId}, conn: ${data.id}). ` +
+        `access_token: ${atLen} chars/${atParts} parts, refresh_token: ${rtLen} chars/${rtParts} parts, ` +
+        `status: ${data.status}, updated_at: ${data.updated_at}. Caller: ${callerStack}`
+      );
+
+      // Single re-read retry — protects against race conditions where a concurrent
+      // write (e.g., token refresh worker updating tokens) leaves a transient inconsistency.
+      try {
+        const { data: retryData } = await supabaseAdmin
+          .from('social_connections')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform', platform)
+          .single();
+
+        if (retryData) {
+          const retryAccess = decryptToken(retryData.access_token);
+          const retryRefresh = decryptToken(retryData.refresh_token);
+          logger.info(`[TokenManager] Retry decryption SUCCEEDED for ${platform} (user: ${userId}) — transient issue resolved`);
+          return { ...retryData, access_token: retryAccess, refresh_token: retryRefresh };
+        }
+      } catch (retryErr) {
+        logger.error(`[TokenManager] Retry decryption also FAILED for ${platform} (user: ${userId}): ${retryErr.message}`);
+      }
 
       // Attach connection context to the error so callers can mark if appropriate
       decryptError.platform = platform;
@@ -252,8 +303,34 @@ export async function getTokensByConnectionId(connectionId) {
     };
   } catch (decryptError) {
     if (decryptError instanceof TokenDecryptionError) {
+      const atLen = data.access_token?.length || 0;
+      const rtLen = data.refresh_token?.length || 0;
+      const atParts = data.access_token?.split(':').length || 0;
+      const rtParts = data.refresh_token?.split(':').length || 0;
       const callerStack = new Error().stack.split('\n').slice(2, 5).map(l => l.trim()).join(' <- ');
-      logger.error(`[TokenManager] Token decryption failed for connection ${connectionId} (platform: ${data.platform}). Caller: ${callerStack}`);
+      logger.error(
+        `[TokenManager] Token decryption failed for connection ${connectionId} (platform: ${data.platform}). ` +
+        `access_token: ${atLen} chars/${atParts} parts, refresh_token: ${rtLen} chars/${rtParts} parts, ` +
+        `status: ${data.status}, updated_at: ${data.updated_at}. Caller: ${callerStack}`
+      );
+
+      // Single re-read retry — protects against concurrent write race conditions
+      try {
+        const { data: retryData } = await supabaseAdmin
+          .from('social_connections')
+          .select('*')
+          .eq('id', connectionId)
+          .single();
+
+        if (retryData) {
+          const retryAccess = decryptToken(retryData.access_token);
+          const retryRefresh = decryptToken(retryData.refresh_token);
+          logger.info(`[TokenManager] Retry decryption SUCCEEDED for connection ${connectionId} — transient issue resolved`);
+          return { ...retryData, access_token: retryAccess, refresh_token: retryRefresh };
+        }
+      } catch (retryErr) {
+        logger.error(`[TokenManager] Retry decryption also FAILED for connection ${connectionId}: ${retryErr.message}`);
+      }
 
       // Attach connection context to the error so callers can mark if appropriate
       decryptError.connectionId = connectionId;

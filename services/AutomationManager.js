@@ -30,7 +30,8 @@ import {
   publishToWhatsApp,
   publishToInstagram,
   publishToThreads,
-  publishToTikTok
+  publishToTikTok,
+  publishToYouTube
 } from './PublishingService.js';
 import testProgressEmitter from './TestProgressEmitter.js';
 import TokenManager from './TokenManager.js';
@@ -249,15 +250,15 @@ class AutomationManager {
         return { success: false, error: `connection_${status}` };
       }
     } catch (connError) {
-      // TokenDecryptionError or other connection failures — mark connection as error
-      // since this is a publishing path (agent about to generate content + publish)
-      if (connError.connectionId) {
-        await TokenManager.markConnectionError(
-          connError.connectionId,
-          `Token decryption failed during automated posting. Please reconnect your account.`
-        );
-      }
-      agentLog('error', `Connection check failed for ${platform}: ${connError.message} — auto-pausing agent`);
+      // Connection pre-check failed (TokenDecryptionError or other read failure).
+      // Do NOT call markConnectionError() here — this pre-check is a read-only guard,
+      // not an actual publishing attempt. Spurious decryption errors (race conditions,
+      // concurrent writes) must not permanently kill a working connection.
+      // The publishing path (PublishingService.getPublisherForUser) is the authoritative
+      // place for error marking because it represents an actual user-initiated action.
+      // Pause the agent conservatively to stop API credit waste, but leave connection
+      // status intact. The OAuth callback auto-resumes the agent on reconnect.
+      agentLog('warn', `Connection pre-check failed for ${platform}: ${connError.message} — pausing agent (connection status unchanged)`);
       await updateAgentInDb(agent.id, { status: 'paused' });
       return { success: false, error: 'connection_invalid' };
     }
@@ -324,15 +325,16 @@ class AutomationManager {
       }
     }
 
-    // 3.7 For TikTok: check video quota then generate video from image + caption
-    if (platform === 'tiktok') {
+    // 3.7 For video platforms (TikTok, YouTube): check video quota then generate video from image + caption
+    const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
+    if (VIDEO_PLATFORMS.includes(platform)) {
       // Check video quota before expensive video generation
       try {
         const user = await getUserById(userId);
         if (user?.subscription) {
           const videoQuota = await checkVideoQuota(userId, user.subscription);
           if (!videoQuota.allowed) {
-            agentLog('warn', `Video quota exhausted: ${videoQuota.error} — skipping TikTok post`);
+            agentLog('warn', `Video quota exhausted: ${videoQuota.error} — skipping ${platform} post`);
             return { success: false, error: 'video_limit_reached' };
           }
         }
@@ -342,11 +344,11 @@ class AutomationManager {
       }
 
       if (!content.imageUrl) {
-        agentLog('warn', 'TikTok requires an image for video generation but none available — post blocked');
-        return { success: false, error: 'tiktok_no_image_for_video' };
+        agentLog('warn', `${platform} requires an image for video generation but none available — post blocked`);
+        return { success: false, error: `${platform}_no_image_for_video` };
       }
 
-      agentLog('info', 'TikTok — generating video from article image...');
+      agentLog('info', `${platform} — generating video from article image...`);
 
       try {
         const videoPrompt = await this.contentGenerator.generateVideoPrompt(trend, content.text, settings);
@@ -852,6 +854,19 @@ class AutomationManager {
             };
           }
           result = await publishToTikTok(content, userId, content.videoUrl);
+          break;
+
+        case 'youtube':
+          // YouTube Shorts requires a video URL — generated in step 3.7
+          if (!content.videoUrl) {
+            logger.warn(`Skipping YouTube for agent ${agent.id}: no video URL available`);
+            return {
+              success: false,
+              platform,
+              error: 'YouTube requires a video. Video generation must complete before publishing.'
+            };
+          }
+          result = await publishToYouTube(content, userId, content.videoUrl);
           break;
 
         default:

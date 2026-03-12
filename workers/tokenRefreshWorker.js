@@ -5,7 +5,7 @@
  * Runs periodically to refresh OAuth tokens before they expire.
  */
 
-import TokenManager, { TokenDecryptionError } from '../services/TokenManager.js';
+import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import { supabaseAdmin } from '../services/supabase.js';
 import winston from 'winston';
@@ -25,7 +25,12 @@ const WORKER_CONFIG = {
   batchSize: 10,
   maxRetries: 3,
   retryDelay: 5 * 60 * 1000, // 5 minutes between retries
-  refreshBuffer: 60 // Refresh tokens expiring within 60 minutes
+  refreshBuffer: 15 // Refresh tokens expiring within 15 minutes (aligned with PublishingService.needsRefresh default)
+  // NOTE: Google/YouTube tokens expire in 3599s (~1hr). A 60-min buffer caused the worker to
+  // immediately pick up freshly-stored Google tokens and attempt a refresh while they were
+  // still fully valid, sometimes racing with active publishing operations.
+  // 15 minutes provides a 3-cycle safety window (worker polls every 5 min) without
+  // triggering false-positive refreshes on short-lived tokens.
 };
 
 let isRunning = false;
@@ -88,29 +93,14 @@ async function processRefreshJob(job) {
   } catch (error) {
     logger.error(`Token refresh failed for job ${id}:`, error.message);
 
-    // Mark connection as error on definitive token decryption failures
-    if (error instanceof TokenDecryptionError && error.connectionId) {
-      await TokenManager.markConnectionError(
-        error.connectionId,
-        'Token decryption failed during token refresh. Please reconnect your account.'
-      );
-      // Don't retry — decryption failures are deterministic
-      await supabaseAdmin
-        .from('token_refresh_queue')
-        .update({
-          status: 'failed',
-          attempts: WORKER_CONFIG.maxRetries,
-          last_error: error.message,
-          processed_at: new Date().toISOString()
-        })
-        .eq('id', id);
-      return { success: false, connectionId: job.connection_id, error: error.message };
-    }
-
     const newAttempts = attempts + 1;
 
     if (newAttempts >= WORKER_CONFIG.maxRetries) {
-      // Mark as failed and update connection status
+      // Mark job as permanently failed — do NOT mark the connection as error/expired here.
+      // The background worker is a proactive refresher only; it must never be the authority
+      // that kills a working connection. Definitive error marking is handled by the
+      // on-demand paths (PublishingService, agents.js) which have full user context.
+      // If the token genuinely can't be refreshed, those paths will detect it at publish time.
       await supabaseAdmin
         .from('token_refresh_queue')
         .update({
@@ -121,10 +111,7 @@ async function processRefreshJob(job) {
         })
         .eq('id', id);
 
-      // Mark connection as expired
-      await TokenManager.markConnectionExpired(job.connection_id);
-
-      logger.error(`Token refresh permanently failed for connection ${job.connection_id} after ${newAttempts} attempts`);
+      logger.warn(`Token refresh permanently failed for job ${id} (connection ${job.connection_id}) after ${newAttempts} attempts — connection status NOT changed. On-demand paths will handle this if the token is truly broken.`);
     } else {
       // Schedule retry
       const nextAttempt = new Date(Date.now() + WORKER_CONFIG.retryDelay).toISOString();

@@ -9,6 +9,7 @@ import WhatsAppPublisher from '../publishers/WhatsAppPublisher.js';
 import InstagramPublisher from '../publishers/InstagramPublisher.js';
 import ThreadsPublisher from '../publishers/ThreadsPublisher.js';
 import TikTokPublisher from '../publishers/TikTokPublisher.js';
+import YouTubePublisher from '../publishers/YouTubePublisher.js';
 // MockPublisher removed - SaaS mode requires user's own credentials, no fallbacks
 import { createPost } from './database-wrapper.js';
 import TokenManager, { TokenDecryptionError } from './TokenManager.js';
@@ -70,7 +71,23 @@ class PublishingService {
               logger.error(`Token decryption failed during refresh for ${platform}:`, refreshError.message);
               throw new Error(`Your ${platform} connection credentials are invalid. Please disconnect and reconnect your ${platform} account in Settings.`);
             }
-            logger.error(`Failed to refresh ${platform} token:`, refreshError);
+
+            // This is an authoritative publishing path — mark connection as error for
+            // definitive auth failures (401 = token revoked/invalid, 400 = invalid_grant).
+            // Transient errors (5xx, rate limits) should NOT kill the connection.
+            const httpStatus = refreshError.httpStatus;
+            const isDefinitiveFailure = httpStatus === 401 || httpStatus === 400;
+
+            if (isDefinitiveFailure && (refreshError.connectionId || connection.id)) {
+              const connId = refreshError.connectionId || connection.id;
+              logger.warn(`Definitive token refresh failure for ${platform} (HTTP ${httpStatus}) — marking connection as error`);
+              await TokenManager.markConnectionError(
+                connId,
+                `Token refresh failed (HTTP ${httpStatus}). Please reconnect your ${platform} account.`
+              );
+            }
+
+            logger.error(`Failed to refresh ${platform} token (HTTP ${httpStatus || 'unknown'}):`, refreshError.message);
             throw new Error(`${platform} token expired and refresh failed. Please reconnect your account.`);
           }
         }
@@ -196,6 +213,14 @@ class PublishingService {
         };
         logger.info(`  → TikTok Open ID: ${credentials.openId || 'unknown'}`);
         return TikTokPublisher.withCredentials(credentials);
+
+      case 'youtube':
+        credentials.channelId = connection.platform_user_id || connection.platform_metadata?.channelId;
+        credentials.metadata = {
+          channelId: credentials.channelId
+        };
+        logger.info(`  → YouTube Channel ID: ${credentials.channelId || 'unknown'}`);
+        return YouTubePublisher.withCredentials(credentials);
 
       default:
         logger.error(`Unknown platform: ${platform}`);
@@ -627,6 +652,42 @@ class PublishingService {
     }
   }
 
+  async publishToYouTube(content, userId, videoUrl = null, options = {}) {
+    try {
+      const publisher = await this.getPublisherForUser(userId, 'youtube');
+
+      if (!videoUrl && !content.videoUrl && !options.videoBuffer) {
+        throw new Error('YouTube requires a video URL or buffer. Video generation must complete before publishing.');
+      }
+
+      const mediaUrl = videoUrl || content.videoUrl;
+      const result = await publisher.publishPost(content.text, mediaUrl, {
+        videoBuffer: options.videoBuffer || content.videoBuffer
+      });
+
+      if (result.success) {
+        await this.savePostToDatabase(userId, 'youtube', content, result, null);
+        await this.updateConnectionLastUsed(userId, 'youtube');
+
+        logger.info(`Successfully published YouTube Short for user ${userId} — videoId: ${result.videoId}`);
+        return {
+          success: true,
+          platform: 'youtube',
+          videoId: result.videoId,
+          postId: result.videoId,
+          url: result.url
+        };
+      }
+
+      throw new Error('YouTube publishing failed');
+
+    } catch (error) {
+      logger.error(`Failed to publish to YouTube for user ${userId}:`, error);
+      await this.handleAuthFailure(userId, 'youtube', error);
+      throw error;
+    }
+  }
+
   /**
    * Update the last_used_at timestamp for a connection
    * @param {string} userId - User ID
@@ -735,6 +796,12 @@ class PublishingService {
           case 'whatsapp':
             result = await this.publishToWhatsApp(content, userId, mediaUrl);
             break;
+          case 'tiktok':
+            result = await this.publishToTikTok(content, userId, content.videoUrl || null);
+            break;
+          case 'youtube':
+            result = await this.publishToYouTube(content, userId, content.videoUrl || null);
+            break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
         }
@@ -781,6 +848,7 @@ export const publishToThreads = (content, userId, imageUrl = null) => publishing
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
 export const publishToTikTok = (content, userId, videoUrl = null, options = {}) => publishingService.publishToTikTok(content, userId, videoUrl, options);
+export const publishToYouTube = (content, userId, videoUrl = null, options = {}) => publishingService.publishToYouTube(content, userId, videoUrl, options);
 export const publishToMultiplePlatforms = (content, platforms, userId, options) =>
   publishingService.publishToMultiplePlatforms(content, platforms, userId, options);
 

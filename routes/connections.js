@@ -26,7 +26,7 @@ const logger = winston.createLogger({
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Supported platforms
-const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok'];
+const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok', 'youtube'];
 
 /**
  * GET /api/connections
@@ -835,9 +835,18 @@ router.post('/whatsapp/initiate', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     logger.error('Error initiating WhatsApp connection:', error);
-    res.status(500).json({
+
+    // Distinguish between bridge not configured vs. bridge not paired/connected
+    const isBridgeNotConnected = error.message?.includes('not connected') ||
+      error.message?.includes('no account info') ||
+      error.message?.includes('Failed to retrieve WhatsApp account information');
+
+    res.status(isBridgeNotConnected ? 503 : 500).json({
       success: false,
-      error: error.message || 'Failed to initiate WhatsApp connection'
+      error: isBridgeNotConnected
+        ? 'WhatsApp bridge is not connected yet. The bot number has not been paired. Please contact support.'
+        : (error.message || 'Failed to initiate WhatsApp connection'),
+      bridgeNotConnected: isBridgeNotConnected
     });
   }
 });

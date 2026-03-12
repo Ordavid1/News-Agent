@@ -77,6 +77,16 @@ const PLATFORM_CONFIGS = {
     userInfoUrl: 'https://open.tiktokapis.com/v2/user/info/',
     scopes: ['user.info.basic', 'video.upload', 'video.publish'],
     usePKCE: true
+  },
+  youtube: {
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    userInfoUrl: 'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
+    scopes: [
+      'https://www.googleapis.com/auth/youtube.upload',
+      'https://www.googleapis.com/auth/youtube.readonly'
+    ],
+    usePKCE: false
   }
 };
 
@@ -178,6 +188,13 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
   // Platform-specific parameters
   if (platform === 'reddit') {
     params.append('duration', 'permanent'); // For refresh tokens
+  }
+
+  // YouTube requires offline access to obtain a refresh token (Google tokens expire in 1 hour).
+  // prompt=consent forces re-consent so Google always returns a refresh_token on reconnect.
+  if (platform === 'youtube') {
+    params.append('access_type', 'offline');
+    params.append('prompt', 'consent');
   }
 
   return `${config.authUrl}?${params.toString()}`;
@@ -405,6 +422,11 @@ async function fetchUserInfo(platform, accessToken) {
   // TikTok uses its own API endpoint; open_id comes from token exchange
   if (platform === 'tiktok') {
     return fetchTikTokUserInfo(accessToken);
+  }
+
+  // YouTube uses its own channel discovery endpoint
+  if (platform === 'youtube') {
+    return fetchYouTubeUserInfo(accessToken);
   }
 
   let url = config.userInfoUrl;
@@ -772,6 +794,69 @@ async function fetchTikTokUserInfo(accessToken, openId) {
 }
 
 /**
+ * Fetch YouTube channel info from YouTube Data API v3
+ */
+async function fetchYouTubeUserInfo(accessToken) {
+  logger.info(`Fetching YouTube channel info — token starts with: ${accessToken ? accessToken.substring(0, 10) + '...' : 'EMPTY'}`);
+
+  const response = await fetch(
+    'https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&mine=true',
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    logger.error('Failed to fetch YouTube channel info:', responseText);
+    throw new Error(`Failed to fetch YouTube channel info: ${responseText}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(responseText);
+  } catch {
+    throw new Error(`YouTube channel info returned invalid JSON: ${responseText.substring(0, 200)}`);
+  }
+
+  if (parsed.error) {
+    logger.error('YouTube channel API error:', JSON.stringify(parsed.error));
+    throw new Error(`YouTube channel info failed: ${parsed.error.message || parsed.error.code}`);
+  }
+
+  const channel = parsed?.items?.[0];
+
+  if (!channel) {
+    throw new Error(
+      'No YouTube channel found for this Google account. ' +
+      'Please ensure you have a YouTube channel associated with this Google account and try again.'
+    );
+  }
+
+  const snippet = channel.snippet || {};
+  const thumbnailUrl = snippet.thumbnails?.default?.url
+    || snippet.thumbnails?.medium?.url
+    || snippet.thumbnails?.high?.url
+    || null;
+
+  logger.info(`YouTube channel found: ${snippet.title} (${channel.id})`);
+
+  return {
+    id: channel.id,
+    username: snippet.customUrl || snippet.title || channel.id,
+    displayName: snippet.title || channel.id,
+    avatarUrl: thumbnailUrl,
+    metadata: {
+      channelId: channel.id,
+      customUrl: snippet.customUrl || null
+    }
+  };
+}
+
+/**
  * Normalize user info from different platforms
  */
 function normalizeUserInfo(platform, data) {
@@ -909,11 +994,18 @@ export async function refreshTokens(connectionId) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    logger.error(`Token refresh failed for ${platform}:`, errorText);
+    logger.error(`Token refresh failed for ${platform} (connection ${connectionId}):`, errorText);
 
-    // Mark connection as error
-    await TokenManager.markConnectionError(connectionId, errorText);
-    throw new Error(`Failed to refresh token: ${errorText}`);
+    // Do NOT call markConnectionError() here — refreshTokens() must be side-effect-free.
+    // Multiple callers invoke this function in different contexts (background worker,
+    // on-demand publishing, test flow). Only the publishing paths (PublishingService)
+    // should mark connection errors, since they represent authoritative user-initiated actions.
+    // Background callers (tokenRefreshWorker) must never kill a working connection on transient failures.
+    const err = new Error(`Failed to refresh token: ${errorText}`);
+    err.httpStatus = response.status;
+    err.platform = platform;
+    err.connectionId = connectionId;
+    throw err;
   }
 
   const rawTokens = await response.json();
@@ -991,7 +1083,8 @@ function getClientId(platform) {
     facebook: 'FACEBOOK_APP_ID',
     instagram: 'FACEBOOK_APP_ID',    // Instagram uses the same Meta/Facebook App
     threads: 'FACEBOOK_APP_ID',      // Threads uses the same Meta/Facebook App
-    tiktok: 'TIKTOK_CLIENT_KEY'
+    tiktok: 'TIKTOK_CLIENT_KEY',
+    youtube: 'GOOGLE_CLIENT_ID'       // Reuses the existing Google OAuth app (same GCP project)
   };
   return process.env[envMap[platform]];
 }
@@ -1004,7 +1097,8 @@ function getClientSecret(platform) {
     facebook: 'FACEBOOK_APP_SECRET',
     instagram: 'FACEBOOK_APP_SECRET', // Instagram uses the same Meta/Facebook App
     threads: 'FACEBOOK_APP_SECRET',   // Threads uses the same Meta/Facebook App
-    tiktok: 'TIKTOK_CLIENT_SECRET'
+    tiktok: 'TIKTOK_CLIENT_SECRET',
+    youtube: 'GOOGLE_CLIENT_SECRET'   // Reuses the existing Google OAuth app (same GCP project)
   };
   return process.env[envMap[platform]];
 }

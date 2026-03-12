@@ -7,7 +7,7 @@
 
 import { supabaseAdmin } from '../services/supabase.js';
 import publishingService from '../services/PublishingService.js';
-import TokenManager, { TokenDecryptionError } from '../services/TokenManager.js';
+import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import winston from 'winston';
 
@@ -143,13 +143,10 @@ async function processPostingJob(job) {
   } catch (error) {
     logger.error(`Posting job ${id} failed:`, error.message);
 
-    // Mark connection as error on definitive token decryption failures
-    if (error instanceof TokenDecryptionError && error.connectionId) {
-      await TokenManager.markConnectionError(
-        error.connectionId,
-        'Token decryption failed during scheduled posting. Please reconnect your account.'
-      );
-    }
+    // Do NOT call markConnectionError here for TokenDecryptionError.
+    // Background workers must not be the authority for killing connections.
+    // If the token is genuinely broken, PublishingService (the on-demand publishing path)
+    // will detect and mark it on the next actual user-triggered action.
 
     const newAttempts = attempts + 1;
 
