@@ -321,7 +321,7 @@ class NewsService {
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
+    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
@@ -372,7 +372,7 @@ class NewsService {
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
+    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
@@ -385,7 +385,7 @@ class NewsService {
       sortby: sortBy,
       from: fromDate.toISOString(),
       to: toDate.toISOString(),
-      max: 20
+      max: 10
     };
 
     // GNews supports country filtering - add if region is specified
@@ -430,7 +430,7 @@ class NewsService {
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.join(' OR ') || topic;
+    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const params = {
       key: this.googleApiKey,

@@ -90,7 +90,7 @@ class TikTokPublisher {
     }
 
     try {
-      const formattedCaption = this.formatForTikTok(caption);
+      const formattedCaption = this.formatForTikTok(caption, options.sourceUrl);
       let privacyLevel = options.privacyLevel || DEFAULT_PRIVACY_LEVEL;
 
       // For audited (direct post) apps, query creator info to validate privacy level
@@ -383,7 +383,7 @@ class TikTokPublisher {
    * @param {string} content - Raw content
    * @returns {string} Formatted caption (max 2200 chars)
    */
-  formatForTikTok(content) {
+  formatForTikTok(content, sourceUrl = null) {
     let formatted = content
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '\n\n')
@@ -397,6 +397,11 @@ class TikTokPublisher {
       .replace(/&#039;/g, "'")
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+
+    // Append source article URL if available
+    if (sourceUrl) {
+      formatted += `\n\nSource: ${sourceUrl}`;
+    }
 
     // TikTok caption limit is 2200 characters
     if (formatted.length > 2200) {

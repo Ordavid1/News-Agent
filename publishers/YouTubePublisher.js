@@ -86,7 +86,7 @@ class YouTubePublisher {
     }
 
     try {
-      const { title, description, tags } = this.formatForYouTube(content);
+      const { title, description, tags } = this.formatForYouTube(content, options.sourceUrl);
       const privacyStatus = options.privacyStatus || 'public';
 
       logger.info(`Publishing YouTube Short — title: "${title}" (${title.length} chars), privacy: ${privacyStatus}`);
@@ -313,7 +313,7 @@ class YouTubePublisher {
    * @param {string} content - Raw content from ContentGenerator
    * @returns {Object} { title, description, tags }
    */
-  formatForYouTube(content) {
+  formatForYouTube(content, sourceUrl = null) {
     // Strip HTML entities
     let cleaned = content
       .replace(/<br\s*\/?>/gi, '\n')
@@ -368,6 +368,13 @@ class YouTubePublisher {
     }
 
     let description = descriptionLines.join('\n').trim();
+
+    // Append source article URL if available
+    if (sourceUrl) {
+      description = description
+        ? `${description}\n\nSource: ${sourceUrl}`
+        : `Source: ${sourceUrl}`;
+    }
 
     // Ensure #Shorts appears in description (for algorithm discovery)
     if (!description.toLowerCase().includes('#shorts')) {

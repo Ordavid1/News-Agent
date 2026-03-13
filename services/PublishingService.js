@@ -627,7 +627,8 @@ class PublishingService {
 
       const mediaUrl = videoUrl || content.videoUrl;
       const result = await publisher.publishPost(content.text, mediaUrl, {
-        videoBuffer: options.videoBuffer
+        videoBuffer: options.videoBuffer,
+        sourceUrl: content.source?.url || options.sourceUrl
       });
 
       if (result.success) {
@@ -662,7 +663,8 @@ class PublishingService {
 
       const mediaUrl = videoUrl || content.videoUrl;
       const result = await publisher.publishPost(content.text, mediaUrl, {
-        videoBuffer: options.videoBuffer || content.videoBuffer
+        videoBuffer: options.videoBuffer || content.videoBuffer,
+        sourceUrl: content.source?.url || options.sourceUrl
       });
 
       if (result.success) {
