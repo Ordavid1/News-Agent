@@ -3024,6 +3024,7 @@ export async function createMediaTrainingJob(userId, adAccountId, jobData) {
       user_id: userId,
       ad_account_id: adAccountId,
       name: jobData.name || 'Untitled',
+      training_type: jobData.training_type || 'subject',
       status: jobData.status || 'pending',
       replicate_training_id: jobData.replicate_training_id || null,
       replicate_model_version: jobData.replicate_model_version || null,
@@ -3180,7 +3181,9 @@ export async function createGeneratedMedia(userId, adAccountId, mediaData) {
       prompt: mediaData.prompt,
       storage_path: mediaData.storage_path,
       public_url: mediaData.public_url,
-      replicate_prediction_id: mediaData.replicate_prediction_id
+      replicate_prediction_id: mediaData.replicate_prediction_id,
+      lora_scale: mediaData.lora_scale ?? null,
+      guidance_scale: mediaData.guidance_scale ?? null
     })
     .select()
     .single();

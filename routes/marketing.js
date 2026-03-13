@@ -1407,18 +1407,22 @@ router.post('/media-assets/upload', mediaUpload.array('images', 20), async (req,
 
     const results = [];
     const errors = [];
+    const warnings = [];
 
     for (const file of req.files) {
       try {
         const asset = await mediaAssetService.uploadAsset(req.user.id, adAccountId, file);
+        if (asset.warning) {
+          warnings.push({ file: file.originalname, warning: asset.warning });
+        }
         results.push(asset);
       } catch (err) {
         errors.push({ file: file.originalname, error: err.message });
       }
     }
 
-    logger.info(`[MediaAssets] POST /upload - uploaded ${results.length}, errors ${errors.length}`);
-    res.json({ assets: results, errors, uploaded: results.length });
+    logger.info(`[MediaAssets] POST /upload - uploaded ${results.length}, errors ${errors.length}, warnings ${warnings.length}`);
+    res.json({ assets: results, errors, warnings, uploaded: results.length });
   } catch (error) {
     logger.error(`[MediaAssets] POST /upload failed: ${error.message}`);
     res.status(500).json({ error: error.message || 'Upload failed' });
@@ -1474,7 +1478,7 @@ router.delete('/media-assets/:id', async (req, res) => {
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId, name, purchaseId } = req.body;
+    const { adAccountId, name, purchaseId, trainingType } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
     }
@@ -1487,6 +1491,9 @@ router.post('/media-assets/training/start', async (req, res) => {
     if (sessionName.length > 100) {
       return res.status(400).json({ error: 'Training session name must be 100 characters or less' });
     }
+
+    // Validate training type (defaults to 'subject' if not provided)
+    const validTrainingType = ['style', 'subject'].includes(trainingType) ? trainingType : 'subject';
 
     // Verify per-use purchase ($5 training charge)
     if (!purchaseId) {
@@ -1507,9 +1514,9 @@ router.post('/media-assets/training/start', async (req, res) => {
       return res.status(409).json({ error: 'This purchase has already been used for a training session' });
     }
 
-    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}", purchaseId=${purchaseId}`);
+    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}", type=${validTrainingType}, purchaseId=${purchaseId}`);
 
-    const job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName);
+    const job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName, validTrainingType);
 
     // Mark purchase as consumed by linking it to the training job
     await updatePerUsePurchase(purchaseId, {
@@ -1615,7 +1622,7 @@ router.put('/media-assets/training/:id/set-default', async (req, res) => {
  */
 router.post('/media-assets/generate', async (req, res) => {
   try {
-    const { adAccountId, prompt, trainingJobId } = req.body;
+    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale } = req.body;
     if (!adAccountId || !prompt) {
       return res.status(400).json({ error: 'adAccountId and prompt are required' });
     }
@@ -1623,9 +1630,12 @@ router.post('/media-assets/generate', async (req, res) => {
       return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
     }
 
-    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}`);
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}`);
 
-    const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId);
+    const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId, {
+      loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
+      guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined
+    });
 
     logger.info(`[MediaAssets] Image generated: ${media.id}`);
     res.json({ media });

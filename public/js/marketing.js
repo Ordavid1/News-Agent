@@ -3561,6 +3561,8 @@ async function uploadMediaFiles(files) {
 
         if (data.errors && data.errors.length > 0) {
             showToast(`${data.uploaded} uploaded, ${data.errors.length} failed`, 'warning');
+        } else if (data.warnings && data.warnings.length > 0) {
+            showToast(`${data.uploaded} uploaded. ${data.warnings.length} image(s) below 1024px — higher resolution recommended for best training results.`, 'warning');
         } else {
             showToast(`${data.uploaded} image(s) uploaded successfully`, 'success');
         }
@@ -3713,10 +3715,15 @@ async function startMediaTraining() {
         showToast('Payment confirmed! Starting model training...', 'success');
         showTrainingState('progress');
 
+        // Get selected training type
+        const trainingTypeRadio = document.querySelector('input[name="mediaTrainingType"]:checked');
+        const trainingType = trainingTypeRadio ? trainingTypeRadio.value : 'subject';
+
         const data = await apiPost('/api/marketing/media-assets/training/start', {
             adAccountId: selectedAdAccount.id,
             name: name.trim(),
-            purchaseId: purchase.id
+            purchaseId: purchase.id,
+            trainingType
         });
 
         activeTrainingJob = data.job;
@@ -3888,6 +3895,7 @@ function renderTrainingHistory() {
 
         const imageCount = job.image_count || (job.training_image_urls ? job.training_image_urls.length : '?');
         const triggerWord = job.trigger_word ? `<span class="text-[10px] text-ink-400 font-mono">${escapeHtml(job.trigger_word)}</span>` : '';
+        const typeLabel = job.training_type === 'style' ? 'Style' : 'Subject';
 
         return `
             <div class="flex items-center gap-4 p-3 rounded-xl border ${isSelected ? 'border-brand-300 bg-brand-50/30' : 'border-surface-200 bg-surface-50'} transition-colors">
@@ -3899,6 +3907,7 @@ function renderTrainingHistory() {
                     <div class="flex items-center gap-3 mt-1">
                         <span class="text-xs text-ink-400">${date}</span>
                         <span class="text-xs text-ink-400">${imageCount} images</span>
+                        <span class="text-[10px] font-medium text-ink-400 bg-surface-100 px-1.5 py-0.5 rounded">${typeLabel}</span>
                         ${triggerWord}
                     </div>
                     ${job.status === 'failed' && job.error_message ? `<p class="text-xs text-red-500 mt-1 truncate" title="${escapeHtml(job.error_message)}">${escapeHtml(job.error_message)}</p>` : ''}
@@ -4014,10 +4023,18 @@ async function generateMediaImage() {
     if (result) result.classList.add('hidden');
 
     try {
+        // Read advanced generation settings (if panel is open / values differ from defaults)
+        const loraScaleEl = document.getElementById('mediaLoraScale');
+        const guidanceScaleEl = document.getElementById('mediaGuidanceScale');
+        const loraScale = loraScaleEl ? parseFloat(loraScaleEl.value) : 0.85;
+        const guidanceScale = guidanceScaleEl ? parseFloat(guidanceScaleEl.value) : 3.0;
+
         const data = await apiPost('/api/marketing/media-assets/generate', {
             adAccountId: selectedAdAccount.id,
             prompt,
-            trainingJobId: selectedTrainingJob.id
+            trainingJobId: selectedTrainingJob.id,
+            loraScale,
+            guidanceScale
         });
 
         const media = data.media;
@@ -4038,6 +4055,20 @@ async function generateMediaImage() {
     } finally {
         if (btn) btn.disabled = false;
         if (loading) loading.classList.add('hidden');
+    }
+}
+
+/**
+ * Toggle the advanced generation settings panel.
+ */
+function toggleAdvancedGenSettings() {
+    const panel = document.getElementById('advancedGenSettings');
+    const chevron = document.getElementById('advancedGenChevron');
+    if (!panel) return;
+    const isHidden = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (chevron) {
+        chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
     }
 }
 
