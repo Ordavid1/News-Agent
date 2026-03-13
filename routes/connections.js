@@ -340,7 +340,7 @@ router.get('/:platform/initiate', authenticateToken, async (req, res) => {
 
     // Check if platform credentials are configured
     // Some platforms use non-standard env var names for their client ID
-    const sharedCredentialMap = { instagram: 'FACEBOOK_APP_ID', threads: 'FACEBOOK_APP_ID', tiktok: 'TIKTOK_CLIENT_KEY' };
+    const sharedCredentialMap = { instagram: 'FACEBOOK_APP_ID', threads: 'FACEBOOK_APP_ID', tiktok: 'TIKTOK_CLIENT_KEY', youtube: 'GOOGLE_CLIENT_ID' };
     const clientId = sharedCredentialMap[platform]
       ? process.env[sharedCredentialMap[platform]]
       : (process.env[`${platform.toUpperCase()}_CLIENT_ID`] || process.env[`${platform.toUpperCase()}_APP_ID`]);
