@@ -72,11 +72,16 @@ class MarketingService {
    */
   async getMarketingCredentials(userId) {
     try {
-      const connection = await TokenManager.getTokens(userId, 'facebook');
+      // Pre-check connection status WITHOUT decrypting tokens.
+      // This prevents repeatedly attempting (and failing) decryption
+      // on connections that are already in error state.
+      const status = await TokenManager.getConnectionStatus(userId, 'facebook');
 
-      if (!connection || connection.status !== 'active') {
+      if (!status || status.status !== 'active') {
         throw new Error('No active Facebook connection. Please connect your Facebook account first.');
       }
+
+      const connection = await TokenManager.getTokens(userId, 'facebook');
 
       const metadata = connection.platform_metadata || {};
 
@@ -567,13 +572,15 @@ class MarketingService {
       return cached.data;
     }
 
-    // Instagram uses the Facebook page access token + the IG user ID stored in metadata
-    const connection = await TokenManager.getTokens(userId, 'instagram');
-
-    if (!connection || connection.status !== 'active') {
+    // Pre-check connection status before attempting token decryption
+    const connStatus = await TokenManager.getConnectionStatus(userId, 'instagram');
+    if (!connStatus || connStatus.status !== 'active') {
       logger.info(`No active Instagram connection for user ${userId}, skipping IG post fetch`);
       return [];
     }
+
+    // Instagram uses the Facebook page access token + the IG user ID stored in metadata
+    const connection = await TokenManager.getTokens(userId, 'instagram');
 
     const igUserId = connection.platform_user_id || connection.platform_metadata?.igUserId;
     if (!igUserId) {
@@ -657,11 +664,14 @@ class MarketingService {
       return cached.data;
     }
 
-    const connection = await TokenManager.getTokens(userId, 'twitter');
-    if (!connection || connection.status !== 'active') {
+    // Pre-check connection status before attempting token decryption
+    const connStatus = await TokenManager.getConnectionStatus(userId, 'twitter');
+    if (!connStatus || connStatus.status !== 'active') {
       logger.info(`No active Twitter connection for user ${userId}, skipping tweet fetch`);
       return [];
     }
+
+    const connection = await TokenManager.getTokens(userId, 'twitter');
 
     const accessToken = connection.access_token;
     const platformUserId = connection.platform_user_id;
@@ -734,11 +744,14 @@ class MarketingService {
       return cached.data;
     }
 
-    const connection = await TokenManager.getTokens(userId, 'reddit');
-    if (!connection || connection.status !== 'active') {
+    // Pre-check connection status before attempting token decryption
+    const connStatus = await TokenManager.getConnectionStatus(userId, 'reddit');
+    if (!connStatus || connStatus.status !== 'active') {
       logger.info(`No active Reddit connection for user ${userId}, skipping Reddit fetch`);
       return [];
     }
+
+    const connection = await TokenManager.getTokens(userId, 'reddit');
 
     const accessToken = connection.access_token;
     const username = connection.platform_username;
@@ -823,11 +836,14 @@ class MarketingService {
       return cached.data;
     }
 
-    const connection = await TokenManager.getTokens(userId, 'threads');
-    if (!connection || connection.status !== 'active') {
+    // Pre-check connection status before attempting token decryption
+    const connStatus = await TokenManager.getConnectionStatus(userId, 'threads');
+    if (!connStatus || connStatus.status !== 'active') {
       logger.info(`No active Threads connection for user ${userId}, skipping Threads fetch`);
       return [];
     }
+
+    const connection = await TokenManager.getTokens(userId, 'threads');
 
     const threadsUserId = connection.platform_user_id || connection.platform_metadata?.threadsUserId;
     const accessToken = connection.access_token;
@@ -1380,10 +1396,14 @@ class MarketingService {
    * Needed for auto-boost rules to evaluate post performance.
    */
   async syncOrganicMetrics(userId) {
+    // Pre-check connection status before attempting token decryption
+    const status = await TokenManager.getConnectionStatus(userId, 'facebook');
+    if (!status || status.status !== 'active') return { synced: 0 };
+
     const posts = await getBoostablePublishedPosts(userId, 20);
     const connection = await TokenManager.getTokens(userId, 'facebook');
 
-    if (!connection || connection.status !== 'active') return { synced: 0 };
+    if (!connection) return { synced: 0 };
 
     const accessToken = connection.platform_metadata?.pageAccessToken || connection.access_token;
     let synced = 0;

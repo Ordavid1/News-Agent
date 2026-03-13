@@ -32,18 +32,45 @@ let intervalId = null;
  */
 async function getUsersNeedingMetricsSync() {
   try {
-    const { data, error } = await supabaseAdmin
+    // Get users with active marketing add-ons
+    const { data: addonUsers, error: addonError } = await supabaseAdmin
       .from('marketing_addons')
       .select('user_id')
       .eq('status', 'active')
       .limit(WORKER_CONFIG.batchSize);
 
-    if (error) {
-      logger.error('Error fetching marketing addon users:', error);
+    if (addonError) {
+      logger.error('Error fetching marketing addon users:', addonError);
       return [];
     }
 
-    return (data || []).map(row => row.user_id);
+    const userIds = (addonUsers || []).map(row => row.user_id);
+    if (userIds.length === 0) return [];
+
+    // Filter to only users whose Facebook connection is active.
+    // Attempting metrics sync on errored/disconnected connections just
+    // produces repeated decryption failures in the logs.
+    const { data: activeConns, error: connError } = await supabaseAdmin
+      .from('social_connections')
+      .select('user_id')
+      .in('user_id', userIds)
+      .eq('platform', 'facebook')
+      .eq('status', 'active');
+
+    if (connError) {
+      logger.error('Error checking Facebook connection status:', connError);
+      // Fall through — getMarketingCredentials() will catch non-active connections
+      return userIds;
+    }
+
+    const activeUserIds = new Set((activeConns || []).map(c => c.user_id));
+    const filtered = userIds.filter(id => activeUserIds.has(id));
+
+    if (filtered.length < userIds.length) {
+      logger.info(`[MarketingMetrics] Skipping ${userIds.length - filtered.length} user(s) with non-active Facebook connections`);
+    }
+
+    return filtered;
   } catch (error) {
     logger.error('Error getting users for metrics sync:', error);
     return [];
