@@ -3992,31 +3992,34 @@ function renderTrainingHistory() {
         const isSelected = selectedTrainingJob && selectedTrainingJob.id === job.id;
         const isDefault = !!job.is_default;
 
-        // Action buttons
-        let actionBtn = '';
+        // Center CTA button
+        let centerBtn = '';
+        // Right-side default badge
+        let rightAction = '';
+
         if (job.status === 'completed') {
             const defaultBadge = isDefault
                 ? `<span class="inline-flex items-center gap-1 text-[10px] font-medium text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">Default</span>`
                 : `<button onclick="setTrainingAsDefault('${job.id}')" class="text-[10px] text-ink-400 hover:text-brand-600 underline">Set as Default</button>`;
 
             if (isSelected) {
-                actionBtn = `<div class="flex flex-col items-end gap-1">
-                    <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
-                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Selected
-                    </span>
-                    ${defaultBadge}
-                </div>`;
+                centerBtn = `<button class="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-full text-sm font-semibold text-green-700 bg-green-50 border border-green-200 cursor-default">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Selected for Generation
+                </button>`;
             } else {
-                actionBtn = `<div class="flex flex-col items-end gap-1">
-                    <button onclick="selectTrainingForGeneration('${job.id}')" class="btn-outline btn-sm text-xs">Use for Generation</button>
-                    ${defaultBadge}
-                </div>`;
+                centerBtn = `<button onclick="selectTrainingForGeneration('${job.id}')" class="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-full text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-sm hover:shadow transition-all cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                    </svg>
+                    Use for Generation
+                </button>`;
             }
+            rightAction = defaultBadge;
         } else if (job.status === 'failed') {
-            actionBtn = `<button onclick="startMediaTraining()" class="btn-outline btn-sm text-xs">Retry</button>`;
+            centerBtn = `<button onclick="startMediaTraining()" class="inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-full text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors cursor-pointer">Retry Training</button>`;
         }
 
         const imageCount = job.image_count || (job.training_image_urls ? job.training_image_urls.length : '?');
@@ -4024,23 +4027,26 @@ function renderTrainingHistory() {
         const typeLabel = job.training_type === 'style' ? 'Style' : 'Subject';
 
         return `
-            <div class="flex items-center gap-4 p-3 rounded-xl border ${isSelected ? 'border-brand-300 bg-brand-50/30' : 'border-surface-200 bg-surface-50'} transition-colors">
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                        <p class="text-sm font-medium text-ink-800 truncate">${escapeHtml(job.name || 'Untitled')}</p>
-                        <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeClass}">${badgeText}</span>
+            <div class="p-4 rounded-xl border ${isSelected ? 'border-brand-300 bg-brand-50/30' : 'border-surface-200 bg-surface-50'} transition-colors">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <p class="text-sm font-medium text-ink-800 truncate">${escapeHtml(job.name || 'Untitled')}</p>
+                            <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${badgeClass}">${badgeText}</span>
+                        </div>
+                        <div class="flex items-center gap-3 mt-1">
+                            <span class="text-xs text-ink-400">${date}</span>
+                            <span class="text-xs text-ink-400">${imageCount} images</span>
+                            <span class="text-[10px] font-medium text-ink-400 bg-surface-100 px-1.5 py-0.5 rounded">${typeLabel}</span>
+                            ${triggerWord}
+                        </div>
+                        ${job.status === 'failed' && job.error_message ? `<p class="text-xs text-red-500 mt-1 truncate" title="${escapeHtml(job.error_message)}">${escapeHtml(job.error_message)}</p>` : ''}
                     </div>
-                    <div class="flex items-center gap-3 mt-1">
-                        <span class="text-xs text-ink-400">${date}</span>
-                        <span class="text-xs text-ink-400">${imageCount} images</span>
-                        <span class="text-[10px] font-medium text-ink-400 bg-surface-100 px-1.5 py-0.5 rounded">${typeLabel}</span>
-                        ${triggerWord}
+                    <div class="flex-shrink-0">
+                        ${rightAction}
                     </div>
-                    ${job.status === 'failed' && job.error_message ? `<p class="text-xs text-red-500 mt-1 truncate" title="${escapeHtml(job.error_message)}">${escapeHtml(job.error_message)}</p>` : ''}
                 </div>
-                <div class="flex-shrink-0">
-                    ${actionBtn}
-                </div>
+                ${centerBtn}
             </div>
         `;
     }).join('');
