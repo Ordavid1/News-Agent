@@ -3840,7 +3840,7 @@ async function startMediaTraining() {
 
         // 4. Start training with confirmed purchase
         showToast('Payment confirmed! Starting model training...', 'success');
-        showTrainingState('progress');
+        renderActiveTrainingStatus();
 
         // Get selected training type
         const trainingTypeRadio = document.querySelector('input[name="mediaTrainingType"]:checked');
