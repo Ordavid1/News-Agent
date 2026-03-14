@@ -1041,42 +1041,52 @@ router.post('/marketing-cancel', async (req, res) => {
   }
 });
 
-// Get marketing add-on customer billing portal URL
-// Per LS docs: retrieve subscription, use urls.customer_portal (signed URL, valid 24h)
+// Get customer billing portal URL for an add-on subscription
+// Tries the add-on's own LS subscription first, falls back to main subscription portal
+async function getAddonPortalUrl(lsSubscriptionId, userId) {
+  const lsHeaders = {
+    'Accept': 'application/vnd.api+json',
+    'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+  };
+
+  // Try the add-on's subscription first
+  if (lsSubscriptionId) {
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${lsSubscriptionId}`,
+      { method: 'GET', headers: lsHeaders }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      const portalUrl = data.data.attributes.urls?.customer_portal;
+      if (portalUrl) return portalUrl;
+    }
+  }
+
+  // Fallback: use main subscription's portal (same customer, same billing portal)
+  const subscription = await getSubscription(userId);
+  if (subscription?.lsSubscriptionId) {
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
+      { method: 'GET', headers: lsHeaders }
+    );
+    if (response.ok) {
+      const data = await response.json();
+      const portalUrl = data.data.attributes.urls?.customer_portal;
+      if (portalUrl) return portalUrl;
+    }
+  }
+
+  return null;
+}
+
+// Marketing add-on billing portal
 router.get('/marketing-portal', async (req, res) => {
   try {
     const addon = await getMarketingAddon(req.user.id);
+    const portalUrl = await getAddonPortalUrl(addon?.ls_subscription_id, req.user.id);
 
-    if (!addon?.ls_subscription_id) {
-      return res.status(404).json({ error: 'No active marketing add-on found' });
-    }
-
-    // Retrieve subscription — the response includes signed customer portal URL
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
-      {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/vnd.api+json',
-          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-        }
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[MARKETING-PORTAL] LS API error:', response.status, errorData);
-      return res.status(500).json({ error: 'Failed to fetch subscription details' });
-    }
-
-    const data = await response.json();
-    const urls = data.data.attributes.urls || {};
-
-    console.log('[MARKETING-PORTAL] LS subscription URLs:', JSON.stringify(urls));
-
-    const portalUrl = urls.customer_portal;
     if (!portalUrl) {
-      return res.status(404).json({ error: 'Customer portal URL not available for this subscription' });
+      return res.status(404).json({ error: 'Billing portal not available' });
     }
 
     res.json({ portalUrl });
@@ -1284,35 +1294,14 @@ router.post('/affiliate-checkout', async (req, res) => {
 });
 
 // Cancel affiliate add-on
-// Get affiliate add-on customer billing portal URL
+// Affiliate add-on billing portal
 router.get('/affiliate-portal', async (req, res) => {
   try {
     const addon = await getAffiliateAddon(req.user.id);
-
-    if (!addon?.ls_subscription_id) {
-      return res.status(404).json({ error: 'No active affiliate add-on found' });
-    }
-
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
-      {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/vnd.api+json',
-          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-        }
-      }
-    );
-
-    if (!response.ok) {
-      return res.status(500).json({ error: 'Failed to fetch subscription details' });
-    }
-
-    const data = await response.json();
-    const portalUrl = data.data.attributes.urls?.customer_portal;
+    const portalUrl = await getAddonPortalUrl(addon?.ls_subscription_id, req.user.id);
 
     if (!portalUrl) {
-      return res.status(404).json({ error: 'Customer portal not available' });
+      return res.status(404).json({ error: 'Billing portal not available' });
     }
 
     res.json({ portalUrl });
