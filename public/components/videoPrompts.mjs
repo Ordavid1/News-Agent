@@ -108,14 +108,15 @@ WHAT TO AVOID
 
 /**
  * Generate the user prompt for video prompt generation.
- * Provides article data, caption context, and technical requirements.
+ * Provides article data, caption context, image description, and technical requirements.
  * @param {Object} article - { title, summary, description, source }
  * @param {string} caption - Generated TikTok caption (for story context)
  * @param {string} model - 'runway' or 'veo'
- * @param {Object} sceneMetadata - { category, mood, style, lighting, ambient, music }
+ * @param {Object} sceneMetadata - { category, secondaryCategory, mood, style, lighting, ambient, music }
+ * @param {string|null} imageDescription - Vision model description of the source image (null if unavailable)
  * @returns {string} The user prompt
  */
-const getVideoPromptUserPrompt = (article, caption, model = 'veo', sceneMetadata = {}) => {
+const getVideoPromptUserPrompt = (article, caption, model = 'veo', sceneMetadata = {}, imageDescription = null) => {
   const isRunway = model === 'runway';
   const charLimit = isRunway ? 950 : 1400;
   const duration = isRunway ? 10 : 8;
@@ -129,6 +130,20 @@ const getVideoPromptUserPrompt = (article, caption, model = 'veo', sceneMetadata
     if (!isRunway && sceneMetadata.music) atmosphereHints += `\n- Music suggestion: ${sceneMetadata.music}`;
   }
 
+  // When a vision model has described the actual image, provide that concrete description.
+  // Otherwise, fall back to generic guidance about common image types.
+  const imageSection = imageDescription
+    ? `SOURCE IMAGE DESCRIPTION (from vision analysis — this is what the starting frame actually shows):
+${imageDescription}
+Your prompt MUST be visually coherent with this image. The first sentence should connect to what is described above, then EXPAND into a full cinematic world.`
+    : `SOURCE IMAGE:
+The starting frame is the article's featured image. It could be a company logo, a person's headshot, a product photo, a news scene, or a stock image. Your prompt must start from what this image plausibly shows and expand outward into a full cinematic scene.`;
+
+  // Note secondary category if present (cross-domain article)
+  const crossDomainNote = sceneMetadata.secondaryCategory
+    ? `\nNOTE: This article spans multiple domains (primary: ${sceneMetadata.category}, secondary: ${sceneMetadata.secondaryCategory}). Prioritize the primary domain for visual direction but acknowledge the secondary context where appropriate.`
+    : '';
+
   return `ARTICLE TO TRANSFORM INTO A CINEMATIC VIDEO SCENE:
 
 Headline: ${article.title}
@@ -139,9 +154,8 @@ Source: ${article.source || 'Unknown'}
 CAPTION (for story context — do NOT include this text in the video prompt):
 ${caption || '(No caption provided)'}
 
-SOURCE IMAGE:
-The starting frame is the article's featured image. It could be a company logo, a person's headshot, a product photo, a news scene, or a stock image. Your prompt must start from what this image plausibly shows and expand outward into a full cinematic scene.
-${atmosphereHints}
+${imageSection}
+${atmosphereHints}${crossDomainNote}
 
 TECHNICAL REQUIREMENTS:
 - Video model: ${isRunway ? 'Runway Gen-4.5' : 'Google Veo 3.1'}
@@ -158,14 +172,20 @@ Now write the video generation prompt. Remember: CONCRETE visuals, THREE-BEAT ar
  * System prompt for rephrasing a content-filtered video prompt.
  * Instructs the LLM to reason about what triggered the safety filter and produce
  * a cinematically equivalent alternative that avoids the trigger patterns.
+ * Uses domain-specific safe alternatives from sceneMetadata instead of generic business fallback.
  * @param {string} model - 'runway' or 'veo'
  * @param {number} attemptNumber - Which rephrase attempt (1 = first rephrase, 2 = escalated rephrase)
+ * @param {Object} sceneMetadata - { category, safeAlternatives, ... } from VideoPromptEngine
  * @returns {string} The system prompt for rephrasing
  */
-const getVideoRephraseSystemPrompt = (model = 'veo', attemptNumber = 1) => {
+const getVideoRephraseSystemPrompt = (model = 'veo', attemptNumber = 1, sceneMetadata = {}) => {
   const isRunway = model === 'runway';
   const charLimit = isRunway ? 950 : 1400;
   const duration = isRunway ? 10 : 8;
+
+  // Domain-specific safe visual alternatives from VideoPromptEngine
+  const safeAlts = sceneMetadata.safeAlternatives || 'press conference podium, modern newsroom with monitors, office workspace with team reviewing information, city skyline time-lapse';
+  const category = sceneMetadata.category || 'general';
 
   const escalation = attemptNumber >= 2
     ? `CRITICAL — ESCALATED REPHRASE (attempt #${attemptNumber}):
@@ -173,20 +193,17 @@ A previous rephrase of this prompt was ALSO rejected. Minor word-swaps are NOT e
 You MUST take a COMPLETELY DIFFERENT visual approach:
 - Do NOT reuse the same scene structure, setting, or visual concept from the rejected prompt
 - COMPLETELY ABANDON any reference to the triggering subject matter — not even indirect or symbolic references
-- Instead, focus the scene on the BUSINESS, FINANCIAL, or HUMAN STORY angle of the article:
-  - Funding/investment → show investors, boardrooms, handshakes, financial displays, celebration
-  - Scientific research → show the lab environment, team collaboration, whiteboards, data screens — but NEVER the research subject itself
-  - Product launch → show the company campus, press event, audience reactions — but NEVER the product if it's in a sensitive category
-  - Military/defense → show strategy rooms, diplomacy, logistics — NEVER combat or weapons
+- Use these SAFE VISUAL ALTERNATIVES for the "${category}" domain — pick ONE and build a full cinematic scene around it:
+  ${safeAlts}
 - Build an ENTIRELY NEW three-beat arc with different camera movements and different settings
-- The scene must feel like a DIFFERENT SHORT FILM about the same news story`
+- The scene must feel like a DIFFERENT SHORT FILM about the same news story
+- Stay within the article's domain (${category}) — do NOT default to generic corporate/business imagery unless the article is actually about business`
     : `REPHRASE STRATEGY:
 - Replace ALL triggering imagery with safe visual equivalents — do NOT keep partial references
-- Shift the entire scene away from the sensitive subject toward the human/business/impact angle
-- Example: article about "brain implants" → show the COMPANY (offices, team, investors, funding milestone) — NOT the technology itself
-- Example: article about "weapons deal" → show DIPLOMATIC meeting, handshake, document signing — NOT weapons
-- Example: article about "surgery breakthrough" → show CELEBRATION, press conference, hospital exterior — NOT the procedure
-- The key principle: tell the article's STORY without depicting its SENSITIVE SUBJECT`;
+- Shift the entire scene away from the sensitive subject toward the HUMAN IMPACT angle, staying within the article's domain (${category})
+- Use these SAFE VISUAL ALTERNATIVES as inspiration — pick the most relevant one and build a vivid cinematic scene:
+  ${safeAlts}
+- The key principle: tell the article's STORY without depicting its SENSITIVE SUBJECT, while keeping the visual world consistent with the ${category} domain`;
 
   return `You are an expert at understanding AI video generation content safety filters and rephrasing cinematic video prompts to pass moderation while preserving visual storytelling quality.
 
@@ -217,19 +234,25 @@ HARD CONSTRAINTS:
 
 /**
  * User prompt for rephrasing a content-filtered video prompt.
- * Provides the rejected prompt and article context for story-relevant rephrasing.
+ * Provides the rejected prompt, article context, image description, and domain-specific
+ * guidance for story-relevant rephrasing.
  * @param {string} originalPrompt - The prompt that was rejected by content filters
  * @param {Object} article - { title, summary, description, source }
  * @param {string} model - 'runway' or 'veo'
  * @param {number} attemptNumber - Which rephrase attempt (1 = first, 2 = escalated)
+ * @param {string|null} imageDescription - Vision model description of the source image
  * @returns {string} The user prompt for rephrasing
  */
-const getVideoRephraseUserPrompt = (originalPrompt, article, model = 'veo', attemptNumber = 1) => {
+const getVideoRephraseUserPrompt = (originalPrompt, article, model = 'veo', attemptNumber = 1, imageDescription = null) => {
   const isRunway = model === 'runway';
   const charLimit = isRunway ? 950 : 1400;
 
   const escalationNote = attemptNumber >= 2
     ? `\n⚠️ A PREVIOUS REPHRASE WAS ALSO REJECTED. You MUST write a COMPLETELY DIFFERENT scene — different setting, different visual concept, different camera movements. Do NOT iterate on the rejected prompt — start fresh from the article headline.`
+    : '';
+
+  const imageContext = imageDescription
+    ? `\nSOURCE IMAGE (still used as starting frame — your prompt must be visually coherent with it):\n${imageDescription}`
     : '';
 
   return `THE FOLLOWING VIDEO PROMPT WAS REJECTED BY CONTENT SAFETY FILTERS:
@@ -242,12 +265,12 @@ ARTICLE CONTEXT (for maintaining story relevance):
 Headline: ${article.title}
 Summary: ${article.summary || article.description || '(No summary)'}
 Source: ${article.source || 'Unknown'}
-${escalationNote}
+${imageContext}${escalationNote}
 
 YOUR TASK:
 1. Identify the likely trigger words/phrases in the rejected prompt
-2. Write a NEW prompt that tells the article's story WITHOUT depicting its sensitive subject matter — focus on the business, human, or societal angle instead
-3. Preserve cinematic quality: specific camera movements, lighting, textures, atmosphere
+2. Write a NEW prompt that tells the article's story WITHOUT depicting its sensitive subject matter — use the domain-appropriate safe alternatives from the system prompt
+3. ${imageDescription ? 'Ensure your scene is visually coherent with the source image described above' : 'Preserve cinematic quality: specific camera movements, lighting, textures, atmosphere'}
 4. Keep it UNDER ${charLimit} characters
 
 Output ONLY the new prompt. No explanations.`;

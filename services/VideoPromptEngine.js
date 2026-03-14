@@ -17,8 +17,10 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
-// News scene categories with associated visual and audio direction
-// Each category includes both English and Hebrew (עברית) keywords for bilingual matching
+// News scene categories with associated visual direction, audio direction, and safe rephrase alternatives.
+// Each category includes both English and Hebrew (עברית) keywords for bilingual matching.
+// safeAlternatives: content-filter-safe visual scenes for rephrase fallback — used when
+// the original video prompt is blocked and must be rebuilt in a domain-appropriate way.
 const SCENE_CATEGORIES = {
   politics: {
     keywords: [
@@ -28,7 +30,8 @@ const SCENE_CATEGORIES = {
     lighting: 'natural institutional lighting with warm undertones',
     ambient: 'subtle murmur of formal proceedings, muted ambient noise',
     music: 'understated orchestral undertone, measured and authoritative',
-    style: 'formal news documentary, steady and composed'
+    style: 'formal news documentary, steady and composed',
+    safeAlternatives: 'press briefing podium with microphones, legislative chamber with empty seats and polished wood, diplomatic handshake in a formal hall with national flags, government building exterior at golden hour, press corps cameras and notebooks in a briefing room'
   },
   technology: {
     keywords: [
@@ -38,7 +41,8 @@ const SCENE_CATEGORIES = {
     lighting: 'clean modern lighting with cool blue and white tones',
     ambient: 'soft electronic hum, quiet digital ambiance',
     music: 'minimal electronic pulse, forward-looking and clean',
-    style: 'sleek tech documentary, crisp and modern'
+    style: 'sleek tech documentary, crisp and modern',
+    safeAlternatives: 'conference keynote stage with glowing presentation screens, innovation lab with engineers collaborating at whiteboards, product showcase table with sleek devices under spotlight, tech campus atrium with glass walls and green courtyard, data dashboard wall with flowing analytics visualizations'
   },
   business: {
     keywords: [
@@ -48,7 +52,8 @@ const SCENE_CATEGORIES = {
     lighting: 'professional warm lighting, clean and polished',
     ambient: 'distant city hum, professional environment sounds',
     music: 'confident piano and strings, steady momentum',
-    style: 'corporate news broadcast, polished and professional'
+    style: 'corporate news broadcast, polished and professional',
+    safeAlternatives: 'trading floor with glowing green screens at dawn, boardroom with executives reviewing charts, stock exchange exterior with digital ticker, financial district skyline at sunset, press conference with CEO at podium'
   },
   science: {
     keywords: [
@@ -58,7 +63,8 @@ const SCENE_CATEGORIES = {
     lighting: 'soft natural or laboratory lighting with precise highlights',
     ambient: 'quiet research environment, gentle instrument sounds',
     music: 'ethereal ambient tones, sense of wonder and curiosity',
-    style: 'nature documentary meets science broadcast, contemplative'
+    style: 'nature documentary meets science broadcast, contemplative',
+    safeAlternatives: 'research team celebrating around data screens, university lecture hall with illuminated presentation, observatory dome opening to starry sky, laboratory corridor with glowing equipment behind glass, scientific conference poster session with researchers networking'
   },
   health: {
     keywords: [
@@ -68,17 +74,19 @@ const SCENE_CATEGORIES = {
     lighting: 'soft warm lighting with clinical precision where needed',
     ambient: 'calm clinical environment, quiet and measured',
     music: 'gentle piano with hopeful undertone, compassionate',
-    style: 'medical documentary, caring and informative'
+    style: 'medical documentary, caring and informative',
+    safeAlternatives: 'hospital exterior with warm morning light, medical research team reviewing results on screens, community wellness center with people exercising, pharmaceutical lab with clean vials under spotlight, public health press conference with officials at podium'
   },
   sports: {
     keywords: [
-      'game', 'match', 'team', 'player', 'coach', 'season', 'championship', 'tournament', 'score', 'goal', 'victory', 'defeat', 'athlete', 'olympic', 'league', 'nba', 'nfl', 'fifa', 'tennis', 'soccer', 'football', 'baseball',
-      'משחק', 'קבוצה', 'שחקן', 'מאמן', 'עונה', 'אליפות', 'טורניר', 'ניצחון', 'תבוסה', 'ספורטאי', 'אולימפי', 'ליגה', 'כדורגל', 'כדורסל', 'גביע'
+      'game', 'match', 'team', 'player', 'coach', 'season', 'championship', 'tournament', 'score', 'goal', 'victory', 'defeat', 'athlete', 'olympic', 'league', 'nba', 'nfl', 'mlb', 'nhl', 'mls', 'fifa', 'tennis', 'soccer', 'football', 'baseball', 'basketball', 'hockey', 'boxing', 'ufc', 'rugby', 'cricket', 'golf', 'swimming', 'track', 'marathon', 'draft', 'roster', 'playoff', 'super bowl', 'world cup', 'stadium', 'arena', 'sack', 'touchdown', 'home run', 'slam dunk',
+      'משחק', 'קבוצה', 'שחקן', 'מאמן', 'עונה', 'אליפות', 'טורניר', 'ניצחון', 'תבוסה', 'ספורטאי', 'אולימפי', 'ליגה', 'כדורגל', 'כדורסל', 'גביע', 'אצטדיון', 'אימון', 'שער', 'נבחרת'
     ],
     lighting: 'vibrant stadium or arena lighting, high contrast',
     ambient: 'distant crowd roar, rhythmic energy',
     music: 'driving percussion with rising intensity, adrenaline',
-    style: 'sports broadcast highlight, energetic and dynamic'
+    style: 'sports broadcast highlight, energetic and dynamic',
+    safeAlternatives: 'press conference podium with team logos and microphones, locker room post-game interview with warm overhead lighting, stadium exterior at golden hour with fans arriving, sports broadcast desk with multiple analysis screens, trophy ceremony stage with confetti and celebration'
   },
   entertainment: {
     keywords: [
@@ -88,7 +96,8 @@ const SCENE_CATEGORIES = {
     lighting: 'dramatic cinematic lighting with rich colors',
     ambient: 'soft ambient crowd or event atmosphere',
     music: 'stylish contemporary beat, engaging and polished',
-    style: 'entertainment news magazine, vibrant and cinematic'
+    style: 'entertainment news magazine, vibrant and cinematic',
+    safeAlternatives: 'red carpet entrance with velvet ropes and camera flashes, backstage preparation area with vanity mirrors and costumes, concert venue exterior with marquee lights at dusk, film premiere audience reacting with applause, awards ceremony stage with golden statuette under spotlight'
   },
   conflict: {
     keywords: [
@@ -98,7 +107,8 @@ const SCENE_CATEGORIES = {
     lighting: 'muted natural lighting with atmospheric haze',
     ambient: 'distant ambient tension, wind and environmental sounds',
     music: 'somber low strings, restrained and heavy',
-    style: 'war correspondence documentary, sobering and respectful'
+    style: 'war correspondence documentary, sobering and respectful',
+    safeAlternatives: 'diplomatic meeting room with flags and long polished table, press briefing podium with international organization logos, candlelight memorial vigil in a public square at dusk, humanitarian aid distribution center with supplies and volunteers, UN-style assembly hall with rows of delegation seats'
   },
   weather: {
     keywords: [
@@ -108,7 +118,8 @@ const SCENE_CATEGORIES = {
     lighting: 'dramatic natural lighting matching weather conditions',
     ambient: 'wind, rain, or environmental weather sounds',
     music: 'atmospheric swells building with nature, powerful and immersive',
-    style: 'nature documentary, awe-inspiring and immersive'
+    style: 'nature documentary, awe-inspiring and immersive',
+    safeAlternatives: 'weather broadcast studio with radar map on screens, emergency coordination center with maps and radios, community shelter with volunteers distributing supplies, aerial view of landscape recovering after storm, meteorologist at outdoor station with instruments and sky backdrop'
   },
   real_estate: {
     keywords: [
@@ -118,7 +129,8 @@ const SCENE_CATEGORIES = {
     lighting: 'warm inviting natural lighting, golden tones on structures',
     ambient: 'urban environment sounds, construction activity in distance',
     music: 'optimistic contemporary piano with subtle momentum, aspirational',
-    style: 'architectural showcase documentary, inviting and aspirational'
+    style: 'architectural showcase documentary, inviting and aspirational',
+    safeAlternatives: 'modern building exterior with glass facade reflecting sunset, open house walkthrough with sunlit rooms and fresh flowers, construction site aerial view with cranes against blue sky, real estate office with property listings on screens, neighborhood streetscape with tree-lined sidewalks and new homes'
   },
   human_interest: {
     keywords: [
@@ -128,14 +140,16 @@ const SCENE_CATEGORIES = {
     lighting: 'warm golden hour lighting, natural and inviting',
     ambient: 'soft everyday life sounds, gentle and familiar',
     music: 'warm acoustic or piano melody, heartfelt and uplifting',
-    style: 'human interest documentary, intimate and hopeful'
+    style: 'human interest documentary, intimate and hopeful',
+    safeAlternatives: 'community gathering in a sunlit park with families and picnic tables, graduation ceremony with caps thrown in the air, volunteer team distributing meals at a community center, school classroom with students engaged and hands raised, cultural festival with colorful decorations and smiling crowds'
   },
   general: {
     keywords: [], // Never matched by keywords — used as the universal fallback
     lighting: 'balanced natural lighting, clean and professional',
     ambient: 'subtle ambient environmental sounds, unobtrusive',
     music: 'neutral contemporary underscore, professional and adaptable',
-    style: 'professional news broadcast, clean and versatile'
+    style: 'professional news broadcast, clean and versatile',
+    safeAlternatives: 'modern newsroom with anchor desks and glowing monitors, press conference podium with multiple microphones, city skyline time-lapse from day to night, office workspace with team reviewing information on screens, public library reading room with warm ambient lighting'
   }
 };
 
@@ -166,60 +180,93 @@ const MOOD_INDICATORS = {
 class VideoPromptEngine {
   /**
    * Extract scene metadata from article content for use as LLM context.
-   * Uses keyword classification to provide category, mood, and atmospheric hints
-   * that enrich the LLM-generated video prompt.
+   * Uses title-weighted keyword classification to provide category, mood,
+   * atmospheric hints, and safe rephrase alternatives.
+   *
+   * Title keywords are weighted 3x higher than body keywords so the article's
+   * primary subject (often named in the headline) outweighs incidental topics
+   * mentioned in the body. This prevents cross-domain misclassification
+   * (e.g., a sports article mentioning "war" being classified as conflict).
+   *
    * @param {Object} params
    * @param {Object} params.article - { title, summary, description }
-   * @returns {Object} { category, mood, style, lighting, ambient, music }
+   * @returns {Object} { category, secondaryCategory, mood, style, lighting, ambient, music, safeAlternatives }
    */
   static getSceneMetadata({ article }) {
-    const text = `${article.title || ''} ${article.summary || ''} ${article.description || ''}`.toLowerCase();
+    const titleText = (article.title || '').toLowerCase();
+    const bodyText = `${article.summary || ''} ${article.description || ''}`.toLowerCase();
+    const fullText = `${titleText} ${bodyText}`;
 
-    const category = this.classifyScene(text);
-    const mood = this.extractMood(text);
-    const sceneConfig = SCENE_CATEGORIES[category];
+    const { primary, secondary } = this.classifyScene(titleText, bodyText);
+    const mood = this.extractMood(fullText);
+    const sceneConfig = SCENE_CATEGORIES[primary];
 
-    logger.info(`Scene metadata: category=${category}, mood=${mood}`);
+    const secondaryLabel = secondary && secondary !== primary ? secondary : null;
+    logger.info(`Scene metadata: category=${primary}${secondaryLabel ? ` (secondary: ${secondaryLabel})` : ''}, mood=${mood}`);
 
     return {
-      category,
+      category: primary,
+      secondaryCategory: secondaryLabel,
       mood,
       style: sceneConfig.style,
       lighting: sceneConfig.lighting,
       ambient: sceneConfig.ambient,
-      music: sceneConfig.music
+      music: sceneConfig.music,
+      safeAlternatives: sceneConfig.safeAlternatives
     };
   }
 
   /**
-   * Classify the article into a scene category by keyword matching.
-   * Requires at least MIN_KEYWORD_MATCHES to assign a specific category.
-   * Falls back to 'general' (neutral broadcast style) if no category
-   * meets the threshold — avoids forcing a specific mood/style on
-   * articles that don't clearly belong to any category.
+   * Classify the article into primary (and optionally secondary) scene categories.
+   *
+   * Title-weighted scoring: keyword matches in the title count 3 points,
+   * body matches count 1 point. This ensures the headline's subject dominates
+   * when the article spans multiple domains.
+   *
+   * Returns { primary, secondary } where secondary is the runner-up category
+   * (or null if only one category meets the threshold).
    */
-  static classifyScene(text) {
-    const MIN_KEYWORD_MATCHES = 2;
-    let bestCategory = 'general';
-    let bestScore = 0;
+  static classifyScene(titleText, bodyText) {
+    const TITLE_WEIGHT = 3;
+    const BODY_WEIGHT = 1;
+    const MIN_WEIGHTED_SCORE = 2; // Minimum weighted score to assign a category
+
+    const scores = [];
 
     for (const [category, config] of Object.entries(SCENE_CATEGORIES)) {
-      if (category === 'general') continue; // Skip — general has no keywords
-      const score = config.keywords.reduce((count, keyword) => {
-        return count + (text.includes(keyword) ? 1 : 0);
-      }, 0);
+      if (category === 'general') continue;
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestCategory = score >= MIN_KEYWORD_MATCHES ? category : 'general';
+      let score = 0;
+      for (const keyword of config.keywords) {
+        if (titleText.includes(keyword)) score += TITLE_WEIGHT;
+        else if (bodyText.includes(keyword)) score += BODY_WEIGHT;
+      }
+
+      if (score > 0) {
+        scores.push({ category, score });
       }
     }
 
-    if (bestScore > 0 && bestScore < MIN_KEYWORD_MATCHES) {
-      logger.info(`Keyword score ${bestScore} below threshold (${MIN_KEYWORD_MATCHES}), using 'general' fallback`);
+    // Sort descending by score
+    scores.sort((a, b) => b.score - a.score);
+
+    const primary = scores.length > 0 && scores[0].score >= MIN_WEIGHTED_SCORE
+      ? scores[0].category
+      : 'general';
+
+    const secondary = scores.length > 1 && scores[1].score >= MIN_WEIGHTED_SCORE
+      ? scores[1].category
+      : null;
+
+    if (scores.length > 0 && scores[0].score < MIN_WEIGHTED_SCORE) {
+      logger.info(`Top keyword score ${scores[0].score} below threshold (${MIN_WEIGHTED_SCORE}), using 'general' fallback`);
     }
 
-    return bestCategory;
+    if (primary !== 'general' && secondary) {
+      logger.info(`Classification scores: ${primary}=${scores[0].score}, ${secondary}=${scores[1].score}`);
+    }
+
+    return { primary, secondary };
   }
 
   /**
@@ -241,6 +288,17 @@ class VideoPromptEngine {
     }
 
     return bestMood;
+  }
+
+  /**
+   * Get the safe visual alternatives for a given category.
+   * Used by the rephrase system to suggest domain-appropriate fallback scenes.
+   * @param {string} category - Scene category name
+   * @returns {string} Safe alternatives string
+   */
+  static getSafeAlternatives(category) {
+    const config = SCENE_CATEGORIES[category] || SCENE_CATEGORIES.general;
+    return config.safeAlternatives;
   }
 }
 

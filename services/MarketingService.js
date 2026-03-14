@@ -164,7 +164,11 @@ class MarketingService {
     } catch (error) {
       const apiError = error.response?.data?.error;
       if (apiError) {
-        logger.error(`Marketing API error: ${apiError.message} (code: ${apiError.code}, subcode: ${apiError.error_subcode})`, {
+        // Expected API errors (permission denied, invalid metric, expired token)
+        // are logged at warn level — they are handled by callers and are not actionable here
+        const EXPECTED_ERROR_CODES = new Set([10, 100, 190]);
+        const logLevel = EXPECTED_ERROR_CODES.has(apiError.code) ? 'warn' : 'error';
+        logger[logLevel](`Marketing API error: ${apiError.message} (code: ${apiError.code}, subcode: ${apiError.error_subcode})`, {
           endpoint,
           method,
           errorType: apiError.type,
@@ -172,7 +176,10 @@ class MarketingService {
           fbTraceId: apiError.fbtrace_id
         });
         const detail = apiError.error_user_msg || apiError.message;
-        throw new Error(`Meta Marketing API: ${detail}`);
+        const err = new Error(`Meta Marketing API: ${detail}`);
+        err.fbErrorCode = apiError.code;
+        err.fbErrorSubcode = apiError.error_subcode;
+        throw err;
       }
       logger.error(`Marketing API request failed: ${error.message}`);
       throw error;
@@ -1415,10 +1422,13 @@ class MarketingService {
         let engagement = {};
 
         if (post.platform === 'facebook') {
-          // Use Page Post insights endpoint with v24.0-compatible metrics:
-          // - post_impressions → post_media_views (deprecated Nov 2025)
-          // - post_engaged_users → removed with no replacement (deprecated Sep 2024)
-          // - post_reactions_by_type_total → still valid
+          // Cascading fallback for Facebook post insights:
+          // 1. Modern metrics (post_media_views + reactions) — works for media posts
+          // 2. Reactions only — works for all post types via insights API
+          // 3. Basic Graph API fields (likes, comments, shares) — broadest compatibility
+          let insightsSuccess = false;
+
+          // Attempt 1: Modern metrics (media posts)
           try {
             const insights = await this._callMarketingApi(accessToken, 'GET',
               `/${post.platform_post_id}/insights`, {
@@ -1432,9 +1442,47 @@ class MarketingService {
                 reactions: totalReactions,
                 views: insights.data.find(i => i.name === 'post_media_views')?.values?.[0]?.value || 0
               };
+              insightsSuccess = true;
             }
           } catch (insightsErr) {
-            logger.debug(`Could not fetch insights for FB post ${post.platform_post_id}: ${insightsErr.message}`);
+            // Attempt 2: If invalid metric (#100), try reactions only (works for non-media posts)
+            if (insightsErr.fbErrorCode === 100) {
+              try {
+                const fallback = await this._callMarketingApi(accessToken, 'GET',
+                  `/${post.platform_post_id}/insights`, {
+                    metric: 'post_reactions_by_type_total'
+                  }
+                );
+                if (fallback.data) {
+                  const reactionsData = fallback.data.find(i => i.name === 'post_reactions_by_type_total')?.values?.[0]?.value || {};
+                  const totalReactions = Object.values(reactionsData).reduce((sum, count) => sum + (count || 0), 0);
+                  engagement = { reactions: totalReactions };
+                  insightsSuccess = true;
+                }
+              } catch (fallbackErr) {
+                logger.debug(`Fallback insights also failed for FB post ${post.platform_post_id}: ${fallbackErr.message}`);
+              }
+            } else {
+              logger.debug(`Could not fetch insights for FB post ${post.platform_post_id}: ${insightsErr.message}`);
+            }
+          }
+
+          // Attempt 3: Basic engagement fields (broadest permission compatibility)
+          if (!insightsSuccess) {
+            try {
+              const basic = await this._callMarketingApi(accessToken, 'GET',
+                `/${post.platform_post_id}`, {
+                  fields: 'likes.summary(true),comments.summary(true),shares'
+                }
+              );
+              engagement = {
+                reactions: basic.likes?.summary?.total_count || 0,
+                comments: basic.comments?.summary?.total_count || 0,
+                shares: basic.shares?.count || 0
+              };
+            } catch (basicErr) {
+              logger.debug(`Could not fetch basic engagement for FB post ${post.platform_post_id}: ${basicErr.message}`);
+            }
           }
         } else if (post.platform === 'instagram') {
           // Fetch basic IG media fields (impressions/reach are NOT direct fields)

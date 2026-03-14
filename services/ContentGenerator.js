@@ -1,5 +1,6 @@
 // services/ContentGenerator.js
 import OpenAI from 'openai';
+import axios from 'axios';
 import winston from 'winston';
 
 // Import platform-specific prompts
@@ -462,6 +463,81 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
   }
 
   /**
+   * Describe an image using Gemini Flash vision model.
+   * Returns a concise 1-2 sentence description of the image contents,
+   * focusing on visible subjects, their appearance, the setting, and any logos/text.
+   *
+   * Used to give the video prompt LLM concrete knowledge of the starting frame
+   * instead of forcing it to guess from article context alone.
+   *
+   * @param {string} imageUrl - Publicly accessible image URL
+   * @returns {Promise<string|null>} Image description, or null on failure
+   */
+  async describeImage(imageUrl) {
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    if (!googleApiKey || !imageUrl) {
+      logger.info('Image description skipped — no API key or image URL');
+      return null;
+    }
+
+    try {
+      // Download the image as base64 (same pattern as VideoGenerationService.downloadImageForVeo)
+      const imageResponse = await axios.get(imageUrl, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        headers: { 'User-Agent': 'NewsAgentSaaS/1.0' }
+      });
+
+      const contentType = imageResponse.headers['content-type'] || '';
+      let mimeType = 'image/jpeg';
+      if (contentType.includes('png')) mimeType = 'image/png';
+      else if (contentType.includes('webp')) mimeType = 'image/webp';
+      else if (contentType.includes('gif')) mimeType = 'image/gif';
+
+      const base64Image = Buffer.from(imageResponse.data).toString('base64');
+
+      // Call Gemini Flash for vision description
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent';
+
+      const response = await axios.post(endpoint, {
+        contents: [{
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Image
+              }
+            },
+            {
+              text: 'Describe this image in 1-2 concise sentences. Focus on: who or what is visible, their attire and appearance, the setting or background, and any visible logos or text. Be factual and specific — describe what you see, not what you interpret.'
+            }
+          ]
+        }]
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+
+      const description = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+      if (description) {
+        logger.info(`Image described: ${description.slice(0, 100)}...`);
+        return description;
+      }
+
+      logger.warn('Gemini Flash returned empty image description');
+      return null;
+    } catch (error) {
+      // Non-critical — fall back to generic image guidance if vision fails
+      logger.warn(`Image description failed (non-blocking): ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Generate a video generation prompt for TikTok using LLM.
    * The LLM acts as an expert cinematographer — it reads the article + caption
    * and outputs a vivid, specific, cinematic scene description optimized for
@@ -469,9 +545,10 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
    * @param {Object} trend - Article/trend data
    * @param {string} caption - Generated TikTok caption text
    * @param {Object} agentSettings - Agent settings
+   * @param {string|null} imageUrl - Article featured image URL (for vision description)
    * @returns {Promise<string>} Video generation prompt
    */
-  async generateVideoPrompt(trend, caption, agentSettings = {}) {
+  async generateVideoPrompt(trend, caption, agentSettings = {}, imageUrl = null) {
     const { default: VideoPromptEngine } = await import('./VideoPromptEngine.js');
 
     const model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
@@ -487,14 +564,21 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
     // Get scene classification metadata to enrich the LLM context
     const sceneMetadata = VideoPromptEngine.getSceneMetadata({ article });
 
+    // Cache sceneMetadata and imageDescription for rephrase calls
+    this._lastSceneMetadata = sceneMetadata;
+
+    // Describe the actual image via vision model so the LLM knows what the starting frame shows
+    const imageDescription = await this.describeImage(imageUrl);
+    this._lastImageDescription = imageDescription;
+
     // Build LLM prompts for cinematographic video scene generation
     const systemPrompt = getVideoPromptSystemPrompt(agentSettings, model, sceneMetadata);
-    const userPrompt = getVideoPromptUserPrompt(article, caption, model, sceneMetadata);
+    const userPrompt = getVideoPromptUserPrompt(article, caption, model, sceneMetadata, imageDescription);
 
     let videoPrompt;
 
     if (this.openai) {
-      logger.info(`Generating LLM video prompt for ${model} (category: ${sceneMetadata.category}, mood: ${sceneMetadata.mood})...`);
+      logger.info(`Generating LLM video prompt for ${model} (category: ${sceneMetadata.category}${sceneMetadata.secondaryCategory ? `, secondary: ${sceneMetadata.secondaryCategory}` : ''}, mood: ${sceneMetadata.mood})...`);
 
       const config = {
         model: 'gpt-5-nano',
@@ -539,10 +623,12 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
    * Rephrase a video prompt that was blocked by content safety filters.
    * Uses LLM reasoning to identify trigger words and produce a safer alternative
    * that preserves cinematic quality and story relevance.
+   * Leverages cached sceneMetadata and imageDescription from generateVideoPrompt()
+   * to provide domain-aware rephrase suggestions and image-coherent alternatives.
    *
    * @param {string} originalPrompt - The prompt that was rejected by content filters
    * @param {Object} trend - Article/trend data (for story context)
-   * @param {Object} options - { model: 'veo'|'runway' }
+   * @param {Object} options - { model: 'veo'|'runway', attemptNumber: number }
    * @returns {Promise<string>} Rephrased video generation prompt
    */
   async rephraseVideoPrompt(originalPrompt, trend, { model = 'veo', attemptNumber = 1 } = {}) {
@@ -555,8 +641,17 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
       source: trend.source
     };
 
-    const systemPrompt = getVideoRephraseSystemPrompt(model, attemptNumber);
-    const userPrompt = getVideoRephraseUserPrompt(originalPrompt, article, model, attemptNumber);
+    // Use cached sceneMetadata from generateVideoPrompt(), or re-compute if unavailable
+    let sceneMetadata = this._lastSceneMetadata;
+    if (!sceneMetadata) {
+      const { default: VideoPromptEngine } = await import('./VideoPromptEngine.js');
+      sceneMetadata = VideoPromptEngine.getSceneMetadata({ article });
+    }
+
+    const imageDescription = this._lastImageDescription || null;
+
+    const systemPrompt = getVideoRephraseSystemPrompt(model, attemptNumber, sceneMetadata);
+    const userPrompt = getVideoRephraseUserPrompt(originalPrompt, article, model, attemptNumber, imageDescription);
 
     let rephrasedPrompt;
 

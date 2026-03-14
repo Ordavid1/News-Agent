@@ -453,6 +453,7 @@ export async function getConnectionsNeedingRefresh(bufferMinutes = 60) {
     .select('*')
     .eq('status', 'active')
     .not('refresh_token', 'is', null)
+    .not('access_token', 'is', null) // Skip connections with no access token — they need reconnection, not refresh
     .lt('token_expires_at', threshold);
 
   if (error) {

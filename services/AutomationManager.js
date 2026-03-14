@@ -360,7 +360,7 @@ class AutomationManager {
       agentLog('info', `${platform} — generating video from article image...`);
 
       try {
-        const videoPrompt = await this.contentGenerator.generateVideoPrompt(trend, content.text, settings);
+        const videoPrompt = await this.contentGenerator.generateVideoPrompt(trend, content.text, settings, content.imageUrl);
         agentLog('info', `Video prompt generated (${videoPrompt.length} chars)`);
 
         const videoGenerationService = (await import('./VideoGenerationService.js')).default;

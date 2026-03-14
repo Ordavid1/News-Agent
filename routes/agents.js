@@ -910,7 +910,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       try {
         const ContentGenerator = (await import('../services/ContentGenerator.js')).default;
         const contentGen = new ContentGenerator();
-        const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings);
+        const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings, imageUrl);
 
         const videoGenerationService = (await import('../services/VideoGenerationService.js')).default;
 

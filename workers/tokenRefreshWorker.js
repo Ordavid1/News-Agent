@@ -5,7 +5,7 @@
  * Runs periodically to refresh OAuth tokens before they expire.
  */
 
-import TokenManager from '../services/TokenManager.js';
+import TokenManager, { TokenDecryptionError } from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import { supabaseAdmin } from '../services/supabase.js';
 import winston from 'winston';
@@ -25,7 +25,8 @@ const WORKER_CONFIG = {
   batchSize: 10,
   maxRetries: 3,
   retryDelay: 5 * 60 * 1000, // 5 minutes between retries
-  refreshBuffer: 15 // Refresh tokens expiring within 15 minutes (aligned with PublishingService.needsRefresh default)
+  refreshBuffer: 15, // Refresh tokens expiring within 15 minutes (aligned with PublishingService.needsRefresh default)
+  failedJobCooldown: 60 * 60 * 1000 // 1 hour cooldown after all retries exhausted before re-queueing same connection
   // NOTE: Google/YouTube tokens expire in 3599s (~1hr). A 60-min buffer caused the worker to
   // immediately pick up freshly-stored Google tokens and attempt a refresh while they were
   // still fully valid, sometimes racing with active publishing operations.
@@ -93,6 +94,52 @@ async function processRefreshJob(job) {
   } catch (error) {
     logger.error(`Token refresh failed for job ${id}:`, error.message);
 
+    // Detect irrecoverable connections: TokenDecryptionError or NULL access_token.
+    // A connection with no valid access token is NOT a "working connection" — the
+    // non-interference principle only protects connections that could still be used.
+    const isTokenDecryptionError = error instanceof TokenDecryptionError || error.name === 'TokenDecryptionError';
+    let connectionIrrecoverable = isTokenDecryptionError;
+
+    if (!connectionIrrecoverable) {
+      try {
+        const { data: connCheck } = await supabaseAdmin
+          .from('social_connections')
+          .select('access_token')
+          .eq('id', connection_id)
+          .single();
+        if (connCheck && !connCheck.access_token) {
+          connectionIrrecoverable = true;
+        }
+      } catch (checkErr) {
+        // Non-fatal — proceed with normal retry logic
+      }
+    }
+
+    if (connectionIrrecoverable) {
+      logger.warn(`Connection ${connection_id} is irrecoverable (${isTokenDecryptionError ? 'TokenDecryptionError' : 'NULL access_token'}) — marking as error`);
+
+      try {
+        await TokenManager.markConnectionError(
+          connection_id,
+          `Token refresh failed: ${error.message}. Connection has no valid access token — please reconnect your account.`
+        );
+      } catch (markErr) {
+        logger.error(`Failed to mark connection ${connection_id} as error: ${markErr.message}`);
+      }
+
+      await supabaseAdmin
+        .from('token_refresh_queue')
+        .update({
+          status: 'failed',
+          attempts: attempts + 1,
+          last_error: `IRRECOVERABLE: ${error.message}`,
+          processed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      return { success: false, connectionId: connection_id, error: error.message };
+    }
+
     const newAttempts = attempts + 1;
 
     if (newAttempts >= WORKER_CONFIG.maxRetries) {
@@ -147,24 +194,38 @@ async function queueExpiringConnections() {
     let queued = 0;
 
     for (const connection of connections) {
-      // Check if already in queue
+      // Check if already in queue (pending/processing) or recently failed (cooldown)
       const { data: existing } = await supabaseAdmin
         .from('token_refresh_queue')
-        .select('id')
+        .select('id, status, processed_at')
         .eq('connection_id', connection.id)
-        .in('status', ['pending', 'processing'])
-        .single();
+        .in('status', ['pending', 'processing', 'failed'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (!existing) {
-        await supabaseAdmin
-          .from('token_refresh_queue')
-          .insert({
-            connection_id: connection.id,
-            status: 'pending',
-            next_attempt_at: new Date().toISOString()
-          });
-        queued++;
+      if (existing) {
+        if (existing.status === 'pending' || existing.status === 'processing') {
+          continue; // Already queued
+        }
+        // Failed job — apply cooldown before re-queueing
+        if (existing.status === 'failed' && existing.processed_at) {
+          const failedAt = new Date(existing.processed_at).getTime();
+          if (Date.now() < failedAt + WORKER_CONFIG.failedJobCooldown) {
+            continue; // Cooldown still active
+          }
+          logger.info(`Cooldown expired for connection ${connection.id} — re-queueing refresh`);
+        }
       }
+
+      await supabaseAdmin
+        .from('token_refresh_queue')
+        .insert({
+          connection_id: connection.id,
+          status: 'pending',
+          next_attempt_at: new Date().toISOString()
+        });
+      queued++;
     }
 
     if (queued > 0) {
