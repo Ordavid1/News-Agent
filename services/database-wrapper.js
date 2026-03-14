@@ -145,5 +145,30 @@ export {
   getLatestUnusedPurchase,
   // Quota enforcement
   decrementPostsRemaining,
-  calculatePostingInterval
+  calculatePostingInterval,
+  // Affiliate add-on functions
+  getAffiliateAddon,
+  getAffiliateAddonByLsId,
+  upsertAffiliateAddon,
+  updateAffiliateAddon,
+  // Affiliate credential functions
+  getAffiliateCredentials,
+  upsertAffiliateCredentials,
+  updateAffiliateCredentials,
+  deleteAffiliateCredentials,
+  incrementAffiliateApiCalls,
+  // Affiliate keyword functions
+  getAffiliateKeywords,
+  getActiveAffiliateKeywords,
+  getAffiliateKeywordById,
+  createAffiliateKeyword,
+  updateAffiliateKeyword,
+  deleteAffiliateKeyword,
+  countAffiliateKeywords,
+  // Affiliate published product functions
+  recordAffiliatePublishedProduct,
+  isAffiliateProductPublished,
+  getAffiliatePublishedProducts,
+  getAgentPublishedProductIds,
+  getAffiliateStats
 } from './database.js';

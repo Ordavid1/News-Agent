@@ -26,7 +26,7 @@ const logger = winston.createLogger({
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Supported platforms
-const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok', 'youtube'];
+const SUPPORTED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok', 'youtube', 'aliexpress'];
 
 /**
  * GET /api/connections
@@ -340,7 +340,7 @@ router.get('/:platform/initiate', authenticateToken, async (req, res) => {
 
     // Check if platform credentials are configured
     // Some platforms use non-standard env var names for their client ID
-    const sharedCredentialMap = { instagram: 'FACEBOOK_APP_ID', threads: 'FACEBOOK_APP_ID', tiktok: 'TIKTOK_CLIENT_KEY', youtube: 'GOOGLE_CLIENT_ID' };
+    const sharedCredentialMap = { instagram: 'FACEBOOK_APP_ID', threads: 'FACEBOOK_APP_ID', tiktok: 'TIKTOK_CLIENT_KEY', youtube: 'GOOGLE_CLIENT_ID', aliexpress: 'ALIEXPRESS_APP_KEY' };
     const clientId = sharedCredentialMap[platform]
       ? process.env[sharedCredentialMap[platform]]
       : (process.env[`${platform.toUpperCase()}_CLIENT_ID`] || process.env[`${platform.toUpperCase()}_APP_ID`]);
@@ -428,14 +428,17 @@ router.get('/:platform/callback', async (req, res) => {
     }
 
     // Redirect back to frontend with success
+    // AliExpress redirects to affiliate tab instead of connections tab
+    const redirectTab = platform === 'aliexpress' ? 'affiliate' : 'connections';
     res.redirect(
-      `${result.redirectUrl || FRONTEND_URL + '/profile.html'}?tab=connections&connected=${platform}&username=${encodeURIComponent(result.userInfo.username || '')}`
+      `${result.redirectUrl || FRONTEND_URL + '/profile.html'}?tab=${redirectTab}&connected=${platform}&username=${encodeURIComponent(result.userInfo.username || '')}`
     );
   } catch (error) {
     logger.error('OAuth callback error:', error);
     const { platform } = req.params;
+    const errorTab = platform === 'aliexpress' ? 'affiliate' : 'connections';
     res.redirect(
-      `${FRONTEND_URL}/profile.html?tab=connections&error=${encodeURIComponent(error.message)}&platform=${platform}`
+      `${FRONTEND_URL}/profile.html?tab=${errorTab}&error=${encodeURIComponent(error.message)}&platform=${platform}`
     );
   }
 });

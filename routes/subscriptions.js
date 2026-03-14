@@ -1,7 +1,7 @@
 // routes/subscriptions.js - Lemon Squeezy Integration
 import express from 'express';
 import crypto from 'crypto';
-import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon, createPerUsePurchase, getLatestUnusedPurchase, getUserPerUsePurchases } from '../services/database-wrapper.js';
+import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon, getAffiliateAddon, getAffiliateAddonByLsId, upsertAffiliateAddon, updateAffiliateAddon, createPerUsePurchase, getLatestUnusedPurchase, getUserPerUsePurchases } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
 import { getVideoLimit } from '../middleware/subscription.js';
@@ -914,7 +914,7 @@ router.get('/plan-interest/summary', async (req, res) => {
 const MARKETING_ADDON_CONFIG = {
   standard: {
     name: 'Marketing Add-on',
-    monthlyPrice: 3900, // $39 in cents
+    monthlyPrice: 1900, // $19 per ad account in cents
     variantId: process.env.LEMON_SQUEEZY_MARKETING_VARIANT_ID,
     maxAdAccounts: 1,
     features: [
@@ -934,7 +934,8 @@ router.get('/marketing-addon', async (req, res) => {
     res.json({
       addon: addon || null,
       config: MARKETING_ADDON_CONFIG,
-      isActive: addon?.status === 'active'
+      isActive: addon?.status === 'active',
+      pricePerAccount: MARKETING_ADDON_CONFIG.standard.monthlyPrice / 100
     });
   } catch (error) {
     console.error('[MARKETING-ADDON] Error fetching addon:', error);
@@ -1092,6 +1093,365 @@ router.post('/marketing-cancel', async (req, res) => {
   } catch (error) {
     console.error('[MARKETING-CANCEL] Error:', error);
     res.status(500).json({ error: 'Failed to cancel marketing add-on' });
+  }
+});
+
+// Get marketing add-on customer billing portal URL
+router.get('/marketing-portal', async (req, res) => {
+  try {
+    const addon = await getMarketingAddon(req.user.id);
+
+    if (!addon?.ls_subscription_id) {
+      return res.status(404).json({ error: 'No active marketing add-on found' });
+    }
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    // Step 1: Get subscription to find customer_id
+    const subResponse = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
+      { method: 'GET', headers: lsHeaders }
+    );
+
+    if (!subResponse.ok) {
+      return res.status(500).json({ error: 'Failed to fetch subscription details' });
+    }
+
+    const subData = await subResponse.json();
+    const customerId = subData.data.attributes.customer_id;
+
+    if (!customerId) {
+      return res.status(404).json({ error: 'No customer linked to this subscription' });
+    }
+
+    // Step 2: Get customer object which has the proper billing portal URL
+    const customerResponse = await fetch(
+      `https://api.lemonsqueezy.com/v1/customers/${customerId}`,
+      { method: 'GET', headers: lsHeaders }
+    );
+
+    if (!customerResponse.ok) {
+      return res.status(500).json({ error: 'Failed to fetch customer details' });
+    }
+
+    const customerData = await customerResponse.json();
+    const portalUrl = customerData.data.attributes.urls?.customer_portal;
+
+    if (!portalUrl) {
+      // Fallback to subscription-level portal URL
+      const fallbackUrl = subData.data.attributes.urls?.customer_portal
+        || subData.data.attributes.urls?.update_payment_method;
+      if (fallbackUrl) {
+        return res.json({ portalUrl: fallbackUrl });
+      }
+      return res.status(404).json({ error: 'Billing portal not available' });
+    }
+
+    res.json({ portalUrl });
+  } catch (error) {
+    console.error('[MARKETING-PORTAL] Error:', error);
+    res.status(500).json({ error: 'Failed to get billing portal URL' });
+  }
+});
+
+// Add an ad account seat (increment quantity via LS Subscription Items API)
+router.post('/marketing-add-account', async (req, res) => {
+  console.log('[MARKETING-ADD-ACCOUNT] POST /marketing-add-account - User:', req.user?.id);
+  try {
+    const addon = await getMarketingAddon(req.user.id);
+
+    if (!addon || addon.status !== 'active') {
+      return res.status(404).json({ error: 'No active marketing add-on found' });
+    }
+
+    if (!addon.ls_subscription_id) {
+      return res.status(400).json({ error: 'Marketing add-on has no linked subscription' });
+    }
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    // Step 1: Fetch the subscription item for this subscription
+    const itemsResponse = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscription-items?filter[subscription_id]=${addon.ls_subscription_id}`,
+      { method: 'GET', headers: lsHeaders }
+    );
+
+    if (!itemsResponse.ok) {
+      const errorData = await itemsResponse.json();
+      console.error('[MARKETING-ADD-ACCOUNT] Failed to fetch subscription items:', errorData);
+      return res.status(500).json({ error: 'Failed to retrieve subscription details' });
+    }
+
+    const itemsData = await itemsResponse.json();
+    const items = itemsData.data || [];
+
+    if (items.length === 0) {
+      console.error('[MARKETING-ADD-ACCOUNT] No subscription items found for subscription:', addon.ls_subscription_id);
+      return res.status(500).json({ error: 'No subscription items found' });
+    }
+
+    const subscriptionItem = items[0];
+    const itemId = subscriptionItem.id;
+    const currentQuantity = subscriptionItem.attributes.quantity || 1;
+    const newQuantity = currentQuantity + 1;
+
+    console.log(`[MARKETING-ADD-ACCOUNT] Subscription item ${itemId}: incrementing quantity from ${currentQuantity} to ${newQuantity}`);
+
+    // Step 2: PATCH the subscription item with incremented quantity
+    const patchResponse = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscription-items/${itemId}`,
+      {
+        method: 'PATCH',
+        headers: lsHeaders,
+        body: JSON.stringify({
+          data: {
+            type: 'subscription-items',
+            id: String(itemId),
+            attributes: {
+              quantity: newQuantity,
+              invoice_immediately: true
+            }
+          }
+        })
+      }
+    );
+
+    if (!patchResponse.ok) {
+      const errorData = await patchResponse.json();
+      console.error('[MARKETING-ADD-ACCOUNT] LS subscription-items PATCH error:', errorData);
+      return res.status(500).json({ error: 'Failed to update subscription quantity' });
+    }
+
+    const patchData = await patchResponse.json();
+    const confirmedQuantity = patchData.data.attributes.quantity || newQuantity;
+
+    // Update DB immediately (webhook will also confirm)
+    await updateMarketingAddon(req.user.id, {
+      max_ad_accounts: confirmedQuantity,
+      monthly_price: MARKETING_ADDON_CONFIG.standard.monthlyPrice * confirmedQuantity
+    });
+
+    const pricePerAccount = MARKETING_ADDON_CONFIG.standard.monthlyPrice / 100;
+
+    console.log(`[MARKETING-ADD-ACCOUNT] Success - user ${req.user.id} now has ${confirmedQuantity} ad account slots`);
+
+    res.json({
+      success: true,
+      newLimit: confirmedQuantity,
+      monthlyTotal: confirmedQuantity * pricePerAccount,
+      pricePerAccount
+    });
+  } catch (error) {
+    console.error('[MARKETING-ADD-ACCOUNT] Error:', error);
+    res.status(500).json({ error: 'Failed to add ad account' });
+  }
+});
+
+// ============================================
+// AE AFFILIATE ADD-ON
+// ============================================
+
+const AFFILIATE_ADDON_CONFIG = {
+  standard: {
+    name: 'AE Affiliate Add-on',
+    monthlyPrice: 900, // $9/month in cents
+    variantId: process.env.LEMON_SQUEEZY_AFFILIATE_VARIANT_ID,
+    maxKeywordSets: 5,
+    maxProductsPerDay: 20,
+    features: [
+      'AliExpress product search by keywords',
+      'Affiliate link generation with commission tracking',
+      'Auto-post products to WhatsApp & Telegram',
+      'Product deduplication (no repeat posts)',
+      'Keyword-based automation scheduling'
+    ]
+  }
+};
+
+// Get affiliate add-on status
+router.get('/affiliate-addon', async (req, res) => {
+  try {
+    let addon = null;
+    try {
+      addon = await getAffiliateAddon(req.user.id);
+    } catch (dbErr) {
+      // Table may not exist yet — fall through
+      console.warn('[AFFILIATE-ADDON] DB lookup failed (table may not exist):', dbErr.message);
+    }
+
+    // DEV bypass: if no LS variant configured, treat as active for testing
+    if (!addon && !process.env.LEMON_SQUEEZY_AFFILIATE_VARIANT_ID) {
+      addon = { id: 'dev-bypass', user_id: req.user.id, status: 'active', plan: 'standard' };
+    }
+
+    res.json({
+      addon: addon || null,
+      config: AFFILIATE_ADDON_CONFIG,
+      isActive: addon?.status === 'active'
+    });
+  } catch (error) {
+    console.error('[AFFILIATE-ADDON] Error fetching addon:', error);
+    res.status(500).json({ error: 'Failed to fetch affiliate add-on status' });
+  }
+});
+
+// Create affiliate add-on checkout
+router.post('/affiliate-checkout', async (req, res) => {
+  console.log('[AFFILIATE-CHECKOUT] POST /affiliate-checkout - User:', req.user?.id);
+  try {
+    // Verify user has at least starter tier
+    const tierHierarchy = { free: 0, starter: 1, growth: 2, business: 3 };
+    const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
+
+    if (userTierLevel < 1) {
+      return res.status(403).json({
+        error: 'AE Affiliate add-on requires a paid subscription (Starter or higher)'
+      });
+    }
+
+    // Check if already has active addon
+    const existingAddon = await getAffiliateAddon(req.user.id);
+    if (existingAddon?.status === 'active') {
+      return res.status(400).json({ error: 'AE Affiliate add-on is already active' });
+    }
+
+    const addonConfig = AFFILIATE_ADDON_CONFIG.standard;
+
+    if (!addonConfig.variantId) {
+      console.error('[AFFILIATE-CHECKOUT] Missing affiliate variant ID');
+      return res.status(500).json({ error: 'Affiliate add-on configuration error' });
+    }
+
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+    const checkoutData = buildCheckoutData(
+      req.user,
+      { user_id: req.user.id, addon_type: 'affiliate' },
+      billing,
+      '[AFFILIATE-CHECKOUT]'
+    );
+
+    const checkoutPayload = {
+      data: {
+        type: 'checkouts',
+        attributes: {
+          checkout_data: checkoutData,
+          product_options: {
+            name: addonConfig.name,
+            description: addonConfig.features.join(', '),
+            receipt_thank_you_note: 'Thank you for activating AE Affiliate! Your affiliate product dashboard is now available.'
+          },
+          checkout_options: {
+            embed: true,
+            media: false,
+            logo: false,
+            desc: false,
+            discount: false,
+            subscription_preview: true,
+            button_color: '#6366F1'
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: 'stores',
+              id: process.env.LEMON_SQUEEZY_STORE_ID
+            }
+          },
+          variant: {
+            data: {
+              type: 'variants',
+              id: addonConfig.variantId
+            }
+          }
+        }
+      }
+    };
+
+    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+      },
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[AFFILIATE-CHECKOUT] Lemon Squeezy error:', data);
+      return res.status(500).json({ error: 'Failed to create affiliate checkout session' });
+    }
+
+    const checkoutUrl = data.data.attributes.url;
+    logLsCheckoutResponse(data, '[AFFILIATE-CHECKOUT]');
+
+    res.json({
+      checkoutUrl,
+      expiresAt: data.data.attributes.expires_at
+    });
+  } catch (error) {
+    console.error('[AFFILIATE-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create affiliate checkout session' });
+  }
+});
+
+// Cancel affiliate add-on
+router.post('/affiliate-cancel', async (req, res) => {
+  console.log('[AFFILIATE-CANCEL] POST /affiliate-cancel - User:', req.user?.id);
+  try {
+    const addon = await getAffiliateAddon(req.user.id);
+
+    if (!addon || !addon.ls_subscription_id) {
+      return res.status(404).json({ error: 'No active affiliate add-on found' });
+    }
+
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Content-Type': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        },
+        body: JSON.stringify({
+          data: {
+            type: 'subscriptions',
+            id: addon.ls_subscription_id,
+            attributes: { cancelled: true }
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[AFFILIATE-CANCEL] LS API Error:', errorData);
+      return res.status(500).json({ error: 'Failed to cancel affiliate add-on' });
+    }
+
+    const data = await response.json();
+
+    await updateAffiliateAddon(req.user.id, {
+      status: 'cancelled'
+    });
+
+    res.json({
+      message: 'AE Affiliate add-on will be cancelled at the end of the billing period',
+      endsAt: data.data.attributes.ends_at
+    });
+  } catch (error) {
+    console.error('[AFFILIATE-CANCEL] Error:', error);
+    res.status(500).json({ error: 'Failed to cancel affiliate add-on' });
   }
 });
 
@@ -1392,15 +1752,19 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   console.log('Custom data:', customData);
 
   try {
-    // Route marketing add-on events vs main subscription events
+    // Route add-on events vs main subscription events
     const isMarketingAddon = customData?.addon_type === 'marketing';
+    const isAffiliateAddon = customData?.addon_type === 'affiliate';
 
     if (isMarketingAddon && eventName === 'subscription_created') {
       await handleMarketingAddonCreated(payload, customData);
-    } else if (!isMarketingAddon) {
-      // Check if this is a marketing addon update (by checking existing record)
+    } else if (isAffiliateAddon && eventName === 'subscription_created') {
+      await handleAffiliateAddonCreated(payload, customData);
+    } else if (!isMarketingAddon && !isAffiliateAddon) {
+      // Check if this is an add-on update (by checking existing records)
       const subscriptionId = payload.data?.id;
       const existingMarketingAddon = subscriptionId ? await getMarketingAddonByLsId(String(subscriptionId)) : null;
+      const existingAffiliateAddon = !existingMarketingAddon && subscriptionId ? await getAffiliateAddonByLsId(String(subscriptionId)) : null;
 
       if (existingMarketingAddon) {
         // This is a marketing addon event
@@ -1421,6 +1785,26 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             break;
           default:
             console.log(`[WEBHOOK] Unhandled marketing addon event: ${eventName}`);
+        }
+      } else if (existingAffiliateAddon) {
+        // This is an affiliate addon event
+        switch (eventName) {
+          case 'subscription_updated':
+          case 'subscription_payment_success':
+            await handleAffiliateAddonUpdated(payload, existingAffiliateAddon);
+            break;
+          case 'subscription_cancelled':
+            await handleAffiliateAddonCancelled(existingAffiliateAddon);
+            break;
+          case 'subscription_expired':
+            await handleAffiliateAddonExpired(existingAffiliateAddon);
+            break;
+          case 'subscription_payment_failed':
+            await updateAffiliateAddon(existingAffiliateAddon.user_id, { status: 'past_due' });
+            console.log(`[WEBHOOK] Affiliate addon payment failed for user ${existingAffiliateAddon.user_id}`);
+            break;
+          default:
+            console.log(`[WEBHOOK] Unhandled affiliate addon event: ${eventName}`);
         }
       } else {
         // Standard subscription events
@@ -1793,33 +2177,40 @@ async function handleMarketingAddonCreated(payload, customData) {
 
   console.log(`[WEBHOOK] Creating marketing addon for user ${user_id}`);
 
+  const quantity = subscriptionData.quantity || 1;
+
   await upsertMarketingAddon({
     userId: user_id,
     status: 'active',
     lsSubscriptionId: String(subscriptionId),
     lsVariantId: String(subscriptionData.variant_id),
     plan: 'standard',
-    monthlyPrice: MARKETING_ADDON_CONFIG.standard.monthlyPrice,
-    maxAdAccounts: MARKETING_ADDON_CONFIG.standard.maxAdAccounts,
+    monthlyPrice: MARKETING_ADDON_CONFIG.standard.monthlyPrice * quantity,
+    maxAdAccounts: quantity,
     currentPeriodStart: subscriptionData.created_at,
     currentPeriodEnd: subscriptionData.renews_at
   });
 
-  console.log(`[WEBHOOK] Marketing addon created successfully for user ${user_id}`);
+  console.log(`[WEBHOOK] Marketing addon created for user ${user_id}, quantity: ${quantity}, max_ad_accounts: ${quantity}`);
 }
 
 async function handleMarketingAddonUpdated(payload, existingAddon) {
   const subscriptionData = payload.data.attributes;
 
   const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+  const quantity = subscriptionData.quantity || 1;
 
-  await updateMarketingAddon(existingAddon.user_id, {
+  const updates = {
     status,
     current_period_start: subscriptionData.created_at,
-    current_period_end: subscriptionData.renews_at
-  });
+    current_period_end: subscriptionData.renews_at,
+    max_ad_accounts: quantity,
+    monthly_price: MARKETING_ADDON_CONFIG.standard.monthlyPrice * quantity
+  };
 
-  console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}`);
+  await updateMarketingAddon(existingAddon.user_id, updates);
+
+  console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}, quantity: ${quantity}, max_ad_accounts: ${quantity}`);
 }
 
 async function handleMarketingAddonCancelled(existingAddon) {
@@ -1836,6 +2227,68 @@ async function handleMarketingAddonExpired(existingAddon) {
   });
 
   console.log(`[WEBHOOK] Marketing addon expired for user ${existingAddon.user_id}`);
+}
+
+// ============================================
+// AFFILIATE ADD-ON WEBHOOK HANDLERS
+// ============================================
+
+async function handleAffiliateAddonCreated(payload, customData) {
+  const { user_id } = customData;
+  const subscriptionData = payload.data.attributes;
+  const subscriptionId = payload.data.id;
+
+  if (!user_id) {
+    console.error('[WEBHOOK] No user_id in custom_data for affiliate addon creation');
+    return;
+  }
+
+  console.log(`[WEBHOOK] Creating affiliate addon for user ${user_id}`);
+
+  await upsertAffiliateAddon({
+    userId: user_id,
+    status: 'active',
+    lsSubscriptionId: String(subscriptionId),
+    lsVariantId: String(subscriptionData.variant_id),
+    plan: 'standard',
+    monthlyPrice: AFFILIATE_ADDON_CONFIG.standard.monthlyPrice,
+    maxKeywordSets: AFFILIATE_ADDON_CONFIG.standard.maxKeywordSets,
+    maxProductsPerDay: AFFILIATE_ADDON_CONFIG.standard.maxProductsPerDay,
+    currentPeriodStart: subscriptionData.created_at,
+    currentPeriodEnd: subscriptionData.renews_at
+  });
+
+  console.log(`[WEBHOOK] Affiliate addon created successfully for user ${user_id}`);
+}
+
+async function handleAffiliateAddonUpdated(payload, existingAddon) {
+  const subscriptionData = payload.data.attributes;
+
+  const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+
+  await updateAffiliateAddon(existingAddon.user_id, {
+    status,
+    current_period_start: subscriptionData.created_at,
+    current_period_end: subscriptionData.renews_at
+  });
+
+  console.log(`[WEBHOOK] Affiliate addon updated for user ${existingAddon.user_id}, status: ${status}`);
+}
+
+async function handleAffiliateAddonCancelled(existingAddon) {
+  await updateAffiliateAddon(existingAddon.user_id, {
+    status: 'cancelled'
+  });
+
+  console.log(`[WEBHOOK] Affiliate addon cancelled for user ${existingAddon.user_id}`);
+}
+
+async function handleAffiliateAddonExpired(existingAddon) {
+  await updateAffiliateAddon(existingAddon.user_id, {
+    status: 'expired'
+  });
+
+  console.log(`[WEBHOOK] Affiliate addon expired for user ${existingAddon.user_id}`);
 }
 
 // ============================================

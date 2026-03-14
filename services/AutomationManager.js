@@ -36,6 +36,9 @@ import {
 import testProgressEmitter from './TestProgressEmitter.js';
 import TokenManager from './TokenManager.js';
 import { updateAgent as updateAgentInDb } from './database-wrapper.js';
+import AffiliateCredentialManager from './AffiliateCredentialManager.js';
+import AffiliateProductFetcher from './AffiliateProductFetcher.js';
+import { getAffiliateAddon, recordAffiliatePublishedProduct } from './database-wrapper.js';
 import '../config/env.js';
 
 // Initialize logger
@@ -268,6 +271,12 @@ class AutomationManager {
     if (!canPost) {
       agentLog('warn', `Rate limited for ${platform}, skipping`);
       return { success: false, error: 'rate_limited' };
+    }
+
+    // 1.5. Check if this is an affiliate product agent — use separate flow
+    const contentSource = settings.contentSource || 'news';
+    if (contentSource === 'affiliate_products') {
+      return await this.processAffiliateAgent(agent, agentLog);
     }
 
     // 2. Get trending content based on agent's topics/keywords
@@ -505,6 +514,107 @@ class AutomationManager {
         error: publishResult.error
       };
     }
+  }
+
+  /**
+   * Process an affiliate product agent — fetches product, generates content, publishes.
+   * Separate flow from news agents but reuses the publishing infrastructure.
+   * @param {Object} agent - Agent with contentSource: 'affiliate_products'
+   * @param {Function} agentLog - Scoped logger
+   * @returns {Object} { success, error? }
+   */
+  async processAffiliateAgent(agent, agentLog) {
+    const userId = agent.user_id;
+    const platform = agent.platform;
+
+    // 1. Verify user has active affiliate add-on
+    const addon = await getAffiliateAddon(userId);
+    if (!addon || addon.status !== 'active') {
+      agentLog('warn', 'Affiliate add-on not active — pausing agent');
+      await updateAgentInDb(agent.id, { status: 'paused' });
+      return { success: false, error: 'addon_inactive' };
+    }
+
+    // 2. Load AE credentials
+    const credentials = await AffiliateCredentialManager.getCredentials(userId);
+    if (!credentials || credentials.status !== 'active') {
+      agentLog('warn', 'AE credentials not configured or invalid — skipping');
+      return { success: false, error: 'credentials_invalid' };
+    }
+
+    // 3. Fetch best product for this agent
+    let product;
+    try {
+      product = await AffiliateProductFetcher.getProductForAgent(agent, credentials);
+    } catch (fetchError) {
+      agentLog('error', `Product fetch failed: ${fetchError.message}`);
+      return { success: false, error: 'product_fetch_failed' };
+    }
+
+    if (!product) {
+      agentLog('info', 'No suitable product found (all published or no matches)');
+      return { success: false, error: 'no_product' };
+    }
+
+    agentLog('info', `Selected product: "${product.title.slice(0, 60)}..." (${product.commissionRate}% commission)`);
+
+    // 4. Check subscription quota before expensive content generation
+    const quotaCheck = await checkAndDecrementPostQuota(userId);
+    if (!quotaCheck.allowed) {
+      agentLog('warn', `Post quota exceeded: ${quotaCheck.error}`);
+      return { success: false, error: quotaCheck.error };
+    }
+
+    // 5. Generate content
+    let content;
+    try {
+      content = await this.contentGenerator.generateAffiliateContent(product, platform, agent.settings);
+    } catch (genError) {
+      agentLog('error', `Affiliate content generation failed: ${genError.message}`);
+      return { success: false, error: 'content_generation_failed' };
+    }
+
+    // 6. Publish via existing infrastructure
+    const publishResult = await this.publishForAgent(agent, content, {
+      title: product.title,
+      url: product.affiliateUrl,
+      urlToImage: product.imageUrl
+    });
+
+    if (publishResult.success) {
+      // 7. Record published product for deduplication
+      try {
+        await recordAffiliatePublishedProduct({
+          userId,
+          agentId: agent.id,
+          productId: product.productId,
+          platform,
+          productTitle: product.title,
+          productUrl: product.productUrl,
+          affiliateUrl: product.affiliateUrl,
+          commissionRate: product.commissionRate,
+          salePrice: product.salePrice,
+          imageUrl: product.imageUrl
+        });
+      } catch (recordError) {
+        agentLog('warn', `Failed to record published product (dedup may not work): ${recordError.message}`);
+      }
+
+      // 8. Increment agent post counter + log automation
+      await incrementAgentPost(agent.id);
+      await logAgentAutomation(agent.id, userId, platform, {
+        contentType: 'affiliate_product',
+        productId: product.productId,
+        productTitle: product.title,
+        commissionRate: product.commissionRate
+      });
+
+      agentLog('info', `Successfully published affiliate product to ${platform}`);
+      return { success: true };
+    }
+
+    agentLog('error', `Failed to publish affiliate product: ${publishResult.error}`);
+    return { success: false, error: publishResult.error };
   }
 
   /**

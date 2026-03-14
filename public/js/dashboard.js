@@ -42,6 +42,7 @@ async function loadUserProfile() {
         if (response.ok) {
             const data = await response.json();
             currentUser = data.user;
+            window.currentUser = currentUser; // Expose for analytics module
             updateUI();
         } else {
             logout();
@@ -321,42 +322,11 @@ function displayPosts(posts) {
     `).join('');
 }
 
-// Load analytics
+// Load analytics — delegates to analytics.js module
 async function loadAnalytics() {
-    try {
-        const response = await fetch(`${API_URL}/analytics/overview`, {
-            headers: { 'Authorization': `Bearer ${authToken}` }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            displayAnalytics(data.analytics);
-        }
-    } catch (error) {
-        console.error('Failed to load analytics:', error);
+    if (typeof window.loadAnalyticsSection === 'function') {
+        window.loadAnalyticsSection();
     }
-}
-
-// Display analytics
-function displayAnalytics(analytics) {
-    document.getElementById('totalPosts').textContent = analytics.totalPosts;
-    document.getElementById('successRate').textContent = analytics.successRate.toFixed(0) + '%';
-    
-    // Find most used platform
-    const platforms = Object.entries(analytics.platformBreakdown);
-    if (platforms.length > 0) {
-        const topPlatform = platforms.reduce((a, b) => a[1] > b[1] ? a : b);
-        document.getElementById('topPlatform').textContent = PLATFORMS[topPlatform[0]]?.name || topPlatform[0];
-    }
-    
-    // Platform breakdown
-    const breakdownContainer = document.getElementById('platformBreakdown');
-    breakdownContainer.innerHTML = platforms.map(([platform, count]) => `
-        <div class="flex justify-between items-center py-3">
-            <span class="text-ink-700">${PLATFORMS[platform]?.icon} ${PLATFORMS[platform]?.name || platform}</span>
-            <span class="text-brand-600 font-medium">${count} posts</span>
-        </div>
-    `).join('');
 }
 
 // Load subscription details
@@ -478,10 +448,11 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Expose functions to global scope for onclick handlers
+// Expose functions and state to global scope for onclick handlers and analytics module
 window.showSection = showSection;
 window.generatePost = generatePost;
 window.publishPost = publishPost;
 window.updateProfile = updateProfile;
 window.copyApiKey = copyApiKey;
 window.logout = logout;
+window.currentUser = currentUser;

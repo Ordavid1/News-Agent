@@ -58,10 +58,10 @@ async function processRefreshJob(job) {
       throw new Error('Connection not found');
     }
 
-    // Facebook and Instagram use long-lived tokens (60 days) that cannot be refreshed
+    // Facebook, Instagram, and AliExpress use long-lived tokens that cannot be reliably refreshed
     // via refresh_token. They must be renewed by re-authenticating.
     // Do NOT mark these as expired — the token is still valid until its natural expiry.
-    const NON_REFRESHABLE_PLATFORMS = ['facebook', 'instagram'];
+    const NON_REFRESHABLE_PLATFORMS = ['facebook', 'instagram', 'aliexpress'];
     if (NON_REFRESHABLE_PLATFORMS.includes(connection.platform) || !connection.refresh_token) {
       logger.info(`Skipping refresh for ${connection.platform} connection ${connection_id} — platform uses long-lived tokens without refresh`);
       // Mark job as completed (not failed) so it doesn't retry and expire the connection

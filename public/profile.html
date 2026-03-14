@@ -146,6 +146,15 @@
                             Marketing Pro+
                         </span>
                     </button>
+
+                    <button onclick="showTab('affiliate')" id="tab-affiliate" class="tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+                            </svg>
+                            AE Affiliate
+                        </span>
+                    </button>
                 </div>
                 <!-- Mobile fade gradient -->
                 <div class="absolute right-0 top-0 bottom-0 w-16 pointer-events-none transition-opacity duration-300 md:hidden" id="tabsFadeGradient" style="background: linear-gradient(to right, transparent, var(--bg-secondary));"></div>
@@ -709,6 +718,13 @@
                         <div class="flex items-center gap-2 flex-shrink-0">
                             <button onclick="cancelAddon()" id="cancelAddonBtn" class="text-sm text-red-500 hover:text-red-700 border border-red-300 hover:border-red-500 rounded-lg px-4 py-2 transition-colors whitespace-nowrap">
                                 Cancel Subscription
+                            </button>
+                            <button onclick="openMarketingPortal()" class="text-sm text-ink-500 hover:text-ink-700 border border-surface-300 hover:border-surface-400 rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex items-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                                Manage Billing
                             </button>
                             <div class="relative" id="adAccountDropdownWrapper">
                                 <button onclick="toggleAdAccountDropdown()" id="adAccountDropdownBtn" class="text-sm text-brand-600 hover:text-brand-700 border border-brand-300 hover:border-brand-500 bg-white rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex items-center gap-1.5">
@@ -1498,59 +1514,345 @@
             </div>
 
             <!-- ======================== -->
-            <!-- ANALYTICS TAB           -->
+            <!-- AFFILIATE TAB           -->
             <!-- ======================== -->
-            <div id="content-analytics" class="tab-content hidden">
-                <div class="card-gradient p-8 mb-8">
-                    <div id="agentStatusSection">
-                        <!-- Free User State -->
-                        <div id="freeUserState" class="text-center">
-                            <div class="mb-6">
-                                <div class="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 shadow-glow" style="background: var(--gradient-primary);">
-                                    <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            <div id="content-affiliate" class="tab-content hidden">
+
+                <!-- Affiliate Add-on Banner (inactive: purchase prompt) -->
+                <div id="affiliateAddonRequiredBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-brand-500">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-ink-800">AE Affiliate Add-on</h4>
+                                <p class="text-m text-ink-500">Monetize your WhatsApp groups and Telegram channels with AliExpress affiliate products. Auto-fetch, auto-post, earn commissions &mdash; $9/mo!</p>
+                            </div>
+                        </div>
+                        <button onclick="purchaseAffiliateAddon()" id="affiliatePurchaseBtn" class="btn-primary btn-sm whitespace-nowrap">
+                            Get AE Affiliate
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Active Affiliate Content (shown when add-on is active) -->
+                <div id="affiliateActiveContent" class="hidden">
+
+                    <!-- Active Banner -->
+                    <div class="mb-6 card-gradient p-6 border-l-4 border-l-green-500">
+                        <div class="flex items-center justify-between gap-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                     </svg>
                                 </div>
-                                <h3 class="text-2xl font-bold mb-2 gradient-text" style="font-family: 'Satoshi', sans-serif;">Launch Your News Agent</h3>
-                                <p class="text-ink-500">Transform trending news into viral social media content</p>
+                                <h4 class="font-semibold text-green-700">AE Affiliate Active</h4>
                             </div>
-                            <button id="launchAgentBtn" class="btn-primary rounded-full px-8 py-3 text-lg">
-                                Launch News Agent
-                            </button>
-                            <p class="text-sm text-ink-400 mt-4" id="launchHint">Connect a social platform and upgrade to get started</p>
-                        </div>
-
-                        <!-- Active User State (hidden by default) -->
-                        <div id="activeUserState" class="hidden">
-                            <div class="flex items-center justify-between mb-6">
-                                <div>
-                                    <h3 class="text-2xl font-bold mb-1 gradient-text" style="font-family: 'Satoshi', sans-serif;">Agent Status</h3>
-                                    <p class="text-ink-500">Your news agent is active and posting</p>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="status-dot status-dot-active"></div>
-                                    <span class="text-green-600 font-medium">Active</span>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
-                                    <p class="text-ink-500 text-sm mb-1">Posts Today</p>
-                                    <p class="text-2xl font-bold gradient-text" id="postsToday">0</p>
-                                </div>
-                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
-                                    <p class="text-ink-500 text-sm mb-1">Connected</p>
-                                    <p class="text-2xl font-bold gradient-text" id="connectedPlatforms">0</p>
-                                </div>
-                                <div class="bg-surface-0/80 rounded-xl p-4 border border-surface-200">
-                                    <p class="text-ink-500 text-sm mb-1">Posts Left</p>
-                                    <p class="text-2xl font-bold gradient-text" id="postsLeftToday">5</p>
-                                </div>
-                            </div>
-                            <button onclick="window.location.href='/settings.html'" class="btn-primary w-full py-3">
-                                Configure Agent Settings
+                            <button onclick="cancelAffiliateAddon()" id="cancelAffiliateAddonBtn" class="text-sm text-red-500 hover:text-red-700 border border-red-300 hover:border-red-500 rounded-lg px-4 py-2 transition-colors whitespace-nowrap">
+                                Cancel Subscription
                             </button>
                         </div>
                     </div>
+
+                    <!-- Affiliate Sub-Tab Navigation -->
+                    <div class="mb-8 relative">
+                        <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto">
+                            <button onclick="showAffiliateSubTab('credentials')" id="aff-tab-credentials" class="aff-tab-btn tab-btn tab-active whitespace-nowrap">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                                    </svg>
+                                    API Setup
+                                </span>
+                            </button>
+                            <button onclick="showAffiliateSubTab('keywords')" id="aff-tab-keywords" class="aff-tab-btn tab-btn whitespace-nowrap">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                                    </svg>
+                                    Keywords
+                                </span>
+                            </button>
+                            <button onclick="showAffiliateSubTab('products')" id="aff-tab-products" class="aff-tab-btn tab-btn whitespace-nowrap">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                    Product Preview
+                                </span>
+                            </button>
+                            <button onclick="showAffiliateSubTab('history')" id="aff-tab-history" class="aff-tab-btn tab-btn whitespace-nowrap">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    History
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-Tab: API Setup -->
+                    <div id="aff-content-credentials" class="aff-subtab-content">
+                        <div class="mb-6">
+                            <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Affiliate Setup</h3>
+                            <p class="text-ink-500 text-sm">Connect your AliExpress Affiliate account so product commissions are attributed to you.</p>
+                        </div>
+                        <div id="credentialStatusContainer">
+                            <div class="text-center py-6">
+                                <div class="loader mx-auto" style="width:24px;height:24px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-Tab: Keywords -->
+                    <div id="aff-content-keywords" class="aff-subtab-content hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <div>
+                                <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Keyword Sets</h3>
+                                <p class="text-ink-500 text-sm">Define keyword sets to control which products your agents search for and post.</p>
+                            </div>
+                            <button onclick="showKeywordModal()" class="btn-primary btn-sm">
+                                <span class="flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    Add Keywords
+                                </span>
+                            </button>
+                        </div>
+                        <div id="keywordsContainer">
+                            <div class="text-center py-6">
+                                <div class="loader mx-auto" style="width:24px;height:24px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-Tab: Product Preview -->
+                    <div id="aff-content-products" class="aff-subtab-content hidden">
+                        <div class="mb-6">
+                            <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Product Preview</h3>
+                            <p class="text-ink-500 text-sm">Search AliExpress products to preview what your agents will post.</p>
+                        </div>
+                        <div class="flex gap-3 mb-6">
+                            <input type="text" id="previewKeywords" class="input-field flex-1" placeholder="Search keywords (e.g., wireless earbuds, phone cases)">
+                            <button onclick="previewProducts()" class="btn-primary btn-sm whitespace-nowrap">Search</button>
+                            <button onclick="previewHotProducts()" class="btn-secondary btn-sm whitespace-nowrap">Hot Products</button>
+                        </div>
+                        <div id="productPreviewContainer">
+                            <div class="text-center py-8 text-ink-400">
+                                <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
+                                <p class="font-medium mb-1">Search for products</p>
+                                <p class="text-sm">Enter keywords above to preview AliExpress affiliate products.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-Tab: History -->
+                    <div id="aff-content-history" class="aff-subtab-content hidden">
+                        <div class="mb-6">
+                            <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Published Products</h3>
+                            <p class="text-ink-500 text-sm">Products posted through your affiliate agents.</p>
+                        </div>
+                        <div id="historyContainer">
+                            <div class="text-center py-6">
+                                <div class="loader mx-auto" style="width:24px;height:24px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Keyword Modal -->
+            <div id="keywordModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+                <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 id="keywordModalTitle" class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Create Keyword Set</h3>
+                        <button onclick="closeKeywordModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-ink-600 mb-1">Set Name</label>
+                            <input type="text" id="kwName" class="input-field" placeholder="e.g., Tech Gadgets">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-600 mb-1">Keywords <span class="text-red-500">*</span></label>
+                            <input type="text" id="kwKeywords" class="input-field" placeholder="wireless earbuds, bluetooth speaker, phone case">
+                            <p class="text-xs text-ink-400 mt-1">Comma-separated. Products matching any keyword will be fetched.</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-ink-600 mb-1">Category (optional)</label>
+                            <input type="text" id="kwCategory" class="input-field" placeholder="e.g., Electronics">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Min Price ($)</label>
+                                <input type="number" id="kwMinPrice" class="input-field" placeholder="0" step="0.01" min="0">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Max Price ($)</label>
+                                <input type="number" id="kwMaxPrice" class="input-field" placeholder="100" step="0.01" min="0">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Min Commission (%)</label>
+                                <input type="number" id="kwMinCommission" class="input-field" placeholder="3" step="0.1" min="0" max="100">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Min Rating</label>
+                                <input type="number" id="kwMinRating" class="input-field" placeholder="4.0" step="0.1" min="0" max="5">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-ink-600 mb-1">Min Orders</label>
+                            <input type="number" id="kwMinOrders" class="input-field" placeholder="100" min="0">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Sort By</label>
+                                <select id="kwSortBy" class="input-field">
+                                    <option value="commission_rate">Commission Rate</option>
+                                    <option value="volume">Sales Volume</option>
+                                    <option value="price_asc">Price (Low to High)</option>
+                                    <option value="price_desc">Price (High to Low)</option>
+                                    <option value="rating">Rating</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-600 mb-1">Currency</label>
+                                <select id="kwCurrency" class="input-field">
+                                    <option value="USD">USD</option>
+                                    <option value="EUR">EUR</option>
+                                    <option value="GBP">GBP</option>
+                                    <option value="ILS">ILS</option>
+                                    <option value="AUD">AUD</option>
+                                    <option value="CAD">CAD</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3 mt-6 pt-4 border-t border-surface-200">
+                        <button onclick="closeKeywordModal()" class="btn-secondary flex-1 py-3">Cancel</button>
+                        <button onclick="submitKeyword()" id="keywordModalSubmitBtn" class="btn-primary flex-1 py-3">Create</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- ANALYTICS TAB           -->
+            <!-- ======================== -->
+            <div id="content-analytics" class="tab-content hidden">
+
+                <!-- Header + Period Selector -->
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <h2 class="text-2xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">Analytics</h2>
+                    <div class="flex gap-1 bg-surface-100 rounded-lg p-1">
+                        <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="7d" onclick="setAnalyticsPeriod('7d')">7D</button>
+                        <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-brand-600 text-white" data-period="30d" onclick="setAnalyticsPeriod('30d')">30D</button>
+                        <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="90d" onclick="setAnalyticsPeriod('90d')">90D</button>
+                        <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="all" onclick="setAnalyticsPeriod('all')">All</button>
+                    </div>
+                </div>
+
+                <!-- Loading Skeleton -->
+                <div id="analyticsLoading" class="hidden">
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                        <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                    </div>
+                    <div class="card-static p-6 mb-6 animate-pulse"><div class="h-64 bg-surface-200 rounded"></div></div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div class="card-static p-6 animate-pulse"><div class="h-48 bg-surface-200 rounded"></div></div>
+                        <div class="card-static p-6 animate-pulse"><div class="h-48 bg-surface-200 rounded"></div></div>
+                    </div>
+                </div>
+
+                <!-- Analytics Content -->
+                <div id="analyticsContent" class="space-y-6">
+
+                    <!-- 1. Overview KPIs -->
+                    <div id="analyticsOverview"></div>
+
+                    <!-- 2. Publishing Activity -->
+                    <div class="card-static p-6">
+                        <h3 class="text-lg font-bold text-ink-800 mb-4">Publishing Activity</h3>
+                        <div id="analyticsActivity"></div>
+                    </div>
+
+                    <!-- 3 & 4. Platform + Agent Performance -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Platform Performance</h3>
+                            <div id="analyticsPlatforms"></div>
+                        </div>
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Agent Performance</h3>
+                            <div id="analyticsAgents"></div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Content & Timing Insights -->
+                    <div class="card-static p-6">
+                        <h3 class="text-lg font-bold text-ink-800 mb-4">Content & Timing Insights</h3>
+                        <div id="analyticsContentInsights"></div>
+                    </div>
+
+                    <!-- 6 & 7. Quota + Connections -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Quota & Usage</h3>
+                            <div id="analyticsQuota"></div>
+                        </div>
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Connection Health</h3>
+                            <div id="analyticsConnections"></div>
+                        </div>
+                    </div>
+
+                    <!-- 8. Marketing Summary (conditional) -->
+                    <div id="analyticsMarketingSection" class="hidden">
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Marketing Overview</h3>
+                            <div id="analyticsMarketing"></div>
+                        </div>
+                    </div>
+
+                    <!-- 9. Affiliate Summary (conditional) -->
+                    <div id="analyticsAffiliateSection" class="hidden">
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Affiliate Products</h3>
+                            <div id="analyticsAffiliate"></div>
+                        </div>
+                    </div>
+
+                    <!-- 10. Export -->
+                    <div id="analyticsExportSection" class="hidden">
+                        <div class="card-static p-6">
+                            <h3 class="text-lg font-bold text-ink-800 mb-4">Export Data</h3>
+                            <div id="analyticsExport"></div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -1864,6 +2166,43 @@
     <!-- ======================== -->
 
     <!-- Boost Post Modal -->
+    <!-- Add Ad Account Confirmation Modal -->
+    <div id="addAdAccountModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Add Ad Account</h3>
+                <button onclick="closeAddAdAccountModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="bg-surface-50 rounded-xl p-4 mb-6 border border-surface-200">
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-sm text-ink-500">Current accounts</span>
+                    <span class="text-sm font-semibold text-ink-700" id="addAccModalCurrent">1</span>
+                </div>
+                <div class="flex justify-between items-center mb-3">
+                    <span class="text-sm text-ink-500">Adding</span>
+                    <span class="text-sm font-semibold text-green-600">+1 ad account</span>
+                </div>
+                <div class="border-t border-surface-200 pt-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-medium text-ink-700">New monthly total</span>
+                        <span class="text-lg font-bold text-ink-800" id="addAccModalNewTotal">$38/mo</span>
+                    </div>
+                    <p class="text-xs text-ink-400 mt-1">Your card on file will be charged the prorated amount for the remaining billing period.</p>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeAddAdAccountModal()" class="btn-secondary flex-1">Cancel</button>
+                <button onclick="confirmAddAdAccount()" id="confirmAddAccBtn" class="btn-primary flex-1">
+                    Confirm & Add Account
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="boostModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden">
         <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-6">
@@ -2117,13 +2456,16 @@
 
     <!-- Scripts -->
     <script src="/js/animations.js"></script>
+    <script src="/js/chart.min.js"></script>
     <script src="js/profile.js?v=6"></script>
+    <script src="/js/analytics.js"></script>
     <script>
         // Flag for marketing.js to detect embedded mode
         window._profileJsLoaded = true;
 
-        // Trigger marketing initialization when the Marketing tab is shown
+        // Trigger marketing/affiliate initialization when their tabs are shown
         let _mktInitialized = false;
+        let _affInitialized = false;
         const _origShowTab = showTab;
         showTab = function(tabName) {
             _origShowTab(tabName);
@@ -2133,9 +2475,16 @@
                     initMarketing();
                 }
             }
+            if (tabName === 'affiliate' && !_affInitialized) {
+                _affInitialized = true;
+                if (typeof initAffiliate === 'function') {
+                    initAffiliate();
+                }
+            }
         };
     </script>
     <script src="/js/marketing.js"></script>
+    <script src="/js/affiliate.js"></script>
     <script src="/js/cookieConsent.js"></script>
     <script>
         // Tab scroll indicator logic

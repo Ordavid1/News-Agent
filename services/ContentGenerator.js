@@ -15,6 +15,7 @@ import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/compon
 import { getTikTokSystemPrompt, getTikTokUserPrompt } from '../public/components/tiktokPrompts.mjs';
 import { getYouTubeSystemPrompt, getYouTubeUserPrompt } from '../public/components/youtubePrompts.mjs';
 import { getVideoPromptSystemPrompt, getVideoPromptUserPrompt, getVideoRephraseSystemPrompt, getVideoRephraseUserPrompt } from '../public/components/videoPrompts.mjs';
+import { getAffiliateWhatsAppSystemPrompt, getAffiliateWhatsAppUserPrompt, getAffiliateTelegramSystemPrompt, getAffiliateTelegramUserPrompt } from '../public/components/affiliateProductPrompts.mjs';
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -173,6 +174,67 @@ class ContentGenerator {
       
     } catch (error) {
       logger.error(`Failed to generate content for ${platform}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate content for an affiliate product (WhatsApp or Telegram)
+   * @param {Object} product - Normalized product object from AffiliateProductFetcher
+   * @param {string} platform - 'whatsapp' or 'telegram'
+   * @param {Object} agentSettings - User's agent settings
+   * @returns {Object} { text, platform, product, generatedAt }
+   */
+  async generateAffiliateContent(product, platform, agentSettings = {}) {
+    try {
+      let systemPrompt, userPrompt;
+
+      if (platform === 'whatsapp') {
+        systemPrompt = getAffiliateWhatsAppSystemPrompt(agentSettings);
+        userPrompt = getAffiliateWhatsAppUserPrompt(product, agentSettings);
+      } else if (platform === 'telegram') {
+        systemPrompt = getAffiliateTelegramSystemPrompt(agentSettings);
+        userPrompt = getAffiliateTelegramUserPrompt(product, agentSettings);
+      } else {
+        throw new Error(`Affiliate content generation not supported for platform: ${platform}. Only whatsapp and telegram are supported.`);
+      }
+
+      const config = {
+        model: 'gpt-5-nano',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+      };
+
+      let content;
+
+      if (this.openai) {
+        const completion = await this.openai.chat.completions.create(config);
+        content = completion.choices[0].message.content;
+      } else {
+        // Mock content for testing
+        content = `🛒 *${product.title}*\n\n💰 ~$${product.originalPrice}~ → *$${product.salePrice}* (${product.discount}% OFF!)\n⭐ ${product.rating}/5 (${product.totalOrders}+ orders)\n\nGreat deal on this product!\n\n🔗 ${product.affiliateUrl}`;
+      }
+
+      logger.info(`Successfully generated ${platform} affiliate content for product ${product.productId}`);
+
+      return {
+        text: content,
+        platform,
+        contentType: 'affiliate_product',
+        product: {
+          productId: product.productId,
+          title: product.title,
+          affiliateUrl: product.affiliateUrl,
+          imageUrl: product.imageUrl,
+          salePrice: product.salePrice
+        },
+        generatedAt: new Date().toISOString()
+      };
+
+    } catch (error) {
+      logger.error(`Failed to generate affiliate content for ${platform}:`, error);
       throw error;
     }
   }

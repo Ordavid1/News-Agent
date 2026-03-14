@@ -37,6 +37,7 @@ import connectionsRoutes from './routes/connections.js';
 import agentsRoutes from './routes/agents.js';
 import redditRoutes from './routes/reddit.js';
 import marketingRoutes from './routes/marketing.js';
+import affiliateRoutes from './routes/affiliate.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -219,7 +220,8 @@ async function handleMarketingAddonWebhook(eventName, payload, customData, exist
         return;
       }
 
-      console.log(`[WEBHOOK] Creating marketing addon for user ${userId}`);
+      const quantity = subscriptionData.quantity || 1;
+      console.log(`[WEBHOOK] Creating marketing addon for user ${userId}, quantity: ${quantity}`);
 
       await db.upsertMarketingAddon({
         userId,
@@ -227,28 +229,49 @@ async function handleMarketingAddonWebhook(eventName, payload, customData, exist
         lsSubscriptionId: String(subscriptionId),
         lsVariantId: String(subscriptionData.variant_id),
         plan: 'standard',
-        monthlyPrice: 9900,
+        monthlyPrice: 1900 * quantity,
+        maxAdAccounts: quantity,
         currentPeriodStart: subscriptionData.created_at,
         currentPeriodEnd: subscriptionData.renews_at
       });
 
-      console.log(`[WEBHOOK] Marketing addon created successfully for user ${userId}`);
+      console.log(`[WEBHOOK] Marketing addon created for user ${userId}, quantity: ${quantity}`);
       break;
     }
 
     case 'subscription_updated':
     case 'subscription_payment_success': {
       if (!existingAddon) {
+        // Try lookup by user_id from custom_data as fallback
+        if (customData?.user_id) {
+          const { getMarketingAddon } = await import('./services/database-wrapper.js');
+          const addonByUser = await getMarketingAddon(customData.user_id);
+          if (addonByUser) {
+            console.log(`[WEBHOOK] Found marketing addon by user_id fallback, fixing ls_subscription_id from ${addonByUser.ls_subscription_id} to ${subscriptionId}`);
+            const quantity = subscriptionData.quantity || 1;
+            await db.updateMarketingAddon(addonByUser.user_id, {
+              ls_subscription_id: String(subscriptionId),
+              status: subscriptionData.status === 'active' ? 'active' : subscriptionData.status,
+              max_ad_accounts: quantity,
+              current_period_start: subscriptionData.created_at,
+              current_period_end: subscriptionData.renews_at
+            });
+            console.log(`[WEBHOOK] Marketing addon updated (fallback) for user ${addonByUser.user_id}, quantity: ${quantity}`);
+            return;
+          }
+        }
         console.error(`[WEBHOOK] Marketing addon not found for LS ID: ${subscriptionId}`);
         return;
       }
       const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+      const quantity = subscriptionData.quantity || 1;
       await db.updateMarketingAddon(existingAddon.user_id, {
         status,
+        max_ad_accounts: quantity,
         current_period_start: subscriptionData.created_at,
         current_period_end: subscriptionData.renews_at
       });
-      console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}`);
+      console.log(`[WEBHOOK] Marketing addon updated for user ${existingAddon.user_id}, status: ${status}, quantity: ${quantity}`);
       break;
     }
 
@@ -726,6 +749,7 @@ app.use('/api/agents', authenticateToken, csrfProtection, agentsRoutes); // Agen
 app.use('/api/connections', connectionsRoutes); // Social media connections (auth handled per-route, OAuth callbacks exempt)
 app.use('/api/reddit', authenticateToken, csrfProtection, redditRoutes); // Reddit-specific API (subreddit requirements, flairs)
 app.use('/api/marketing', marketingRoutes); // Marketing API (auth + CSRF + marketing addon handled in router)
+app.use('/api/affiliate', authenticateToken, csrfProtection, affiliateRoutes); // AE Affiliate API (affiliate addon middleware in router)
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

@@ -7,7 +7,7 @@
 // Marketing-specific state
 var adAccounts = [];
 var selectedAdAccount = null;
-var marketingAddonLimits = { maxAdAccounts: 1 };
+var marketingAddonLimits = { maxAdAccounts: 1, pricePerAccount: 19 };
 var boostablePosts = [];
 var campaigns = [];
 var audiences = [];
@@ -96,7 +96,8 @@ async function checkMarketingAddon() {
             if (data.addon && data.addon.status === 'active') {
                 // Store addon limits for use in UI enforcement
                 marketingAddonLimits = {
-                    maxAdAccounts: data.addon.max_ad_accounts || 1
+                    maxAdAccounts: data.addon.max_ad_accounts || 1,
+                    pricePerAccount: data.pricePerAccount || 19
                 };
 
                 // Hide the purchase banner
@@ -170,6 +171,25 @@ async function purchaseAddon() {
         showToast(error.message || 'Payment failed. Please try again.', 'error');
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+}
+
+async function openMarketingPortal() {
+    const token = localStorage.getItem('token');
+    try {
+        const response = await fetch('/api/subscriptions/marketing-portal', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.portalUrl) {
+                window.open(data.portalUrl, '_blank');
+            }
+        } else {
+            showToast('Unable to open billing portal', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
     }
 }
 
@@ -316,6 +336,43 @@ async function setupAdAccount() {
     }
 }
 
+async function discoverNewAdAccounts() {
+    const token = localStorage.getItem('token');
+    try {
+        showToast('Discovering ad accounts...', 'info');
+        const response = await fetch('/api/marketing/ad-accounts/discover', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            await loadAdAccounts();
+            populateAdAccountDropdown();
+            if (data.stored && data.stored.length > 0) {
+                showToast(`${data.stored.length} new ad account(s) added`, 'success');
+            } else {
+                showToast('No new ad accounts found. You may need to re-authorize Facebook.', 'warning');
+            }
+        } else {
+            const err = await response.json();
+            if (response.status === 403 && err.error?.includes('limit')) {
+                // Limit still not refreshed on server — reload addon
+                await checkMarketingAddon();
+                showToast('Please try adding the account again.', 'warning');
+            } else {
+                showToast(err.error || 'Failed to discover ad accounts', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Error discovering ad accounts:', error);
+        showToast('Network error discovering accounts', 'error');
+    }
+}
+
 // ============================================
 // AD ACCOUNT DROPDOWN (Banner)
 // ============================================
@@ -351,20 +408,19 @@ function populateAdAccountDropdown() {
     // Toggle the Add Account button based on limit
     const addBtn = document.getElementById('addAdAccountBtn');
     if (addBtn) {
+        // Button is always enabled — at limit it triggers the add-seat flow
+        addBtn.disabled = false;
+        addBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        addBtn.classList.add('hover:bg-brand-50');
         if (atLimit) {
-            addBtn.disabled = true;
-            addBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            addBtn.classList.remove('hover:bg-brand-50');
+            const price = marketingAddonLimits.pricePerAccount || 19;
             addBtn.innerHTML = `
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                 </svg>
-                Limit reached (${maxAccounts})
+                Add Account (+$${price}/mo)
             `;
         } else {
-            addBtn.disabled = false;
-            addBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            addBtn.classList.add('hover:bg-brand-50');
             addBtn.innerHTML = `
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
@@ -430,16 +486,87 @@ async function selectAdAccountFromDropdown(accountId) {
 }
 
 function addAdAccount() {
-    // Check limit before initiating
-    if (adAccounts.length >= marketingAddonLimits.maxAdAccounts) {
-        showToast(`Ad account limit reached (${marketingAddonLimits.maxAdAccounts}). Remove an existing account to add a new one.`, 'error');
-        return;
-    }
     // Close the dropdown
     document.getElementById('adAccountDropdown').classList.add('hidden');
     document.getElementById('adAccountChevron').style.transform = '';
-    // Initiate the marketing OAuth flow to discover new ad accounts
-    setupAdAccount();
+
+    if (adAccounts.length >= marketingAddonLimits.maxAdAccounts) {
+        // At limit — show payment confirmation modal
+        openAddAdAccountModal();
+        return;
+    }
+
+    // Under limit — go straight to Facebook OAuth to pick an account
+    initiateAdAccountOAuth();
+}
+
+function openAddAdAccountModal() {
+    const price = marketingAddonLimits.pricePerAccount || 19;
+    const currentCount = adAccounts.length;
+    const newTotal = (currentCount + 1) * price;
+
+    document.getElementById('addAccModalCurrent').textContent = currentCount;
+    document.getElementById('addAccModalNewTotal').textContent = `$${newTotal}/mo`;
+
+    const modal = document.getElementById('addAdAccountModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeAddAdAccountModal() {
+    const modal = document.getElementById('addAdAccountModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+async function confirmAddAdAccount() {
+    const btn = document.getElementById('confirmAddAccBtn');
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+
+    try {
+        const response = await apiPost('/api/subscriptions/marketing-add-account');
+        if (response.success) {
+            closeAddAdAccountModal();
+            showToast(`Ad account slot added! Monthly total: $${response.monthlyTotal}/mo`, 'success');
+            // Refresh addon limits so the new slot is recognized
+            await checkMarketingAddon();
+            // Now redirect to Facebook OAuth so user can pick which account to connect
+            initiateAdAccountOAuth();
+        } else {
+            showToast(response.error || 'Failed to add ad account slot', 'error');
+        }
+    } catch (error) {
+        console.error('Error adding ad account slot:', error);
+        showToast(error.message || 'Failed to add ad account slot', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Confirm & Add Account';
+    }
+}
+
+async function initiateAdAccountOAuth() {
+    const token = localStorage.getItem('token');
+    try {
+        const response = await fetch('/api/connections/facebook/marketing/initiate', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.alreadyAuthorized) {
+                // Already authorized — discover new accounts directly
+                await discoverNewAdAccounts();
+            } else if (data.authUrl) {
+                // Redirect to Facebook OAuth so user can authorize/pick accounts
+                window.location.href = data.authUrl;
+            }
+        } else {
+            const err = await response.json();
+            showToast(err.error || 'Failed to start Facebook authorization', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
 // Close dropdown when clicking outside

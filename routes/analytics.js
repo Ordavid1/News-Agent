@@ -1,145 +1,169 @@
 // routes/analytics.js
 import express from 'express';
-import { getAnalytics, getUsageStats } from '../services/database-wrapper.js';
-import { requireTier } from '../middleware/subscription.js';
+import { requireTier, requireMarketingAddon, requireAffiliateAddon } from '../middleware/subscription.js';
+import {
+  getOverviewAnalytics,
+  getActivityAnalytics,
+  getPlatformAnalytics,
+  getAgentAnalytics,
+  getContentAnalytics,
+  getQuotaAnalytics,
+  getConnectionHealthAnalytics,
+  getMarketingAnalytics,
+  getAffiliateAnalytics,
+  getExportData,
+  convertExportToCSV
+} from '../services/AnalyticsService.js';
 
 const router = express.Router();
 
-// Get basic analytics (available to all tiers)
+// ============================================
+// 1. OVERVIEW KPIs (All tiers)
+// ============================================
 router.get('/overview', async (req, res) => {
   try {
     const { period = '30d' } = req.query;
-    const analytics = await getAnalytics(req.user.id, period);
-    
-    res.json({
-      analytics,
-      period
-    });
+    const data = await getOverviewAnalytics(req.user.id, period);
+    res.json(data);
   } catch (error) {
-    console.error('Analytics error:', error);
-    res.status(500).json({ error: 'Failed to fetch analytics' });
+    console.error('Analytics overview error:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics overview' });
   }
 });
 
-// Get detailed usage stats (Growth tier and above)
-router.get('/usage', requireTier('growth'), async (req, res) => {
+// ============================================
+// 2. PUBLISHING ACTIVITY (All tiers, free capped to 7d)
+// ============================================
+router.get('/activity', async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
-    
-    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const end = endDate ? new Date(endDate) : new Date();
-    
-    const usageStats = await getUsageStats(req.user.id, start, end);
-    
-    // Process usage stats
-    const dailyUsage = {};
-    const platformUsage = {};
-    const hourlyDistribution = new Array(24).fill(0);
-    
-    usageStats.forEach(log => {
-      if (log.action === 'post_created') {
-        // Daily usage
-        const date = log.timestamp.toISOString().split('T')[0];
-        dailyUsage[date] = (dailyUsage[date] || 0) + 1;
-        
-        // Hourly distribution
-        const hour = log.timestamp.getHours();
-        hourlyDistribution[hour]++;
-        
-        // Platform usage
-        if (log.metadata?.platforms) {
-          log.metadata.platforms.forEach(platform => {
-            platformUsage[platform] = (platformUsage[platform] || 0) + 1;
-          });
-        }
-      }
-    });
-    
-    res.json({
-      dailyUsage,
-      platformUsage,
-      hourlyDistribution,
-      totalActions: usageStats.length,
-      period: {
-        start: start.toISOString(),
-        end: end.toISOString()
-      }
-    });
-    
+    const { period = '30d' } = req.query;
+    const tier = req.user.subscription?.tier || 'free';
+    const data = await getActivityAnalytics(req.user.id, period, tier);
+    res.json(data);
   } catch (error) {
-    console.error('Usage stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch usage statistics' });
+    console.error('Analytics activity error:', error);
+    res.status(500).json({ error: 'Failed to fetch activity analytics' });
   }
 });
 
-// Get performance metrics (Professional tier and above)
-router.get('/performance', requireTier('growth'), async (req, res) => {
+// ============================================
+// 3. PLATFORM PERFORMANCE (Starter+)
+// ============================================
+router.get('/platforms', requireTier('starter'), async (req, res) => {
   try {
-    // TODO: Implement performance tracking
-    // This would include engagement rates, best performing topics, optimal posting times, etc.
-    
-    res.json({
-      message: 'Performance analytics coming soon',
-      tier: req.user.subscription.tier
-    });
-    
+    const { period = '30d' } = req.query;
+    const data = await getPlatformAnalytics(req.user.id, period);
+    res.json(data);
   } catch (error) {
-    console.error('Performance analytics error:', error);
-    res.status(500).json({ error: 'Failed to fetch performance metrics' });
+    console.error('Platform analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch platform analytics' });
   }
 });
 
-// Export analytics data (Business tier only)
+// ============================================
+// 4. AGENT PERFORMANCE (Starter+)
+// ============================================
+router.get('/agents', requireTier('starter'), async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    const data = await getAgentAnalytics(req.user.id, period);
+    res.json(data);
+  } catch (error) {
+    console.error('Agent analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch agent analytics' });
+  }
+});
+
+// ============================================
+// 5. CONTENT & TIMING INSIGHTS (Growth+)
+// ============================================
+router.get('/content', requireTier('growth'), async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    const data = await getContentAnalytics(req.user.id, period);
+    res.json(data);
+  } catch (error) {
+    console.error('Content analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch content analytics' });
+  }
+});
+
+// ============================================
+// 6. QUOTA & USAGE (All tiers)
+// ============================================
+router.get('/quota', async (req, res) => {
+  try {
+    const data = await getQuotaAnalytics(req.user.id);
+    res.json(data);
+  } catch (error) {
+    console.error('Quota analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch quota analytics' });
+  }
+});
+
+// ============================================
+// 7. CONNECTION HEALTH (All tiers)
+// ============================================
+router.get('/connections', async (req, res) => {
+  try {
+    const data = await getConnectionHealthAnalytics(req.user.id);
+    res.json(data);
+  } catch (error) {
+    console.error('Connection analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch connection analytics' });
+  }
+});
+
+// ============================================
+// 8. MARKETING SUMMARY (Marketing add-on only)
+// ============================================
+router.get('/marketing', requireMarketingAddon(), async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    const data = await getMarketingAnalytics(req.user.id, period);
+    res.json(data);
+  } catch (error) {
+    console.error('Marketing analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch marketing analytics' });
+  }
+});
+
+// ============================================
+// 9. AFFILIATE SUMMARY (Affiliate add-on only)
+// ============================================
+router.get('/affiliate', requireAffiliateAddon(), async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    const data = await getAffiliateAnalytics(req.user.id, period);
+    res.json(data);
+  } catch (error) {
+    console.error('Affiliate analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch affiliate analytics' });
+  }
+});
+
+// ============================================
+// 10. EXPORT (Business tier only)
+// ============================================
 router.get('/export', requireTier('business'), async (req, res) => {
   try {
-    const { format = 'json', period = '30d' } = req.query;
-    
-    const analytics = await getAnalytics(req.user.id, period);
-    const usageStats = await getUsageStats(
-      req.user.id, 
-      new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      new Date()
-    );
-    
-    const exportData = {
-      user: {
-        id: req.user.id,
-        email: req.user.email,
-        subscription: req.user.subscription
-      },
-      analytics,
-      usage: usageStats,
-      exportDate: new Date().toISOString()
-    };
-    
+    const { format = 'json', period = '30d', sections = '' } = req.query;
+    const sectionList = sections ? sections.split(',').map(s => s.trim()) : [];
+
+    const exportData = await getExportData(req.user.id, period, sectionList);
+
     if (format === 'csv') {
-      // Convert to CSV format
-      const csv = convertToCSV(exportData);
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=analytics-export.csv');
+      const csv = convertExportToCSV(exportData);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=analytics-export-${period}.csv`);
       res.send(csv);
     } else {
       res.json(exportData);
     }
-    
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).json({ error: 'Failed to export analytics' });
   }
 });
-
-// Helper function to convert data to CSV
-function convertToCSV(data) {
-  // Simple CSV conversion - in production, use a proper CSV library
-  const rows = [];
-  rows.push('Date,Posts Created,Platform,Topic');
-  
-  // This is a simplified example
-  Object.entries(data.analytics.platformBreakdown).forEach(([platform, count]) => {
-    rows.push(`${new Date().toISOString()},${count},${platform},""`);
-  });
-  
-  return rows.join('\n');
-}
 
 export default router;

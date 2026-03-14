@@ -1376,6 +1376,498 @@ export async function updateMarketingAddon(userId, updates) {
 }
 
 // ============================================
+// AFFILIATE ADD-ON FUNCTIONS
+// ============================================
+
+/**
+ * Get affiliate add-on for a user
+ */
+export async function getAffiliateAddon(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_addons')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting affiliate addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Get affiliate add-on by Lemon Squeezy subscription ID
+ */
+export async function getAffiliateAddonByLsId(lsSubscriptionId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_addons')
+    .select('*')
+    .eq('ls_subscription_id', lsSubscriptionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting affiliate addon by LS ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create or update affiliate add-on for a user
+ */
+export async function upsertAffiliateAddon(addonData) {
+  const { userId, ...rest } = addonData;
+
+  const record = {
+    user_id: userId,
+    status: rest.status || 'active',
+    ls_subscription_id: rest.lsSubscriptionId,
+    ls_variant_id: rest.lsVariantId,
+    plan: rest.plan || 'standard',
+    monthly_price: rest.monthlyPrice || 0,
+    max_keyword_sets: rest.maxKeywordSets || 5,
+    max_products_per_day: rest.maxProductsPerDay || 20,
+    current_period_start: rest.currentPeriodStart,
+    current_period_end: rest.currentPeriodEnd,
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_addons')
+    .upsert(record, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting affiliate addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update affiliate add-on status
+ */
+export async function updateAffiliateAddon(userId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_addons')
+    .update(updateData)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating affiliate addon:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+// ============================================
+// AFFILIATE CREDENTIALS
+// ============================================
+
+/**
+ * Get affiliate credentials for a user
+ */
+export async function getAffiliateCredentials(userId, platform = 'aliexpress') {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_credentials')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform', platform)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting affiliate credentials:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create or update affiliate credentials for a user
+ */
+export async function upsertAffiliateCredentials(userId, credentialData) {
+  const record = {
+    user_id: userId,
+    platform: credentialData.platform || 'aliexpress',
+    app_key: credentialData.appKey,
+    app_secret: credentialData.appSecret,
+    tracking_id: credentialData.trackingId,
+    status: credentialData.status || 'active',
+    last_validated_at: credentialData.lastValidatedAt || null,
+    metadata: credentialData.metadata || {},
+    updated_at: new Date().toISOString()
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_credentials')
+    .upsert(record, { onConflict: 'user_id,platform' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error upserting affiliate credentials:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update affiliate credentials status/fields
+ */
+export async function updateAffiliateCredentials(userId, updates, platform = 'aliexpress') {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_credentials')
+    .update(updateData)
+    .eq('user_id', userId)
+    .eq('platform', platform)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating affiliate credentials:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete affiliate credentials for a user
+ */
+export async function deleteAffiliateCredentials(userId, platform = 'aliexpress') {
+  const { error } = await supabaseAdmin
+    .from('affiliate_credentials')
+    .delete()
+    .eq('user_id', userId)
+    .eq('platform', platform);
+
+  if (error) {
+    logger.error('Error deleting affiliate credentials:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Increment API call counter for affiliate credentials
+ */
+export async function incrementAffiliateApiCalls(userId, platform = 'aliexpress') {
+  const { data, error } = await supabaseAdmin
+    .rpc('increment_affiliate_api_calls', { p_user_id: userId, p_platform: platform });
+
+  // Fallback to manual increment if RPC not available
+  if (error) {
+    const creds = await getAffiliateCredentials(userId, platform);
+    if (creds) {
+      await updateAffiliateCredentials(userId, {
+        api_calls_today: (creds.api_calls_today || 0) + 1
+      }, platform);
+    }
+  }
+
+  return data;
+}
+
+// ============================================
+// AFFILIATE KEYWORDS
+// ============================================
+
+/**
+ * Get all keyword sets for a user
+ */
+export async function getAffiliateKeywords(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('Error getting affiliate keywords:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get active keyword sets for a user
+ */
+export async function getActiveAffiliateKeywords(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('Error getting active affiliate keywords:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get a single keyword set by ID
+ */
+export async function getAffiliateKeywordById(keywordId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .select('*')
+    .eq('id', keywordId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting affiliate keyword by ID:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Create a keyword set
+ */
+export async function createAffiliateKeyword(userId, keywordData) {
+  const record = {
+    user_id: userId,
+    name: keywordData.name || 'Default',
+    keywords: keywordData.keywords,
+    category: keywordData.category || null,
+    min_price: keywordData.minPrice || null,
+    max_price: keywordData.maxPrice || null,
+    min_commission_rate: keywordData.minCommissionRate || null,
+    min_rating: keywordData.minRating || null,
+    min_orders: keywordData.minOrders || null,
+    sort_by: keywordData.sortBy || 'commission_rate',
+    target_currency: keywordData.targetCurrency || 'USD',
+    is_active: keywordData.isActive !== undefined ? keywordData.isActive : true,
+    metadata: keywordData.metadata || {}
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .insert(record)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating affiliate keyword:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Update a keyword set
+ */
+export async function updateAffiliateKeyword(keywordId, updates) {
+  const updateData = { ...updates, updated_at: new Date().toISOString() };
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .update(updateData)
+    .eq('id', keywordId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating affiliate keyword:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Delete a keyword set
+ */
+export async function deleteAffiliateKeyword(keywordId) {
+  const { error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .delete()
+    .eq('id', keywordId);
+
+  if (error) {
+    logger.error('Error deleting affiliate keyword:', error);
+    throw error;
+  }
+
+  return true;
+}
+
+/**
+ * Count keyword sets for a user
+ */
+export async function countAffiliateKeywords(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('affiliate_keywords')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error counting affiliate keywords:', error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+// ============================================
+// AFFILIATE PUBLISHED PRODUCTS
+// ============================================
+
+/**
+ * Record a published product for deduplication
+ */
+export async function recordAffiliatePublishedProduct(data) {
+  const record = {
+    user_id: data.userId,
+    agent_id: data.agentId,
+    product_id: data.productId,
+    platform: data.platform,
+    product_title: data.productTitle || null,
+    product_url: data.productUrl || null,
+    affiliate_url: data.affiliateUrl || null,
+    commission_rate: data.commissionRate || null,
+    sale_price: data.salePrice || null,
+    image_url: data.imageUrl || null,
+    keyword_set_id: data.keywordSetId || null,
+    metadata: data.metadata || {}
+  };
+
+  const { data: result, error } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .upsert(record, { onConflict: 'agent_id,product_id,platform' })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error recording affiliate published product:', error);
+    throw error;
+  }
+
+  return result;
+}
+
+/**
+ * Check if a product has been published by an agent on a platform within the dedup window
+ */
+export async function isAffiliateProductPublished(agentId, productId, platform, dedupDays = 30) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - dedupDays);
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .select('id')
+    .eq('agent_id', agentId)
+    .eq('product_id', productId)
+    .eq('platform', platform)
+    .gte('published_at', cutoffDate.toISOString())
+    .limit(1);
+
+  if (error) {
+    logger.error('Error checking affiliate product published:', error);
+    return false;
+  }
+
+  return data && data.length > 0;
+}
+
+/**
+ * Get published products for a user (with pagination)
+ */
+export async function getAffiliatePublishedProducts(userId, { limit = 50, offset = 0 } = {}) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .select('*')
+    .eq('user_id', userId)
+    .order('published_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    logger.error('Error getting affiliate published products:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Get published product IDs for an agent (for dedup filtering)
+ */
+export async function getAgentPublishedProductIds(agentId, dedupDays = 30) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - dedupDays);
+
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .select('product_id')
+    .eq('agent_id', agentId)
+    .gte('published_at', cutoffDate.toISOString());
+
+  if (error) {
+    logger.error('Error getting agent published product IDs:', error);
+    return [];
+  }
+
+  return (data || []).map(row => row.product_id);
+}
+
+/**
+ * Get affiliate stats for a user
+ */
+export async function getAffiliateStats(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .select('platform, count(*)', { count: 'exact' })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error getting affiliate stats:', error);
+    return { totalProducts: 0, byPlatform: {} };
+  }
+
+  // Also get count of products published today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const { count: todayCount } = await supabaseAdmin
+    .from('affiliate_published_products')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('published_at', today.toISOString());
+
+  return {
+    totalProducts: data?.length || 0,
+    productsToday: todayCount || 0,
+    records: data || []
+  };
+}
+
+// ============================================
 // MARKETING - AD ACCOUNTS
 // ============================================
 
@@ -3522,5 +4014,30 @@ export default {
   getPerUsePurchaseByIdempotencyKey,
   updatePerUsePurchase,
   getUserPerUsePurchases,
-  getLatestUnusedPurchase
+  getLatestUnusedPurchase,
+  // Affiliate add-on functions
+  getAffiliateAddon,
+  getAffiliateAddonByLsId,
+  upsertAffiliateAddon,
+  updateAffiliateAddon,
+  // Affiliate credential functions
+  getAffiliateCredentials,
+  upsertAffiliateCredentials,
+  updateAffiliateCredentials,
+  deleteAffiliateCredentials,
+  incrementAffiliateApiCalls,
+  // Affiliate keyword functions
+  getAffiliateKeywords,
+  getActiveAffiliateKeywords,
+  getAffiliateKeywordById,
+  createAffiliateKeyword,
+  updateAffiliateKeyword,
+  deleteAffiliateKeyword,
+  countAffiliateKeywords,
+  // Affiliate published product functions
+  recordAffiliatePublishedProduct,
+  isAffiliateProductPublished,
+  getAffiliatePublishedProducts,
+  getAgentPublishedProductIds,
+  getAffiliateStats
 };

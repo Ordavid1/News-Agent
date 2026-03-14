@@ -136,6 +136,7 @@ async function loadUserProfile() {
         if (response.ok) {
             const data = await response.json();
             currentUser = data.user || data;
+            window.currentUser = currentUser; // Expose for analytics module
             updateProfileUI();
         } else if (response.status === 401) {
             localStorage.removeItem('token');
@@ -482,6 +483,11 @@ function showTab(tabName) {
     const url = new URL(window.location);
     url.searchParams.set('tab', tabName);
     window.history.replaceState({}, '', url);
+
+    // Load analytics dashboard when analytics tab is shown
+    if (tabName === 'analytics' && typeof window.loadAnalyticsSection === 'function') {
+        window.loadAnalyticsSection();
+    }
 }
 
 // Connect platform

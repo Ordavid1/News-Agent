@@ -87,6 +87,13 @@ const PLATFORM_CONFIGS = {
       'https://www.googleapis.com/auth/youtube.readonly'
     ],
     usePKCE: false
+  },
+  aliexpress: {
+    authUrl: 'https://api-sg.aliexpress.com/oauth/authorize',
+    tokenUrl: 'https://api-sg.aliexpress.com/auth/token/create',
+    userInfoUrl: null, // User info is embedded in the token exchange response
+    scopes: [],        // AliExpress doesn't use scopes in the OAuth flow
+    usePKCE: false
   }
 };
 
@@ -197,6 +204,12 @@ export function getAuthorizationUrl(userId, platform, redirectUrl = null) {
     params.append('prompt', 'consent');
   }
 
+  // AliExpress requires force_auth and doesn't use scopes
+  if (platform === 'aliexpress') {
+    params.set('force_auth', 'true');
+    params.delete('scope'); // AE doesn't use OAuth scopes
+  }
+
   return `${config.authUrl}?${params.toString()}`;
 }
 
@@ -265,6 +278,33 @@ export async function exchangeCodeForTokens(platform, code, state) {
     headers['Authorization'] = `Basic ${credentials}`;
     headers['User-Agent'] = 'NewsAgentSaaS/1.0';
     requestBody = tokenParams.toString();
+  } else if (platform === 'aliexpress') {
+    // AliExpress uses TOP protocol signing for token exchange (not standard OAuth)
+    const aeTokenParams = {
+      app_key: clientId,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: callbackUrl,
+      sp: 'ae',
+      timestamp: String(Date.now()),
+      sign_method: 'sha256',
+      v: '2.0'
+    };
+
+    // HMAC-SHA256 sign (same algorithm as AliExpressService._signRequest)
+    const sortedKeys = Object.keys(aeTokenParams).sort();
+    const concatenated = sortedKeys.reduce((acc, key) =>
+      acc + key + String(aeTokenParams[key]), '');
+    aeTokenParams.sign = crypto
+      .createHmac('sha256', clientSecret)
+      .update(concatenated, 'utf8')
+      .digest('hex')
+      .toUpperCase();
+
+    headers = { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' };
+    requestBody = Object.entries(aeTokenParams)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
   } else {
     // Other platforms use client credentials in body
     tokenParams.append('client_id', clientId);
@@ -311,6 +351,51 @@ export async function exchangeCodeForTokens(platform, code, state) {
     }
     tokens = rawTokens.data?.access_token ? rawTokens.data : rawTokens;
     logger.info(`TikTok token extracted — has access_token: ${!!tokens.access_token}, has open_id: ${!!tokens.open_id}`);
+  }
+
+  // AliExpress: user info is embedded in the token response; no separate userInfo call needed
+  if (platform === 'aliexpress') {
+    // Response: { access_token, refresh_token, user_id, user_nick, account, expire_time, sp, locale }
+    let aeExpiresIn = tokens.expires_in;
+    if (tokens.expire_time) {
+      // expire_time is a Unix timestamp (ms) — convert to seconds remaining
+      aeExpiresIn = Math.floor((parseInt(tokens.expire_time, 10) - Date.now()) / 1000);
+    }
+
+    const aeUserInfo = {
+      id: String(tokens.user_id || 'unknown'),
+      username: tokens.user_nick || tokens.account || 'AliExpress User',
+      displayName: tokens.user_nick || tokens.account || 'AliExpress User',
+      avatarUrl: null,
+      metadata: {
+        aliexpressUserId: tokens.user_id,
+        account: tokens.account || null,
+        locale: tokens.locale || null,
+        sp: tokens.sp || 'ae'
+      }
+    };
+
+    await TokenManager.storeTokens({
+      userId: stateData.userId,
+      platform,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token || null,
+      expiresIn: aeExpiresIn,
+      platformUserId: aeUserInfo.id,
+      platformUsername: aeUserInfo.username,
+      platformDisplayName: aeUserInfo.displayName,
+      platformMetadata: aeUserInfo.metadata,
+      scopes: config.scopes
+    });
+
+    logger.info(`AliExpress OAuth completed for user ${stateData.userId} (AE user: ${aeUserInfo.username})`);
+
+    return {
+      userId: stateData.userId,
+      platform,
+      userInfo: aeUserInfo,
+      redirectUrl: stateData.redirectUrl
+    };
   }
 
   // For Facebook/Instagram: exchange short-lived token for long-lived token (60 days)
@@ -1084,7 +1169,8 @@ function getClientId(platform) {
     instagram: 'FACEBOOK_APP_ID',    // Instagram uses the same Meta/Facebook App
     threads: 'FACEBOOK_APP_ID',      // Threads uses the same Meta/Facebook App
     tiktok: 'TIKTOK_CLIENT_KEY',
-    youtube: 'GOOGLE_CLIENT_ID'       // Reuses the existing Google OAuth app (same GCP project)
+    youtube: 'GOOGLE_CLIENT_ID',       // Reuses the existing Google OAuth app (same GCP project)
+    aliexpress: 'ALIEXPRESS_APP_KEY'
   };
   return process.env[envMap[platform]];
 }
@@ -1098,7 +1184,8 @@ function getClientSecret(platform) {
     instagram: 'FACEBOOK_APP_SECRET', // Instagram uses the same Meta/Facebook App
     threads: 'FACEBOOK_APP_SECRET',   // Threads uses the same Meta/Facebook App
     tiktok: 'TIKTOK_CLIENT_SECRET',
-    youtube: 'GOOGLE_CLIENT_SECRET'   // Reuses the existing Google OAuth app (same GCP project)
+    youtube: 'GOOGLE_CLIENT_SECRET',   // Reuses the existing Google OAuth app (same GCP project)
+    aliexpress: 'ALIEXPRESS_APP_SECRET'
   };
   return process.env[envMap[platform]];
 }

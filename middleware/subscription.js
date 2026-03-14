@@ -1,5 +1,5 @@
 // middleware/subscription.js
-import { getSubscription, updateUser, getMarketingAddon, getUserById, decrementPostsRemaining } from '../services/database-wrapper.js';
+import { getSubscription, updateUser, getMarketingAddon, getAffiliateAddon, getUserById, decrementPostsRemaining } from '../services/database-wrapper.js';
 
 export async function checkSubscriptionLimits(req, res, next) {
   try {
@@ -306,6 +306,79 @@ export function requireMarketingAddon() {
     } catch (error) {
       console.error('Marketing addon check error:', error);
       res.status(500).json({ error: 'Failed to verify marketing access' });
+    }
+  };
+}
+
+// ============================================
+// AFFILIATE ADD-ON
+// ============================================
+
+// Affiliate add-on feature limits by plan
+export const AFFILIATE_LIMITS = {
+  standard: {
+    maxKeywordSets: 5,
+    maxProductsPerDay: 20,
+    maxApiCallsPerDay: 5000
+  },
+  premium: {
+    maxKeywordSets: -1, // unlimited
+    maxProductsPerDay: -1,
+    maxApiCallsPerDay: 5000
+  }
+};
+
+/**
+ * Middleware to require an active affiliate add-on subscription.
+ * Also requires the user to be on at least a paid (starter) tier.
+ * Attaches the add-on record and limits to req.affiliateAddon and req.affiliateLimits.
+ */
+export function requireAffiliateAddon() {
+  const tierHierarchy = {
+    free: 0,
+    starter: 1,
+    growth: 2,
+    business: 3
+  };
+
+  return async (req, res, next) => {
+    try {
+      const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
+
+      if (userTierLevel < 1) {
+        return res.status(403).json({
+          error: 'AE Affiliate features require a paid subscription (Starter or higher)',
+          currentTier: req.user?.subscription?.tier || 'free'
+        });
+      }
+
+      let addon = null;
+      try {
+        addon = await getAffiliateAddon(req.user.id);
+      } catch (dbErr) {
+        // Table may not exist yet
+        console.warn('[requireAffiliateAddon] DB lookup failed:', dbErr.message);
+      }
+
+      // DEV bypass: if no LS variant configured, treat as active for testing
+      if (!addon && !process.env.LEMON_SQUEEZY_AFFILIATE_VARIANT_ID) {
+        addon = { id: 'dev-bypass', user_id: req.user.id, status: 'active', plan: 'standard' };
+      }
+
+      if (!addon || addon.status !== 'active') {
+        return res.status(403).json({
+          error: 'AE Affiliate add-on required',
+          hasAddon: !!addon,
+          addonStatus: addon?.status || null
+        });
+      }
+
+      req.affiliateAddon = addon;
+      req.affiliateLimits = AFFILIATE_LIMITS[addon.plan] || AFFILIATE_LIMITS.standard;
+      next();
+    } catch (error) {
+      console.error('Affiliate addon check error:', error);
+      res.status(500).json({ error: 'Failed to verify affiliate access' });
     }
   };
 }

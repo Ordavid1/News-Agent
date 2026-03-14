@@ -170,25 +170,100 @@
 
         <!-- Analytics Section -->
         <section id="analyticsSection" class="hidden">
-            <h1 class="text-3xl sm:text-4xl font-bold mb-8 gradient-text" style="font-family: 'Satoshi', sans-serif;">Analytics</h1>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="card-static p-6">
-                    <div class="text-ink-400 text-sm mb-2">Total Posts</div>
-                    <div class="text-3xl font-bold text-ink-800" id="totalPosts">0</div>
-                </div>
-                <div class="card-static p-6">
-                    <div class="text-ink-400 text-sm mb-2">Success Rate</div>
-                    <div class="text-3xl font-bold text-ink-800" id="successRate">0%</div>
-                </div>
-                <div class="card-static p-6">
-                    <div class="text-ink-400 text-sm mb-2">Most Used Platform</div>
-                    <div class="text-3xl font-bold text-ink-800" id="topPlatform">-</div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+                <h1 class="text-3xl sm:text-4xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">Analytics</h1>
+                <!-- Period Selector -->
+                <div class="flex gap-1 bg-surface-100 rounded-lg p-1">
+                    <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="7d" onclick="setAnalyticsPeriod('7d')">7D</button>
+                    <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-brand-600 text-white" data-period="30d" onclick="setAnalyticsPeriod('30d')">30D</button>
+                    <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="90d" onclick="setAnalyticsPeriod('90d')">90D</button>
+                    <button class="analytics-period-btn px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-surface-100 text-ink-600" data-period="all" onclick="setAnalyticsPeriod('all')">All</button>
                 </div>
             </div>
 
-            <div class="card-static p-6 sm:p-8">
-                <h2 class="text-xl font-bold mb-4 text-ink-800">Platform Breakdown</h2>
-                <div id="platformBreakdown" class="divide-y divide-surface-200"></div>
+            <!-- Loading Skeleton -->
+            <div id="analyticsLoading" class="hidden">
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                    <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                    <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                    <div class="card-static p-5 animate-pulse"><div class="h-4 bg-surface-200 rounded w-20 mb-2"></div><div class="h-8 bg-surface-200 rounded w-16"></div></div>
+                </div>
+                <div class="card-static p-6 mb-6 animate-pulse"><div class="h-64 bg-surface-200 rounded"></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="card-static p-6 animate-pulse"><div class="h-48 bg-surface-200 rounded"></div></div>
+                    <div class="card-static p-6 animate-pulse"><div class="h-48 bg-surface-200 rounded"></div></div>
+                </div>
+            </div>
+
+            <!-- Analytics Content -->
+            <div id="analyticsContent" class="space-y-6">
+
+                <!-- 1. Overview KPIs -->
+                <div id="analyticsOverview"></div>
+
+                <!-- 2. Publishing Activity -->
+                <div class="card-static p-6">
+                    <h2 class="text-lg font-bold text-ink-800 mb-4">Publishing Activity</h2>
+                    <div id="analyticsActivity"></div>
+                </div>
+
+                <!-- 3 & 4. Platform + Agent Performance (side by side on desktop) -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Platform Performance -->
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Platform Performance</h2>
+                        <div id="analyticsPlatforms"></div>
+                    </div>
+                    <!-- Agent Performance -->
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Agent Performance</h2>
+                        <div id="analyticsAgents"></div>
+                    </div>
+                </div>
+
+                <!-- 5. Content & Timing Insights -->
+                <div class="card-static p-6">
+                    <h2 class="text-lg font-bold text-ink-800 mb-4">Content & Timing Insights</h2>
+                    <div id="analyticsContentInsights"></div>
+                </div>
+
+                <!-- 6 & 7. Quota + Connections (side by side) -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Quota & Usage</h2>
+                        <div id="analyticsQuota"></div>
+                    </div>
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Connection Health</h2>
+                        <div id="analyticsConnections"></div>
+                    </div>
+                </div>
+
+                <!-- 8. Marketing Summary (conditional) -->
+                <div id="analyticsMarketingSection" class="hidden">
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Marketing Overview</h2>
+                        <div id="analyticsMarketing"></div>
+                    </div>
+                </div>
+
+                <!-- 9. Affiliate Summary (conditional) -->
+                <div id="analyticsAffiliateSection" class="hidden">
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Affiliate Products</h2>
+                        <div id="analyticsAffiliate"></div>
+                    </div>
+                </div>
+
+                <!-- 10. Export -->
+                <div id="analyticsExportSection" class="hidden">
+                    <div class="card-static p-6">
+                        <h2 class="text-lg font-bold text-ink-800 mb-4">Export Data</h2>
+                        <div id="analyticsExport"></div>
+                    </div>
+                </div>
+
             </div>
         </section>
 
@@ -251,7 +326,9 @@
     </div>
 
     <script src="/js/animations.js"></script>
+    <script src="/js/chart.min.js"></script>
     <script src="/js/dashboard.js"></script>
+    <script src="/js/analytics.js"></script>
     <script src="/js/cookieConsent.js"></script>
 
     <script>

@@ -1415,11 +1415,14 @@ class MarketingService {
         let engagement = {};
 
         if (post.platform === 'facebook') {
-          // Use Page Post insights endpoint — direct post field aggregations are deprecated in v24.0
+          // Use Page Post insights endpoint with v24.0-compatible metrics:
+          // - post_impressions → post_media_views (deprecated Nov 2025)
+          // - post_engaged_users → removed with no replacement (deprecated Sep 2024)
+          // - post_reactions_by_type_total → still valid
           try {
             const insights = await this._callMarketingApi(accessToken, 'GET',
               `/${post.platform_post_id}/insights`, {
-                metric: 'post_impressions,post_engaged_users,post_reactions_by_type_total'
+                metric: 'post_media_views,post_reactions_by_type_total'
               }
             );
             if (insights.data) {
@@ -1427,8 +1430,7 @@ class MarketingService {
               const totalReactions = Object.values(reactionsData).reduce((sum, count) => sum + (count || 0), 0);
               engagement = {
                 reactions: totalReactions,
-                impressions: insights.data.find(i => i.name === 'post_impressions')?.values?.[0]?.value || 0,
-                engagedUsers: insights.data.find(i => i.name === 'post_engaged_users')?.values?.[0]?.value || 0
+                views: insights.data.find(i => i.name === 'post_media_views')?.values?.[0]?.value || 0
               };
             }
           } catch (insightsErr) {

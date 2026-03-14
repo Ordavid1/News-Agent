@@ -28,6 +28,9 @@ import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
+import { getAffiliateAddon, getAffiliateCredentials } from '../services/database-wrapper.js';
+import AffiliateCredentialManager from '../services/AffiliateCredentialManager.js';
+import AffiliateProductFetcher from '../services/AffiliateProductFetcher.js';
 import { checkVideoQuota } from '../middleware/subscription.js';
 import winston from 'winston';
 
@@ -235,11 +238,42 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
     // Validate and prepare settings if provided
     let validatedSettings = null;
     if (settings) {
+      const contentSource = settings.contentSource || 'news';
+
+      // Validate affiliate product agents
+      if (contentSource === 'affiliate_products') {
+        // Must be whatsapp or telegram only
+        if (!['whatsapp', 'telegram'].includes(connection.platform)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Affiliate product agents can only be created for WhatsApp or Telegram connections'
+          });
+        }
+
+        // Must have active affiliate add-on
+        const affiliateAddon = await getAffiliateAddon(req.user.id);
+        if (!affiliateAddon || affiliateAddon.status !== 'active') {
+          return res.status(403).json({
+            success: false,
+            error: 'AE Affiliate add-on required to create affiliate product agents'
+          });
+        }
+
+        // Must have credentials configured
+        const credStatus = await AffiliateCredentialManager.getCredentialStatus(req.user.id);
+        if (!credStatus.configured || credStatus.status !== 'active') {
+          return res.status(400).json({
+            success: false,
+            error: 'AE credentials must be configured and validated before creating an affiliate agent'
+          });
+        }
+      }
+
       const topics = Array.isArray(settings.topics) ? settings.topics : [];
       const keywords = Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : [];
 
-      // Require at least one topic OR one keyword
-      if (topics.length === 0 && keywords.length === 0) {
+      // Require at least one topic OR one keyword (only for news agents)
+      if (contentSource === 'news' && topics.length === 0 && keywords.length === 0) {
         return res.status(400).json({
           success: false,
           error: 'At least one topic or keyword is required for the agent to find content'
@@ -247,6 +281,13 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
       }
 
       validatedSettings = {
+        contentSource,
+        ...(contentSource === 'affiliate_products' && {
+          affiliateSettings: {
+            keywordSetIds: settings.affiliateSettings?.keywordSetIds || [],
+            includeHotProducts: settings.affiliateSettings?.includeHotProducts ?? true
+          }
+        }),
         topics,
         keywords,
         geoFilter: {
