@@ -114,6 +114,25 @@ async function purchaseAffiliateAddon() {
     }
 }
 
+async function openAffiliatePortal() {
+    const token = localStorage.getItem('token');
+    try {
+        const response = await fetch('/api/subscriptions/affiliate-portal', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.portalUrl) {
+                window.open(data.portalUrl, '_blank');
+            }
+        } else {
+            showToast('Unable to open billing portal', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
 async function cancelAffiliateAddon() {
     if (!confirm('Are you sure you want to cancel your AE Affiliate add-on? You will lose access to all affiliate features at the end of your current billing period.')) {
         return;

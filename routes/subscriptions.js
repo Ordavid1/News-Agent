@@ -156,7 +156,7 @@ const PRICING_TIERS = {
     monthlyPrice: 25000, // $250
     postsPerDay: 30,
     videosPerMonth: 50,
-    variantId: process.env.LEMON_SQUEEZY_799_VARIANT_ID,
+    variantId: process.env.LEMON_SQUEEZY_499_VARIANT_ID,
     features: ['30 text posts/day (900/mo)', '50 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
   }
 };
@@ -1097,6 +1097,7 @@ router.post('/marketing-cancel', async (req, res) => {
 });
 
 // Get marketing add-on customer billing portal URL
+// Per LS docs: retrieve subscription, use urls.customer_portal (signed URL, valid 24h)
 router.get('/marketing-portal', async (req, res) => {
   try {
     const addon = await getMarketingAddon(req.user.id);
@@ -1105,49 +1106,32 @@ router.get('/marketing-portal', async (req, res) => {
       return res.status(404).json({ error: 'No active marketing add-on found' });
     }
 
-    const lsHeaders = {
-      'Accept': 'application/vnd.api+json',
-      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-    };
-
-    // Step 1: Get subscription to find customer_id
-    const subResponse = await fetch(
+    // Retrieve subscription — the response includes signed customer portal URL
+    const response = await fetch(
       `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
-      { method: 'GET', headers: lsHeaders }
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        }
+      }
     );
 
-    if (!subResponse.ok) {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[MARKETING-PORTAL] LS API error:', response.status, errorData);
       return res.status(500).json({ error: 'Failed to fetch subscription details' });
     }
 
-    const subData = await subResponse.json();
-    const customerId = subData.data.attributes.customer_id;
+    const data = await response.json();
+    const urls = data.data.attributes.urls || {};
 
-    if (!customerId) {
-      return res.status(404).json({ error: 'No customer linked to this subscription' });
-    }
+    console.log('[MARKETING-PORTAL] LS subscription URLs:', JSON.stringify(urls));
 
-    // Step 2: Get customer object which has the proper billing portal URL
-    const customerResponse = await fetch(
-      `https://api.lemonsqueezy.com/v1/customers/${customerId}`,
-      { method: 'GET', headers: lsHeaders }
-    );
-
-    if (!customerResponse.ok) {
-      return res.status(500).json({ error: 'Failed to fetch customer details' });
-    }
-
-    const customerData = await customerResponse.json();
-    const portalUrl = customerData.data.attributes.urls?.customer_portal;
-
+    const portalUrl = urls.customer_portal;
     if (!portalUrl) {
-      // Fallback to subscription-level portal URL
-      const fallbackUrl = subData.data.attributes.urls?.customer_portal
-        || subData.data.attributes.urls?.update_payment_method;
-      if (fallbackUrl) {
-        return res.json({ portalUrl: fallbackUrl });
-      }
-      return res.status(404).json({ error: 'Billing portal not available' });
+      return res.status(404).json({ error: 'Customer portal URL not available for this subscription' });
     }
 
     res.json({ portalUrl });
@@ -1405,6 +1389,44 @@ router.post('/affiliate-checkout', async (req, res) => {
 });
 
 // Cancel affiliate add-on
+// Get affiliate add-on customer billing portal URL
+router.get('/affiliate-portal', async (req, res) => {
+  try {
+    const addon = await getAffiliateAddon(req.user.id);
+
+    if (!addon?.ls_subscription_id) {
+      return res.status(404).json({ error: 'No active affiliate add-on found' });
+    }
+
+    const response = await fetch(
+      `https://api.lemonsqueezy.com/v1/subscriptions/${addon.ls_subscription_id}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+          'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(500).json({ error: 'Failed to fetch subscription details' });
+    }
+
+    const data = await response.json();
+    const portalUrl = data.data.attributes.urls?.customer_portal;
+
+    if (!portalUrl) {
+      return res.status(404).json({ error: 'Customer portal not available' });
+    }
+
+    res.json({ portalUrl });
+  } catch (error) {
+    console.error('[AFFILIATE-PORTAL] Error:', error);
+    res.status(500).json({ error: 'Failed to get billing portal URL' });
+  }
+});
+
 router.post('/affiliate-cancel', async (req, res) => {
   console.log('[AFFILIATE-CANCEL] POST /affiliate-cancel - User:', req.user?.id);
   try {

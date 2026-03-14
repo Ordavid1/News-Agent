@@ -365,7 +365,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   const VARIANT_TIERS = {
     [process.env.LEMON_SQUEEZY_49_VARIANT_ID]: 'starter',
     [process.env.LEMON_SQUEEZY_149_VARIANT_ID]: 'growth',
-    [process.env.LEMON_SQUEEZY_799_VARIANT_ID]: 'business'
+    [process.env.LEMON_SQUEEZY_499_VARIANT_ID]: 'business'
   };
 
   try {

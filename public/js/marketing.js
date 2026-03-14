@@ -137,7 +137,7 @@ async function purchaseAddon() {
         const { checkoutUrl } = await apiPost('/api/subscriptions/marketing-checkout');
 
         // 2. Show compact checkout popup (always pops down from banner button)
-        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $39/mo...';
+        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $19/mo...';
         const paid = await showCompactCheckout(checkoutUrl, btn || document.getElementById('addonRequiredBanner'), { direction: 'down' });
 
         if (!paid) {
