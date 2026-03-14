@@ -231,6 +231,32 @@ router.post('/conversations', optionalAuth, supportLimiter, newConversationValid
       console.error('[SUPPORT] Email send failed (conversation still created):', emailErr.message);
     }
 
+    // Add user to Resend contacts (for audience/broadcast management)
+    try {
+      const resend = getResend();
+      const nameParts = name.trim().split(/\s+/);
+      const firstName = nameParts[0];
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : undefined;
+
+      const contactPayload = {
+        email,
+        firstName,
+        ...(lastName && { lastName }),
+        unsubscribed: false,
+      };
+
+      // If an audience ID is configured, add contact to that audience
+      if (process.env.RESEND_AUDIENCE_ID) {
+        contactPayload.audienceId = process.env.RESEND_AUDIENCE_ID;
+      }
+
+      await resend.contacts.create(contactPayload);
+      console.log(`[SUPPORT] Contact added/updated in Resend: ${email}`);
+    } catch (contactErr) {
+      // Don't fail the conversation if contact creation fails (duplicate emails return 409)
+      console.error('[SUPPORT] Resend contact creation skipped:', contactErr.message);
+    }
+
     console.log(`[SUPPORT] New conversation ${conversation.id} from ${email} — ${category}`);
     res.json({ conversation: { ...conversation, messages: [msg] } });
   } catch (err) {
@@ -611,7 +637,7 @@ function buildReplyPage(conversation, messages, token) {
   .meta{background:#fff;padding:16px 28px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .badge{display:inline-block;background:${badgeColor};color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:16px}
   .meta-info{color:#6b7280;font-size:12px}
-  .messages{background:#fff;padding:20px 28px;max-height:500px;overflow-y:auto}
+  .messages{background:#fff;padding:20px 28px}
   .reply-form{background:#fff;border-radius:0 0 12px 12px;padding:20px 28px;border-top:1px solid #e5e7eb}
   .reply-form textarea{width:100%;border:1px solid #d1d5db;border-radius:8px;padding:12px;font-size:14px;font-family:inherit;resize:vertical;min-height:100px;outline:none;transition:border-color 0.2s}
   .reply-form textarea:focus{border-color:#6366F1;box-shadow:0 0 0 3px rgba(99,102,241,0.1)}
@@ -624,7 +650,7 @@ function buildReplyPage(conversation, messages, token) {
   @media(max-width:480px){
     .header{padding:20px 20px}
     .meta,.messages,.reply-form{padding-left:20px;padding-right:20px}
-    .messages{max-height:350px}
+    .messages{padding-left:20px;padding-right:20px}
   }
 </style></head><body>
 <div class="container">
@@ -636,6 +662,7 @@ function buildReplyPage(conversation, messages, token) {
   <div class="meta">
     <span class="badge">${esc(conversation.category)}</span>
     <span class="meta-info">Status: ${conversation.status === 'open' ? 'Open' : 'Closed'}</span>
+    <span class="meta-info">${messages.length} message${messages.length !== 1 ? 's' : ''}</span>
     <span class="meta-info">Started: ${new Date(conversation.created_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC</span>
   </div>
   <div class="messages" id="messagesContainer">
@@ -650,10 +677,6 @@ function buildReplyPage(conversation, messages, token) {
   </div>
 </div>
 <script>
-  // Auto-scroll messages to bottom
-  const mc = document.getElementById('messagesContainer');
-  if (mc) mc.scrollTop = mc.scrollHeight;
-
   // Show success banner if redirected after sending
   if (new URLSearchParams(window.location.search).get('sent') === '1') {
     document.getElementById('successBanner').classList.add('show');
