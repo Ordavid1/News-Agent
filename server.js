@@ -38,6 +38,7 @@ import agentsRoutes from './routes/agents.js';
 import redditRoutes from './routes/reddit.js';
 import marketingRoutes from './routes/marketing.js';
 import affiliateRoutes from './routes/affiliate.js';
+import supportRoutes from './routes/support.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -651,6 +652,76 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   }
 });
 
+// Resend inbound email webhook — fallback for email replies (primary method: web reply page)
+// Kept as secondary path in case Resend adds body content to webhooks in the future
+app.post('/webhooks/resend', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const payload = JSON.parse(req.body.toString());
+
+    if (payload.type !== 'email.received') {
+      return res.status(200).json({ received: true });
+    }
+
+    const emailData = payload.data;
+    const toAddresses = Array.isArray(emailData.to) ? emailData.to : [emailData.to];
+
+    // Extract conversation ID from the to address (support+<conv_id>@domain)
+    let conversationId = null;
+    for (const addr of toAddresses) {
+      const match = String(addr).match(/support\+([a-f0-9-]{36})@/i);
+      if (match) { conversationId = match[1]; break; }
+    }
+
+    if (!conversationId) {
+      return res.status(200).json({ received: true });
+    }
+
+    const { supabaseAdmin } = await import('./services/supabase.js');
+
+    // Extract reply text (Resend may add body support in future versions)
+    const rawText = (emailData.text || emailData.text_body || payload.text || '').trim();
+    if (!rawText) {
+      console.log(`[WEBHOOK/RESEND] Inbound email for conversation ${conversationId} — no body content (expected, use web reply page)`);
+      return res.status(200).json({ received: true });
+    }
+
+    // Strip quoted email content
+    let replyText = rawText;
+    for (const pattern of [
+      /\r?\nOn .+wrote:[\s\S]*/,
+      /\r?\n-{2,}\s*Original Message[\s\S]*/i,
+      /\r?\nFrom:\s[\s\S]*/,
+      /\r?\nSent from [\s\S]*/i,
+      /\r?\n_{2,}[\s\S]*/,
+    ]) {
+      replyText = replyText.replace(pattern, '');
+    }
+    replyText = replyText.replace(/(\r?\n>.*)+\s*$/, '').trim();
+
+    if (!replyText) {
+      return res.status(200).json({ received: true });
+    }
+
+    // Store reply
+    await supabaseAdmin.from('support_messages').insert({
+      conversation_id: conversationId,
+      sender_type: 'support',
+      message: replyText,
+      is_read: false,
+    });
+
+    await supabaseAdmin.from('support_conversations')
+      .update({ updated_at: new Date().toISOString(), status: 'open' })
+      .eq('id', conversationId);
+
+    console.log(`[WEBHOOK/RESEND] Email reply stored for conversation ${conversationId} (${replyText.length} chars)`);
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('[WEBHOOK/RESEND] Error:', err.message);
+    res.status(200).json({ received: true });
+  }
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -750,6 +821,7 @@ app.use('/api/connections', connectionsRoutes); // Social media connections (aut
 app.use('/api/reddit', authenticateToken, csrfProtection, redditRoutes); // Reddit-specific API (subreddit requirements, flairs)
 app.use('/api/marketing', marketingRoutes); // Marketing API (auth + CSRF + marketing addon handled in router)
 app.use('/api/affiliate', authenticateToken, csrfProtection, affiliateRoutes); // AE Affiliate API (affiliate addon middleware in router)
+app.use('/api/support', supportRoutes); // Support chat (public, no auth — rate limited in router)
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {
