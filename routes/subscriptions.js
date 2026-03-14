@@ -10,6 +10,39 @@ import { supabaseAdmin, isConfigured as isSupabaseConfigured } from '../services
 
 const router = express.Router();
 
+// Cache for LS store slug (fetched once from API)
+let _lsStoreSlug = null;
+
+/**
+ * Get the LS store slug for constructing product checkout URLs.
+ * Fetches from the LS API and caches the result.
+ */
+async function getLsStoreSlug() {
+  if (_lsStoreSlug) return _lsStoreSlug;
+
+  const apiKey = process.env.LEMON_SQUEEZY_API_KEY;
+  const storeId = process.env.LEMON_SQUEEZY_STORE_ID;
+  if (!apiKey || !storeId) return null;
+
+  try {
+    const response = await fetch(`https://api.lemonsqueezy.com/v1/stores/${storeId}`, {
+      headers: {
+        'Accept': 'application/vnd.api+json',
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      _lsStoreSlug = data.data?.attributes?.slug;
+      console.log('[LS-STORE] Fetched store slug:', _lsStoreSlug);
+      return _lsStoreSlug;
+    }
+  } catch (e) {
+    console.warn('[LS-STORE] Failed to fetch store slug:', e.message);
+  }
+  return null;
+}
+
 /**
  * Fetch billing address from LS for pre-filling checkout.
  * Tries the user's most recent LS order first (has full billing address),
@@ -40,8 +73,8 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
         const lastOrder = ordersData.data?.[0]?.attributes;
         if (lastOrder) {
           const addr = {};
-          // Only include fields documented for checkout_data.billing_address: country, zip
           if (lastOrder.country) addr.country = lastOrder.country;
+          if (lastOrder.region) addr.state = lastOrder.region;
           if (lastOrder.zip) addr.zip = lastOrder.zip;
           if (Object.keys(addr).length > 0) {
             console.log('[LS-PREFILL] Billing from recent order:', JSON.stringify(addr));
@@ -51,7 +84,7 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
       }
     }
 
-    // Fallback: customer record (country only - customers don't have zip)
+    // Fallback: customer record (country + region only)
     if (lsCustomerId) {
       const custResponse = await fetch(
         `https://api.lemonsqueezy.com/v1/customers/${lsCustomerId}`,
@@ -63,6 +96,7 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
         if (attrs) {
           const addr = {};
           if (attrs.country) addr.country = attrs.country;
+          if (attrs.region) addr.state = attrs.region;
           if (Object.keys(addr).length > 0) {
             console.log('[LS-PREFILL] Billing from customer record:', JSON.stringify(addr));
             return addr;
@@ -78,58 +112,66 @@ async function fetchLsBillingAddress(email, lsCustomerId) {
 }
 
 /**
- * Build a validated checkout_data object for the LS Checkout API.
- * Only includes fields that are documented in the LS API spec.
- * Omits null/undefined values to prevent LS from rejecting the payload.
+ * Build a pre-filled LS product checkout URL using query parameters.
+ * This is the documented mechanism for pre-filling checkout fields:
+ * https://docs.lemonsqueezy.com/help/checkout/prefilled-checkout-fields
  *
+ * Uses product URLs (checkout/buy/{variant_id}) with checkout[] query params
+ * instead of the API-created checkout approach, because checkout_data in the
+ * Create Checkout API does NOT actually pre-fill the checkout form UI.
+ *
+ * @param {string} storeSlug - LS store slug (subdomain)
+ * @param {string} variantId - LS variant ID
  * @param {object} user - req.user object from auth middleware
- * @param {object} customFields - custom data (user_id, tier, addon_type, etc.)
  * @param {object|null} billing - billing address from fetchLsBillingAddress
- * @param {string} logPrefix - log tag, e.g. '[CHECKOUT]'
- * @returns {object} checkout_data ready for LS API
+ * @param {object} customFields - custom data for webhooks (user_id, tier, etc.)
+ * @param {object} [options] - Additional checkout options
+ * @param {string} [options.redirectUrl] - Post-purchase redirect URL
+ * @param {string} [options.discountCode] - Discount code to pre-fill
+ * @param {string} logPrefix - log tag for diagnostics
+ * @returns {string} Full pre-filled checkout URL
  */
-function buildCheckoutData(user, customFields, billing, logPrefix) {
+function buildPrefilledCheckoutUrl(storeSlug, variantId, user, billing, customFields, options = {}, logPrefix = '[CHECKOUT]') {
+  const baseUrl = `https://${storeSlug}.lemonsqueezy.com/checkout/buy/${variantId}`;
+  const params = new URLSearchParams();
+
+  // Pre-fill customer fields (visible in checkout form)
   const email = user.email;
   const name = user.name || (email ? email.split('@')[0] : null);
 
-  if (!email) {
-    console.warn(`${logPrefix} WARNING: user.email is null/undefined for user ${user.id}`);
-  }
-  if (!name) {
-    console.warn(`${logPrefix} WARNING: Could not derive name for user ${user.id}`);
-  }
+  if (email) params.append('checkout[email]', email);
+  if (name) params.append('checkout[name]', name);
 
-  const checkoutData = {
-    ...(email && { email }),
-    ...(name && { name }),
-    custom: customFields
-  };
-
+  // Pre-fill billing address
   if (billing) {
-    checkoutData.billing_address = billing;
+    if (billing.country) params.append('checkout[billing_address][country]', billing.country);
+    if (billing.state) params.append('checkout[billing_address][state]', billing.state);
+    if (billing.zip) params.append('checkout[billing_address][zip]', billing.zip);
   }
 
-  console.log(`${logPrefix} checkout_data built:`, JSON.stringify({
+  // Custom data (hidden from customer, passed to webhooks)
+  for (const [key, value] of Object.entries(customFields)) {
+    if (value != null) {
+      params.append(`checkout[custom][${key}]`, String(value));
+    }
+  }
+
+  // Optional discount code
+  if (options.discountCode) {
+    params.append('checkout[discount_code]', options.discountCode);
+  }
+
+  const checkoutUrl = `${baseUrl}?${params.toString()}`;
+
+  console.log(`${logPrefix} Pre-filled checkout URL built:`, JSON.stringify({
     email: email ? `${email.substring(0, 3)}***` : null,
     name: name || null,
     hasBilling: !!billing,
-    customKeys: Object.keys(customFields)
+    customKeys: Object.keys(customFields),
+    variantId
   }));
 
-  return checkoutData;
-}
-
-/**
- * Log the checkout_data returned by LS to verify pre-fill acceptance.
- */
-function logLsCheckoutResponse(data, logPrefix) {
-  const cd = data.data?.attributes?.checkout_data;
-  console.log(`${logPrefix} LS response checkout_data:`, JSON.stringify({
-    emailSet: !!cd?.email,
-    nameSet: !!cd?.name,
-    billingAddress: cd?.billing_address || null,
-    customKeys: cd?.custom ? Object.keys(cd.custom) : []
-  }));
+  return checkoutUrl;
 }
 
 // Pricing configuration with Lemon Squeezy variant IDs
@@ -341,74 +383,27 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
       return res.status(500).json({ error: 'Payment configuration error' });
     }
 
+    const storeSlug = await getLsStoreSlug();
+    if (!storeSlug) {
+      console.error('[CHECKOUT] Could not resolve LS store slug');
+      return res.status(500).json({ error: 'Payment configuration error' });
+    }
+
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-    const checkoutData = buildCheckoutData(
+
+    const checkoutUrl = buildPrefilledCheckoutUrl(
+      storeSlug,
+      tierConfig.variantId,
       req.user,
-      { user_id: req.user.id, tier: tier },
       billing,
+      { user_id: req.user.id, tier: tier },
+      {},
       '[CHECKOUT]'
     );
 
-    const checkoutPayload = {
-      data: {
-        type: 'checkouts',
-        attributes: {
-          checkout_data: checkoutData,
-          product_options: {
-            name: tierConfig.name,
-            description: tierConfig.features.join(', '),
-            redirect_url: `${process.env.FRONTEND_URL}/profile.html?tab=subscription&payment=success`,
-            receipt_thank_you_note: 'Thank you for subscribing to News Agent! Your account has been upgraded.'
-          },
-          checkout_options: {
-            embed: false,
-            media: false,
-            subscription_preview: true
-          }
-        },
-        relationships: {
-          store: {
-            data: {
-              type: 'stores',
-              id: process.env.LEMON_SQUEEZY_STORE_ID
-            }
-          },
-          variant: {
-            data: {
-              type: 'variants',
-              id: tierConfig.variantId
-            }
-          }
-        }
-      }
-    };
+    console.log('[CHECKOUT] Pre-filled checkout URL ready for tier:', tier);
 
-    console.log('[CHECKOUT] Creating LS checkout for tier:', tier);
-
-    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-      },
-      body: JSON.stringify(checkoutPayload)
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[CHECKOUT] Lemon Squeezy checkout error:', data);
-      return res.status(500).json({ error: 'Failed to create checkout session', details: data });
-    }
-
-    const checkoutUrl = data.data.attributes.url;
-    logLsCheckoutResponse(data, '[CHECKOUT]');
-
-    res.json({
-      checkoutUrl,
-      expiresAt: data.data.attributes.expires_at
-    });
+    res.json({ checkoutUrl });
 
   } catch (error) {
     console.error('[CHECKOUT] Checkout creation error:', error);
@@ -970,75 +965,25 @@ router.post('/marketing-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Marketing add-on configuration error' });
     }
 
+    const storeSlug = await getLsStoreSlug();
+    if (!storeSlug) {
+      console.error('[MARKETING-CHECKOUT] Could not resolve LS store slug');
+      return res.status(500).json({ error: 'Payment configuration error' });
+    }
+
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-    const checkoutData = buildCheckoutData(
+
+    const checkoutUrl = buildPrefilledCheckoutUrl(
+      storeSlug,
+      addonConfig.variantId,
       req.user,
-      { user_id: req.user.id, addon_type: 'marketing' },
       billing,
+      { user_id: req.user.id, addon_type: 'marketing' },
+      {},
       '[MARKETING-CHECKOUT]'
     );
 
-    const checkoutPayload = {
-      data: {
-        type: 'checkouts',
-        attributes: {
-          checkout_data: checkoutData,
-          product_options: {
-            name: addonConfig.name,
-            description: addonConfig.features.join(', '),
-            receipt_thank_you_note: 'Thank you for activating Marketing! Your campaigns dashboard is now available.'
-          },
-          checkout_options: {
-            embed: true,
-            media: false,
-            logo: false,
-            desc: false,
-            discount: false,
-            subscription_preview: true,
-            button_color: '#6366F1'
-          }
-        },
-        relationships: {
-          store: {
-            data: {
-              type: 'stores',
-              id: process.env.LEMON_SQUEEZY_STORE_ID
-            }
-          },
-          variant: {
-            data: {
-              type: 'variants',
-              id: addonConfig.variantId
-            }
-          }
-        }
-      }
-    };
-
-    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-      },
-      body: JSON.stringify(checkoutPayload)
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[MARKETING-CHECKOUT] Lemon Squeezy error:', data);
-      return res.status(500).json({ error: 'Failed to create marketing checkout session' });
-    }
-
-    const checkoutUrl = data.data.attributes.url;
-    logLsCheckoutResponse(data, '[MARKETING-CHECKOUT]');
-
-    res.json({
-      checkoutUrl,
-      expiresAt: data.data.attributes.expires_at
-    });
+    res.json({ checkoutUrl });
   } catch (error) {
     console.error('[MARKETING-CHECKOUT] Error:', error);
     res.status(500).json({ error: 'Failed to create marketing checkout session' });
@@ -1313,75 +1258,25 @@ router.post('/affiliate-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Affiliate add-on configuration error' });
     }
 
+    const storeSlug = await getLsStoreSlug();
+    if (!storeSlug) {
+      console.error('[AFFILIATE-CHECKOUT] Could not resolve LS store slug');
+      return res.status(500).json({ error: 'Payment configuration error' });
+    }
+
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-    const checkoutData = buildCheckoutData(
+
+    const checkoutUrl = buildPrefilledCheckoutUrl(
+      storeSlug,
+      addonConfig.variantId,
       req.user,
-      { user_id: req.user.id, addon_type: 'affiliate' },
       billing,
+      { user_id: req.user.id, addon_type: 'affiliate' },
+      {},
       '[AFFILIATE-CHECKOUT]'
     );
 
-    const checkoutPayload = {
-      data: {
-        type: 'checkouts',
-        attributes: {
-          checkout_data: checkoutData,
-          product_options: {
-            name: addonConfig.name,
-            description: addonConfig.features.join(', '),
-            receipt_thank_you_note: 'Thank you for activating AE Affiliate! Your affiliate product dashboard is now available.'
-          },
-          checkout_options: {
-            embed: true,
-            media: false,
-            logo: false,
-            desc: false,
-            discount: false,
-            subscription_preview: true,
-            button_color: '#6366F1'
-          }
-        },
-        relationships: {
-          store: {
-            data: {
-              type: 'stores',
-              id: process.env.LEMON_SQUEEZY_STORE_ID
-            }
-          },
-          variant: {
-            data: {
-              type: 'variants',
-              id: addonConfig.variantId
-            }
-          }
-        }
-      }
-    };
-
-    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-      },
-      body: JSON.stringify(checkoutPayload)
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[AFFILIATE-CHECKOUT] Lemon Squeezy error:', data);
-      return res.status(500).json({ error: 'Failed to create affiliate checkout session' });
-    }
-
-    const checkoutUrl = data.data.attributes.url;
-    logLsCheckoutResponse(data, '[AFFILIATE-CHECKOUT]');
-
-    res.json({
-      checkoutUrl,
-      expiresAt: data.data.attributes.expires_at
-    });
+    res.json({ checkoutUrl });
   } catch (error) {
     console.error('[AFFILIATE-CHECKOUT] Error:', error);
     res.status(500).json({ error: 'Failed to create affiliate checkout session' });
@@ -1515,75 +1410,25 @@ router.post('/training-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Training checkout configuration error' });
     }
 
+    const storeSlug = await getLsStoreSlug();
+    if (!storeSlug) {
+      console.error('[TRAINING-CHECKOUT] Could not resolve LS store slug');
+      return res.status(500).json({ error: 'Payment configuration error' });
+    }
+
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-    const checkoutData = buildCheckoutData(
+
+    const checkoutUrl = buildPrefilledCheckoutUrl(
+      storeSlug,
+      pricing.variantId,
       req.user,
-      { user_id: req.user.id, purchase_type: 'model_training', ad_account_id: adAccountId },
       billing,
+      { user_id: req.user.id, purchase_type: 'model_training', ad_account_id: adAccountId },
+      {},
       '[TRAINING-CHECKOUT]'
     );
 
-    const checkoutPayload = {
-      data: {
-        type: 'checkouts',
-        attributes: {
-          checkout_data: checkoutData,
-          product_options: {
-            name: pricing.description,
-            description: 'One-time purchase to train a LoRA model on your brand assets',
-            enabled_variants: [parseInt(pricing.variantId)],
-            receipt_thank_you_note: 'Your brand asset model training will begin shortly.'
-          },
-          checkout_options: {
-            embed: true,
-            media: false,
-            logo: false,
-            desc: false,
-            discount: false,
-            button_color: '#6366F1'
-          }
-        },
-        relationships: {
-          store: {
-            data: {
-              type: 'stores',
-              id: process.env.LEMON_SQUEEZY_STORE_ID
-            }
-          },
-          variant: {
-            data: {
-              type: 'variants',
-              id: pricing.variantId
-            }
-          }
-        }
-      }
-    };
-
-    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-      },
-      body: JSON.stringify(checkoutPayload)
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[TRAINING-CHECKOUT] Lemon Squeezy error:', data);
-      return res.status(500).json({ error: 'Failed to create training checkout session' });
-    }
-
-    const checkoutUrl = data.data.attributes.url;
-    logLsCheckoutResponse(data, '[TRAINING-CHECKOUT]');
-
-    res.json({
-      checkoutUrl,
-      expiresAt: data.data.attributes.expires_at
-    });
+    res.json({ checkoutUrl });
   } catch (error) {
     console.error('[TRAINING-CHECKOUT] Error:', error);
     res.status(500).json({ error: 'Failed to create training checkout session' });
@@ -1620,75 +1465,25 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Image generation checkout configuration error' });
     }
 
+    const storeSlug = await getLsStoreSlug();
+    if (!storeSlug) {
+      console.error('[IMAGE-GEN-CHECKOUT] Could not resolve LS store slug');
+      return res.status(500).json({ error: 'Payment configuration error' });
+    }
+
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-    const checkoutData = buildCheckoutData(
+
+    const checkoutUrl = buildPrefilledCheckoutUrl(
+      storeSlug,
+      pricing.variantId,
       req.user,
-      { user_id: req.user.id, purchase_type: 'image_generation' },
       billing,
+      { user_id: req.user.id, purchase_type: 'image_generation' },
+      {},
       '[IMAGE-GEN-CHECKOUT]'
     );
 
-    const checkoutPayload = {
-      data: {
-        type: 'checkouts',
-        attributes: {
-          checkout_data: checkoutData,
-          product_options: {
-            name: pricing.description,
-            description: 'Generate a branded image for your post',
-            enabled_variants: [parseInt(pricing.variantId)],
-            receipt_thank_you_note: 'Your brand image will be generated shortly.'
-          },
-          checkout_options: {
-            embed: true,
-            media: false,
-            logo: false,
-            desc: false,
-            discount: false,
-            button_color: '#EAB308'
-          }
-        },
-        relationships: {
-          store: {
-            data: {
-              type: 'stores',
-              id: process.env.LEMON_SQUEEZY_STORE_ID
-            }
-          },
-          variant: {
-            data: {
-              type: 'variants',
-              id: pricing.variantId
-            }
-          }
-        }
-      }
-    };
-
-    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json',
-        'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-      },
-      body: JSON.stringify(checkoutPayload)
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('[IMAGE-GEN-CHECKOUT] Lemon Squeezy error:', data);
-      return res.status(500).json({ error: 'Failed to create image generation checkout session' });
-    }
-
-    const checkoutUrl = data.data.attributes.url;
-    logLsCheckoutResponse(data, '[IMAGE-GEN-CHECKOUT]');
-
-    res.json({
-      checkoutUrl,
-      expiresAt: data.data.attributes.expires_at
-    });
+    res.json({ checkoutUrl });
   } catch (error) {
     console.error('[IMAGE-GEN-CHECKOUT] Error:', error);
     res.status(500).json({ error: 'Failed to create image generation checkout session' });

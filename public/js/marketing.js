@@ -3745,7 +3745,6 @@ function renderMediaAssetGrid() {
     }
 
     empty.classList.add('hidden');
-    console.log('[MediaAssets] Rendering grid with', count, 'assets. First URL:', mediaAssets[0]?.public_url);
     grid.innerHTML = mediaAssets.map(asset => `
         <div class="group relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
             <img src="${escapeHtml(asset.public_url)}" alt="${escapeHtml(asset.file_name)}"
