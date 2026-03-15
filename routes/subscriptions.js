@@ -942,16 +942,6 @@ router.get('/marketing-addon', async (req, res) => {
 router.post('/marketing-checkout', async (req, res) => {
   console.log('[MARKETING-CHECKOUT] POST /marketing-checkout - User:', req.user?.id);
   try {
-    // Verify user has at least starter tier
-    const tierHierarchy = { free: 0, starter: 1, growth: 2, business: 3 };
-    const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
-
-    if (userTierLevel < 1) {
-      return res.status(403).json({
-        error: 'Marketing add-on requires a paid subscription (Starter or higher)'
-      });
-    }
-
     // Check if already has active addon
     const existingAddon = await getMarketingAddon(req.user.id);
     if (existingAddon?.status === 'active') {

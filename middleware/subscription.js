@@ -272,24 +272,8 @@ export const MARKETING_LIMITS = {
  * Attaches the add-on record and limits to req.marketingAddon and req.marketingLimits.
  */
 export function requireMarketingAddon() {
-  const tierHierarchy = {
-    free: 0,
-    starter: 1,
-    growth: 2,
-    business: 3
-  };
-
   return async (req, res, next) => {
     try {
-      const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
-
-      if (userTierLevel < 1) {
-        return res.status(403).json({
-          error: 'Marketing features require a paid subscription (Starter or higher)',
-          currentTier: req.user?.subscription?.tier || 'free'
-        });
-      }
-
       const addon = await getMarketingAddon(req.user.id);
 
       if (!addon || addon.status !== 'active') {
