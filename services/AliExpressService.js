@@ -23,19 +23,16 @@ class AliExpressService {
    * @param {string|null} sessionToken - OAuth access_token for per-user commission attribution
    * App Key and App Secret are developer credentials read from env vars.
    */
-  constructor(trackingId, sessionToken = null) {
+  constructor(trackingId = null, sessionToken = null) {
     const appKey = process.env.ALIEXPRESS_APP_KEY;
     const appSecret = process.env.ALIEXPRESS_APP_SECRET;
 
     if (!appKey || !appSecret) {
       throw new Error('AliExpressService requires ALIEXPRESS_APP_KEY and ALIEXPRESS_APP_SECRET env vars');
     }
-    if (!trackingId) {
-      throw new Error('AliExpressService requires a user trackingId');
-    }
     this.appKey = appKey;
     this.appSecret = appSecret;
-    this.trackingId = trackingId;
+    this.trackingId = trackingId || null;
     this.sessionToken = sessionToken;
   }
 
@@ -132,6 +129,7 @@ class AliExpressService {
         return { success: false, error: errMsg, errorCode: errCode };
       }
 
+      logger.info(`AE API [${method}] response keys: ${JSON.stringify(Object.keys(data))}`);
       return { success: true, data };
     } catch (error) {
       if (error.name === 'TimeoutError') {
@@ -164,20 +162,20 @@ class AliExpressService {
   async searchProducts(keywords, options = {}) {
     const params = {
       keywords,
-      tracking_id: this.trackingId,
       target_currency: options.targetCurrency || 'USD',
       target_language: options.targetLanguage || 'en',
       page_no: options.pageNo || 1,
       page_size: Math.min(options.pageSize || 20, 50)
     };
 
+    if (this.trackingId) params.tracking_id = this.trackingId;
     if (options.sortBy) params.sort = options.sortBy;
     if (options.minPrice) params.min_sale_price = options.minPrice;
     if (options.maxPrice) params.max_sale_price = options.maxPrice;
     if (options.categoryIds) params.category_ids = options.categoryIds;
 
-    // Request all useful fields
-    params.fields = 'totalResults,productId,productTitle,productUrl,imageUrl,salePrice,originalPrice,discount,evaluateRate,lastest_volume,shopUrl,shopId,commissionRate,30daysCommission';
+    // Request fields using snake_case names (Streamlined Return format)
+    params.fields = 'product_id,product_title,product_detail_url,product_main_image_url,product_small_image_urls,app_sale_price,app_sale_price_currency,original_price,original_price_currency,discount,evaluate_rate,lastest_volume,shop_url,shop_id,commission_rate,promotion_link,first_level_category_name,second_level_category_name';
 
     const result = await this._makeApiCall('aliexpress.affiliate.product.query', params);
 
@@ -185,7 +183,17 @@ class AliExpressService {
 
     const responseKey = 'aliexpress_affiliate_product_query_response';
     const responseData = result.data[responseKey] || result.data;
-    const rawProducts = responseData?.resp_result?.result?.products?.product || responseData?.products?.product || [];
+    logger.info(`Search response structure: ${JSON.stringify(Object.keys(responseData || {}))}`);
+    if (responseData?.resp_result) {
+      logger.info(`resp_result: code=${responseData.resp_result.resp_code}, msg=${responseData.resp_result.resp_msg}`);
+      const resultObj = responseData.resp_result.result || {};
+      logger.info(`resp_result.result keys: ${JSON.stringify(Object.keys(resultObj))}`);
+      logger.info(`total_record_count: ${resultObj.total_record_count}, current_record_count: ${resultObj.current_record_count}`);
+      logger.info(`products type: ${typeof resultObj.products}, products value: ${JSON.stringify(resultObj.products)?.slice(0, 500)}`);
+    }
+    // Handle both simplified (flat array) and non-simplified ({ product: [...] }) formats
+    const productsField = responseData?.resp_result?.result?.products;
+    const rawProducts = Array.isArray(productsField) ? productsField : (productsField?.product || responseData?.products?.product || []);
 
     return {
       success: true,
@@ -203,17 +211,17 @@ class AliExpressService {
    */
   async getHotProducts(options = {}) {
     const params = {
-      tracking_id: this.trackingId,
       target_currency: options.targetCurrency || 'USD',
       target_language: options.targetLanguage || 'en',
       page_no: options.pageNo || 1,
       page_size: Math.min(options.pageSize || 20, 50)
     };
 
+    if (this.trackingId) params.tracking_id = this.trackingId;
     if (options.categoryIds) params.category_ids = options.categoryIds;
     if (options.sortBy) params.sort = options.sortBy;
 
-    params.fields = 'totalResults,productId,productTitle,productUrl,imageUrl,salePrice,originalPrice,discount,evaluateRate,lastest_volume,shopUrl,shopId,commissionRate,30daysCommission';
+    params.fields = 'product_id,product_title,product_detail_url,product_main_image_url,product_small_image_urls,app_sale_price,app_sale_price_currency,original_price,original_price_currency,discount,evaluate_rate,lastest_volume,shop_url,shop_id,commission_rate,promotion_link,first_level_category_name,second_level_category_name';
 
     const result = await this._makeApiCall('aliexpress.affiliate.hotproduct.query', params);
 
@@ -221,7 +229,8 @@ class AliExpressService {
 
     const responseKey = 'aliexpress_affiliate_hotproduct_query_response';
     const responseData = result.data[responseKey] || result.data;
-    const rawProducts = responseData?.resp_result?.result?.products?.product || responseData?.products?.product || [];
+    const hotProductsField = responseData?.resp_result?.result?.products;
+    const rawProducts = Array.isArray(hotProductsField) ? hotProductsField : (hotProductsField?.product || responseData?.products?.product || []);
 
     return {
       success: true,
@@ -248,9 +257,10 @@ class AliExpressService {
 
     const params = {
       source_values: productUrls.join(','),
-      tracking_id: this.trackingId,
       promotion_link_type: 0 // 0 = search link, 2 = hot link
     };
+
+    if (this.trackingId) params.tracking_id = this.trackingId;
 
     const result = await this._makeApiCall('aliexpress.affiliate.link.generate', params);
 
@@ -258,7 +268,8 @@ class AliExpressService {
 
     const responseKey = 'aliexpress_affiliate_link_generate_response';
     const responseData = result.data[responseKey] || result.data;
-    const rawLinks = responseData?.resp_result?.result?.promotion_links?.promotion_link || responseData?.promotion_links?.promotion_link || [];
+    const linksField = responseData?.resp_result?.result?.promotion_links;
+    const rawLinks = Array.isArray(linksField) ? linksField : (linksField?.promotion_link || responseData?.promotion_links?.promotion_link || []);
 
     return {
       success: true,
@@ -285,11 +296,12 @@ class AliExpressService {
 
     const params = {
       product_ids: productIds.join(','),
-      tracking_id: this.trackingId,
       target_currency: 'USD',
       target_language: 'en',
-      fields: 'productId,productTitle,productUrl,imageUrl,salePrice,originalPrice,discount,evaluateRate,lastest_volume,shopUrl,shopId,commissionRate'
+      fields: 'product_id,product_title,product_detail_url,product_main_image_url,product_small_image_urls,app_sale_price,app_sale_price_currency,original_price,original_price_currency,discount,evaluate_rate,lastest_volume,shop_url,shop_id,commission_rate,promotion_link'
     };
+
+    if (this.trackingId) params.tracking_id = this.trackingId;
 
     const result = await this._makeApiCall('aliexpress.affiliate.productdetail.get', params);
 
@@ -297,7 +309,8 @@ class AliExpressService {
 
     const responseKey = 'aliexpress_affiliate_productdetail_get_response';
     const responseData = result.data[responseKey] || result.data;
-    const rawProducts = responseData?.resp_result?.result?.products?.product || responseData?.products?.product || [];
+    const detailProductsField = responseData?.resp_result?.result?.products;
+    const rawProducts = Array.isArray(detailProductsField) ? detailProductsField : (detailProductsField?.product || responseData?.products?.product || []);
 
     return {
       success: true,
@@ -316,19 +329,26 @@ class AliExpressService {
    */
   _normalizeProduct(raw) {
     const originalPrice = this._parsePrice(raw.original_price || raw.originalPrice);
-    const salePrice = this._parsePrice(raw.sale_price || raw.salePrice);
+    // Streamlined format uses app_sale_price (the price in target currency)
+    const salePrice = this._parsePrice(raw.app_sale_price || raw.sale_price || raw.salePrice);
     const discount = originalPrice > 0 && salePrice > 0
       ? Math.round((1 - salePrice / originalPrice) * 100)
       : parseInt(raw.discount || '0', 10);
 
+    // product_small_image_urls: flat array in Streamlined format, wrapped { string: [...] } in legacy
+    const smallImages = raw.product_small_image_urls;
+    const fallbackImage = Array.isArray(smallImages) ? smallImages[0] : (smallImages?.string?.[0] || '');
+
     return {
       productId: String(raw.product_id || raw.productId || ''),
       title: raw.product_title || raw.productTitle || '',
-      productUrl: raw.product_url || raw.productUrl || '',
-      imageUrl: raw.product_main_image_url || raw.imageUrl || raw.product_small_image_urls?.string?.[0] || '',
+      // Streamlined format: product_detail_url; legacy: product_url / productUrl
+      productUrl: raw.product_detail_url || raw.product_url || raw.productUrl || '',
+      imageUrl: raw.product_main_image_url || raw.imageUrl || fallbackImage,
       originalPrice,
       salePrice,
       discount,
+      currency: raw.app_sale_price_currency || raw.target_sale_price_currency || 'USD',
       commissionRate: parseFloat(raw.commission_rate || raw.commissionRate || '0'),
       commission30d: raw['30d_commission'] || raw['30daysCommission'] || null,
       rating: parseFloat(raw.evaluate_rate || raw.evaluateRate || '0'),

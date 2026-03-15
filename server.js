@@ -252,7 +252,7 @@ async function handleMarketingAddonWebhook(eventName, payload, customData, exist
             const quantity = subscriptionData.quantity || 1;
             await db.updateMarketingAddon(addonByUser.user_id, {
               ls_subscription_id: String(subscriptionId),
-              status: subscriptionData.status === 'active' ? 'active' : subscriptionData.status,
+              status: normalizeAddonStatus(subscriptionData.status),
               max_ad_accounts: quantity,
               current_period_start: subscriptionData.created_at,
               current_period_end: subscriptionData.renews_at
@@ -264,7 +264,7 @@ async function handleMarketingAddonWebhook(eventName, payload, customData, exist
         console.error(`[WEBHOOK] Marketing addon not found for LS ID: ${subscriptionId}`);
         return;
       }
-      const status = subscriptionData.status === 'active' ? 'active' : subscriptionData.status;
+      const status = normalizeAddonStatus(subscriptionData.status);
       const quantity = subscriptionData.quantity || 1;
       await db.updateMarketingAddon(existingAddon.user_id, {
         status,
@@ -299,6 +299,107 @@ async function handleMarketingAddonWebhook(eventName, payload, customData, exist
 
     default:
       console.log(`[WEBHOOK] Unhandled marketing addon event: ${eventName}`);
+  }
+}
+
+// Normalize Lemon Squeezy subscription status to DB-allowed values.
+// DB check constraints allow: 'active', 'cancelled', 'expired', 'past_due'.
+// LS may send other statuses like 'paid', 'on_trial', 'paused', etc.
+function normalizeAddonStatus(lsStatus) {
+  if (lsStatus === 'active' || lsStatus === 'paid' || lsStatus === 'on_trial') return 'active';
+  if (lsStatus === 'cancelled' || lsStatus === 'paused') return 'cancelled';
+  if (lsStatus === 'expired') return 'expired';
+  if (lsStatus === 'past_due' || lsStatus === 'unpaid') return 'past_due';
+  return 'active';
+}
+
+// Affiliate add-on webhook handler (shared by the main webhook endpoint)
+async function handleAffiliateAddonWebhook(eventName, payload, customData, existingAddon, db) {
+  const subscriptionData = payload.data.attributes;
+  const subscriptionId = payload.data.id;
+
+  switch (eventName) {
+    case 'subscription_created': {
+      const userId = customData?.user_id;
+      if (!userId) {
+        console.error('[WEBHOOK] No user_id in custom_data for affiliate addon creation');
+        return;
+      }
+
+      console.log(`[WEBHOOK] Creating affiliate addon for user ${userId}`);
+
+      await db.upsertAffiliateAddon({
+        userId,
+        status: 'active',
+        lsSubscriptionId: String(subscriptionId),
+        lsVariantId: String(subscriptionData.variant_id),
+        plan: 'standard',
+        monthlyPrice: 900,
+        maxKeywordSets: 5,
+        maxProductsPerDay: 20,
+        currentPeriodStart: subscriptionData.created_at,
+        currentPeriodEnd: subscriptionData.renews_at
+      });
+
+      console.log(`[WEBHOOK] Affiliate addon created for user ${userId}`);
+      break;
+    }
+
+    case 'subscription_updated':
+    case 'subscription_payment_success': {
+      if (!existingAddon) {
+        // Try lookup by user_id from custom_data as fallback
+        if (customData?.user_id) {
+          const { getAffiliateAddon } = await import('./services/database-wrapper.js');
+          const addonByUser = await getAffiliateAddon(customData.user_id);
+          if (addonByUser) {
+            console.log(`[WEBHOOK] Found affiliate addon by user_id fallback, fixing ls_subscription_id from ${addonByUser.ls_subscription_id} to ${subscriptionId}`);
+            await db.updateAffiliateAddon(addonByUser.user_id, {
+              ls_subscription_id: String(subscriptionId),
+              status: normalizeAddonStatus(subscriptionData.status),
+              current_period_start: subscriptionData.created_at,
+              current_period_end: subscriptionData.renews_at
+            });
+            console.log(`[WEBHOOK] Affiliate addon updated (fallback) for user ${addonByUser.user_id}`);
+            return;
+          }
+        }
+        console.error(`[WEBHOOK] Affiliate addon not found for LS ID: ${subscriptionId}`);
+        return;
+      }
+      const status = normalizeAddonStatus(subscriptionData.status);
+      await db.updateAffiliateAddon(existingAddon.user_id, {
+        status,
+        current_period_start: subscriptionData.created_at,
+        current_period_end: subscriptionData.renews_at
+      });
+      console.log(`[WEBHOOK] Affiliate addon updated for user ${existingAddon.user_id}, status: ${status}`);
+      break;
+    }
+
+    case 'subscription_cancelled': {
+      if (!existingAddon) return;
+      await db.updateAffiliateAddon(existingAddon.user_id, { status: 'cancelled' });
+      console.log(`[WEBHOOK] Affiliate addon cancelled for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    case 'subscription_expired': {
+      if (!existingAddon) return;
+      await db.updateAffiliateAddon(existingAddon.user_id, { status: 'expired' });
+      console.log(`[WEBHOOK] Affiliate addon expired for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    case 'subscription_payment_failed': {
+      if (!existingAddon) return;
+      await db.updateAffiliateAddon(existingAddon.user_id, { status: 'past_due' });
+      console.log(`[WEBHOOK] Affiliate addon payment failed for user ${existingAddon.user_id}`);
+      break;
+    }
+
+    default:
+      console.log(`[WEBHOOK] Unhandled affiliate addon event: ${eventName}`);
   }
 }
 
@@ -354,7 +455,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   console.log('[WEBHOOK] Custom data user_id:', customData?.user_id ? 'present' : 'missing');
 
   // Import database functions dynamically
-  const { createSubscription, getSubscriptionByLsId, updateUser, upsertMarketingAddon, getMarketingAddonByLsId, updateMarketingAddon } = await import('./services/database-wrapper.js');
+  const { createSubscription, getSubscriptionByLsId, updateUser, upsertMarketingAddon, getMarketingAddonByLsId, updateMarketingAddon, upsertAffiliateAddon, getAffiliateAddonByLsId, updateAffiliateAddon } = await import('./services/database-wrapper.js');
 
   // Helper to get post limit by tier (free = 1 post/week, others = posts/day)
   const getTierPostLimit = (tier) => {
@@ -370,18 +471,28 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
   };
 
   try {
-    // Check if this event is for a marketing add-on
+    // Check if this event is for a marketing or affiliate add-on
     const isMarketingAddon = customData?.addon_type === 'marketing';
+    const isAffiliateAddon = customData?.addon_type === 'affiliate';
 
-    // For non-creation events, also check if the subscription ID belongs to an existing marketing addon
+    // For non-creation events, also check if the subscription ID belongs to an existing addon
     const subscriptionIdForLookup = payload.data?.id;
-    const existingMarketingAddon = (!isMarketingAddon && subscriptionIdForLookup)
+    const existingMarketingAddon = (!isMarketingAddon && !isAffiliateAddon && subscriptionIdForLookup)
       ? await getMarketingAddonByLsId(String(subscriptionIdForLookup))
+      : null;
+    const existingAffiliateAddon = (!isMarketingAddon && !isAffiliateAddon && !existingMarketingAddon && subscriptionIdForLookup)
+      ? await getAffiliateAddonByLsId(String(subscriptionIdForLookup))
       : null;
 
     if (isMarketingAddon || existingMarketingAddon) {
       // ── MARKETING ADD-ON EVENTS ──
       await handleMarketingAddonWebhook(eventName, payload, customData, existingMarketingAddon, { upsertMarketingAddon, updateMarketingAddon });
+      return res.status(200).json({ received: true });
+    }
+
+    if (isAffiliateAddon || existingAffiliateAddon) {
+      // ── AFFILIATE ADD-ON EVENTS ──
+      await handleAffiliateAddonWebhook(eventName, payload, customData, existingAffiliateAddon, { upsertAffiliateAddon, updateAffiliateAddon });
       return res.status(200).json({ received: true });
     }
 

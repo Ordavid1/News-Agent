@@ -106,6 +106,8 @@ router.get('/products/search', async (req, res) => {
       return res.status(400).json({ error: 'AE credentials not configured. Please set up your credentials first.' });
     }
 
+    console.log(`[AFFILIATE] Product search for user ${req.user.id}, keywords: "${keywords}", trackingId: ${credentials.trackingId ? 'present' : 'missing'}`);
+
     const result = await AffiliateProductFetcher.searchProducts(credentials, keywords, {
       pageNo: parseInt(pageNo) || 1,
       pageSize: Math.min(parseInt(pageSize) || 20, 50),
@@ -115,6 +117,12 @@ router.get('/products/search', async (req, res) => {
       targetCurrency: currency || 'USD'
     });
 
+    if (!result.success) {
+      console.error('[AFFILIATE] Product search API error:', result.error, result.errorCode || '');
+      return res.status(502).json({ error: result.error || 'AliExpress API error' });
+    }
+
+    console.log(`[AFFILIATE] Search returned ${result.products?.length || 0} products`);
     res.json(result);
   } catch (error) {
     console.error('[AFFILIATE] Error searching products:', error);
@@ -132,6 +140,8 @@ router.get('/products/hot', async (req, res) => {
       return res.status(400).json({ error: 'AE credentials not configured' });
     }
 
+    console.log(`[AFFILIATE] Hot products search for user ${req.user.id}`);
+
     const result = await AffiliateProductFetcher.getHotProducts(credentials, {
       pageNo: parseInt(pageNo) || 1,
       pageSize: Math.min(parseInt(pageSize) || 20, 50),
@@ -139,6 +149,12 @@ router.get('/products/hot', async (req, res) => {
       targetCurrency: currency || 'USD'
     });
 
+    if (!result.success) {
+      console.error('[AFFILIATE] Hot products API error:', result.error, result.errorCode || '');
+      return res.status(502).json({ error: result.error || 'AliExpress API error' });
+    }
+
+    console.log(`[AFFILIATE] Hot products returned ${result.products?.length || 0} products`);
     res.json(result);
   } catch (error) {
     console.error('[AFFILIATE] Error fetching hot products:', error);
@@ -272,10 +288,14 @@ router.delete('/keywords/:id', async (req, res) => {
 // Post a specific product to a platform
 router.post('/products/post', async (req, res) => {
   try {
-    const { productUrl, platform } = req.body;
+    const { productId, productUrl: rawProductUrl, platform } = req.body;
 
-    if (!productUrl) {
-      return res.status(400).json({ error: 'productUrl is required' });
+    // Accept either productId or productUrl — construct URL from ID if needed
+    const productUrl = rawProductUrl || (productId ? `https://www.aliexpress.com/item/${productId}.html` : null);
+    const resolvedProductId = productId || rawProductUrl?.match(/\/(\d+)\.html/)?.[1];
+
+    if (!productUrl || !resolvedProductId) {
+      return res.status(400).json({ error: 'productId or productUrl is required' });
     }
 
     if (!platform || !['whatsapp', 'telegram'].includes(platform)) {
@@ -297,22 +317,17 @@ router.post('/products/post', async (req, res) => {
     const AliExpressService = (await import('../services/AliExpressService.js')).default;
     const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
 
-    // Extract product ID from URL
-    const productIdMatch = productUrl.match(/\/(\d+)\.html/);
     let product;
-
-    if (productIdMatch) {
-      const detailResult = await service.getProductDetails([productIdMatch[1]]);
-      if (detailResult.success && detailResult.products.length > 0) {
-        product = detailResult.products[0];
-        product.affiliateUrl = linkResult.affiliateUrl;
-      }
+    const detailResult = await service.getProductDetails([resolvedProductId]);
+    if (detailResult.success && detailResult.products.length > 0) {
+      product = detailResult.products[0];
+      product.affiliateUrl = linkResult.affiliateUrl;
     }
 
     if (!product) {
       // Fallback: create minimal product object
       product = {
-        productId: productIdMatch?.[1] || 'unknown',
+        productId: resolvedProductId || 'unknown',
         title: 'AliExpress Product',
         originalPrice: 0,
         salePrice: 0,

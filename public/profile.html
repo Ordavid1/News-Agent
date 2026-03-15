@@ -449,6 +449,8 @@
                         </span>
                     </button>
 
+                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
+
                     <button onclick="showTab('affiliate')" id="tab-affiliate" class="tab-btn whitespace-nowrap">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1943,7 +1945,10 @@
                         <div class="flex gap-3 mb-6">
                             <input type="text" id="previewKeywords" class="input-field flex-1" placeholder="Search keywords (e.g., wireless earbuds, phone cases)">
                             <button onclick="previewProducts()" class="btn-primary btn-sm whitespace-nowrap">Search</button>
-                            <button onclick="previewHotProducts()" class="btn-secondary btn-sm whitespace-nowrap">Hot Products</button>
+                            <button disabled class="btn-secondary btn-sm whitespace-nowrap opacity-50 cursor-not-allowed relative group">
+                                Hot Products
+                                <span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-ink-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Coming Soon</span>
+                            </button>
                         </div>
                         <div id="productPreviewContainer">
                             <div class="text-center py-8 text-ink-400">

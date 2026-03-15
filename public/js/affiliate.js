@@ -178,8 +178,8 @@ async function loadCredentialStatus() {
         affiliateCredentials = data;
         renderCredentialStatus(data);
     } catch (error) {
-        // No credentials yet - show connect prompt
-        renderCredentialStatus({ configured: false, oauthConnected: false });
+        // No credentials yet - show setup form
+        renderCredentialStatus({ configured: false });
     }
 }
 
@@ -187,8 +187,8 @@ function renderCredentialStatus(status) {
     const container = document.getElementById('credentialStatusContainer');
     if (!container) return;
 
-    if (status.oauthConnected) {
-        // State: OAuth connected
+    if (status.oauthConnected && status.trackingId) {
+        // State 3: OAuth connected + tracking ID set
         container.innerHTML = `
             <div class="flex items-center justify-between p-4 rounded-xl bg-green-50 border border-green-200">
                 <div class="flex items-center gap-3">
@@ -200,17 +200,13 @@ function renderCredentialStatus(status) {
                     <div>
                         <p class="font-medium text-green-800">AliExpress Account Connected</p>
                         <p class="text-sm text-green-600">
-                            ${status.oauthUsername ? 'Account: ' + status.oauthUsername : 'Connected'}
-                            ${status.trackingId ? ' &middot; Tracking ID: ' + status.trackingId : ''}
+                            ${status.oauthUsername ? escapeHtml(status.oauthUsername) + ' &middot; ' : ''}Tracking ID: ${escapeHtml(status.trackingId)}
                         </p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button onclick="connectAliExpress()" class="text-sm text-brand-600 hover:text-brand-700 border border-brand-300 rounded-lg px-3 py-1.5 transition-colors">
-                        Reconnect
-                    </button>
                     <button onclick="toggleCredentialForm()" class="text-sm text-ink-500 hover:text-ink-700 border border-ink-300 rounded-lg px-3 py-1.5 transition-colors">
-                        Tracking ID
+                        Edit Tracking ID
                     </button>
                     <button onclick="disconnectAliExpress()" class="text-sm text-red-500 hover:text-red-700 border border-red-300 rounded-lg px-3 py-1.5 transition-colors">
                         Disconnect
@@ -221,10 +217,41 @@ function renderCredentialStatus(status) {
                 ${getTrackingIdFormHtml()}
             </div>
         `;
-    } else {
-        // State: Not connected
+    } else if (status.oauthConnected) {
+        // State 2: OAuth connected, no tracking ID
         container.innerHTML = `
-            <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 mb-4">
+            <div class="flex items-center justify-between p-4 rounded-xl bg-green-50 border border-green-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="font-medium text-green-800">AliExpress Account Connected</p>
+                        <p class="text-sm text-green-600">
+                            ${status.oauthUsername ? escapeHtml(status.oauthUsername) : 'Account linked'}
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleCredentialForm()" class="text-sm text-ink-500 hover:text-ink-700 border border-ink-300 rounded-lg px-3 py-1.5 transition-colors">
+                        Set Tracking ID
+                    </button>
+                    <button onclick="disconnectAliExpress()" class="text-sm text-red-500 hover:text-red-700 border border-red-300 rounded-lg px-3 py-1.5 transition-colors">
+                        Disconnect
+                    </button>
+                </div>
+            </div>
+            <div id="credentialFormWrapper" class="hidden mt-4">
+                <p class="text-xs text-ink-400 mb-3">Tracking ID is optional. It adds a sub-label for analytics in your AliExpress Portals dashboard.</p>
+                ${getTrackingIdFormHtml()}
+            </div>
+        `;
+    } else {
+        // State 1: Not connected — show connect button
+        container.innerHTML = `
+            <div class="p-4 rounded-xl bg-amber-50 border border-amber-200">
                 <div class="flex items-center gap-3 mb-3">
                     <div class="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
                         <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -233,13 +260,10 @@ function renderCredentialStatus(status) {
                     </div>
                     <div>
                         <p class="font-medium text-amber-800">Connect Your AliExpress Account</p>
-                        <p class="text-sm text-amber-600">Link your AliExpress Affiliate account to start generating commission-earning product links.</p>
+                        <p class="text-sm text-amber-600">Link your AliExpress account to start generating commission-earning affiliate links.</p>
                     </div>
                 </div>
-                <button onclick="connectAliExpress()" id="connectAliExpressBtn" class="btn-primary btn-sm w-full mt-2">
-                    <svg class="w-4 h-4 mr-2 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                    </svg>
+                <button onclick="connectAliExpress()" class="btn-primary btn-sm">
                     Connect AliExpress Account
                 </button>
             </div>
@@ -247,33 +271,17 @@ function renderCredentialStatus(status) {
     }
 }
 
-async function connectAliExpress() {
-    // Reuse the same OAuth initiate flow as other platforms (defined in profile.js)
-    const btn = document.getElementById('connectAliExpressBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Connecting...'; }
-
-    try {
-        await connectPlatform('aliexpress');
-    } catch (error) {
-        showToast('Failed to start AliExpress connection. Please try again.', 'error');
-        if (btn) { btn.disabled = false; btn.innerHTML = 'Connect AliExpress Account'; }
-    }
-}
-
 function getTrackingIdFormHtml() {
     return `
         <div class="space-y-4" id="credentialForm">
             <div>
-                <label class="block text-sm font-medium text-ink-600 mb-1">Custom Tracking ID (Optional)</label>
+                <label class="block text-sm font-medium text-ink-600 mb-1">Tracking ID</label>
                 <input type="text" id="affTrackingId" class="input-field" placeholder="e.g. my_telegram_bot">
-                <p class="text-xs text-ink-400 mt-1">Optional sub-tracking label for your own analytics. Found in <a href="https://portals.aliexpress.com" target="_blank" class="text-brand-600 hover:underline">AliExpress Portals</a> &rarr; Account &rarr; Tracking ID.</p>
+                <p class="text-xs text-ink-400 mt-1">Your affiliate tracking ID. Found in <a href="https://portals.aliexpress.com" target="_blank" class="text-brand-600 hover:underline">AliExpress Portals</a> &rarr; Account &rarr; Tracking ID.</p>
             </div>
             <div class="flex gap-3">
                 <button onclick="saveCredentials()" id="saveCredentialsBtn" class="btn-primary btn-sm">
                     Save Tracking ID
-                </button>
-                <button onclick="toggleCredentialForm()" class="btn-secondary btn-sm">
-                    Cancel
                 </button>
             </div>
         </div>
@@ -313,43 +321,48 @@ async function saveCredentials() {
     }
 }
 
-async function deleteCredentials() {
-    if (!confirm('Remove your AliExpress API credentials? Affiliate agents will stop working until new credentials are configured.')) {
+async function removeTrackingId() {
+    if (!confirm('Remove your tracking ID? Your affiliate links will still work but without sub-tracking.')) {
         return;
     }
 
     try {
         await affApiDelete('/api/affiliate/credentials');
-        showToast('Credentials removed.', 'success');
+        showToast('Tracking ID removed.', 'success');
         await loadCredentialStatus();
     } catch (error) {
-        showToast('Failed to remove credentials.', 'error');
+        showToast('Failed to remove tracking ID.', 'error');
     }
 }
 
+// Legacy alias
+async function deleteCredentials() { await removeTrackingId(); }
+
+async function connectAliExpress() {
+    // Uses the shared connectPlatform from profile.js which handles OAuth redirect
+    connectPlatform('aliexpress');
+}
+
 async function disconnectAliExpress() {
-    if (!confirm('Disconnect your AliExpress account? Affiliate agents will stop working until you reconnect.')) {
+    if (!confirm('Disconnect your AliExpress account? Affiliate product search and link generation will stop working.')) {
         return;
     }
-
     try {
+        // Delete OAuth connection
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/connections/aliexpress', {
+        await fetch('/api/connections/aliexpress', {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-CSRF-Token': getCsrfToken()
+            }
         });
-
-        if (response.ok) {
-            // Also remove legacy credentials if any
-            try { await affApiDelete('/api/affiliate/credentials'); } catch { /* ignore */ }
-            showToast('AliExpress account disconnected.', 'success');
-            await loadCredentialStatus();
-        } else {
-            const data = await response.json();
-            showToast(data.error || 'Failed to disconnect.', 'error');
-        }
+        // Also clean up tracking ID from affiliate_credentials
+        try { await affApiDelete('/api/affiliate/credentials'); } catch { /* may not exist */ }
+        showToast('AliExpress account disconnected.', 'success');
+        await loadCredentialStatus();
     } catch (error) {
-        showToast('Failed to disconnect AliExpress.', 'error');
+        showToast('Failed to disconnect. Please try again.', 'error');
     }
 }
 
@@ -794,7 +807,7 @@ function showAffiliateSubTab(tabName) {
     if (tab) tab.classList.add('tab-active');
 
     // Lazy-load data for certain tabs
-    if (tabName === 'products' && affiliateCredentials?.configured) {
+    if (tabName === 'products' && affiliateCredentials?.oauthConnected) {
         // Products tab ready for search
     } else if (tabName === 'history') {
         loadHistory();

@@ -90,7 +90,7 @@ const PLATFORM_CONFIGS = {
   },
   aliexpress: {
     authUrl: 'https://api-sg.aliexpress.com/oauth/authorize',
-    tokenUrl: 'https://api-sg.aliexpress.com/auth/token/create',
+    tokenUrl: 'https://api-sg.aliexpress.com/rest/auth/token/create',
     userInfoUrl: null, // User info is embedded in the token exchange response
     scopes: [],        // AliExpress doesn't use scopes in the OAuth flow
     usePKCE: false
@@ -279,28 +279,33 @@ export async function exchangeCodeForTokens(platform, code, state) {
     headers['User-Agent'] = 'NewsAgentSaaS/1.0';
     requestBody = tokenParams.toString();
   } else if (platform === 'aliexpress') {
-    // AliExpress uses TOP protocol signing for token exchange (not standard OAuth)
+    // AliExpress uses IOP protocol (GOP) for token exchange — NOT standard OAuth.
+    // Per AE Open Platform docs, /auth/token/create only accepts:
+    //   - code (required): OAuth authorization code from callback
+    //   - System params: app_key, timestamp, sign_method, v, sign
+    // Do NOT send grant_type, redirect_uri, sp, or uuid.
     const aeTokenParams = {
       app_key: clientId,
       code,
-      grant_type: 'authorization_code',
-      redirect_uri: callbackUrl,
-      sp: 'ae',
       timestamp: String(Date.now()),
       sign_method: 'sha256',
       v: '2.0'
     };
 
-    // HMAC-SHA256 sign (same algorithm as AliExpressService._signRequest)
+    // IOP GOP protocol HMAC-SHA256 signing:
+    // For REST endpoints (path-based like /auth/token/create), the API path
+    // is prepended to the concatenated params before signing.
     const sortedKeys = Object.keys(aeTokenParams).sort();
     const concatenated = sortedKeys.reduce((acc, key) =>
       acc + key + String(aeTokenParams[key]), '');
+    const signInput = '/auth/token/create' + concatenated;
     aeTokenParams.sign = crypto
       .createHmac('sha256', clientSecret)
-      .update(concatenated, 'utf8')
+      .update(signInput, 'utf8')
       .digest('hex')
       .toUpperCase();
 
+    // IOP protocol: POST with form-urlencoded body to {gateway}/{apiName}
     headers = { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' };
     requestBody = Object.entries(aeTokenParams)
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
@@ -322,6 +327,13 @@ export async function exchangeCodeForTokens(platform, code, state) {
     logger.info(`TikTok token request — has code: ${!!parsedParams.get('code')}, code length: ${parsedParams.get('code')?.length}`);
     logger.info(`TikTok token request — has code_verifier: ${!!parsedParams.get('code_verifier')}, verifier length: ${parsedParams.get('code_verifier')?.length}`);
   }
+  if (platform === 'aliexpress') {
+    const parsedParams = new URLSearchParams(requestBody);
+    logger.info(`AliExpress token request — method: POST, URL: ${config.tokenUrl}`);
+    logger.info(`AliExpress token request — has app_key: ${!!parsedParams.get('app_key')}, has code: ${!!parsedParams.get('code')}, code length: ${parsedParams.get('code')?.length}`);
+    logger.info(`AliExpress token request — timestamp: ${parsedParams.get('timestamp')}, sign_method: ${parsedParams.get('sign_method')}, v: ${parsedParams.get('v')}`);
+    logger.info(`AliExpress token request — has sign: ${!!parsedParams.get('sign')}, sign length: ${parsedParams.get('sign')?.length}`);
+  }
 
   const response = await fetch(config.tokenUrl, {
     method: 'POST',
@@ -329,13 +341,21 @@ export async function exchangeCodeForTokens(platform, code, state) {
     body: requestBody
   });
 
+  // Read response body as text first for robust error handling.
+  // Some platforms (AliExpress, TikTok) return HTTP 200 with error in body.
+  const responseText = await response.text();
   if (!response.ok) {
-    const errorText = await response.text();
-    logger.error(`Token exchange failed for ${platform}:`, errorText);
-    throw new Error(`Failed to exchange code: ${errorText}`);
+    logger.error(`Token exchange HTTP ${response.status} for ${platform}:`, responseText);
+    throw new Error(`Failed to exchange code (HTTP ${response.status}): ${responseText}`);
   }
 
-  const rawTokens = await response.json();
+  let rawTokens;
+  try {
+    rawTokens = JSON.parse(responseText);
+  } catch (parseErr) {
+    logger.error(`Token exchange response not JSON for ${platform}:`, responseText.slice(0, 500));
+    throw new Error(`Failed to parse token response: ${responseText.slice(0, 200)}`);
+  }
   logger.info(`Token exchange response for ${platform}: ${JSON.stringify(Object.keys(rawTokens))}`);
 
   // TikTok may nest token data under 'data' key OR return flat; also check for errors
@@ -353,8 +373,20 @@ export async function exchangeCodeForTokens(platform, code, state) {
     logger.info(`TikTok token extracted — has access_token: ${!!tokens.access_token}, has open_id: ${!!tokens.open_id}`);
   }
 
-  // AliExpress: user info is embedded in the token response; no separate userInfo call needed
+  // AliExpress: check for error in response body (HTTP 200 with error is possible)
+  // Success response has code: "0" and includes access_token
   if (platform === 'aliexpress') {
+    logger.info(`AliExpress token response: ${JSON.stringify(rawTokens)}`);
+    if (rawTokens.code && rawTokens.code !== '0' && rawTokens.code !== 0) {
+      const errCode = rawTokens.code;
+      const errMsg = rawTokens.message || rawTokens.msg || rawTokens.sub_msg || 'Unknown error';
+      logger.error(`AliExpress token error — code: ${errCode}, message: ${errMsg}, request_id: ${rawTokens.request_id || 'N/A'}`);
+      throw new Error(`AliExpress token exchange failed: [${errCode}] ${errMsg}`);
+    }
+    if (!rawTokens.access_token) {
+      logger.error(`AliExpress token response missing access_token:`, JSON.stringify(rawTokens));
+      throw new Error(`AliExpress token exchange failed: no access_token in response`);
+    }
     // Response: { access_token, refresh_token, user_id, user_nick, account, expire_time, sp, locale }
     let aeExpiresIn = tokens.expires_in;
     if (tokens.expire_time) {
