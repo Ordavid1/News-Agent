@@ -400,41 +400,14 @@
             <!-- Tab Navigation -->
             <div class="mb-8 relative" id="tabsContainer">
                 <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto" id="tabsScrollWrapper">
-                   
-                    <button onclick="showTab('subscription')" id="tab-subscription" class="tab-btn whitespace-nowrap">
-                        <span class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-                            </svg>
-                            Subscription
-                        </span>
-                    </button>
 
-                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap">
-                        <span class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                            </svg>
-                            Social Connections
-                            <span id="connectionCount" class="text-[10px] sm:text-xs bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/7</span>
-                        </span>
-                    </button>
                     <button onclick="showTab('agents')" id="tab-agents" class="tab-btn tab-active whitespace-nowrap">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                             </svg>
-                            Engagement Agents
+                            Autonomous News Agents
                             <span id="agentCount" class="text-[10px] sm:text-xs bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/1</span>
-                        </span>
-                    </button>
-
-                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap">
-                        <span class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                            </svg>
-                            Analytics
                         </span>
                     </button>
 
@@ -457,6 +430,27 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
                             </svg>
                             AE Affiliate
+                        </span>
+                    </button>
+
+                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
+
+                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                            </svg>
+                            Social Connections
+                            <span id="connectionCount" class="text-[10px] sm:text-xs bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/7</span>
+                        </span>
+                    </button>
+
+                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                            Analytics
                         </span>
                     </button>
                 </div>
@@ -701,6 +695,239 @@
             <!-- AGENTS TAB              -->
             <!-- ======================== -->
             <div id="content-agents" class="tab-content">
+
+                <!-- Subscription & Billing (expandable component) -->
+                <div id="subscriptionComponent" class="mb-6">
+                    <!-- Collapsed Banner (always visible, clickable to expand) -->
+                    <div id="subscriptionBanner" onclick="toggleSubscriptionPanel()"
+                         class="card-gradient p-4 sm:p-5 border-l-4 border-l-brand-500 cursor-pointer select-none transition-all hover:shadow-md rounded-card">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-semibold text-ink-800">Subscription & Billing</h4>
+                                    <p class="text-sm text-ink-500">
+                                        Current plan: <span id="currentPlanBadge" class="font-medium gradient-text">Free</span>
+                                        <span class="mx-1.5 text-ink-300">|</span>
+                                        Posts: <span id="postsRemainingBadge" class="font-medium text-ink-700">1/1</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="subscriptionExpandLabel" class="text-sm text-brand-600 font-medium hidden sm:inline">Manage Plan</span>
+                                <svg id="subscriptionChevron" class="w-5 h-5 text-brand-500 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Expandable Panel (hidden by default) -->
+                    <div id="subscriptionPanel" class="hidden">
+                        <div class="pt-4 pb-1">
+                            <!-- Current Plan -->
+                            <div class="card-static p-4 sm:p-6 mb-8">
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <div>
+                                        <p class="text-ink-500 text-sm mb-1">Current Plan</p>
+                                        <h4 class="text-xl sm:text-2xl font-bold gradient-text" id="currentPlanName" style="font-family: 'Satoshi', sans-serif;">Free</h4>
+                                    </div>
+                                    <div class="sm:text-right">
+                                        <p class="text-ink-500 text-sm mb-1">Posts Remaining</p>
+                                        <p class="text-xl sm:text-2xl font-bold text-ink-800" id="postsRemaining">1/1</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 pt-4 border-t border-surface-200">
+                                    <p class="text-sm text-ink-500" id="subscriptionStatus">Upgrade to unlock unlimited posts and advanced features</p>
+                                </div>
+                                <!-- Subscription Management Actions -->
+                                <div id="subscriptionActions" class="hidden mt-4 pt-4 border-t border-surface-200">
+                                    <div class="flex flex-wrap gap-3">
+                                        <button id="manageBillingBtn" onclick="openCustomerPortal()"
+                                            class="btn-outline btn-sm">
+                                            Manage Billing
+                                        </button>
+                                        <button id="cancelSubscriptionBtn" onclick="cancelSubscription()"
+                                            class="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 transition-all text-sm font-medium">
+                                            Cancel Subscription
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Available Plans -->
+                            <h4 class="text-lg font-semibold mb-4 text-ink-800" style="font-family: 'Satoshi', sans-serif;">Available Plans</h4>
+
+                            <!-- Free Tier Banner -->
+                            <div class="rounded-xl border border-ink-100 bg-surface-50 p-5 mb-5" id="plan-card-free">
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2.5 mb-2">
+                                            <h5 class="font-semibold text-lg text-ink-800">Free</h5>
+                                            <span class="inline-block bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">CURRENT PLAN</span>
+                                        </div>
+                                        <div class="flex flex-wrap gap-x-3 gap-y-1.5 text-sm text-ink-600">
+                                            <span class="flex items-center gap-1.5">
+                                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                1 post/week
+                                            </span>
+                                            <span class="flex items-center gap-1.5">
+                                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                All 9 platforms
+                                            </span>
+                                            <span class="flex items-center gap-1.5">
+                                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                1 AI agent
+                                            </span>
+                                            <span class="flex items-center gap-1.5">
+                                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                                AI content generation
+                                            </span>
+                                            <span class="flex items-center gap-1.5">
+                                                <svg class="w-4 h-4 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                                No video generation (TikTok/YouTube)
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex-shrink-0 text-right">
+                                        <p class="text-xl sm:text-2xl font-bold text-ink-900">$0<span class="text-sm text-ink-400 font-normal">/forever</span></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+                                <!-- Starter Plan -->
+                                <div class="plan-card rounded-xl p-6" id="plan-card-starter">
+                                    <h5 class="font-semibold text-lg mb-2 text-ink-800">Starter</h5>
+                                    <div class="mb-2">
+                                        <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                                        <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                                    </div>
+                                    <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$50</span>$25<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                                    <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            6 text posts/day (180/mo)
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            2 video posts/month (TikTok, YouTube)
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            All 9 platforms
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Basic analytics
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Email support
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Scheduling
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Posts with images
+                                        </li>
+                                    </ul>
+                                    <button onclick="selectPlan('starter')" class="btn-secondary w-full py-2.5">
+                                        Select Plan
+                                    </button>
+                                </div>
+
+                                <!-- Growth Plan -->
+                                <div class="plan-card rounded-xl p-6 border-brand-400 ring-2 ring-brand-100" id="plan-card-growth">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h5 class="font-semibold text-lg text-ink-800">Growth</h5>
+                                        <span class="badge-primary text-xs">Popular</span>
+                                    </div>
+                                    <div class="mb-2">
+                                        <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                                        <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                                    </div>
+                                    <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$150</span>$75<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                                    <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            12 text posts/day (360/mo)
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            10 videos/month
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            All 9 platforms
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Advanced analytics
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Scheduling
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Priority support
+                                        </li>
+                                    </ul>
+                                    <button onclick="selectPlan('growth')" class="btn-secondary w-full py-2.5">
+                                        Select Plan
+                                    </button>
+                                </div>
+
+                                <!-- Business Plan -->
+                                <div class="plan-card rounded-xl p-6" id="plan-card-business">
+                                    <h5 class="font-semibold text-lg mb-2 text-ink-800">Business</h5>
+                                    <div class="mb-2">
+                                        <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
+                                        <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
+                                    </div>
+                                    <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$500</span>$250<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                                    <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            30 text posts/day (900/mo)
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            50 videos/month
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            All 9 platforms
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Custom analytics
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            Scheduling
+                                        </li>
+                                        <li class="flex items-center gap-2">
+                                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                            24/7 Phone support
+                                        </li>
+                                    </ul>
+                                    <button onclick="selectPlan('business')" class="btn-secondary w-full py-2.5">
+                                        Select Plan
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <div>
                         <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Your Agents</h3>
@@ -744,213 +971,7 @@
                 </div>
             </div>
             
-            <!-- ======================== -->
-            <!-- SUBSCRIPTION TAB         -->
-            <!-- ======================== -->
-            <div id="content-subscription" class="tab-content hidden">
-                <div class="mb-6">
-                    <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Subscription & Billing</h3>
-                    <p class="text-ink-500 text-sm">Manage your plan and payment settings</p>
-                </div>
-
-                <!-- Current Plan -->
-                <div class="card-static p-4 sm:p-6 mb-8">
-                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                            <p class="text-ink-500 text-sm mb-1">Current Plan</p>
-                            <h4 class="text-xl sm:text-2xl font-bold gradient-text" id="currentPlanName" style="font-family: 'Satoshi', sans-serif;">Free</h4>
-                        </div>
-                        <div class="sm:text-right">
-                            <p class="text-ink-500 text-sm mb-1">Posts Remaining</p>
-                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="postsRemaining">1/1</p>
-                        </div>
-                    </div>
-                    <div class="mt-4 pt-4 border-t border-surface-200">
-                        <p class="text-sm text-ink-500" id="subscriptionStatus">Upgrade to unlock unlimited posts and advanced features</p>
-                    </div>
-
-                    <!-- Subscription Management Actions -->
-                    <div id="subscriptionActions" class="hidden mt-4 pt-4 border-t border-surface-200">
-                        <div class="flex flex-wrap gap-3">
-                            <button id="manageBillingBtn" onclick="openCustomerPortal()"
-                                class="btn-outline btn-sm">
-                                Manage Billing
-                            </button>
-                            <button id="cancelSubscriptionBtn" onclick="cancelSubscription()"
-                                class="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 transition-all text-sm font-medium">
-                                Cancel Subscription
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Available Plans -->
-                <h4 class="text-lg font-semibold mb-4 text-ink-800" style="font-family: 'Satoshi', sans-serif;">Available Plans</h4>
-
-                <!-- Free Tier Banner -->
-                <div class="rounded-xl border border-ink-100 bg-surface-50 p-5 mb-5" id="plan-card-free">
-                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-2.5 mb-2">
-                                <h5 class="font-semibold text-lg text-ink-800">Free</h5>
-                                <span class="inline-block bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">CURRENT PLAN</span>
-                            </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-1.5 text-sm text-ink-600">
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                    1 post/week
-                                </span>
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                    All 9 platforms
-                                </span>
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                    1 AI agent
-                                </span>
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                    AI content generation
-                                </span>
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                    No video generation (TikTok/YouTube)
-                                </span>
-                            </div>
-                        </div>
-                        <div class="flex-shrink-0 text-right">
-                            <p class="text-xl sm:text-2xl font-bold text-ink-900">$0<span class="text-sm text-ink-400 font-normal">/forever</span></p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-
-                    <!-- Starter Plan -->
-                    <div class="plan-card rounded-xl p-6" id="plan-card-starter">
-                        <h5 class="font-semibold text-lg mb-2 text-ink-800">Starter</h5>
-                        <div class="mb-2">
-                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
-                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
-                        </div>
-                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$50</span>$25<span class="text-sm text-ink-400 font-normal">/mo</span></p>
-                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                6 text posts/day (180/mo)
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                2 video posts/month (TikTok, YouTube)
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                All 9 platforms
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Basic analytics
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Email support
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Scheduling
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Posts with images
-                            </li>
-                        </ul>
-                        <button onclick="selectPlan('starter')" class="btn-secondary w-full py-2.5">
-                            Select Plan
-                        </button>
-                    </div>
-
-                    <!-- Growth Plan -->
-                    <div class="plan-card rounded-xl p-6 border-brand-400 ring-2 ring-brand-100" id="plan-card-growth">
-                        <div class="flex items-center justify-between mb-2">
-                            <h5 class="font-semibold text-lg text-ink-800">Growth</h5>
-                            <span class="badge-primary text-xs">Popular</span>
-                        </div>
-                        <div class="mb-2">
-                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
-                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
-                        </div>
-                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$150</span>$75<span class="text-sm text-ink-400 font-normal">/mo</span></p>
-                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                12 text posts/day (360/mo)
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                10 videos/month
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                All 9 platforms
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Advanced analytics
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Scheduling
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Priority support
-                            </li>
-                        </ul>
-                        <button onclick="selectPlan('growth')" class="btn-secondary w-full py-2.5">
-                            Select Plan
-                        </button>
-                    </div>
-
-                    <!-- Business Plan -->
-                    <div class="plan-card rounded-xl p-6" id="plan-card-business">
-                        <h5 class="font-semibold text-lg mb-2 text-ink-800">Business</h5>
-                        <div class="mb-2">
-                            <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
-                            <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
-                        </div>
-                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$500</span>$250<span class="text-sm text-ink-400 font-normal">/mo</span></p>
-                        <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                30 text posts/day (900/mo)
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                50 videos/month
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                All 9 platforms
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Custom analytics
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                Scheduling
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                24/7 Phone support
-                            </li>
-                        </ul>
-                        <button onclick="selectPlan('business')" class="btn-secondary w-full py-2.5">
-                            Select Plan
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <!-- Subscription tab removed — content is now embedded in Agents tab -->
 
             <!-- ======================== -->
             <!-- MARKETING TAB           -->

@@ -415,7 +415,7 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
           },
           product_options: {
             enabled_variants: [Number(tierConfig.variantId)],
-            redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=subscription`
+            redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=agents&section=subscription`
           }
         },
         relationships: {

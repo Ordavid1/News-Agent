@@ -81,7 +81,7 @@ async function checkout(plan) {
                     if (subResponse.ok) {
                         alert('Test payment successful! Redirecting to profile...');
                         setTimeout(() => {
-                            window.location.href = '/profile.html?tab=subscription&payment=success';
+                            window.location.href = '/profile.html?tab=agents&section=subscription&payment=success';
                         }, 100);
                         return;
                     } else {

@@ -105,6 +105,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Check URL params for tab navigation
     if (tab) {
         showTab(tab);
+        // Auto-expand subscription section if requested via URL
+        const section = urlParams.get('section');
+        if (section === 'subscription' && (tab === 'agents' || tab === 'subscription')) {
+            requestAnimationFrame(() => toggleSubscriptionPanel(true));
+        }
     }
 
     // Handle payment success/cancel
@@ -201,10 +206,21 @@ function updateProfileUI() {
         currentPlanName.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
     }
 
+    // Update collapsed subscription banner summary
+    const currentPlanBadge = document.getElementById('currentPlanBadge');
+    if (currentPlanBadge) {
+        currentPlanBadge.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+    }
+
     if (postsRemaining) {
         const remaining = currentUser.subscription?.postsRemaining ?? 1;
         const limit = currentUser.subscription?.dailyLimit ?? 1;
         postsRemaining.textContent = `${remaining}/${limit}`;
+
+        const postsRemainingBadge = document.getElementById('postsRemainingBadge');
+        if (postsRemainingBadge) {
+            postsRemainingBadge.textContent = `${remaining}/${limit}`;
+        }
     }
 
     if (subscriptionStatus) {
@@ -447,8 +463,32 @@ function highlightCurrentPlan(tier) {
     });
 }
 
+// Toggle subscription panel expand/collapse
+function toggleSubscriptionPanel(forceOpen) {
+    const panel = document.getElementById('subscriptionPanel');
+    const chevron = document.getElementById('subscriptionChevron');
+    const label = document.getElementById('subscriptionExpandLabel');
+    if (!panel) return;
+    const shouldOpen = forceOpen === true || (forceOpen === undefined && panel.classList.contains('hidden'));
+    if (shouldOpen) {
+        panel.classList.remove('hidden');
+        if (chevron) chevron.style.transform = 'rotate(180deg)';
+        if (label) label.textContent = 'Close';
+    } else {
+        panel.classList.add('hidden');
+        if (chevron) chevron.style.transform = '';
+        if (label) label.textContent = 'Manage Plan';
+    }
+}
+
 // Tab navigation
 function showTab(tabName) {
+    // Subscription is now embedded in the agents tab
+    if (tabName === 'subscription') {
+        tabName = 'agents';
+        requestAnimationFrame(() => toggleSubscriptionPanel(true));
+    }
+
     // Scope to profile-level tabs only (exclude marketing sub-tabs)
     const tabsWrapper = document.getElementById('tabsScrollWrapper');
 
@@ -2804,6 +2844,7 @@ document.addEventListener('click', (e) => {
 
 // Make functions globally available
 window.showTab = showTab;
+window.toggleSubscriptionPanel = toggleSubscriptionPanel;
 window.connectPlatform = connectPlatform;
 window.disconnectPlatform = disconnectPlatform;
 // Page selector functions (Facebook/Instagram)
