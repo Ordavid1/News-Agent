@@ -500,17 +500,40 @@ function addAdAccount() {
     initiateAdAccountOAuth();
 }
 
-function openAddAdAccountModal() {
-    const price = marketingAddonLimits.pricePerAccount || 19;
-    const currentCount = adAccounts.length;
-    const newTotal = (currentCount + 1) * price;
+let addAccountQuantity = 1;
 
-    document.getElementById('addAccModalCurrent').textContent = currentCount;
-    document.getElementById('addAccModalNewTotal').textContent = `$${newTotal}/mo`;
+function openAddAdAccountModal() {
+    // Use paid slots (max_ad_accounts) as the base, not connected accounts count
+    // This matches what the backend sends to LS for pricing
+    const paidSlots = marketingAddonLimits.maxAdAccounts || 1;
+    addAccountQuantity = 1;
+
+    document.getElementById('addAccModalCurrent').textContent = paidSlots;
+    updateAddAccountTotal();
 
     const modal = document.getElementById('addAdAccountModal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+}
+
+function updateAddAccountTotal() {
+    const price = marketingAddonLimits.pricePerAccount || 19;
+    const paidSlots = marketingAddonLimits.maxAdAccounts || 1;
+    const newTotal = (paidSlots + addAccountQuantity) * price;
+
+    document.getElementById('addAccModalQuantity').textContent = addAccountQuantity;
+    document.getElementById('addAccModalNewTotal').textContent = `$${newTotal}/mo`;
+
+    // Disable minus at 1
+    const minusBtn = document.getElementById('addAccQuantityMinus');
+    if (minusBtn) minusBtn.disabled = addAccountQuantity <= 1;
+}
+
+function changeAddAccountQuantity(delta) {
+    const newQty = addAccountQuantity + delta;
+    if (newQty < 1 || newQty > 20) return;
+    addAccountQuantity = newQty;
+    updateAddAccountTotal();
 }
 
 function closeAddAdAccountModal() {
@@ -521,27 +544,66 @@ function closeAddAdAccountModal() {
 
 async function confirmAddAdAccount() {
     const btn = document.getElementById('confirmAddAccBtn');
+    const originalText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = 'Processing...';
+    btn.textContent = 'Preparing checkout...';
 
     try {
-        const response = await apiPost('/api/subscriptions/marketing-add-account');
-        if (response.success) {
-            closeAddAdAccountModal();
-            showToast(`Ad account slot added! Monthly total: $${response.monthlyTotal}/mo`, 'success');
-            // Refresh addon limits so the new slot is recognized
-            await checkMarketingAddon();
-            // Now redirect to Facebook OAuth so user can pick which account to connect
-            initiateAdAccountOAuth();
-        } else {
-            showToast(response.error || 'Failed to add ad account slot', 'error');
+        // 1. Get checkout URL from backend (includes user-selected quantity)
+        const response = await apiPost('/api/subscriptions/marketing-add-account-checkout', {
+            additionalAccounts: addAccountQuantity
+        });
+
+        if (!response.checkoutUrl) {
+            showToast(response.error || 'Failed to create checkout', 'error');
+            return;
         }
+
+        // 2. Open LS checkout overlay via existing compact checkout popup
+        btn.textContent = 'Complete payment...';
+        const paid = await showCompactCheckout(
+            response.checkoutUrl,
+            btn,
+            { direction: 'up' }
+        );
+
+        if (!paid) {
+            // User closed/cancelled the checkout
+            return;
+        }
+
+        // 3. Close the info modal and poll for webhook confirmation
+        closeAddAdAccountModal();
+        showToast('Payment received! Activating new account slot...', 'info');
+
+        let activated = false;
+        const previousMax = response.currentAccounts;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const addonActive = await checkMarketingAddon();
+                if (addonActive && marketingAddonLimits.maxAdAccounts > previousMax) {
+                    activated = true;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (!activated) {
+            showToast('Payment received but activation pending. Please refresh in a moment.', 'warning');
+            return;
+        }
+
+        // 4. Success — trigger Facebook OAuth to connect the new account
+        showToast(`Account slot added! Monthly total: $${response.newMonthlyTotal}/mo`, 'success');
+        initiateAdAccountOAuth();
+
     } catch (error) {
-        console.error('Error adding ad account slot:', error);
-        showToast(error.message || 'Failed to add ad account slot', 'error');
+        console.error('Error in add account checkout:', error);
+        showToast(error.message || 'Failed to start checkout', 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Confirm & Add Account';
+        btn.textContent = originalText;
     }
 }
 

@@ -1051,29 +1051,49 @@ async function getAddonPortalUrl(lsSubscriptionId, userId) {
 
   // Try the add-on's subscription first
   if (lsSubscriptionId) {
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${lsSubscriptionId}`,
-      { method: 'GET', headers: lsHeaders }
-    );
-    if (response.ok) {
-      const data = await response.json();
-      const portalUrl = data.data.attributes.urls?.customer_portal;
-      if (portalUrl) return portalUrl;
+    try {
+      console.log(`[ADDON-PORTAL] Fetching portal URL for addon subscription: ${lsSubscriptionId}`);
+      const response = await fetch(
+        `https://api.lemonsqueezy.com/v1/subscriptions/${lsSubscriptionId}`,
+        { method: 'GET', headers: lsHeaders }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const portalUrl = data.data.attributes.urls?.customer_portal;
+        if (portalUrl) return portalUrl;
+        console.log(`[ADDON-PORTAL] Addon subscription ${lsSubscriptionId} has no customer_portal URL`);
+      } else {
+        console.log(`[ADDON-PORTAL] LS API returned ${response.status} for addon subscription ${lsSubscriptionId}`);
+      }
+    } catch (err) {
+      console.error(`[ADDON-PORTAL] Error fetching addon subscription:`, err.message);
     }
+  } else {
+    console.log(`[ADDON-PORTAL] No addon ls_subscription_id for user ${userId}`);
   }
 
   // Fallback: use main subscription's portal (same customer, same billing portal)
-  const subscription = await getSubscription(userId);
-  if (subscription?.lsSubscriptionId) {
-    const response = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
-      { method: 'GET', headers: lsHeaders }
-    );
-    if (response.ok) {
-      const data = await response.json();
-      const portalUrl = data.data.attributes.urls?.customer_portal;
-      if (portalUrl) return portalUrl;
+  try {
+    const subscription = await getSubscription(userId);
+    if (subscription?.lsSubscriptionId) {
+      console.log(`[ADDON-PORTAL] Trying main subscription: ${subscription.lsSubscriptionId}`);
+      const response = await fetch(
+        `https://api.lemonsqueezy.com/v1/subscriptions/${subscription.lsSubscriptionId}`,
+        { method: 'GET', headers: lsHeaders }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const portalUrl = data.data.attributes.urls?.customer_portal;
+        if (portalUrl) return portalUrl;
+        console.log(`[ADDON-PORTAL] Main subscription has no customer_portal URL`);
+      } else {
+        console.log(`[ADDON-PORTAL] LS API returned ${response.status} for main subscription ${subscription.lsSubscriptionId}`);
+      }
+    } else {
+      console.log(`[ADDON-PORTAL] No main subscription found for user ${userId}`);
     }
+  } catch (err) {
+    console.error(`[ADDON-PORTAL] Error fetching main subscription:`, err.message);
   }
 
   return null;
@@ -1096,9 +1116,9 @@ router.get('/marketing-portal', async (req, res) => {
   }
 });
 
-// Add an ad account seat (increment quantity via LS Subscription Items API)
-router.post('/marketing-add-account', async (req, res) => {
-  console.log('[MARKETING-ADD-ACCOUNT] POST /marketing-add-account - User:', req.user?.id);
+// Create checkout for adding an ad account seat (opens LS checkout UI with updated quantity)
+router.post('/marketing-add-account-checkout', async (req, res) => {
+  console.log('[MARKETING-ADD-ACCOUNT-CHECKOUT] POST /marketing-add-account-checkout - User:', req.user?.id);
   try {
     const addon = await getMarketingAddon(req.user.id);
 
@@ -1110,86 +1130,119 @@ router.post('/marketing-add-account', async (req, res) => {
       return res.status(400).json({ error: 'Marketing add-on has no linked subscription' });
     }
 
+    const addonConfig = MARKETING_ADDON_CONFIG.standard;
+
+    if (!addonConfig.variantId) {
+      console.error('[MARKETING-ADD-ACCOUNT-CHECKOUT] Missing marketing variant ID');
+      return res.status(500).json({ error: 'Marketing add-on configuration error' });
+    }
+
+    const currentMaxAccounts = addon.max_ad_accounts || 1;
+    const additionalAccounts = Math.max(1, Math.min(20, parseInt(req.body.additionalAccounts) || 1));
+    const newQuantity = currentMaxAccounts + additionalAccounts;
+
+    // Use LS Checkout API to create a checkout with quantity support
     const lsHeaders = {
       'Accept': 'application/vnd.api+json',
       'Content-Type': 'application/vnd.api+json',
       'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
     };
 
-    // Step 1: Fetch the subscription item for this subscription
-    const itemsResponse = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscription-items?filter[subscription_id]=${addon.ls_subscription_id}`,
-      { method: 'GET', headers: lsHeaders }
-    );
+    // Fetch billing address for pre-fill
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    if (!itemsResponse.ok) {
-      const errorData = await itemsResponse.json();
-      console.error('[MARKETING-ADD-ACCOUNT] Failed to fetch subscription items:', errorData);
-      return res.status(500).json({ error: 'Failed to retrieve subscription details' });
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: {
+        user_id: req.user.id,
+        addon_type: 'marketing',
+        replaces_ls_subscription_id: addon.ls_subscription_id
+      },
+      variant_quantities: [
+        {
+          variant_id: Number(addonConfig.variantId),
+          quantity: newQuantity
+        }
+      ]
+    };
+
+    // Add billing address if available
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
     }
 
-    const itemsData = await itemsResponse.json();
-    const items = itemsData.data || [];
-
-    if (items.length === 0) {
-      console.error('[MARKETING-ADD-ACCOUNT] No subscription items found for subscription:', addon.ls_subscription_id);
-      return res.status(500).json({ error: 'No subscription items found' });
-    }
-
-    const subscriptionItem = items[0];
-    const itemId = subscriptionItem.id;
-    const currentQuantity = subscriptionItem.attributes.quantity || 1;
-    const newQuantity = currentQuantity + 1;
-
-    console.log(`[MARKETING-ADD-ACCOUNT] Subscription item ${itemId}: incrementing quantity from ${currentQuantity} to ${newQuantity}`);
-
-    // Step 2: PATCH the subscription item with incremented quantity
-    const patchResponse = await fetch(
-      `https://api.lemonsqueezy.com/v1/subscription-items/${itemId}`,
-      {
-        method: 'PATCH',
-        headers: lsHeaders,
-        body: JSON.stringify({
-          data: {
-            type: 'subscription-items',
-            id: String(itemId),
-            attributes: {
-              quantity: newQuantity,
-              invoice_immediately: true
+    const checkoutPayload = {
+      data: {
+        type: 'checkouts',
+        attributes: {
+          checkout_data: checkoutData,
+          checkout_options: {
+            embed: true,
+            media: false,
+            desc: false
+          },
+          product_options: {
+            enabled_variants: [Number(addonConfig.variantId)],
+            redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: 'stores',
+              id: String(process.env.LEMON_SQUEEZY_STORE_ID)
+            }
+          },
+          variant: {
+            data: {
+              type: 'variants',
+              id: String(addonConfig.variantId)
             }
           }
-        })
+        }
       }
-    );
+    };
 
-    if (!patchResponse.ok) {
-      const errorData = await patchResponse.json();
-      console.error('[MARKETING-ADD-ACCOUNT] LS subscription-items PATCH error:', errorData);
-      return res.status(500).json({ error: 'Failed to update subscription quantity' });
+    console.log(`[MARKETING-ADD-ACCOUNT-CHECKOUT] Creating LS checkout for user ${req.user.id}: quantity=${newQuantity}`);
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[MARKETING-ADD-ACCOUNT-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
     }
 
-    const patchData = await patchResponse.json();
-    const confirmedQuantity = patchData.data.attributes.quantity || newQuantity;
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
 
-    // Update DB immediately (webhook will also confirm)
-    await updateMarketingAddon(req.user.id, {
-      max_ad_accounts: confirmedQuantity,
-      monthly_price: MARKETING_ADDON_CONFIG.standard.monthlyPrice * confirmedQuantity
-    });
+    if (!checkoutUrl) {
+      console.error('[MARKETING-ADD-ACCOUNT-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
 
-    const pricePerAccount = MARKETING_ADDON_CONFIG.standard.monthlyPrice / 100;
+    const pricePerAccount = addonConfig.monthlyPrice / 100;
 
-    console.log(`[MARKETING-ADD-ACCOUNT] Success - user ${req.user.id} now has ${confirmedQuantity} ad account slots`);
+    console.log(`[MARKETING-ADD-ACCOUNT-CHECKOUT] Checkout created for user ${req.user.id}: quantity=${newQuantity}, total=$${newQuantity * pricePerAccount}/mo, url=${checkoutUrl.substring(0, 60)}...`);
 
     res.json({
-      success: true,
-      newLimit: confirmedQuantity,
-      monthlyTotal: confirmedQuantity * pricePerAccount,
-      pricePerAccount
+      checkoutUrl,
+      currentAccounts: currentMaxAccounts,
+      newQuantity,
+      pricePerAccount,
+      newMonthlyTotal: newQuantity * pricePerAccount
     });
   } catch (error) {
-    console.error('[MARKETING-ADD-ACCOUNT] Error:', error);
-    res.status(500).json({ error: 'Failed to add ad account' });
+    console.error('[MARKETING-ADD-ACCOUNT-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create add-account checkout session' });
   }
 });
 
@@ -1972,7 +2025,7 @@ async function handlePaymentFailed(payload) {
 // ============================================
 
 async function handleMarketingAddonCreated(payload, customData) {
-  const { user_id } = customData;
+  const { user_id, replaces_ls_subscription_id } = customData;
   const subscriptionData = payload.data.attributes;
   const subscriptionId = payload.data.id;
 
@@ -1981,7 +2034,7 @@ async function handleMarketingAddonCreated(payload, customData) {
     return;
   }
 
-  console.log(`[WEBHOOK] Creating marketing addon for user ${user_id}`);
+  console.log(`[WEBHOOK] Creating/replacing marketing addon for user ${user_id}`);
 
   const quantity = subscriptionData.quantity || 1;
 
@@ -1996,6 +2049,43 @@ async function handleMarketingAddonCreated(payload, customData) {
     currentPeriodStart: subscriptionData.created_at,
     currentPeriodEnd: subscriptionData.renews_at
   });
+
+  // If this subscription replaces an older one (user upgraded quantity via new checkout),
+  // cancel the old subscription in LS to prevent double-billing on next renewal
+  if (replaces_ls_subscription_id && String(replaces_ls_subscription_id) !== String(subscriptionId)) {
+    try {
+      console.log(`[WEBHOOK] Cancelling replaced subscription: ${replaces_ls_subscription_id}`);
+      const cancelResponse = await fetch(
+        `https://api.lemonsqueezy.com/v1/subscriptions/${replaces_ls_subscription_id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Accept': 'application/vnd.api+json',
+            'Content-Type': 'application/vnd.api+json',
+            'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+          },
+          body: JSON.stringify({
+            data: {
+              type: 'subscriptions',
+              id: String(replaces_ls_subscription_id),
+              attributes: {
+                cancelled: true
+              }
+            }
+          })
+        }
+      );
+      if (cancelResponse.ok) {
+        console.log(`[WEBHOOK] Old subscription ${replaces_ls_subscription_id} cancelled successfully`);
+      } else {
+        const errBody = await cancelResponse.text();
+        console.error(`[WEBHOOK] Failed to cancel old subscription ${replaces_ls_subscription_id}: ${cancelResponse.status} - ${errBody}`);
+      }
+    } catch (cancelErr) {
+      // Non-fatal: the upsert already succeeded, old sub will expire naturally
+      console.error(`[WEBHOOK] Error cancelling old subscription ${replaces_ls_subscription_id}:`, cancelErr.message);
+    }
+  }
 
   console.log(`[WEBHOOK] Marketing addon created for user ${user_id}, quantity: ${quantity}, max_ad_accounts: ${quantity}`);
 }
