@@ -345,13 +345,125 @@ router.delete('/keywords/:id', async (req, res) => {
 });
 
 // ============================================
+// CONTENT GENERATION PREVIEW
+// ============================================
+
+// Generate AI-powered social media content for a product without posting
+router.post('/products/generate-content', async (req, res) => {
+  try {
+    const { productId, platform } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+
+    if (!platform || !['whatsapp', 'telegram'].includes(platform)) {
+      return res.status(400).json({ error: 'platform must be "whatsapp" or "telegram"' });
+    }
+
+    const credentials = await AffiliateCredentialManager.getCredentials(req.user.id);
+    if (!credentials) {
+      return res.status(400).json({ error: 'AE credentials not configured' });
+    }
+
+    const productUrl = `https://www.aliexpress.com/item/${productId}.html`;
+
+    // Generate affiliate link
+    console.log(`[AFFILIATE] Generating content for product ${productId} on ${platform}`);
+    const linkResult = await AffiliateProductFetcher.generateLink(credentials, productUrl);
+    if (!linkResult.success) {
+      return res.status(400).json({ error: `Failed to generate affiliate link: ${linkResult.error}` });
+    }
+
+    // Get product details (Affiliate API)
+    const AliExpressService = (await import('../services/AliExpressService.js')).default;
+    const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
+
+    let product;
+    const detailResult = await service.getProductDetails([productId]);
+    if (detailResult.success && detailResult.products.length > 0) {
+      product = detailResult.products[0];
+      product.affiliateUrl = linkResult.affiliateUrl;
+      console.log(`[AFFILIATE] Got affiliate product details: "${product.title}" ($${product.salePrice})`);
+    }
+
+    if (!product) {
+      product = {
+        productId,
+        title: 'AliExpress Product',
+        originalPrice: 0,
+        salePrice: 0,
+        discount: 0,
+        commissionRate: 0,
+        rating: 0,
+        totalOrders: 0,
+        imageUrl: '',
+        affiliateUrl: linkResult.affiliateUrl,
+        productUrl
+      };
+    }
+
+    // Fetch rich product description via Dropshipper API (best-effort)
+    // This gives us the actual product page content — description text + specs/attributes
+    let descriptionData = null;
+    try {
+      console.log(`[AFFILIATE] Attempting to fetch product description via DS API for product ${productId}...`);
+      const dsResult = await service.getProductDescription(productId);
+      if (dsResult.success) {
+        descriptionData = dsResult;
+        console.log(`[AFFILIATE] DS API SUCCESS — description: ${dsResult.description.length} chars, attributes: ${dsResult.attributes.length} specs`);
+        if (dsResult.attributes.length > 0) {
+          console.log(`[AFFILIATE] Product specs sample: ${dsResult.attributes.slice(0, 3).map(a => `${a.name}=${a.value}`).join(', ')}`);
+        }
+      } else {
+        console.log(`[AFFILIATE] DS API not available (${dsResult.error}). Will generate content from title + stats only.`);
+      }
+    } catch (dsError) {
+      console.log(`[AFFILIATE] DS API call threw error: ${dsError.message}. Continuing without description.`);
+    }
+
+    // Attach description data to product object for prompt consumption
+    if (descriptionData) {
+      product.description = descriptionData.description;
+      product.attributes = descriptionData.attributes;
+      console.log(`[AFFILIATE] Enriched product with description (${product.description.length} chars) and ${product.attributes.length} attributes`);
+    } else {
+      console.log(`[AFFILIATE] No description available — LLM will generate based on title + stats`);
+    }
+
+    // Generate content (preview only, no publishing)
+    const contentGenerator = new ContentGenerator();
+    console.log(`[AFFILIATE] Generating ${platform} content with${product.description ? '' : 'out'} product description`);
+    const content = await contentGenerator.generateAffiliateContent(product, platform, {});
+    console.log(`[AFFILIATE] Content generated: ${content.text.length} chars`);
+
+    res.json({
+      success: true,
+      text: content.text,
+      affiliateUrl: product.affiliateUrl,
+      product: content.product,
+      // Include metadata so frontend/debug can see what was used
+      _meta: {
+        hasDescription: !!product.description,
+        descriptionLength: product.description?.length || 0,
+        attributeCount: product.attributes?.length || 0,
+        source: product.description ? 'ds_api+affiliate_api' : 'affiliate_api_only'
+      }
+    });
+  } catch (error) {
+    console.error('[AFFILIATE] Error generating content preview:', error);
+    res.status(500).json({ error: 'Failed to generate content' });
+  }
+});
+
+// ============================================
 // MANUAL PRODUCT POSTING
 // ============================================
 
 // Post a specific product to a platform
 router.post('/products/post', async (req, res) => {
   try {
-    const { productId, productUrl: rawProductUrl, platform } = req.body;
+    const { productId, productUrl: rawProductUrl, platform, customContent } = req.body;
 
     // Accept either productId or productUrl — construct URL from ID if needed
     const productUrl = rawProductUrl || (productId ? `https://www.aliexpress.com/item/${productId}.html` : null);
@@ -404,9 +516,26 @@ router.post('/products/post', async (req, res) => {
       };
     }
 
-    // Generate content
-    const contentGenerator = new ContentGenerator();
-    const content = await contentGenerator.generateAffiliateContent(product, platform, {});
+    // Use custom content if provided (from detail modal preview), otherwise generate fresh
+    let content;
+    if (customContent) {
+      content = {
+        text: customContent,
+        platform,
+        contentType: 'affiliate_product',
+        product: {
+          productId: product.productId,
+          title: product.title,
+          affiliateUrl: product.affiliateUrl,
+          imageUrl: product.imageUrl,
+          salePrice: product.salePrice
+        },
+        generatedAt: new Date().toISOString()
+      };
+    } else {
+      const contentGenerator = new ContentGenerator();
+      content = await contentGenerator.generateAffiliateContent(product, platform, {});
+    }
 
     // Publish
     let publishResult;

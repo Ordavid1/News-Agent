@@ -805,6 +805,19 @@
   }
 }
 
+/* Product detail modal responsive grid */
+@media (min-width: 640px) {
+  .detail-modal-body {
+    grid-template-columns: 5fr 7fr !important;
+  }
+}
+@media (max-width: 400px) {
+  #detailMainImage {
+    width: 100px !important;
+    height: 100px !important;
+  }
+}
+
 @layer utilities {
   /* Scroll animation utilities */
   .animate-on-scroll {

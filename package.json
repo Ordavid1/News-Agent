@@ -22,6 +22,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@playwright/test": "^1.58.2",
     "@runwayml/sdk": "^3.14.3",
     "@supabase/supabase-js": "^2.86.2",
     "axios": "^1.11.0",

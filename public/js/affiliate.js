@@ -563,18 +563,16 @@ async function loadCategories() {
         const categories = data.categories || [];
 
         for (const cat of categories) {
-            // Top-level category
             const opt = document.createElement('option');
             opt.value = cat.categoryId;
             opt.textContent = cat.categoryName;
             select.appendChild(opt);
 
-            // Sub-categories (indented)
             if (cat.children?.length) {
                 for (const child of cat.children) {
                     const subOpt = document.createElement('option');
                     subOpt.value = child.categoryId;
-                    subOpt.textContent = `  └ ${child.categoryName}`;
+                    subOpt.textContent = `  \u2514 ${child.categoryName}`;
                     select.appendChild(subOpt);
                 }
             }
@@ -589,8 +587,12 @@ async function loadCategories() {
 // PRODUCT SEARCH
 // ============================================
 
+// Product cache for instant detail modal opening
+let _productCache = {};
 // Track current search state for pagination
 let _searchState = { keywords: '', sortBy: '', categoryId: '', pageNo: 1, totalResults: 0, pageSize: 20 };
+// Detail modal state
+let _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp' };
 
 async function previewProducts(pageNo) {
     const container = document.getElementById('productPreviewContainer');
@@ -631,6 +633,11 @@ async function previewProducts(pageNo) {
         const products = data.products || [];
         const totalResults = data.totalResults || 0;
         _searchState.totalResults = totalResults;
+
+        // Cache products for instant detail modal
+        for (const p of products) {
+            _productCache[p.productId] = p;
+        }
 
         // Update results count
         const countEl = document.getElementById('searchResultsCount');
@@ -692,6 +699,10 @@ async function previewHotProducts() {
         const data = await affApiGet('/api/affiliate/products/hot');
         const products = data.products || [];
 
+        for (const p of products) {
+            _productCache[p.productId] = p;
+        }
+
         if (products.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-8 text-ink-400">
@@ -716,6 +727,10 @@ async function previewHotProducts() {
     }
 }
 
+// ============================================
+// PRODUCT CARDS (clickable → detail modal)
+// ============================================
+
 function renderProductCard(product) {
     const discount = product.discount ? Math.round(product.discount) : 0;
     const commission = product.commissionRate ? product.commissionRate.toFixed(1) : '0';
@@ -723,7 +738,7 @@ function renderProductCard(product) {
     const orders = product.totalOrders ? product.totalOrders.toLocaleString() : '0';
 
     return `
-        <div class="card-gradient rounded-xl p-4 flex gap-4">
+        <div class="card-gradient rounded-xl p-4 flex gap-4 cursor-pointer hover:shadow-md hover:border-brand-200 border border-transparent transition-all" onclick="openProductDetail('${escapeHtml(product.productId)}')">
             <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-surface-100">
                 ${product.imageUrl ? `<img src="${escapeHtml(product.imageUrl)}" alt="" class="w-full h-full object-cover" loading="lazy" onerror="this.style.display='none'">` : ''}
             </div>
@@ -739,27 +754,282 @@ function renderProductCard(product) {
                     <span>${rating} rating</span>
                     <span>${orders} orders</span>
                 </div>
-                <div class="mt-2">
-                    <button onclick="postProduct('${escapeHtml(product.productId)}', this)" class="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
-                        Post Now
+            </div>
+            <div class="flex items-center flex-shrink-0">
+                <svg class="w-5 h-5 text-ink-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+        </div>
+    `;
+}
+
+// ============================================
+// PRODUCT DETAIL MODAL
+// ============================================
+
+function openProductDetail(productId) {
+    const product = _productCache[productId];
+    if (!product) {
+        showToast('Product data not found. Please search again.', 'error');
+        return;
+    }
+
+    // Reset detail state
+    _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp' };
+
+    const modal = document.getElementById('productDetailModal');
+    if (!modal) return;
+
+    modal.innerHTML = renderProductDetailModal(product);
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; // Prevent background scroll
+
+    // Close on Escape
+    const escHandler = (e) => {
+        if (e.key === 'Escape') { closeProductDetail(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
+}
+
+function closeProductDetail() {
+    const modal = document.getElementById('productDetailModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.innerHTML = '';
+        document.body.style.overflow = '';
+    }
+}
+
+function renderProductDetailModal(product) {
+    const discount = product.discount ? Math.round(product.discount) : 0;
+    const commission = product.commissionRate ? product.commissionRate.toFixed(1) : '0';
+    const rating = product.rating ? product.rating.toFixed(1) : 'N/A';
+    const orders = product.totalOrders ? product.totalOrders.toLocaleString() : '0';
+    const images = [product.imageUrl, ...(product.smallImages || [])].filter(Boolean);
+    const uniqueImages = [...new Set(images)];
+    const mainImage = uniqueImages[0] || '';
+    const pid = escapeHtml(product.productId);
+
+    return `
+        <div style="display:flex;align-items:flex-start;justify-content:center;min-height:100%;padding:16px;" onclick="if(event.target===this)closeProductDetail()">
+            <div class="bg-surface-0 rounded-2xl shadow-2xl" style="width:100%;max-width:880px;margin:auto 0;" onclick="event.stopPropagation()">
+                <!-- Header -->
+                <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-200" style="position:sticky;top:0;background:inherit;border-radius:16px 16px 0 0;z-index:10;">
+                    <h3 class="text-sm font-bold text-ink-800 truncate pr-4" style="font-family:'Satoshi',sans-serif;">Product Details</h3>
+                    <button onclick="closeProductDetail()" class="w-7 h-7 rounded-full bg-surface-100 hover:bg-surface-200 flex items-center justify-center transition-colors flex-shrink-0">
+                        <svg class="w-3.5 h-3.5 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
+                </div>
+
+                <!-- Body: two-column on desktop via CSS grid with inline style -->
+                <div style="display:grid;grid-template-columns:1fr;gap:16px;padding:16px;" class="detail-modal-body">
+                    <!-- Left: Product Info -->
+                    <div style="min-width:0;">
+                        <!-- Image + Title Row -->
+                        <div style="display:flex;gap:12px;align-items:flex-start;">
+                            <div id="detailMainImage" style="width:140px;height:140px;flex-shrink:0;border-radius:12px;overflow:hidden;background:var(--color-surface-100,#f3f4f6);">
+                                ${mainImage ? `<img src="${escapeHtml(mainImage)}" alt="" style="width:100%;height:100%;object-fit:contain;">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;">No image</div>'}
+                            </div>
+                            <div style="flex:1;min-width:0;">
+                                <h4 class="text-sm font-semibold text-ink-800 leading-snug" style="font-family:'Satoshi',sans-serif;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(product.title || 'Untitled')}</h4>
+                                <div class="flex items-center gap-2 flex-wrap" style="margin-top:6px;">
+                                    ${product.originalPrice && product.originalPrice > product.salePrice ? `<span class="text-xs text-ink-400 line-through">$${product.originalPrice.toFixed(2)}</span>` : ''}
+                                    <span class="text-lg font-bold text-green-600">$${(product.salePrice || 0).toFixed(2)}</span>
+                                    ${discount > 0 ? `<span class="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">${discount}% OFF</span>` : ''}
+                                </div>
+                                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;" class="text-xs text-ink-500">
+                                    <span title="Commission" class="font-medium text-green-600">${commission}% comm</span>
+                                    <span title="Rating">&#9733; ${rating}</span>
+                                    <span title="Orders">${orders} sold</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Thumbnails -->
+                        ${uniqueImages.length > 1 ? `
+                        <div class="flex gap-1.5 overflow-x-auto" style="margin-top:8px;padding-bottom:2px;">
+                            ${uniqueImages.slice(0, 6).map((img, i) => `
+                                <button onclick="document.querySelector('#detailMainImage img').src='${escapeHtml(img)}';document.querySelectorAll('.detail-thumb').forEach(t=>t.classList.remove('ring-2','ring-brand-500'));this.classList.add('ring-2','ring-brand-500')" class="detail-thumb flex-shrink-0 bg-surface-100 border border-surface-200 hover:border-brand-300 transition-colors ${i === 0 ? 'ring-2 ring-brand-500' : ''}" style="width:40px;height:40px;border-radius:8px;overflow:hidden;">
+                                    <img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy">
+                                </button>
+                            `).join('')}
+                        </div>` : ''}
+
+                        <!-- Meta info -->
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500" style="margin-top:8px;">
+                            ${product.category ? `<span>Category: <span class="font-medium text-ink-700">${escapeHtml(product.category)}</span></span>` : ''}
+                            ${product.storeName ? `<span>Store: <span class="font-medium text-ink-700">${escapeHtml(product.storeName)}</span></span>` : ''}
+                            ${product.productUrl ? `
+                            <a href="${escapeHtml(product.productUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium transition-colors">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                View on AliExpress
+                            </a>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Right: Content Generation & Actions -->
+                    <div style="min-width:0;">
+                        <h4 class="text-sm font-semibold text-ink-800" style="font-family:'Satoshi',sans-serif;margin-bottom:8px;">Generate & Share</h4>
+
+                        <!-- Platform Tabs -->
+                        <div class="flex gap-2" style="margin-bottom:8px;">
+                            <button onclick="selectDetailPlatform('whatsapp')" id="detailPlatformWhatsapp" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border-2 border-green-500 bg-green-50 text-green-700">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                                WhatsApp
+                            </button>
+                            <button onclick="selectDetailPlatform('telegram')" id="detailPlatformTelegram" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                                Telegram
+                            </button>
+                        </div>
+
+                        <!-- Generate Button -->
+                        <button onclick="generateContentPreview('${pid}')" id="generateContentBtn" class="btn-primary w-full flex items-center justify-center gap-2 py-2 text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Generate Description
+                        </button>
+
+                        <!-- Content Preview Area -->
+                        <div id="contentPreviewArea" class="hidden" style="margin-top:8px;">
+                            <div class="flex items-center justify-between" style="margin-bottom:4px;">
+                                <label class="text-xs font-medium text-ink-600">Content Preview</label>
+                                <span id="contentCharCount" class="text-[10px] text-ink-400"></span>
+                            </div>
+                            <textarea id="contentPreviewText" class="input-field w-full text-sm" rows="5" placeholder="Generated content will appear here..." style="resize:vertical;"></textarea>
+                            <div class="flex flex-wrap gap-2" style="margin-top:6px;">
+                                <button onclick="postWithContent('${pid}')" id="postContentBtn" class="btn-primary btn-sm flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                                    Post to <span id="postPlatformLabel">WhatsApp</span>
+                                </button>
+                                <button onclick="generateContentPreview('${pid}')" class="btn-secondary btn-sm flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    Regenerate
+                                </button>
+                                <button onclick="copyAffiliateLink('${pid}')" id="copyLinkBtn" class="btn-secondary btn-sm flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+                                    Copy Link
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Post -->
+                        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--color-surface-200,#e5e7eb);">
+                            <p class="text-xs text-ink-400" style="margin-bottom:6px;">Or post directly (auto-generates content):</p>
+                            <div class="flex gap-2">
+                                <button onclick="quickPost('${pid}', 'whatsapp', this)" class="btn-secondary btn-sm flex items-center gap-1.5 flex-1">
+                                    <svg class="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                                    WhatsApp
+                                </button>
+                                <button onclick="quickPost('${pid}', 'telegram', this)" class="btn-secondary btn-sm flex items-center gap-1.5 flex-1">
+                                    <svg class="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                                    Telegram
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     `;
 }
 
-async function postProduct(productId, btnEl) {
-    // Show platform selector
-    const platform = await showPlatformSelector();
-    if (!platform) return;
+function selectDetailPlatform(platform) {
+    _detailState.selectedPlatform = platform;
 
-    const originalHtml = btnEl ? btnEl.innerHTML : '';
-    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = 'Posting...'; }
+    const waBtn = document.getElementById('detailPlatformWhatsapp');
+    const tgBtn = document.getElementById('detailPlatformTelegram');
+    const postLabel = document.getElementById('postPlatformLabel');
+
+    if (platform === 'whatsapp') {
+        waBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border-2 border-green-500 bg-green-50 text-green-700';
+        tgBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300';
+    } else {
+        tgBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border-2 border-blue-500 bg-blue-50 text-blue-700';
+        waBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-green-300';
+    }
+
+    if (postLabel) postLabel.textContent = platform === 'whatsapp' ? 'WhatsApp' : 'Telegram';
+
+    // Clear previous generated content when switching platform (since formatting differs)
+    _detailState.generatedContent = null;
+    const textarea = document.getElementById('contentPreviewText');
+    if (textarea) textarea.value = '';
+    const previewArea = document.getElementById('contentPreviewArea');
+    if (previewArea) previewArea.classList.add('hidden');
+}
+
+async function generateContentPreview(productId) {
+    const btn = document.getElementById('generateContentBtn');
+    const previewArea = document.getElementById('contentPreviewArea');
+    const textarea = document.getElementById('contentPreviewText');
+    const charCount = document.getElementById('contentCharCount');
+
+    if (!btn || !previewArea || !textarea) return;
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating...';
 
     try {
-        const result = await affApiPost('/api/affiliate/products/post', { productId, platform });
-        showToast(`Product posted to ${platform} successfully!`, 'success');
+        const data = await affApiPost('/api/affiliate/products/generate-content', {
+            productId,
+            platform: _detailState.selectedPlatform
+        });
+
+        _detailState.affiliateUrl = data.affiliateUrl;
+        _detailState.generatedContent = data.text;
+
+        textarea.value = data.text;
+        previewArea.classList.remove('hidden');
+
+        // Update char count
+        if (charCount) charCount.textContent = `${data.text.length} chars`;
+        textarea.addEventListener('input', () => {
+            if (charCount) charCount.textContent = `${textarea.value.length} chars`;
+        });
+
+        showToast('Description generated!', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to generate content.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+async function postWithContent(productId) {
+    const textarea = document.getElementById('contentPreviewText');
+    const btn = document.getElementById('postContentBtn');
+    const customContent = textarea?.value?.trim();
+
+    if (!customContent) {
+        showToast('Generate or write content first.', 'error');
+        return;
+    }
+
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Posting...'; }
+
+    try {
+        await affApiPost('/api/affiliate/products/post', {
+            productId,
+            platform: _detailState.selectedPlatform,
+            customContent
+        });
+        showToast(`Product posted to ${_detailState.selectedPlatform === 'whatsapp' ? 'WhatsApp' : 'Telegram'} successfully!`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to post product.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+}
+
+async function quickPost(productId, platform, btnEl) {
+    const originalHtml = btnEl ? btnEl.innerHTML : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div>'; }
+
+    try {
+        await affApiPost('/api/affiliate/products/post', { productId, platform });
+        showToast(`Product posted to ${platform === 'whatsapp' ? 'WhatsApp' : 'Telegram'} successfully!`, 'success');
     } catch (error) {
         showToast(error.message || 'Failed to post product.', 'error');
     } finally {
@@ -767,38 +1037,34 @@ async function postProduct(productId, btnEl) {
     }
 }
 
-function showPlatformSelector() {
-    return new Promise((resolve) => {
-        const modal = document.createElement('div');
-        modal.className = 'fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50';
-        modal.innerHTML = `
-            <div class="bg-surface-0 rounded-2xl shadow-2xl p-6 max-w-xs w-full mx-4">
-                <h3 class="text-lg font-bold text-ink-800 mb-4" style="font-family: 'Satoshi', sans-serif;">Select Platform</h3>
-                <div class="space-y-3">
-                    <button onclick="this.closest('.fixed').resolve('whatsapp')" class="w-full flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:border-green-300 hover:bg-green-50 transition-all">
-                        <div class="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center">
-                            <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.612.638l4.67-1.318A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22a9.94 9.94 0 01-5.332-1.543l-.38-.23-2.87.81.742-2.757-.253-.4A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
-                        </div>
-                        <span class="font-medium text-ink-800">WhatsApp</span>
-                    </button>
-                    <button onclick="this.closest('.fixed').resolve('telegram')" class="w-full flex items-center gap-3 p-3 rounded-xl border border-surface-200 hover:border-blue-300 hover:bg-blue-50 transition-all">
-                        <div class="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                        </div>
-                        <span class="font-medium text-ink-800">Telegram</span>
-                    </button>
-                </div>
-                <button onclick="this.closest('.fixed').resolve(null)" class="mt-4 w-full text-center text-sm text-ink-400 hover:text-ink-600 transition-colors">Cancel</button>
-            </div>
-        `;
+async function copyAffiliateLink(productId) {
+    const btn = document.getElementById('copyLinkBtn');
 
-        modal.resolve = (value) => {
-            document.body.removeChild(modal);
-            resolve(value);
-        };
+    // If we already have the affiliate URL from content generation, use it
+    if (_detailState.affiliateUrl) {
+        await navigator.clipboard.writeText(_detailState.affiliateUrl);
+        showToast('Affiliate link copied to clipboard!', 'success');
+        return;
+    }
 
-        document.body.appendChild(modal);
-    });
+    // Otherwise, generate it via the content endpoint
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Generating...'; }
+
+    try {
+        const data = await affApiPost('/api/affiliate/products/generate-content', {
+            productId,
+            platform: _detailState.selectedPlatform
+        });
+
+        _detailState.affiliateUrl = data.affiliateUrl;
+        await navigator.clipboard.writeText(data.affiliateUrl);
+        showToast('Affiliate link copied to clipboard!', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to generate affiliate link.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
 }
 
 // ============================================

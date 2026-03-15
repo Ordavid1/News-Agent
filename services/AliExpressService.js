@@ -395,6 +395,99 @@ class AliExpressService {
   }
 
   // ============================================
+  // PRODUCT DESCRIPTION (Dropshipper API)
+  // ============================================
+
+  /**
+   * Fetch rich product description via the AE Dropshipper API.
+   * Returns the product's actual description text, attributes/specs, and metadata.
+   * Falls back gracefully if the dropshipper API is not enabled for this app.
+   *
+   * @param {string} productId - AliExpress product ID
+   * @param {object} [options]
+   * @param {string} [options.targetLanguage='en'] - Language code
+   * @returns {object} { success, description, attributes, rawDetail }
+   */
+  async getProductDescription(productId, options = {}) {
+    const { targetLanguage = 'en' } = options;
+
+    logger.info(`Fetching product description via DS API for product ${productId}`);
+
+    const params = {
+      product_id: productId,
+      target_language: targetLanguage,
+      // ship_to_country helps get localized content
+      ship_to_country: 'US'
+    };
+
+    const result = await this._makeApiCall('aliexpress.ds.product.get', params);
+
+    if (!result.success) {
+      logger.warn(`DS API failed for product ${productId}: ${result.error} (code: ${result.errorCode || 'N/A'})`);
+      logger.warn('This may mean the Dropshipper API is not enabled for this app. Falling back to title-only content.');
+      return { success: false, error: result.error, errorCode: result.errorCode };
+    }
+
+    // Parse the DS API response — structure: aliexpress_ds_product_get_response.result
+    const responseKey = 'aliexpress_ds_product_get_response';
+    const responseData = result.data[responseKey] || result.data;
+    const productData = responseData?.result || responseData;
+
+    if (!productData) {
+      logger.warn(`DS API returned empty data for product ${productId}`);
+      return { success: false, error: 'Empty response from DS API' };
+    }
+
+    // Extract the HTML description
+    const rawDetail = productData.detail || productData.mobile_detail || '';
+
+    // Strip HTML tags to get plain text description
+    const description = rawDetail
+      ? rawDetail
+          .replace(/<img[^>]*>/gi, '') // Remove image tags
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove style blocks
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove script blocks
+          .replace(/<[^>]+>/g, ' ') // Remove remaining HTML tags
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\s+/g, ' ') // Collapse whitespace
+          .trim()
+      : '';
+
+    // Extract product attributes/specs
+    const rawAttributes = productData.ae_item_properties?.ae_item_property
+      || productData.ae_item_properties
+      || [];
+    const attributes = Array.isArray(rawAttributes)
+      ? rawAttributes.map(attr => ({
+          name: attr.attr_name || attr.property_name || '',
+          value: attr.attr_value || attr.property_value || ''
+        })).filter(a => a.name && a.value)
+      : [];
+
+    // Truncate description to a reasonable size for the LLM prompt (first ~1500 chars)
+    const truncatedDescription = description.length > 1500
+      ? description.substring(0, 1500) + '...'
+      : description;
+
+    logger.info(`DS API success for product ${productId}: description=${truncatedDescription.length} chars, attributes=${attributes.length} specs`);
+    logger.debug(`DS API raw detail length: ${rawDetail.length} chars`);
+    logger.debug(`DS API attributes: ${JSON.stringify(attributes.slice(0, 5))}${attributes.length > 5 ? '...' : ''}`);
+
+    return {
+      success: true,
+      description: truncatedDescription,
+      attributes,
+      subject: productData.subject || '', // Product title from DS API
+      rawDetailLength: rawDetail.length
+    };
+  }
+
+  // ============================================
   // RESPONSE NORMALIZATION
   // ============================================
 
@@ -432,6 +525,7 @@ class AliExpressService {
       storeName: raw.shop_id ? `Store ${raw.shop_id}` : (raw.shopId ? `Store ${raw.shopId}` : ''),
       storeUrl: raw.shop_url || raw.shopUrl || '',
       category: raw.first_level_category_name || raw.second_level_category_name || null,
+      smallImages: Array.isArray(smallImages) ? smallImages : (smallImages?.string || []),
       // Affiliate URL is populated separately via generateAffiliateLinks
       affiliateUrl: raw.promotion_link || null
     };
