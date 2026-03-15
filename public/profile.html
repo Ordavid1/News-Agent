@@ -52,6 +52,16 @@
         [data-theme="dark"] .ls-checkout-popup { background: #1e1e2e; }
         [data-theme="dark"] .ls-checkout-close { background: #374151; color: #9ca3af; }
         [data-theme="dark"] .ls-checkout-close:hover { background: #4b5563; color: #e5e7eb; }
+        @media (max-width: 639px) {
+            .ls-checkout-popup {
+                width: calc(100% - 24px) !important;
+                height: calc(100% - 80px) !important;
+                top: 40px !important;
+                left: 12px !important;
+                right: 12px !important;
+                border-radius: 12px;
+            }
+        }
 
         /* ── Support Chat Widget ── */
         .chat-fab {
@@ -352,8 +362,8 @@
     <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
-                <div class="flex items-center gap-3">
+                <a href="/" class="text-lg sm:text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <div class="flex items-center gap-2 sm:gap-3">
                     <div class="theme-toggle" aria-label="Theme switcher">
                         <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
                         <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
@@ -375,12 +385,12 @@
 
             <!-- Welcome Section -->
             <div class="mb-8">
-                <h2 class="text-3xl font-bold mb-2" style="font-family: 'Satoshi', sans-serif;">Welcome back, <span id="userName" class="gradient-text">User</span>!</h2>
+                <h2 class="text-2xl sm:text-3xl font-bold mb-2" style="font-family: 'Satoshi', sans-serif;">Welcome back, <span id="userName" class="gradient-text">User</span>!</h2>
                 <p class="text-ink-500">Manage your AI News Agent and social connections</p>
             </div>
 
             <!-- Tab Scroll Hint (mobile) -->
-            <div class="hidden items-center gap-1.5 text-xs text-brand-500 mb-2 md:hidden" id="tabScrollHint">
+            <div class="flex items-center gap-1.5 text-xs text-brand-500 mb-2 md:hidden" id="tabScrollHint">
                 <span>Swipe for more</span>
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
@@ -406,7 +416,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
                             </svg>
                             Social Connections
-                            <span id="connectionCount" class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded-full">0/7</span>
+                            <span id="connectionCount" class="text-[10px] sm:text-xs bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/7</span>
                         </span>
                     </button>
                     <button onclick="showTab('agents')" id="tab-agents" class="tab-btn tab-active whitespace-nowrap">
@@ -415,7 +425,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                             </svg>
                             Engagement Agents
-                            <span id="agentCount" class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded-full">0/1</span>
+                            <span id="agentCount" class="text-[10px] sm:text-xs bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/1</span>
                         </span>
                     </button>
 
@@ -428,7 +438,7 @@
                         </span>
                     </button>
 
-                    <span class="flex-shrink-0 mx-1" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
+                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
 
                     <button onclick="showTab('marketing')" id="tab-marketing" class="tab-btn whitespace-nowrap">
                         <span class="flex items-center gap-2">
@@ -689,7 +699,7 @@
             <!-- AGENTS TAB              -->
             <!-- ======================== -->
             <div id="content-agents" class="tab-content">
-                <div class="flex items-center justify-between mb-6">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <div>
                         <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Your News Agents</h3>
                         <p class="text-ink-500 text-sm">Each agent posts to a specific platform with its own settings</p>
@@ -742,15 +752,15 @@
                 </div>
 
                 <!-- Current Plan -->
-                <div class="card-static p-6 mb-8">
-                    <div class="flex items-center justify-between">
+                <div class="card-static p-4 sm:p-6 mb-8">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div>
                             <p class="text-ink-500 text-sm mb-1">Current Plan</p>
-                            <h4 class="text-2xl font-bold gradient-text" id="currentPlanName" style="font-family: 'Satoshi', sans-serif;">Free</h4>
+                            <h4 class="text-xl sm:text-2xl font-bold gradient-text" id="currentPlanName" style="font-family: 'Satoshi', sans-serif;">Free</h4>
                         </div>
-                        <div class="text-right">
+                        <div class="sm:text-right">
                             <p class="text-ink-500 text-sm mb-1">Posts Remaining</p>
-                            <p class="text-2xl font-bold text-ink-800" id="postsRemaining">1/1</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="postsRemaining">1/1</p>
                         </div>
                     </div>
                     <div class="mt-4 pt-4 border-t border-surface-200">
@@ -816,12 +826,12 @@
                             </div>
                         </div>
                         <div class="flex-shrink-0 text-right">
-                            <p class="text-2xl font-bold text-ink-900">$0<span class="text-sm text-ink-400 font-normal">/forever</span></p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-900">$0<span class="text-sm text-ink-400 font-normal">/forever</span></p>
                         </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
 
                     <!-- Starter Plan -->
                     <div class="plan-card rounded-xl p-6" id="plan-card-starter">
@@ -830,7 +840,7 @@
                             <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
                             <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
                         </div>
-                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$50</span>$25<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$50</span>$25<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
@@ -876,7 +886,7 @@
                             <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
                             <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
                         </div>
-                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$150</span>$75<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$150</span>$75<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
@@ -915,7 +925,7 @@
                             <span class="inline-block bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded-full">50% OFF</span>
                             <span class="inline-block bg-red-50 text-red-500 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border border-red-200 ml-1">Code: Y5NDC0MG</span>
                         </div>
-                        <p class="text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$500</span>$250<span class="text-sm text-ink-400 font-normal">/mo</span></p>
+                        <p class="text-2xl sm:text-3xl font-bold text-ink-900 mb-4"><span class="text-base text-ink-400 font-normal line-through mr-1">$500</span>$250<span class="text-sm text-ink-400 font-normal">/mo</span></p>
                         <ul class="space-y-2.5 mb-6 text-sm text-ink-600">
                             <li class="flex items-center gap-2">
                                 <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
@@ -955,8 +965,8 @@
             <div id="content-marketing" class="tab-content hidden">
 
                 <!-- Ad Account Setup Banner -->
-                <div id="adAccountBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-amber-500">
-                    <div class="flex items-center justify-between">
+                <div id="adAccountBanner" class="hidden mb-6 card-gradient p-4 sm:p-6 border-l-4 border-l-amber-500">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -975,8 +985,8 @@
                 </div>
 
                 <!-- Marketing Add-on Banner (inactive state: purchase prompt) -->
-                <div id="addonRequiredBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-brand-500">
-                    <div class="flex items-center justify-between">
+                <div id="addonRequiredBanner" class="hidden mb-6 card-gradient p-4 sm:p-6 border-l-4 border-l-brand-500">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -997,8 +1007,8 @@
                 </div>
 
                 <!-- Marketing Add-on Banner (active state: subscription info) -->
-                <div id="addonActiveBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-green-500">
-                    <div class="flex items-center justify-between gap-4">
+                <div id="addonActiveBanner" class="hidden mb-6 card-gradient p-4 sm:p-6 border-l-4 border-l-green-500">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1007,7 +1017,7 @@
                             </div>
                             <h4 class="font-semibold text-green-700">Marketing Add-on Active</h4>
                         </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
+                        <div class="flex flex-wrap items-center gap-2">
                             <button onclick="cancelAddon()" id="cancelAddonBtn" class="text-sm text-red-500 hover:text-red-700 border border-red-300 hover:border-red-500 rounded-lg px-4 py-2 transition-colors whitespace-nowrap">
                                 Cancel Subscription
                             </button>
@@ -1115,8 +1125,8 @@
 
                 <!-- Marketing Overview -->
                 <div id="mkt-content-overview" class="mkt-tab-content">
-                    <div class="flex items-center justify-between mb-6">
-                        <h3 class="text-xl font-semibold" style="font-family: 'Satoshi', sans-serif;">Performance Overview</h3>
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                        <h3 class="text-lg sm:text-xl font-semibold" style="font-family: 'Satoshi', sans-serif;">Performance Overview</h3>
                         <div class="flex items-center gap-2">
                             <select id="overviewDateRange" onchange="loadOverview()" class="select text-sm py-2 px-3">
                                 <option value="7">Last 7 days</option>
@@ -1134,41 +1144,41 @@
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Total Spend</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewSpend">$0.00</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewSpend">$0.00</p>
                             <p class="text-xs text-ink-400 mt-1" id="overviewSpendPeriod">Last 30 days</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Total Reach</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewReach">0</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewReach">0</p>
                             <p class="text-xs text-ink-400 mt-1">People reached</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Total Clicks</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewClicks">0</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewClicks">0</p>
                             <p class="text-xs text-ink-400 mt-1" id="overviewCTR">0% CTR</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Active Campaigns</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewActiveCampaigns">0</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewActiveCampaigns">0</p>
                             <p class="text-xs text-ink-400 mt-1" id="overviewTotalCampaigns">0 total</p>
                         </div>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Impressions</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewImpressions">0</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewImpressions">0</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Avg. CPC</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewCPC">$0.00</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewCPC">$0.00</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Avg. CPM</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewCPM">$0.00</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewCPM">$0.00</p>
                         </div>
                         <div class="card-static p-5">
                             <p class="text-ink-400 text-sm mb-1">Active Ads</p>
-                            <p class="text-2xl font-bold text-ink-800" id="overviewActiveAds">0</p>
+                            <p class="text-xl sm:text-2xl font-bold text-ink-800" id="overviewActiveAds">0</p>
                         </div>
                     </div>
                     <div class="card-static p-6">
@@ -1185,7 +1195,7 @@
 
                 <!-- Marketing Boost -->
                 <div id="mkt-content-boost" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1 flex items-center gap-2" style="font-family: 'Satoshi', sans-serif;">Boost Posts <span class="flex items-center gap-1 opacity-50"><svg class="w-4 h-4" fill="#1877F2" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg><svg class="w-4 h-4" fill="#E4405F" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></span></h3>
                             <p class="text-ink-500 text-sm">Turn your best organic posts into paid ads</p>
@@ -1215,7 +1225,7 @@
 
                 <!-- Marketing Campaigns -->
                 <div id="mkt-content-campaigns" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1 flex items-center gap-2" style="font-family: 'Satoshi', sans-serif;">Campaigns <span class="flex items-center gap-1 opacity-50"><svg class="w-4 h-4" fill="#1877F2" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg><svg class="w-4 h-4" fill="#E4405F" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></span></h3>
                             <p class="text-ink-500 text-sm">Manage your ad campaigns, ad sets, and ads</p>
@@ -1273,7 +1283,7 @@
 
                 <!-- Marketing Audiences -->
                 <div id="mkt-content-audiences" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1 flex items-center gap-2" style="font-family: 'Satoshi', sans-serif;">Audience Library <span class="flex items-center gap-1 opacity-50"><svg class="w-4 h-4" fill="#1877F2" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg><svg class="w-4 h-4" fill="#E4405F" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></span></h3>
                             <p class="text-ink-500 text-sm">Save reusable targeting templates for your ads</p>
@@ -1313,7 +1323,7 @@
 
                 <!-- Marketing Rules -->
                 <div id="mkt-content-rules" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1 flex items-center gap-2" style="font-family: 'Satoshi', sans-serif;">Auto-Boost Rules <span class="flex items-center gap-1 opacity-50"><svg class="w-4 h-4" fill="#1877F2" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg><svg class="w-4 h-4" fill="#E4405F" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></span></h3>
                             <p class="text-ink-500 text-sm">Automatically boost posts when they hit engagement targets</p>
@@ -1357,7 +1367,7 @@
 
                 <!-- Brand Voice -->
                 <div id="mkt-content-brandvoice" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Brand Voice</h3>
                             <p class="text-ink-500 text-sm">Learn from your past posts and generate original content that matches your brand's unique voice</p>
@@ -1527,7 +1537,7 @@
                 <!-- MEDIA ASSETS TAB        -->
                 <!-- ======================== -->
                 <div id="mkt-content-mediaassets" class="mkt-tab-content hidden">
-                    <div class="flex items-center justify-between mb-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Media Assets</h3>
                             <p class="text-ink-500 text-sm">Upload reference images, train a custom AI model, and generate brand-consistent visuals</p>
@@ -1912,7 +1922,7 @@
 
                     <!-- Sub-Tab: Keywords -->
                     <div id="aff-content-keywords" class="aff-subtab-content hidden">
-                        <div class="flex items-center justify-between mb-6">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                             <div>
                                 <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Keyword Sets</h3>
                                 <p class="text-ink-500 text-sm">Define keyword sets to control which products your agents search for and post.</p>

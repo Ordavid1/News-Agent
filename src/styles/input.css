@@ -763,6 +763,46 @@
     color: rgb(var(--color-brand-500));
     box-shadow: var(--shadow-sm);
   }
+
+  /* ===== MOBILE RESPONSIVE OVERRIDES ===== */
+  @media (max-width: 639px) {
+    .tab-btn {
+      @apply px-3 py-2 text-xs;
+    }
+    .tab-btn svg {
+      @apply w-3.5 h-3.5;
+    }
+    .card-static {
+      padding: 1rem;
+    }
+    .modal-header {
+      @apply px-4 py-3;
+    }
+    .modal-body {
+      @apply px-4 py-4;
+    }
+    .modal-footer {
+      @apply px-4 py-3;
+    }
+    .btn-primary,
+    .btn-secondary,
+    .btn-outline,
+    .btn-danger {
+      @apply px-4 py-2.5 text-sm;
+    }
+    .platform-card {
+      padding: 1rem;
+    }
+    .plan-card {
+      padding: 1rem;
+    }
+    .theme-toggle-btn {
+      @apply w-7 h-7;
+    }
+    .theme-toggle-btn svg {
+      @apply w-3.5 h-3.5;
+    }
+  }
 }
 
 @layer utilities {
