@@ -223,11 +223,13 @@ function getTierPostLimit(tier) {
  * Returns { valid: true, lsData } on success, or { stale: true } if unrecoverable.
  */
 async function validateOrRecoverLsSubscription(subscription, userId) {
-  const lsSubId = subscription.lsSubscriptionId;
+  const lsSubId = String(subscription.lsSubscriptionId || '');
 
   if (!lsSubId) {
     return { stale: true, reason: 'No Lemon Squeezy subscription ID stored' };
   }
+
+  console.log(`[LS-VALIDATE] Validating subscription ID: ${lsSubId} for user: ${userId}`);
 
   // Step 1: Validate the stored subscription ID
   try {
@@ -244,7 +246,9 @@ async function validateOrRecoverLsSubscription(subscription, userId) {
     }
 
     if (response.status !== 404) {
-      console.error(`[LS-VALIDATE] Unexpected status ${response.status} for subscription ${lsSubId}`);
+      let body = '';
+      try { body = await response.text(); } catch (_) {}
+      console.error(`[LS-VALIDATE] Unexpected status ${response.status} for subscription ${lsSubId}. Body: ${body}`);
       return { error: true, reason: `Lemon Squeezy API error (${response.status})` };
     }
   } catch (err) {
@@ -328,20 +332,11 @@ async function validateOrRecoverLsSubscription(subscription, userId) {
     console.error('[LS-VALIDATE] Email-based recovery error:', err.message);
   }
 
-  // Step 4: No recovery possible — subscription is stale (e.g., test mode data)
-  console.warn(`[LS-VALIDATE] Subscription ${lsSubId} is stale and unrecoverable`);
-
-  // Clean up stale data
-  await updateSubscriptionRecord(lsSubId, { status: 'expired' });
-  await updateUser(userId, {
-    subscription: {
-      cancelAtPeriodEnd: false,
-      endsAt: null,
-      pendingTier: null,
-      pendingChangeAt: null
-    },
-    lsSubscriptionId: null
-  });
+  // Step 4: No recovery possible — report as stale but do NOT destroy data.
+  // Callers decide how to handle stale results (some may proceed with local-only operations).
+  console.warn(`[LS-VALIDATE] Subscription ${String(lsSubId)} not found in LS. ` +
+    `Recovery by customer_id (${lsCustomerId || 'none'}) and email both failed. ` +
+    `Reporting as stale but NOT cleaning up data.`);
 
   return { stale: true, reason: 'Subscription record is outdated (possibly from test mode). Please re-subscribe to activate your plan.' };
 }
@@ -533,18 +528,53 @@ router.post('/cancel', async (req, res) => {
       req.user.id
     );
 
-    if (validation.stale) {
-      return res.status(410).json({ error: validation.reason, stale: true });
-    }
-
     if (validation.error) {
       return res.status(502).json({ error: validation.reason });
+    }
+
+    // Calculate weekly reset date for free tier
+    const now = new Date();
+    const resetDate = new Date(now);
+    resetDate.setDate(resetDate.getDate() + 7);
+    resetDate.setHours(0, 0, 0, 0);
+
+    if (validation.stale) {
+      // LS subscription is stale — skip remote cancel, just downgrade locally
+      console.warn('[CANCEL] LS subscription is stale, performing local-only downgrade to free');
+
+      if (subscription.lsSubscriptionId) {
+        await updateSubscriptionRecord(subscription.lsSubscriptionId, {
+          status: 'expired',
+          cancelAtPeriodEnd: false
+        });
+      }
+
+      await updateUser(req.user.id, {
+        subscription: {
+          tier: 'free',
+          status: 'active',
+          postsRemaining: 1,
+          dailyLimit: 1,
+          resetDate: resetDate,
+          videosRemaining: 0,
+          videoMonthlyLimit: 0,
+          cancelAtPeriodEnd: false,
+          endsAt: null,
+          pendingTier: null,
+          pendingChangeAt: null
+        },
+        lsSubscriptionId: null
+      });
+
+      return res.json({
+        message: 'Your subscription has been cancelled and you are now on the Free plan.'
+      });
     }
 
     // Use the validated (possibly recovered) subscription ID
     const validSubId = validation.lsData.data.id;
 
-    // Cancel subscription via Lemon Squeezy API
+    // Cancel subscription at period end via Lemon Squeezy API
     const response = await fetch(
       `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
       {
@@ -575,8 +605,10 @@ router.post('/cancel', async (req, res) => {
     }
 
     const data = await response.json();
+    const endsAt = data.data.attributes.ends_at;
 
-    // Update both tables
+    // LS subscription is marked cancelled at period end.
+    // Locally, downgrade user to free immediately so the UI reflects the change.
     await updateSubscriptionRecord(String(validSubId), {
       status: 'cancelled',
       cancelAtPeriodEnd: true
@@ -584,14 +616,25 @@ router.post('/cancel', async (req, res) => {
 
     await updateUser(req.user.id, {
       subscription: {
-        cancelAtPeriodEnd: true,
-        endsAt: data.data.attributes.ends_at
-      }
+        tier: 'free',
+        status: 'active',
+        postsRemaining: 1,
+        dailyLimit: 1,
+        resetDate: resetDate,
+        videosRemaining: 0,
+        videoMonthlyLimit: 0,
+        cancelAtPeriodEnd: false,
+        endsAt: null,
+        pendingTier: null,
+        pendingChangeAt: null
+      },
+      lsSubscriptionId: null
     });
 
+    console.log(`[CANCEL] User ${req.user.id} cancelled at period end (${endsAt}), locally downgraded to free`);
+
     res.json({
-      message: 'Subscription will be cancelled at the end of the billing period',
-      endsAt: data.data.attributes.ends_at
+      message: 'Your subscription has been cancelled and you are now on the Free plan.'
     });
 
   } catch (error) {
@@ -790,7 +833,7 @@ router.post('/resume', async (req, res) => {
   }
 });
 
-// Downgrade to free tier (cancel subscription and switch to free immediately)
+// Downgrade to free tier (cancel subscription immediately + pro-rata refund)
 router.post('/downgrade-to-free', async (req, res) => {
   console.log('[DOWNGRADE] POST /downgrade-to-free - User:', req.user?.id);
   try {
@@ -802,9 +845,16 @@ router.post('/downgrade-to-free', async (req, res) => {
       return res.status(400).json({ error: 'You are already on the Free plan' });
     }
 
-    // If user has an active Lemon Squeezy subscription, cancel it first
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    let refundedAmount = 0;
+
+    // If user has an active Lemon Squeezy subscription, cancel it with pro-rata refund
     if (subscription.lsSubscriptionId) {
-      console.log('[DOWNGRADE] Cancelling Lemon Squeezy subscription:', subscription.lsSubscriptionId);
+      console.log('[DOWNGRADE] Processing LS subscription:', subscription.lsSubscriptionId);
 
       try {
         // Validate & find the correct LS subscription ID
@@ -815,30 +865,91 @@ router.post('/downgrade-to-free', async (req, res) => {
 
         if (validation.valid) {
           const validSubId = validation.lsData.data.id;
-          const response = await fetch(
+          const lsAttrs = validation.lsData.data.attributes;
+          const renewsAt = lsAttrs.renews_at;
+
+          // --- Pro-rata refund calculation ---
+          // Fetch the latest paid invoice for this subscription
+          try {
+            const invoiceUrl = `https://api.lemonsqueezy.com/v1/subscription-invoices?filter[subscription_id]=${validSubId}&filter[status]=paid&sort=-created_at&page[size]=1`;
+            const invoiceResponse = await fetch(invoiceUrl, { headers: lsHeaders });
+
+            if (invoiceResponse.ok) {
+              const invoiceData = await invoiceResponse.json();
+              const latestInvoice = invoiceData.data?.[0];
+
+              if (latestInvoice && renewsAt) {
+                const invoiceId = latestInvoice.id;
+                const invoiceCreatedAt = new Date(latestInvoice.attributes.created_at);
+                const periodEnd = new Date(renewsAt);
+                const now = new Date();
+
+                const totalDays = Math.max(1, (periodEnd - invoiceCreatedAt) / (1000 * 60 * 60 * 24));
+                const usedDays = Math.max(0, (now - invoiceCreatedAt) / (1000 * 60 * 60 * 24));
+                const remainingDays = Math.max(0, totalDays - usedDays);
+                const invoiceTotal = latestInvoice.attributes.total; // in cents
+                refundedAmount = Math.round((remainingDays / totalDays) * invoiceTotal);
+
+                console.log(`[DOWNGRADE] Refund calculation: total=${totalDays.toFixed(1)}d, used=${usedDays.toFixed(1)}d, remaining=${remainingDays.toFixed(1)}d, invoiceTotal=${invoiceTotal}, refundAmount=${refundedAmount}`);
+
+                if (refundedAmount > 0) {
+                  // Issue partial refund via LS Subscription Invoices API
+                  const refundResponse = await fetch(
+                    `https://api.lemonsqueezy.com/v1/subscription-invoices/${invoiceId}/refund`,
+                    {
+                      method: 'POST',
+                      headers: {
+                        ...lsHeaders,
+                        'Content-Type': 'application/vnd.api+json'
+                      },
+                      body: JSON.stringify({ data: { type: 'subscription-invoices', id: String(invoiceId), attributes: { amount: refundedAmount } } })
+                    }
+                  );
+
+                  if (refundResponse.ok) {
+                    console.log(`[DOWNGRADE] Pro-rata refund of ${refundedAmount} cents issued for invoice ${invoiceId}`);
+                  } else {
+                    const refundError = await refundResponse.text();
+                    console.error(`[DOWNGRADE] Refund failed (status ${refundResponse.status}):`, refundError);
+                    // Continue with cancellation even if refund fails — log for manual resolution
+                    refundedAmount = 0;
+                  }
+                } else {
+                  console.log('[DOWNGRADE] No refund needed (remaining days <= 0)');
+                }
+              } else {
+                console.log('[DOWNGRADE] No paid invoice found or no renewsAt — skipping refund');
+              }
+            } else {
+              console.warn('[DOWNGRADE] Failed to fetch invoices:', invoiceResponse.status);
+            }
+          } catch (refundErr) {
+            console.error('[DOWNGRADE] Error during refund calculation:', refundErr.message);
+            // Continue with cancellation even if refund fails
+          }
+
+          // Cancel (DELETE) the subscription immediately
+          const cancelResponse = await fetch(
             `https://api.lemonsqueezy.com/v1/subscriptions/${validSubId}`,
             {
               method: 'DELETE',
-              headers: {
-                'Accept': 'application/vnd.api+json',
-                'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-              }
+              headers: lsHeaders
             }
           );
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            console.error('[DOWNGRADE] Lemon Squeezy cancel error:', errorData);
-            // Continue anyway - we'll still downgrade locally
+          if (!cancelResponse.ok) {
+            const errorData = await cancelResponse.text();
+            console.error('[DOWNGRADE] LS DELETE error:', errorData);
+            // Continue anyway — we'll still downgrade locally
           } else {
-            console.log('[DOWNGRADE] Lemon Squeezy subscription cancelled successfully');
+            console.log('[DOWNGRADE] LS subscription cancelled (DELETE) successfully');
           }
         } else {
-          console.log('[DOWNGRADE] LS subscription is stale, skipping remote cancel');
+          console.log('[DOWNGRADE] LS subscription is stale, skipping remote cancel & refund');
         }
       } catch (lsError) {
-        console.error('[DOWNGRADE] Error cancelling Lemon Squeezy subscription:', lsError);
-        // Continue anyway - we'll still downgrade locally
+        console.error('[DOWNGRADE] Error processing LS subscription:', lsError);
+        // Continue anyway — we'll still downgrade locally
       }
     }
 
@@ -874,12 +985,16 @@ router.post('/downgrade-to-free', async (req, res) => {
       lsSubscriptionId: null
     });
 
-    console.log(`[DOWNGRADE] User ${req.user.id} downgraded to free tier successfully`);
+    const refundMsg = refundedAmount > 0
+      ? ` A refund of $${(refundedAmount / 100).toFixed(2)} has been issued.`
+      : '';
+    console.log(`[DOWNGRADE] User ${req.user.id} downgraded to free tier successfully.${refundMsg}`);
 
     res.json({
       success: true,
-      message: 'Successfully downgraded to Free plan. You now have 1 post per week.',
-      newTier: 'free'
+      message: `Successfully downgraded to Free plan.${refundMsg}`,
+      newTier: 'free',
+      refundedAmount: refundedAmount || undefined
     });
 
   } catch (error) {
@@ -1407,16 +1522,6 @@ router.get('/affiliate-addon', async (req, res) => {
 router.post('/affiliate-checkout', async (req, res) => {
   console.log('[AFFILIATE-CHECKOUT] POST /affiliate-checkout - User:', req.user?.id);
   try {
-    // Verify user has at least starter tier
-    const tierHierarchy = { free: 0, starter: 1, growth: 2, business: 3 };
-    const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
-
-    if (userTierLevel < 1) {
-      return res.status(403).json({
-        error: 'AE Affiliate add-on requires a paid subscription (Starter or higher)'
-      });
-    }
-
     // Check if already has active addon
     const existingAddon = await getAffiliateAddon(req.user.id);
     if (existingAddon?.status === 'active') {

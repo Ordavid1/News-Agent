@@ -183,9 +183,13 @@ function updateProfileUI() {
     const tier = currentUser.subscription?.tier || 'free';
     const isPaidUser = tier !== 'free';
 
-    if (subscriptionBadge && isPaidUser) {
-        subscriptionBadge.textContent = tier.toUpperCase();
-        subscriptionBadge.classList.remove('hidden');
+    if (subscriptionBadge) {
+        if (isPaidUser) {
+            subscriptionBadge.textContent = tier.toUpperCase();
+            subscriptionBadge.classList.remove('hidden');
+        } else {
+            subscriptionBadge.classList.add('hidden');
+        }
     }
 
     // Update subscription info
@@ -206,14 +210,7 @@ function updateProfileUI() {
     if (subscriptionStatus) {
         if (isPaidUser) {
             const sub = currentUser.subscription;
-            if (sub?.cancelAtPeriodEnd || sub?.status === 'cancelled') {
-                const endDate = sub.endsAt
-                    ? new Date(sub.endsAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-                    : null;
-                subscriptionStatus.textContent = endDate
-                    ? `Your ${tier} plan is cancelled. Access continues until ${endDate}.`
-                    : `Your ${tier} plan is cancelled. You can resume anytime.`;
-            } else if (sub?.pendingTier) {
+            if (sub?.pendingTier) {
                 const changeTier = sub.pendingTier.charAt(0).toUpperCase() + sub.pendingTier.slice(1);
                 const changeDate = sub.pendingChangeAt
                     ? new Date(sub.pendingChangeAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -228,7 +225,7 @@ function updateProfileUI() {
     }
 
     // Update subscription management actions visibility
-    updateSubscriptionActions(tier, currentUser.subscription);
+    updateSubscriptionActions(tier);
 
     // Update dashboard stats
     const postsLeftToday = document.getElementById('postsLeftToday');
@@ -2486,12 +2483,10 @@ function closeConnectionNotification() {
 // Subscription Management UI
 // ============================================
 
-function updateSubscriptionActions(tier, subscription) {
+function updateSubscriptionActions(tier) {
     const actionsContainer = document.getElementById('subscriptionActions');
     const cancelBtn = document.getElementById('cancelSubscriptionBtn');
-    const resumeBtn = document.getElementById('resumeSubscriptionBtn');
-    const downgradeBtn = document.getElementById('downgradeToFreeBtn');
-    const endDateEl = document.getElementById('subscriptionEndDate');
+    const manageBillingBtn = document.getElementById('manageBillingBtn');
 
     if (!actionsContainer) return;
 
@@ -2500,85 +2495,11 @@ function updateSubscriptionActions(tier, subscription) {
     if (isPaidUser) {
         // Show subscription management actions for paid users
         actionsContainer.classList.remove('hidden');
-
-        const isCancelled = subscription?.cancelAtPeriodEnd || subscription?.status === 'cancelled';
-
-        if (isCancelled) {
-            // Subscription is cancelled - show resume button, hide cancel/downgrade
-            cancelBtn?.classList.add('hidden');
-            downgradeBtn?.classList.add('hidden');
-            resumeBtn?.classList.remove('hidden');
-
-            // Show end date if available
-            if (subscription?.endsAt && endDateEl) {
-                const endDate = new Date(subscription.endsAt).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                });
-                endDateEl.textContent = `Your subscription will end on ${endDate}. You can resume anytime before then.`;
-                endDateEl.classList.remove('hidden');
-            }
-        } else {
-            // Active subscription - show cancel and downgrade buttons
-            cancelBtn?.classList.remove('hidden');
-            downgradeBtn?.classList.remove('hidden');
-            resumeBtn?.classList.add('hidden');
-            endDateEl?.classList.add('hidden');
-        }
+        cancelBtn?.classList.remove('hidden');
+        manageBillingBtn?.classList.remove('hidden');
     } else {
         // Free user - hide subscription management actions
         actionsContainer.classList.add('hidden');
-    }
-}
-
-async function downgradeToFree() {
-    const confirmed = confirm(
-        'Are you sure you want to downgrade to the Free plan?\n\n' +
-        'This will:\n' +
-        '- Cancel your current subscription immediately\n' +
-        '- Change your plan to Free (1 post per week)\n' +
-        '- You will lose access to paid features\n\n' +
-        'This action cannot be undone.'
-    );
-
-    if (!confirmed) return;
-
-    const token = localStorage.getItem('token');
-    const downgradeBtn = document.getElementById('downgradeToFreeBtn');
-
-    if (downgradeBtn) {
-        downgradeBtn.disabled = true;
-        downgradeBtn.innerHTML = '<span class="animate-pulse">Downgrading...</span>';
-    }
-
-    try {
-        const response = await fetch('/api/subscriptions/downgrade-to-free', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCsrfToken()
-            }
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            alert(data.message || 'Successfully downgraded to Free plan.');
-            // Reload profile to update UI
-            await loadUserProfile();
-        } else {
-            alert(data.error || 'Failed to downgrade. Please try again.');
-        }
-    } catch (error) {
-        console.error('Downgrade error:', error);
-        alert('Failed to downgrade. Please try again.');
-    } finally {
-        if (downgradeBtn) {
-            downgradeBtn.disabled = false;
-            downgradeBtn.innerHTML = 'Downgrade to Free';
-        }
     }
 }
 
@@ -2606,18 +2527,16 @@ async function openCustomerPortal() {
         const data = await response.json();
 
         if (response.ok && data.portalUrl) {
-            // Open customer portal in new tab
             window.open(data.portalUrl, '_blank');
         } else if (data.stale) {
-            // Subscription record is outdated (e.g., from test mode)
-            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
-            await loadUserProfile(); // Refresh UI after stale data cleanup
+            showToast('Unable to access billing portal. If this persists, please contact support.', 'error');
+            await loadUserProfile();
         } else {
-            alert(data.error || 'Unable to access billing portal. Please try again.');
+            showToast(data.error || 'Unable to access billing portal. Please try again.', 'error');
         }
     } catch (error) {
         console.error('Portal error:', error);
-        alert('Failed to open billing portal. Please try again.');
+        showToast('Failed to open billing portal. Please try again.', 'error');
     } finally {
         if (portalBtn) {
             portalBtn.disabled = false;
@@ -2626,11 +2545,68 @@ async function openCustomerPortal() {
     }
 }
 
+/**
+ * Cancel subscription — presents a choice dialog:
+ *   Option A: Cancel at period end (keep access until billing period ends, no refund)
+ *   Option B: Cancel now & get pro-rata refund (immediate cancellation)
+ */
 async function cancelSubscription() {
-    if (!confirm('Are you sure you want to cancel your subscription? You will retain access until the end of your current billing period.')) {
-        return;
-    }
+    // Build and show the choice modal
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    overlay.id = 'cancelChoiceOverlay';
 
+    overlay.innerHTML = `
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5">
+            <div class="text-center">
+                <h3 class="text-lg font-semibold text-gray-900">Cancel Subscription</h3>
+                <p class="text-sm text-gray-500 mt-1">Choose how you'd like to cancel your plan.</p>
+            </div>
+
+            <div class="space-y-3">
+                <button id="cancelAtPeriodEndBtn"
+                    class="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all group">
+                    <div class="font-medium text-gray-900 group-hover:text-blue-700">Cancel at period end</div>
+                    <p class="text-sm text-gray-500 mt-1">Keep access until your current billing period ends. No refund.</p>
+                </button>
+
+                <button id="cancelNowRefundBtn"
+                    class="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-amber-400 hover:bg-amber-50/50 transition-all group">
+                    <div class="font-medium text-gray-900 group-hover:text-amber-700">Cancel now & get refund</div>
+                    <p class="text-sm text-gray-500 mt-1">Cancel immediately and receive a pro-rata refund for the remaining days.</p>
+                </button>
+            </div>
+
+            <button id="cancelChoiceDismiss"
+                class="w-full py-2.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                Never mind, keep my plan
+            </button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Wire up buttons
+    const dismiss = () => { overlay.remove(); };
+
+    document.getElementById('cancelChoiceDismiss').onclick = dismiss;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+
+    document.getElementById('cancelAtPeriodEndBtn').onclick = async () => {
+        dismiss();
+        await executeCancelAtPeriodEnd();
+    };
+
+    document.getElementById('cancelNowRefundBtn').onclick = async () => {
+        dismiss();
+        await executeCancelNowWithRefund();
+    };
+}
+
+/**
+ * Cancel at period end — PATCH cancelled:true via LS, then downgrade locally to free.
+ */
+async function executeCancelAtPeriodEnd() {
     const token = localStorage.getItem('token');
     const cancelBtn = document.getElementById('cancelSubscriptionBtn');
 
@@ -2652,18 +2628,17 @@ async function cancelSubscription() {
         const data = await response.json();
 
         if (response.ok) {
-            alert(data.message || 'Your subscription has been cancelled. You will retain access until the end of your billing period.');
-            // Reload profile to update UI
+            showToast(data.message || 'Your subscription has been cancelled.', 'success');
             await loadUserProfile();
         } else if (data.stale) {
-            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
+            showToast('Unable to cancel. If this persists, please contact support.', 'error');
             await loadUserProfile();
         } else {
-            alert(data.error || 'Failed to cancel subscription. Please try again.');
+            showToast(data.error || 'Failed to cancel subscription. Please try again.', 'error');
         }
     } catch (error) {
         console.error('Cancel error:', error);
-        alert('Failed to cancel subscription. Please try again.');
+        showToast('Failed to cancel subscription. Please try again.', 'error');
     } finally {
         if (cancelBtn) {
             cancelBtn.disabled = false;
@@ -2672,17 +2647,20 @@ async function cancelSubscription() {
     }
 }
 
-async function resumeSubscription() {
+/**
+ * Cancel now with pro-rata refund — DELETE subscription via LS + issue partial refund.
+ */
+async function executeCancelNowWithRefund() {
     const token = localStorage.getItem('token');
-    const resumeBtn = document.getElementById('resumeSubscriptionBtn');
+    const cancelBtn = document.getElementById('cancelSubscriptionBtn');
 
-    if (resumeBtn) {
-        resumeBtn.disabled = true;
-        resumeBtn.innerHTML = '<span class="animate-pulse">Resuming...</span>';
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.innerHTML = '<span class="animate-pulse">Processing refund...</span>';
     }
 
     try {
-        const response = await fetch('/api/subscriptions/resume', {
+        const response = await fetch('/api/subscriptions/downgrade-to-free', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2694,23 +2672,24 @@ async function resumeSubscription() {
         const data = await response.json();
 
         if (response.ok) {
-            alert(data.message || 'Your subscription has been resumed!');
-            // Reload profile to update UI
+            const refundMsg = data.refundedAmount
+                ? ` A refund of $${(data.refundedAmount / 100).toFixed(2)} has been issued.`
+                : '';
+            showToast(`Successfully cancelled and downgraded to Free plan.${refundMsg}`, 'success');
             await loadUserProfile();
         } else if (data.stale) {
-            // Subscription record is outdated (e.g., from test mode)
-            alert(data.error || 'Your subscription record is outdated. Please re-subscribe to activate your plan.');
-            await loadUserProfile(); // Refresh UI after stale data cleanup
+            showToast('Unable to process cancellation. If this persists, please contact support.', 'error');
+            await loadUserProfile();
         } else {
-            alert(data.error || 'Failed to resume subscription. Please try again.');
+            showToast(data.error || 'Failed to cancel subscription. Please try again.', 'error');
         }
     } catch (error) {
-        console.error('Resume error:', error);
-        alert('Failed to resume subscription. Please try again.');
+        console.error('Cancel & refund error:', error);
+        showToast('Failed to cancel subscription. Please try again.', 'error');
     } finally {
-        if (resumeBtn) {
-            resumeBtn.disabled = false;
-            resumeBtn.innerHTML = 'Resume Subscription';
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = 'Cancel Subscription';
         }
     }
 }
@@ -2852,8 +2831,6 @@ window.closePaymentCancelledNotification = closePaymentCancelledNotification;
 window.closePlanChangeNotification = closePlanChangeNotification;
 window.openCustomerPortal = openCustomerPortal;
 window.cancelSubscription = cancelSubscription;
-window.resumeSubscription = resumeSubscription;
-window.downgradeToFree = downgradeToFree;
 // Beta plan modal functions
 window.openBetaPlanModal = openBetaPlanModal;
 window.closeBetaPlanModal = closeBetaPlanModal;

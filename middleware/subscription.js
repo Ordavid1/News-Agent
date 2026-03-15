@@ -314,28 +314,12 @@ export const AFFILIATE_LIMITS = {
 
 /**
  * Middleware to require an active affiliate add-on subscription.
- * Also requires the user to be on at least a paid (starter) tier.
+ * The affiliate add-on is a standalone purchase — no general tier requirement.
  * Attaches the add-on record and limits to req.affiliateAddon and req.affiliateLimits.
  */
 export function requireAffiliateAddon() {
-  const tierHierarchy = {
-    free: 0,
-    starter: 1,
-    growth: 2,
-    business: 3
-  };
-
   return async (req, res, next) => {
     try {
-      const userTierLevel = tierHierarchy[req.user?.subscription?.tier] || 0;
-
-      if (userTierLevel < 1) {
-        return res.status(403).json({
-          error: 'AE Affiliate features require a paid subscription (Starter or higher)',
-          currentTier: req.user?.subscription?.tier || 'free'
-        });
-      }
-
       let addon = null;
       try {
         addon = await getAffiliateAddon(req.user.id);
