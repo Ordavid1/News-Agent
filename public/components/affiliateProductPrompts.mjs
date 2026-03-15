@@ -164,7 +164,7 @@ ${isHebrew ? 'פורמט וואטסאפ:' : 'WHATSAPP FORMAT:'}
 - ${isHebrew ? 'אין HTML. קישור ישירות בפוסט.' : 'No HTML. Link directly in the post.'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
-- ${isHebrew ? '200-450 תווים. הודעת וואטסאפ, לא מאמר' : '200-450 chars. It\'s a WhatsApp message, not an article'}
+- ${isHebrew ? '750 תווים. הודעת וואטסאפ, לא מאמר' : '750 chars. It\'s a WhatsApp message, not an article'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided — don\'t modify it'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs that weren\'t provided'}
 - ${isHebrew ? 'אל תכתוב כתבי ויתור או "מחירים עשויים להשתנות"' : 'No disclaimers, no "prices may vary"'}
@@ -233,7 +233,7 @@ ${isHebrew ? 'פורמט HTML של טלגרם:' : 'TELEGRAM HTML FORMAT:'}
 - ${isHebrew ? 'אין markdown — טלגרם משתמש ב-HTML בלבד' : 'No markdown — Telegram uses HTML only'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
-- ${isHebrew ? '200-500 תווים. פוסט ערוץ, לא מאמר' : '200-500 chars. Channel post, not an article'}
+- ${isHebrew ? '750 תווים. פוסט ערוץ, לא מאמר' : '750 chars. Channel post, not an article'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs that weren\'t provided'}
 - ${isHebrew ? 'בלי כתבי ויתור' : 'No disclaimers'}

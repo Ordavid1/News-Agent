@@ -3,7 +3,7 @@
 // All routes require authenticateToken (applied in server.js) + requireAffiliateAddon() middleware.
 
 import express from 'express';
-import { requireAffiliateAddon, AFFILIATE_LIMITS } from '../middleware/subscription.js';
+import { getAffiliateKeywordLimit } from '../middleware/subscription.js';
 import AffiliateCredentialManager from '../services/AffiliateCredentialManager.js';
 import AffiliateProductFetcher from '../services/AffiliateProductFetcher.js';
 import ContentGenerator from '../services/ContentGenerator.js';
@@ -25,8 +25,8 @@ import {
 
 const router = express.Router();
 
-// Apply affiliate add-on middleware to all routes
-router.use(requireAffiliateAddon());
+// Affiliate routes are open to all authenticated users (authenticateToken applied in server.js).
+// Keyword/agent creation limits are enforced per-route by subscription tier.
 
 // ============================================
 // CREDENTIAL MANAGEMENT
@@ -249,9 +249,10 @@ router.post('/keywords', async (req, res) => {
       return res.status(400).json({ error: 'keywords must be a non-empty array of search terms' });
     }
 
-    // Check keyword set limit
+    // Check keyword set limit (tier-based)
     const currentCount = await countAffiliateKeywords(req.user.id);
-    const limit = req.affiliateLimits.maxKeywordSets;
+    const tier = req.user.subscription?.tier || 'free';
+    const limit = getAffiliateKeywordLimit(tier);
     if (limit !== -1 && currentCount >= limit) {
       return res.status(403).json({
         error: `Keyword set limit reached (${currentCount}/${limit}). Upgrade your plan for more.`

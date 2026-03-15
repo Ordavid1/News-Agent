@@ -197,9 +197,9 @@ const PRICING_TIERS = {
     name: 'Business Package',
     monthlyPrice: 25000, // $250
     postsPerDay: 30,
-    videosPerMonth: 50,
+    videosPerMonth: 30,
     variantId: process.env.LEMON_SQUEEZY_499_VARIANT_ID,
-    features: ['30 text posts/day (900/mo)', '50 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
+    features: ['30 text posts/day (900/mo)', '30 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
   }
 };
 
@@ -1518,86 +1518,12 @@ router.get('/affiliate-addon', async (req, res) => {
   }
 });
 
-// Create affiliate add-on checkout
+// DEPRECATED: Affiliate add-on checkout retired — features now included with all subscription plans.
+// Existing subscribers are still serviced via webhook handlers and portal/cancel endpoints below.
 router.post('/affiliate-checkout', async (req, res) => {
-  console.log('[AFFILIATE-CHECKOUT] POST /affiliate-checkout - User:', req.user?.id);
-  try {
-    // Check if already has active addon
-    const existingAddon = await getAffiliateAddon(req.user.id);
-    if (existingAddon?.status === 'active') {
-      return res.status(400).json({ error: 'AE Affiliate add-on is already active' });
-    }
-
-    const addonConfig = AFFILIATE_ADDON_CONFIG.standard;
-
-    if (!addonConfig.variantId) {
-      console.error('[AFFILIATE-CHECKOUT] Missing affiliate variant ID');
-      return res.status(500).json({ error: 'Affiliate add-on configuration error' });
-    }
-
-    const lsHeaders = {
-      'Accept': 'application/vnd.api+json',
-      'Content-Type': 'application/vnd.api+json',
-      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
-    };
-
-    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
-
-    const checkoutData = {
-      email: req.user.email,
-      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
-      custom: { user_id: req.user.id, addon_type: 'affiliate' }
-    };
-
-    if (billing) {
-      checkoutData.billing_address = {};
-      if (billing.country) checkoutData.billing_address.country = billing.country;
-      if (billing.state) checkoutData.billing_address.state = billing.state;
-      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
-    }
-
-    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
-      method: 'POST',
-      headers: lsHeaders,
-      body: JSON.stringify({
-        data: {
-          type: 'checkouts',
-          attributes: {
-            checkout_data: checkoutData,
-            checkout_options: { embed: true, media: false, desc: false },
-            product_options: {
-              enabled_variants: [Number(addonConfig.variantId)],
-              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=affiliate`
-            }
-          },
-          relationships: {
-            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
-            variant: { data: { type: 'variants', id: String(addonConfig.variantId) } }
-          }
-        }
-      })
-    });
-
-    if (!checkoutResponse.ok) {
-      const errorData = await checkoutResponse.json();
-      console.error('[AFFILIATE-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
-      return res.status(500).json({ error: 'Failed to create checkout session' });
-    }
-
-    const checkoutResult = await checkoutResponse.json();
-    const checkoutUrl = checkoutResult.data?.attributes?.url;
-
-    if (!checkoutUrl) {
-      console.error('[AFFILIATE-CHECKOUT] No checkout URL in LS response');
-      return res.status(500).json({ error: 'Failed to get checkout URL' });
-    }
-
-    console.log(`[AFFILIATE-CHECKOUT] Checkout created for user ${req.user.id}`);
-    res.json({ checkoutUrl });
-  } catch (error) {
-    console.error('[AFFILIATE-CHECKOUT] Error:', error);
-    res.status(500).json({ error: 'Failed to create affiliate checkout session' });
-  }
+  return res.status(410).json({
+    error: 'The AE Affiliate add-on has been retired. Affiliate features are now included with all subscription plans.'
+  });
 });
 
 // Cancel affiliate add-on

@@ -5,7 +5,6 @@
 // profile.html when the Affiliate tab is shown.
 
 // Affiliate-specific state
-var affiliateAddon = null;
 var affiliateCredentials = null;
 var affiliateKeywords = [];
 var affiliateAgents = [];
@@ -31,166 +30,44 @@ const AFF_PLATFORM_INFO = {
 // INITIALIZATION
 // ============================================
 
+function updateAffiliateTierBadge() {
+    const label = document.getElementById('affiliateTierLabel');
+    const badge = document.getElementById('affiliateTierBadge');
+    if (!label || !badge) return;
+
+    const tier = currentUser?.subscription?.tier || 'free';
+    const tierDisplay = tier.charAt(0).toUpperCase() + tier.slice(1);
+    label.textContent = tierDisplay;
+
+    // Color-code by tier
+    const tierColors = {
+        free: { bg: 'bg-ink-100', text: 'text-ink-600', border: 'border-ink-200' },
+        starter: { bg: 'bg-brand-100', text: 'text-brand-700', border: 'border-brand-200' },
+        growth: { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-200' },
+        business: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' }
+    };
+    const colors = tierColors[tier] || tierColors.free;
+    badge.className = `inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${colors.bg} ${colors.text} border ${colors.border}`;
+}
+
 async function initAffiliate() {
-    const hasAddon = await checkAffiliateAddon();
+    // Update tier badge
+    updateAffiliateTierBadge();
 
-    if (hasAddon) {
-        // Load credentials status, keywords, and categories in parallel
-        await Promise.all([
-            loadCredentialStatus(),
-            loadKeywords(),
-            loadCategories()
-        ]);
+    // Load credentials status, keywords, and categories in parallel
+    await Promise.all([
+        loadCredentialStatus(),
+        loadKeywords(),
+        loadCategories()
+    ]);
 
-        // Support deep-link editing from agents grid (profile.html?tab=affiliate&editKeyword=...)
-        const urlParams = new URLSearchParams(window.location.search);
-        const editKeywordId = urlParams.get('editKeyword');
-        if (editKeywordId) {
-            showAffiliateSubTab('keywords');
-            const kw = affiliateKeywords.find(k => k.id === editKeywordId);
-            if (kw) showKeywordModal(kw);
-        }
-    }
-}
-
-// ============================================
-// AFFILIATE ADDON CHECK
-// ============================================
-
-async function checkAffiliateAddon() {
-    const token = localStorage.getItem('token');
-    try {
-        const response = await fetch('/api/subscriptions/affiliate-addon', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.addon && data.addon.status === 'active') {
-                affiliateAddon = data.addon;
-
-                // Hide purchase banner, show active content
-                const requiredBanner = document.getElementById('affiliateAddonRequiredBanner');
-                const activeContent = document.getElementById('affiliateActiveContent');
-                if (requiredBanner) requiredBanner.classList.add('hidden');
-                if (activeContent) activeContent.classList.remove('hidden');
-
-                return true;
-            }
-        }
-    } catch (error) {
-        console.error('Error checking affiliate addon:', error);
-    }
-
-    // Show purchase banner, hide active content
-    const requiredBanner = document.getElementById('affiliateAddonRequiredBanner');
-    const activeContent = document.getElementById('affiliateActiveContent');
-    if (requiredBanner) requiredBanner.classList.remove('hidden');
-    if (activeContent) activeContent.classList.add('hidden');
-    return false;
-}
-
-// ============================================
-// ADDON PURCHASE / CANCEL
-// ============================================
-
-async function purchaseAffiliateAddon() {
-    const btn = document.getElementById('affiliatePurchaseBtn');
-    const originalHtml = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
-    }
-
-    try {
-        const { checkoutUrl } = await affApiPost('/api/subscriptions/affiliate-checkout');
-
-        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $9/mo...';
-        const paid = await showCompactCheckout(checkoutUrl, btn || document.getElementById('affiliateAddonRequiredBanner'), { direction: 'down' });
-
-        if (!paid) {
-            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-            return;
-        }
-
-        // Poll for webhook confirmation
-        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Activating...';
-        let activated = false;
-        for (let attempt = 0; attempt < 15; attempt++) {
-            await new Promise(r => setTimeout(r, 2000));
-            try {
-                activated = await checkAffiliateAddon();
-                if (activated) break;
-            } catch (e) { /* continue polling */ }
-        }
-
-        if (!activated) {
-            showToast('Payment received but activation pending. Please refresh in a moment.', 'warning');
-            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-            return;
-        }
-
-        showToast('AE Affiliate add-on activated successfully!', 'success');
-        await Promise.all([loadCredentialStatus(), loadKeywords()]);
-
-    } catch (error) {
-        showToast(error.message || 'Payment failed. Please try again.', 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-    }
-}
-
-async function openAffiliatePortal() {
-    const token = localStorage.getItem('token');
-    try {
-        const response = await fetch('/api/subscriptions/affiliate-portal', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-            const data = await response.json();
-            if (data.portalUrl) {
-                window.open(data.portalUrl, '_blank');
-            }
-        } else {
-            showToast('Unable to open billing portal', 'error');
-        }
-    } catch (error) {
-        showToast('Network error. Please try again.', 'error');
-    }
-}
-
-async function cancelAffiliateAddon() {
-    if (!confirm('Are you sure you want to cancel your AE Affiliate add-on? You will lose access to all affiliate features at the end of your current billing period.')) {
-        return;
-    }
-
-    const btn = document.getElementById('cancelAffiliateAddonBtn');
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Cancelling...';
-    }
-
-    try {
-        const response = await fetch('/api/subscriptions/affiliate-cancel', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': getCsrfToken()
-            }
-        });
-
-        if (response.ok) {
-            showToast('AE Affiliate add-on cancelled. Access continues until end of billing period.', 'success');
-            await checkAffiliateAddon();
-        } else {
-            const data = await response.json();
-            showToast(data.error || 'Failed to cancel. Please try again.', 'error');
-        }
-    } catch (error) {
-        showToast('Failed to cancel. Please try again.', 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Cancel Subscription'; }
+    // Support deep-link editing from agents grid (profile.html?tab=affiliate&editKeyword=...)
+    const urlParams = new URLSearchParams(window.location.search);
+    const editKeywordId = urlParams.get('editKeyword');
+    if (editKeywordId) {
+        showAffiliateSubTab('keywords');
+        const kw = affiliateKeywords.find(k => k.id === editKeywordId);
+        if (kw) showKeywordModal(kw);
     }
 }
 
@@ -1465,10 +1342,6 @@ async function affApiGet(url) {
     });
     const data = await response.json();
     if (!response.ok) {
-        if (response.status === 403 && data.error?.includes('Affiliate add-on required')) {
-            const banner = document.getElementById('affiliateAddonRequiredBanner');
-            if (banner) banner.classList.remove('hidden');
-        }
         throw new Error(data.error || 'Request failed');
     }
     return data;

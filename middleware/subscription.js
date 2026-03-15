@@ -151,7 +151,7 @@ export const VIDEO_LIMITS = {
   free: 0,
   starter: 2,
   growth: 10,
-  business: 50
+  business: 30
 };
 
 /**
@@ -298,7 +298,7 @@ export function requireMarketingAddon() {
 // AFFILIATE ADD-ON
 // ============================================
 
-// Affiliate add-on feature limits by plan
+// Affiliate add-on feature limits by plan (DEPRECATED — kept for backward compat)
 export const AFFILIATE_LIMITS = {
   standard: {
     maxKeywordSets: 5,
@@ -312,36 +312,24 @@ export const AFFILIATE_LIMITS = {
   }
 };
 
+// Tier-based affiliate keyword set limits (replaces addon-based AFFILIATE_LIMITS)
+export const AFFILIATE_KEYWORD_LIMITS = {
+  free: 1,       // matches AGENT_LIMITS.free
+  starter: 2,    // matches AGENT_LIMITS.starter
+  growth: 5,     // matches AGENT_LIMITS.growth
+  business: -1   // unlimited, matches AGENT_LIMITS.business
+};
+
+export function getAffiliateKeywordLimit(tier) {
+  return AFFILIATE_KEYWORD_LIMITS[tier] ?? 0;
+}
+
 /**
- * Middleware to require an active affiliate add-on subscription.
- * The affiliate add-on is a standalone purchase — no general tier requirement.
- * Attaches the add-on record and limits to req.affiliateAddon and req.affiliateLimits.
+ * DEPRECATED: Affiliate addon paywall removed.
+ * All affiliate routes are now open to authenticated users.
+ * Keyword/agent creation limits are enforced per-route by subscription tier.
+ * Kept as a no-op for backward compatibility.
  */
 export function requireAffiliateAddon() {
-  return async (req, res, next) => {
-    try {
-      let addon = null;
-      try {
-        addon = await getAffiliateAddon(req.user.id);
-      } catch (dbErr) {
-        // Table may not exist yet
-        console.warn('[requireAffiliateAddon] DB lookup failed:', dbErr.message);
-      }
-
-      if (!addon || addon.status !== 'active') {
-        return res.status(403).json({
-          error: 'AE Affiliate add-on required',
-          hasAddon: !!addon,
-          addonStatus: addon?.status || null
-        });
-      }
-
-      req.affiliateAddon = addon;
-      req.affiliateLimits = AFFILIATE_LIMITS[addon.plan] || AFFILIATE_LIMITS.standard;
-      next();
-    } catch (error) {
-      console.error('Affiliate addon check error:', error);
-      res.status(500).json({ error: 'Failed to verify affiliate access' });
-    }
-  };
+  return (req, res, next) => next();
 }

@@ -28,7 +28,7 @@ import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
-import { getAffiliateAddon, getAffiliateCredentials, updateAffiliateKeyword } from '../services/database-wrapper.js';
+import { getAffiliateCredentials, updateAffiliateKeyword } from '../services/database-wrapper.js';
 import AffiliateCredentialManager from '../services/AffiliateCredentialManager.js';
 import AffiliateProductFetcher from '../services/AffiliateProductFetcher.js';
 import { checkVideoQuota } from '../middleware/subscription.js';
@@ -253,14 +253,7 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
           });
         }
 
-        // Must have active affiliate add-on
-        const affiliateAddon = await getAffiliateAddon(req.user.id);
-        if (!affiliateAddon || affiliateAddon.status !== 'active') {
-          return res.status(403).json({
-            success: false,
-            error: 'AE Affiliate add-on required to create affiliate product agents'
-          });
-        }
+        // Agent creation is already gated by tier-based AGENT_LIMITS (checked above at line ~193)
 
         // Must have credentials configured
         const credStatus = await AffiliateCredentialManager.getCredentialStatus(req.user.id);

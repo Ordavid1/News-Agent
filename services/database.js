@@ -603,7 +603,7 @@ function getTierVideoLimit(tier) {
     free: 0,
     starter: 2,
     growth: 10,
-    business: 50
+    business: 30
   };
   return limits[tier] || 0;
 }

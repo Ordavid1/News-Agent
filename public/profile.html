@@ -900,7 +900,7 @@
                                         </li>
                                         <li class="flex items-center gap-2">
                                             <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                            50 videos/month
+                                            30 videos/month
                                         </li>
                                         <li class="flex items-center gap-2">
                                             <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
@@ -1834,56 +1834,7 @@
             <!-- ======================== -->
             <div id="content-affiliate" class="tab-content hidden">
 
-                <!-- Affiliate Add-on Banner (inactive: purchase prompt) -->
-                <div id="affiliateAddonRequiredBanner" class="hidden mb-6 card-gradient p-6 border-l-4 border-l-brand-500">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-ink-800">AE Affiliate Add-on</h4>
-                                <p class="text-m text-ink-500">Monetize your WhatsApp groups and Telegram channels with AliExpress affiliate products. Auto-fetch, auto-post, earn commissions &mdash; $9/mo!</p>
-                            </div>
-                        </div>
-                        <button onclick="purchaseAffiliateAddon()" id="affiliatePurchaseBtn" class="btn-primary btn-sm whitespace-nowrap">
-                            Get AE Affiliate
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Active Affiliate Content (shown when add-on is active) -->
-                <div id="affiliateActiveContent" class="hidden">
-
-                    <!-- Active Banner -->
-                    <div class="mb-6 card-gradient p-6 border-l-4 border-l-green-500">
-                        <div class="flex items-center justify-between gap-4">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                </div>
-                                <h4 class="font-semibold text-green-700">AE Affiliate Active</h4>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button onclick="cancelAffiliateAddon()" id="cancelAffiliateAddonBtn" class="text-sm text-red-500 hover:text-red-700 border border-red-300 hover:border-red-500 rounded-lg px-4 py-2 transition-colors whitespace-nowrap">
-                                    Cancel Subscription
-                                </button>
-                                <button onclick="openAffiliatePortal()" class="text-sm text-ink-500 hover:text-ink-700 border border-surface-300 hover:border-surface-400 rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex items-center gap-1.5">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                    </svg>
-                                    Manage Billing
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Affiliate Sub-Tab Navigation -->
+                <!-- Affiliate Sub-Tab Navigation -->
                     <div class="mb-8 relative">
                         <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto">
                             <button onclick="showAffiliateSubTab('credentials')" id="aff-tab-credentials" class="aff-tab-btn tab-btn tab-active whitespace-nowrap">
@@ -1941,14 +1892,20 @@
                                 <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Affiliate Agents</h3>
                                 <p class="text-ink-500 text-sm">Create keyword-based agents that automatically search and post affiliate products.</p>
                             </div>
-                            <button onclick="showKeywordModal()" class="btn-primary btn-sm">
-                                <span class="flex items-center gap-1.5">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                    </svg>
-                                    Create Affiliate Agent
+                            <div class="flex items-center gap-3">
+                                <span id="affiliateTierBadge" class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-brand-100 text-brand-700 border border-brand-200">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                    <span id="affiliateTierLabel">Free</span> Plan
                                 </span>
-                            </button>
+                                <button onclick="showKeywordModal()" class="btn-primary btn-sm">
+                                    <span class="flex items-center gap-1.5">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                        </svg>
+                                        Create Affiliate Agent
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                         <div id="keywordsContainer">
                             <div class="text-center py-6">
@@ -2012,7 +1969,6 @@
                         </div>
                     </div>
 
-                </div>
             </div>
 
             <!-- Keyword Modal -->
