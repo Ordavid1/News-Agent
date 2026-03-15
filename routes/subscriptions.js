@@ -383,25 +383,86 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
       return res.status(500).json({ error: 'Payment configuration error' });
     }
 
-    const storeSlug = await getLsStoreSlug();
-    if (!storeSlug) {
-      console.error('[CHECKOUT] Could not resolve LS store slug');
-      return res.status(500).json({ error: 'Payment configuration error' });
-    }
+    // Use LS Checkout API for reliable checkout URL generation
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    const checkoutUrl = buildPrefilledCheckoutUrl(
-      storeSlug,
-      tierConfig.variantId,
-      req.user,
-      billing,
-      { user_id: req.user.id, tier: tier },
-      {},
-      '[CHECKOUT]'
-    );
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: {
+        user_id: req.user.id,
+        tier: tier
+      }
+    };
 
-    console.log('[CHECKOUT] Pre-filled checkout URL ready for tier:', tier);
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutPayload = {
+      data: {
+        type: 'checkouts',
+        attributes: {
+          checkout_data: checkoutData,
+          checkout_options: {
+            embed: true,
+            media: false,
+            desc: false
+          },
+          product_options: {
+            enabled_variants: [Number(tierConfig.variantId)],
+            redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=subscription`
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: 'stores',
+              id: String(process.env.LEMON_SQUEEZY_STORE_ID)
+            }
+          },
+          variant: {
+            data: {
+              type: 'variants',
+              id: String(tierConfig.variantId)
+            }
+          }
+        }
+      }
+    };
+
+    console.log(`[CHECKOUT] Creating LS checkout for user ${req.user.id}, tier: ${tier}`);
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log('[CHECKOUT] Checkout created for tier:', tier);
 
     res.json({ checkoutUrl });
 
@@ -955,23 +1016,86 @@ router.post('/marketing-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Marketing add-on configuration error' });
     }
 
-    const storeSlug = await getLsStoreSlug();
-    if (!storeSlug) {
-      console.error('[MARKETING-CHECKOUT] Could not resolve LS store slug');
-      return res.status(500).json({ error: 'Payment configuration error' });
-    }
+    // Use LS Checkout API for reliable checkout URL generation
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    const checkoutUrl = buildPrefilledCheckoutUrl(
-      storeSlug,
-      addonConfig.variantId,
-      req.user,
-      billing,
-      { user_id: req.user.id, addon_type: 'marketing' },
-      {},
-      '[MARKETING-CHECKOUT]'
-    );
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: {
+        user_id: req.user.id,
+        addon_type: 'marketing'
+      }
+    };
+
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutPayload = {
+      data: {
+        type: 'checkouts',
+        attributes: {
+          checkout_data: checkoutData,
+          checkout_options: {
+            embed: true,
+            media: false,
+            desc: false
+          },
+          product_options: {
+            enabled_variants: [Number(addonConfig.variantId)],
+            redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+          }
+        },
+        relationships: {
+          store: {
+            data: {
+              type: 'stores',
+              id: String(process.env.LEMON_SQUEEZY_STORE_ID)
+            }
+          },
+          variant: {
+            data: {
+              type: 'variants',
+              id: String(addonConfig.variantId)
+            }
+          }
+        }
+      }
+    };
+
+    console.log(`[MARKETING-CHECKOUT] Creating LS checkout for user ${req.user.id}`);
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify(checkoutPayload)
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[MARKETING-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[MARKETING-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[MARKETING-CHECKOUT] Checkout created for user ${req.user.id}: ${checkoutUrl.substring(0, 60)}...`);
 
     res.json({ checkoutUrl });
   } catch (error) {
@@ -1268,11 +1392,6 @@ router.get('/affiliate-addon', async (req, res) => {
       console.warn('[AFFILIATE-ADDON] DB lookup failed (table may not exist):', dbErr.message);
     }
 
-    // DEV bypass: if no LS variant configured, treat as active for testing
-    if (!addon && !process.env.LEMON_SQUEEZY_AFFILIATE_VARIANT_ID) {
-      addon = { id: 'dev-bypass', user_id: req.user.id, status: 'active', plan: 'standard' };
-    }
-
     res.json({
       addon: addon || null,
       config: AFFILIATE_ADDON_CONFIG,
@@ -1311,24 +1430,64 @@ router.post('/affiliate-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Affiliate add-on configuration error' });
     }
 
-    const storeSlug = await getLsStoreSlug();
-    if (!storeSlug) {
-      console.error('[AFFILIATE-CHECKOUT] Could not resolve LS store slug');
-      return res.status(500).json({ error: 'Payment configuration error' });
-    }
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    const checkoutUrl = buildPrefilledCheckoutUrl(
-      storeSlug,
-      addonConfig.variantId,
-      req.user,
-      billing,
-      { user_id: req.user.id, addon_type: 'affiliate' },
-      {},
-      '[AFFILIATE-CHECKOUT]'
-    );
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: { user_id: req.user.id, addon_type: 'affiliate' }
+    };
 
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: true, media: false, desc: false },
+            product_options: {
+              enabled_variants: [Number(addonConfig.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=affiliate`
+            }
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(addonConfig.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[AFFILIATE-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[AFFILIATE-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[AFFILIATE-CHECKOUT] Checkout created for user ${req.user.id}`);
     res.json({ checkoutUrl });
   } catch (error) {
     console.error('[AFFILIATE-CHECKOUT] Error:', error);
@@ -1442,24 +1601,64 @@ router.post('/training-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Training checkout configuration error' });
     }
 
-    const storeSlug = await getLsStoreSlug();
-    if (!storeSlug) {
-      console.error('[TRAINING-CHECKOUT] Could not resolve LS store slug');
-      return res.status(500).json({ error: 'Payment configuration error' });
-    }
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    const checkoutUrl = buildPrefilledCheckoutUrl(
-      storeSlug,
-      pricing.variantId,
-      req.user,
-      billing,
-      { user_id: req.user.id, purchase_type: 'model_training', ad_account_id: adAccountId },
-      {},
-      '[TRAINING-CHECKOUT]'
-    );
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: { user_id: req.user.id, purchase_type: 'model_training', ad_account_id: adAccountId }
+    };
 
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: true, media: false, desc: false },
+            product_options: {
+              enabled_variants: [Number(pricing.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+            }
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(pricing.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[TRAINING-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[TRAINING-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[TRAINING-CHECKOUT] Checkout created for user ${req.user.id}`);
     res.json({ checkoutUrl });
   } catch (error) {
     console.error('[TRAINING-CHECKOUT] Error:', error);
@@ -1497,24 +1696,64 @@ router.post('/image-gen-checkout', async (req, res) => {
       return res.status(500).json({ error: 'Image generation checkout configuration error' });
     }
 
-    const storeSlug = await getLsStoreSlug();
-    if (!storeSlug) {
-      console.error('[IMAGE-GEN-CHECKOUT] Could not resolve LS store slug');
-      return res.status(500).json({ error: 'Payment configuration error' });
-    }
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
 
-    const checkoutUrl = buildPrefilledCheckoutUrl(
-      storeSlug,
-      pricing.variantId,
-      req.user,
-      billing,
-      { user_id: req.user.id, purchase_type: 'image_generation' },
-      {},
-      '[IMAGE-GEN-CHECKOUT]'
-    );
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: { user_id: req.user.id, purchase_type: 'image_generation' }
+    };
 
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: true, media: false, desc: false },
+            product_options: {
+              enabled_variants: [Number(pricing.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+            }
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(pricing.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[IMAGE-GEN-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[IMAGE-GEN-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[IMAGE-GEN-CHECKOUT] Checkout created for user ${req.user.id}`);
     res.json({ checkoutUrl });
   } catch (error) {
     console.error('[IMAGE-GEN-CHECKOUT] Error:', error);

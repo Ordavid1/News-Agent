@@ -344,11 +344,6 @@ export function requireAffiliateAddon() {
         console.warn('[requireAffiliateAddon] DB lookup failed:', dbErr.message);
       }
 
-      // DEV bypass: if no LS variant configured, treat as active for testing
-      if (!addon && !process.env.LEMON_SQUEEZY_AFFILIATE_VARIANT_ID) {
-        addon = { id: 'dev-bypass', user_id: req.user.id, status: 'active', plan: 'standard' };
-      }
-
       if (!addon || addon.status !== 'active') {
         return res.status(403).json({
           error: 'AE Affiliate add-on required',
