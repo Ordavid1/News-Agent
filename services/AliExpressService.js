@@ -58,13 +58,23 @@ class AliExpressService {
    * @returns {string} Uppercase hex HMAC-SHA256 signature
    */
   _signRequest(params) {
+    return this._signRequestWithSecret(params, this.appSecret);
+  }
+
+  /**
+   * Sign a request with a specific secret (supports credential overrides).
+   * @param {object} params - All request parameters (excluding 'sign')
+   * @param {string} secret - The app secret to use for HMAC signing
+   * @returns {string} Uppercase hex HMAC-SHA256 signature
+   */
+  _signRequestWithSecret(params, secret) {
     const sortedKeys = Object.keys(params).filter(k => k !== 'sign').sort();
     const concatenated = sortedKeys.reduce((acc, key) => {
       return acc + key + (params[key] !== undefined && params[key] !== null ? String(params[key]) : '');
     }, '');
 
     return crypto
-      .createHmac('sha256', this.appSecret)
+      .createHmac('sha256', secret)
       .update(concatenated, 'utf8')
       .digest('hex')
       .toUpperCase();
@@ -74,11 +84,18 @@ class AliExpressService {
    * Make a signed API call to AliExpress
    * @param {string} method - API method name (e.g., 'aliexpress.affiliate.product.query')
    * @param {object} businessParams - Method-specific parameters
+   * @param {object} [options] - Optional overrides
+   * @param {string} [options.appKey] - Override app key (e.g., for DS API with separate credentials)
+   * @param {string} [options.appSecret] - Override app secret
+   * @param {string} [options.accessToken] - Override access token (e.g., DS app's own OAuth token)
    * @returns {object} Parsed JSON response
    */
-  async _makeApiCall(method, businessParams = {}) {
+  async _makeApiCall(method, businessParams = {}, options = {}) {
+    const appKey = options.appKey || this.appKey;
+    const appSecret = options.appSecret || this.appSecret;
+
     const systemParams = {
-      app_key: this.appKey,
+      app_key: appKey,
       method,
       timestamp: this._getTimestamp(),
       v: API_VERSION,
@@ -87,16 +104,20 @@ class AliExpressService {
       simplify: true
     };
 
-    // Include session token for authorized API calls (per-user commission attribution)
-    if (this.sessionToken) {
+    // Include session/access token:
+    // - Override access token takes priority (e.g., DS app's own OAuth token)
+    // - Otherwise use the instance session token for affiliate API calls
+    if (options.accessToken) {
+      systemParams.session = options.accessToken;
+    } else if (this.sessionToken && !options.appKey) {
       systemParams.session = this.sessionToken;
     }
 
     // Merge system and business params
     const allParams = { ...systemParams, ...businessParams };
 
-    // Generate signature
-    allParams.sign = this._signRequest(allParams);
+    // Generate signature using the appropriate secret
+    allParams.sign = this._signRequestWithSecret(allParams, appSecret);
 
     // Build URL-encoded body
     const body = Object.entries(allParams)
@@ -401,7 +422,12 @@ class AliExpressService {
   /**
    * Fetch rich product description via the AE Dropshipper API.
    * Returns the product's actual description text, attributes/specs, and metadata.
-   * Falls back gracefully if the dropshipper API is not enabled for this app.
+   *
+   * Supports dual-credential mode: if ALIEXPRESS_DS_APP_KEY, ALIEXPRESS_DS_APP_SECRET,
+   * and ALIEXPRESS_DS_ACCESS_TOKEN are set, uses those credentials (a separate AE Open
+   * Platform app approved for the Dropshipper API). Otherwise falls back to the main
+   * affiliate app credentials. The DS API requires an OAuth access_token obtained by
+   * authorizing once through the DS app's OAuth flow.
    *
    * @param {string} productId - AliExpress product ID
    * @param {object} [options]
@@ -411,7 +437,16 @@ class AliExpressService {
   async getProductDescription(productId, options = {}) {
     const { targetLanguage = 'en' } = options;
 
-    logger.info(`Fetching product description via DS API for product ${productId}`);
+    // Use dedicated DS API credentials if available (separate app approved for Dropshipper API)
+    const dsAppKey = process.env.ALIEXPRESS_DS_APP_KEY;
+    const dsAppSecret = process.env.ALIEXPRESS_DS_APP_SECRET;
+    const dsAccessToken = process.env.ALIEXPRESS_DS_ACCESS_TOKEN;
+    const credentialOverrides = (dsAppKey && dsAppSecret && dsAccessToken)
+      ? { appKey: dsAppKey, appSecret: dsAppSecret, accessToken: dsAccessToken }
+      : {};
+
+    const usingDsCreds = !!credentialOverrides.appKey;
+    logger.info(`Fetching product description via DS API for product ${productId} (credentials: ${usingDsCreds ? 'DS app' : 'main app'})`);
 
     const params = {
       product_id: productId,
@@ -420,7 +455,7 @@ class AliExpressService {
       ship_to_country: 'US'
     };
 
-    const result = await this._makeApiCall('aliexpress.ds.product.get', params);
+    const result = await this._makeApiCall('aliexpress.ds.product.get', params, credentialOverrides);
 
     if (!result.success) {
       logger.warn(`DS API failed for product ${productId}: ${result.error} (code: ${result.errorCode || 'N/A'})`);
@@ -438,8 +473,15 @@ class AliExpressService {
       return { success: false, error: 'Empty response from DS API' };
     }
 
-    // Extract the HTML description
-    const rawDetail = productData.detail || productData.mobile_detail || '';
+    // Extract the HTML description from ae_item_base_info_dto
+    const baseInfo = productData.ae_item_base_info_dto || {};
+    const multimediaInfo = productData.ae_multimedia_info_dto || {};
+    const rawDetail = productData.detail
+      || productData.mobile_detail
+      || baseInfo.detail
+      || baseInfo.mobile_detail
+      || multimediaInfo.detail
+      || '';
 
     // Strip HTML tags to get plain text description
     const description = rawDetail
@@ -458,9 +500,11 @@ class AliExpressService {
           .trim()
       : '';
 
-    // Extract product attributes/specs
+    // Extract product attributes/specs — may be nested under ae_item_properties or ae_item_base_info_dto
     const rawAttributes = productData.ae_item_properties?.ae_item_property
       || productData.ae_item_properties
+      || baseInfo.ae_item_properties?.ae_item_property
+      || baseInfo.ae_item_properties
       || [];
     const attributes = Array.isArray(rawAttributes)
       ? rawAttributes.map(attr => ({
@@ -508,6 +552,9 @@ class AliExpressService {
     const smallImages = raw.product_small_image_urls;
     const fallbackImage = Array.isArray(smallImages) ? smallImages[0] : (smallImages?.string?.[0] || '');
 
+    // Promo code info (coupon data from AE)
+    const promoCodeInfo = raw.promo_code_info || null;
+
     return {
       productId: String(raw.product_id || raw.productId || ''),
       title: raw.product_title || raw.productTitle || '',
@@ -522,10 +569,23 @@ class AliExpressService {
       commission30d: raw['30d_commission'] || raw['30daysCommission'] || null,
       rating: parseFloat(raw.evaluate_rate || raw.evaluateRate || '0'),
       totalOrders: parseInt(raw.lastest_volume || raw.latest_volume || '0', 10),
-      storeName: raw.shop_id ? `Store ${raw.shop_id}` : (raw.shopId ? `Store ${raw.shopId}` : ''),
+      // Real store name from API (shop_name field); falls back to shop_id placeholder
+      storeName: raw.shop_name || (raw.shop_id ? `Store ${raw.shop_id}` : (raw.shopId ? `Store ${raw.shopId}` : '')),
       storeUrl: raw.shop_url || raw.shopUrl || '',
       category: raw.first_level_category_name || raw.second_level_category_name || null,
       smallImages: Array.isArray(smallImages) ? smallImages : (smallImages?.string || []),
+      // Video URL for the product (if available)
+      videoUrl: raw.product_video_url || null,
+      // Estimated shipping days
+      shipToDays: raw.ship_to_days ? parseInt(raw.ship_to_days, 10) : null,
+      // Promo code / coupon info
+      promoCode: promoCodeInfo ? {
+        code: promoCodeInfo.promo_code || null,
+        value: promoCodeInfo.code_value || null,
+        minSpend: promoCodeInfo.code_min_spend || null,
+        startTime: promoCodeInfo.code_starttime || null,
+        endTime: promoCodeInfo.code_endtime || null
+      } : null,
       // Affiliate URL is populated separately via generateAffiliateLinks
       affiliateUrl: raw.promotion_link || null
     };

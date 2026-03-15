@@ -1641,7 +1641,13 @@ function renderAgentsGrid() {
                         </div>
                         <div>
                             <h4 class="font-semibold text-ink-800">${escapeHtml(agent.name)}</h4>
-                            <p class="text-sm text-ink-500 capitalize">${agent.platform}</p>
+                            <div class="flex items-center gap-2">
+                                <p class="text-sm text-ink-500 capitalize">${agent.platform}</p>
+                                ${(agent.settings?.contentSource === 'affiliate_products')
+                                    ? '<span class="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded font-medium">AE Affiliate</span>'
+                                    : '<span class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">News</span>'
+                                }
+                            </div>
                         </div>
                     </div>
                     <span class="${statusBg} ${statusColor} px-3 py-1 rounded-full text-xs font-medium capitalize">
@@ -1667,7 +1673,9 @@ function renderAgentsGrid() {
                             title="${testUsed ? 'Test already used for this agent' : 'Test post to this platform'}">
                         <span>${testButtonText}</span>
                     </button>
-                    <button onclick="window.location.href='/settings.html?agent=${agent.id}'"
+                    <button onclick="window.location.href='${agent.settings?.contentSource === 'affiliate_products'
+                            ? `/profile.html?tab=affiliate&editKeyword=${agent.settings?.affiliateSettings?.keywordSetIds?.[0] || ''}`
+                            : `/settings.html?agent=${agent.id}`}'"
                             class="flex-1 py-2 rounded-lg bg-brand-50 text-brand-600 text-sm font-medium hover:bg-brand-100 border border-brand-200 transition-all">
                         Configure
                     </button>

@@ -290,7 +290,7 @@ router.put('/keywords/:id', async (req, res) => {
     }
 
     const updates = {};
-    const allowedFields = ['name', 'keywords', 'category', 'min_price', 'max_price', 'min_commission_rate', 'min_rating', 'min_orders', 'sort_by', 'target_currency', 'is_active'];
+    const allowedFields = ['name', 'keywords', 'category', 'min_price', 'max_price', 'min_commission_rate', 'min_rating', 'min_orders', 'sort_by', 'target_currency', 'is_active', 'metadata'];
 
     // Map camelCase request body to snake_case DB fields
     const fieldMapping = {
@@ -304,7 +304,8 @@ router.put('/keywords/:id', async (req, res) => {
       minOrders: 'min_orders',
       sortBy: 'sort_by',
       targetCurrency: 'target_currency',
-      isActive: 'is_active'
+      isActive: 'is_active',
+      metadata: 'metadata'
     };
 
     for (const [camelKey, snakeKey] of Object.entries(fieldMapping)) {
@@ -351,7 +352,7 @@ router.delete('/keywords/:id', async (req, res) => {
 // Generate AI-powered social media content for a product without posting
 router.post('/products/generate-content', async (req, res) => {
   try {
-    const { productId, platform } = req.body;
+    const { productId, platform, language } = req.body;
 
     if (!productId) {
       return res.status(400).json({ error: 'productId is required' });
@@ -403,38 +404,38 @@ router.post('/products/generate-content', async (req, res) => {
       };
     }
 
-    // Fetch rich product description via Dropshipper API (best-effort)
-    // This gives us the actual product page content — description text + specs/attributes
-    let descriptionData = null;
+    // ── Description enrichment: DS API → title-only fallback ──
+    let descriptionSource = 'none';
+
+    // Attempt: Dropshipper API (richest data — description + specs/attributes)
+    // Uses dedicated DS API credentials (ALIEXPRESS_DS_APP_KEY/SECRET) if available
     try {
-      console.log(`[AFFILIATE] Attempting to fetch product description via DS API for product ${productId}...`);
+      console.log(`[AFFILIATE] Fetching description via DS API for product ${productId}...`);
       const dsResult = await service.getProductDescription(productId);
       if (dsResult.success) {
-        descriptionData = dsResult;
+        product.description = dsResult.description;
+        product.attributes = dsResult.attributes;
+        descriptionSource = 'ds_api';
         console.log(`[AFFILIATE] DS API SUCCESS — description: ${dsResult.description.length} chars, attributes: ${dsResult.attributes.length} specs`);
         if (dsResult.attributes.length > 0) {
           console.log(`[AFFILIATE] Product specs sample: ${dsResult.attributes.slice(0, 3).map(a => `${a.name}=${a.value}`).join(', ')}`);
         }
       } else {
-        console.log(`[AFFILIATE] DS API not available (${dsResult.error}). Will generate content from title + stats only.`);
+        console.log(`[AFFILIATE] DS API not available (${dsResult.error}) — LLM will generate based on title + stats only`);
       }
     } catch (dsError) {
-      console.log(`[AFFILIATE] DS API call threw error: ${dsError.message}. Continuing without description.`);
+      console.log(`[AFFILIATE] DS API error: ${dsError.message} — LLM will generate based on title + stats only`);
     }
 
-    // Attach description data to product object for prompt consumption
-    if (descriptionData) {
-      product.description = descriptionData.description;
-      product.attributes = descriptionData.attributes;
-      console.log(`[AFFILIATE] Enriched product with description (${product.description.length} chars) and ${product.attributes.length} attributes`);
-    } else {
-      console.log(`[AFFILIATE] No description available — LLM will generate based on title + stats`);
+    if (descriptionSource !== 'none') {
+      console.log(`[AFFILIATE] Enriched product via ${descriptionSource}: description=${product.description?.length || 0} chars, attributes=${product.attributes?.length || 0} specs`);
     }
 
     // Generate content (preview only, no publishing)
     const contentGenerator = new ContentGenerator();
     console.log(`[AFFILIATE] Generating ${platform} content with${product.description ? '' : 'out'} product description`);
-    const content = await contentGenerator.generateAffiliateContent(product, platform, {});
+    const agentSettings = language ? { geoFilter: { contentLanguage: language } } : {};
+    const content = await contentGenerator.generateAffiliateContent(product, platform, agentSettings);
     console.log(`[AFFILIATE] Content generated: ${content.text.length} chars`);
 
     res.json({
@@ -447,7 +448,7 @@ router.post('/products/generate-content', async (req, res) => {
         hasDescription: !!product.description,
         descriptionLength: product.description?.length || 0,
         attributeCount: product.attributes?.length || 0,
-        source: product.description ? 'ds_api+affiliate_api' : 'affiliate_api_only'
+        source: descriptionSource !== 'none' ? `${descriptionSource}+affiliate_api` : 'affiliate_api_only'
       }
     });
   } catch (error) {

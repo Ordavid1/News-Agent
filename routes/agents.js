@@ -28,7 +28,7 @@ import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
-import { getAffiliateAddon, getAffiliateCredentials } from '../services/database-wrapper.js';
+import { getAffiliateAddon, getAffiliateCredentials, updateAffiliateKeyword } from '../services/database-wrapper.js';
 import AffiliateCredentialManager from '../services/AffiliateCredentialManager.js';
 import AffiliateProductFetcher from '../services/AffiliateProductFetcher.js';
 import { checkVideoQuota } from '../middleware/subscription.js';
@@ -63,6 +63,9 @@ const AGENT_LIMITS = {
 
 // Platforms blocked for free tier (video platforms require paid plan)
 const FREE_TIER_BLOCKED_PLATFORMS = ['tiktok', 'youtube'];
+
+// Platforms allowed for affiliate product agents
+const AFFILIATE_ALLOWED_PLATFORMS = ['whatsapp', 'telegram', 'twitter', 'linkedin', 'facebook', 'reddit', 'instagram', 'threads'];
 
 /**
  * Get agent limit for a tier
@@ -242,11 +245,11 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
 
       // Validate affiliate product agents
       if (contentSource === 'affiliate_products') {
-        // Must be whatsapp or telegram only
-        if (!['whatsapp', 'telegram'].includes(connection.platform)) {
+        // Must be a supported affiliate platform
+        if (!AFFILIATE_ALLOWED_PLATFORMS.includes(connection.platform)) {
           return res.status(400).json({
             success: false,
-            error: 'Affiliate product agents can only be created for WhatsApp or Telegram connections'
+            error: `Affiliate product agents are not supported for ${connection.platform}. Supported platforms: ${AFFILIATE_ALLOWED_PLATFORMS.join(', ')}`
           });
         }
 
@@ -374,11 +377,12 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
 
     if (settings !== undefined) {
       // Validate and merge settings
+      const existingContentSource = agent.settings?.contentSource || 'news';
       const topics = Array.isArray(settings.topics) ? settings.topics : agent.settings?.topics || [];
       const keywords = Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : agent.settings?.keywords || [];
 
-      // Require at least one topic OR one keyword
-      if (topics.length === 0 && keywords.length === 0) {
+      // Require at least one topic OR one keyword (only for news agents — affiliate agents use keyword sets)
+      if (existingContentSource === 'news' && topics.length === 0 && keywords.length === 0) {
         return res.status(400).json({
           success: false,
           error: 'At least one topic or keyword is required for the agent to find content'
@@ -386,6 +390,10 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
       }
 
       const validatedSettings = {
+        contentSource: existingContentSource,
+        ...(existingContentSource === 'affiliate_products' && {
+          affiliateSettings: settings.affiliateSettings || agent.settings?.affiliateSettings
+        }),
         topics,
         keywords,
         geoFilter: {
@@ -518,6 +526,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     await deleteAgent(req.params.id);
+
+    // For affiliate agents, unlink keyword set metadata
+    if (agent.settings?.contentSource === 'affiliate_products') {
+      const keywordSetIds = agent.settings?.affiliateSettings?.keywordSetIds || [];
+      for (const kwId of keywordSetIds) {
+        try {
+          await updateAffiliateKeyword(kwId, { metadata: {} });
+        } catch (e) {
+          logger.warn(`Failed to unlink keyword set ${kwId} from deleted agent: ${e.message}`);
+        }
+      }
+    }
 
     logger.info(`Deleted agent ${req.params.id} for user ${req.user.id}`);
 

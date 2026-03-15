@@ -374,6 +374,26 @@ router.get('/:platform/initiate', authenticateToken, async (req, res) => {
 });
 
 /**
+ * GET /api/connections/ds-token-callback
+ * One-time utility: Captures the OAuth code from the DS app authorization flow.
+ * Displays the code on the page so you can copy it and run the token exchange script.
+ * This route has NO authentication — it just shows the code. Safe because the code
+ * is single-use and short-lived.
+ */
+router.get('/ds-token-callback', (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('<h1>No code received</h1>');
+  }
+  res.send(`
+    <h1>Authorization Code Received</h1>
+    <p>Copy this code and run the exchange script:</p>
+    <pre style="background:#f0f0f0;padding:16px;font-size:18px;word-break:break-all">${code}</pre>
+    <p>Run: <code>ALIEXPRESS_DS_APP_KEY=xxx ALIEXPRESS_DS_APP_SECRET=yyy node scripts/ae-ds-token-exchange.mjs "${code}"</code></p>
+  `);
+});
+
+/**
  * GET /api/connections/:platform/callback
  * OAuth callback handler
  */

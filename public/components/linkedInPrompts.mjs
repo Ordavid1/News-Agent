@@ -24,8 +24,7 @@ const isHebrewLanguage = (agentSettings) => {
   const contentLanguage = agentSettings?.geoFilter?.contentLanguage;
 
   // Explicit language preference takes priority
-  if (contentLanguage === 'en') return false;
-  if (contentLanguage === 'he') return true;
+  if (contentLanguage) return contentLanguage === 'he';
 
   // Auto-detection: region, topics, keywords
   const region = agentSettings?.geoFilter?.region || '';
@@ -47,12 +46,27 @@ const isHebrewLanguage = (agentSettings) => {
 };
 
 /**
+ * Get the explicit content language from agent settings.
+ * Returns 'en', 'he', or 'ar'. Falls back to auto-detection for Hebrew, then English default.
+ * @param {Object} agentSettings - User's agent settings
+ * @returns {string} Language code ('en' | 'he' | 'ar')
+ */
+const getContentLanguage = (agentSettings) => {
+  const lang = agentSettings?.geoFilter?.contentLanguage;
+  if (lang && ['en', 'he', 'ar'].includes(lang)) return lang;
+  // Auto-detect Hebrew from region/topics/keywords (existing behavior)
+  if (isHebrewLanguage(agentSettings)) return 'he';
+  return 'en';
+};
+
+/**
  * Get language instruction based on settings
  * @param {Object} agentSettings - User's agent settings
  * @returns {string} Language instruction
  */
 const getLanguageInstruction = (agentSettings) => {
-  if (isHebrewLanguage(agentSettings)) {
+  const lang = getContentLanguage(agentSettings);
+  if (lang === 'he') {
     return `
 CRITICAL LANGUAGE INSTRUCTION:
 - Write the ENTIRE post in Hebrew (עברית)
@@ -61,6 +75,17 @@ CRITICAL LANGUAGE INSTRUCTION:
 - Only the URL should remain in English
 - Hashtags should be in Hebrew when appropriate (e.g., #טכנולוגיה #חדשות)
 - Maintain professional Hebrew writing style`;
+  }
+  if (lang === 'ar') {
+    return `
+CRITICAL LANGUAGE INSTRUCTION:
+- Write the ENTIRE post in Arabic (العربية)
+- Use Arabic characters for all text
+- Write from right to left (RTL)
+- Only the URL should remain in English
+- Hashtags should be in Arabic when appropriate (e.g., #تكنولوجيا #عروض)
+- Maintain natural, fluent Arabic writing style
+- Use Modern Standard Arabic (MSA) or conversational Arabic depending on the platform tone`;
   }
   return '';
 };
@@ -259,6 +284,7 @@ export {
   buildTopicGuidance,
   getToneInstructions,
   isHebrewLanguage,
+  getContentLanguage,
   getLanguageInstruction,
   containsHebrew
 };

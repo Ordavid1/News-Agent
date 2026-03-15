@@ -16,7 +16,28 @@ import { getWhatsAppSystemPrompt, getWhatsAppUserPrompt } from '../public/compon
 import { getTikTokSystemPrompt, getTikTokUserPrompt } from '../public/components/tiktokPrompts.mjs';
 import { getYouTubeSystemPrompt, getYouTubeUserPrompt } from '../public/components/youtubePrompts.mjs';
 import { getVideoPromptSystemPrompt, getVideoPromptUserPrompt, getVideoRephraseSystemPrompt, getVideoRephraseUserPrompt } from '../public/components/videoPrompts.mjs';
-import { getAffiliateWhatsAppSystemPrompt, getAffiliateWhatsAppUserPrompt, getAffiliateTelegramSystemPrompt, getAffiliateTelegramUserPrompt } from '../public/components/affiliateProductPrompts.mjs';
+import {
+  getAffiliateWhatsAppSystemPrompt, getAffiliateWhatsAppUserPrompt,
+  getAffiliateTelegramSystemPrompt, getAffiliateTelegramUserPrompt,
+  getAffiliateTwitterSystemPrompt, getAffiliateTwitterUserPrompt,
+  getAffiliateLinkedInSystemPrompt, getAffiliateLinkedInUserPrompt,
+  getAffiliateFacebookSystemPrompt, getAffiliateFacebookUserPrompt,
+  getAffiliateRedditSystemPrompt, getAffiliateRedditUserPrompt,
+  getAffiliateInstagramSystemPrompt, getAffiliateInstagramUserPrompt,
+  getAffiliateThreadsSystemPrompt, getAffiliateThreadsUserPrompt
+} from '../public/components/affiliateProductPrompts.mjs';
+
+// Platform-to-prompt map for affiliate content generation
+const AFFILIATE_PROMPT_MAP = {
+  whatsapp:  { system: getAffiliateWhatsAppSystemPrompt,  user: getAffiliateWhatsAppUserPrompt },
+  telegram:  { system: getAffiliateTelegramSystemPrompt,  user: getAffiliateTelegramUserPrompt },
+  twitter:   { system: getAffiliateTwitterSystemPrompt,   user: getAffiliateTwitterUserPrompt },
+  linkedin:  { system: getAffiliateLinkedInSystemPrompt,  user: getAffiliateLinkedInUserPrompt },
+  facebook:  { system: getAffiliateFacebookSystemPrompt,  user: getAffiliateFacebookUserPrompt },
+  reddit:    { system: getAffiliateRedditSystemPrompt,    user: getAffiliateRedditUserPrompt },
+  instagram: { system: getAffiliateInstagramSystemPrompt, user: getAffiliateInstagramUserPrompt },
+  threads:   { system: getAffiliateThreadsSystemPrompt,   user: getAffiliateThreadsUserPrompt },
+};
 
 // Legacy import for fallback
 import { getSystemPrompt, getUserPrompt } from '../public/components/socialMediaPrompts.mjs';
@@ -180,25 +201,21 @@ class ContentGenerator {
   }
 
   /**
-   * Generate content for an affiliate product (WhatsApp or Telegram)
+   * Generate content for an affiliate product on any supported platform
    * @param {Object} product - Normalized product object from AffiliateProductFetcher
-   * @param {string} platform - 'whatsapp' or 'telegram'
+   * @param {string} platform - Target platform (whatsapp, telegram, twitter, linkedin, facebook, reddit, instagram, threads)
    * @param {Object} agentSettings - User's agent settings
    * @returns {Object} { text, platform, product, generatedAt }
    */
   async generateAffiliateContent(product, platform, agentSettings = {}) {
     try {
-      let systemPrompt, userPrompt;
-
-      if (platform === 'whatsapp') {
-        systemPrompt = getAffiliateWhatsAppSystemPrompt(agentSettings);
-        userPrompt = getAffiliateWhatsAppUserPrompt(product, agentSettings);
-      } else if (platform === 'telegram') {
-        systemPrompt = getAffiliateTelegramSystemPrompt(agentSettings);
-        userPrompt = getAffiliateTelegramUserPrompt(product, agentSettings);
-      } else {
-        throw new Error(`Affiliate content generation not supported for platform: ${platform}. Only whatsapp and telegram are supported.`);
+      const promptFns = AFFILIATE_PROMPT_MAP[platform];
+      if (!promptFns) {
+        throw new Error(`Affiliate content generation not supported for platform: ${platform}`);
       }
+
+      const systemPrompt = promptFns.system(agentSettings);
+      const userPrompt = promptFns.user(product, agentSettings);
 
       const config = {
         model: 'gpt-5-nano',

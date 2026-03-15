@@ -8,8 +8,24 @@
 var affiliateAddon = null;
 var affiliateCredentials = null;
 var affiliateKeywords = [];
+var affiliateAgents = [];
 var affiliateHistory = [];
 var affiliateStats = null;
+
+// Platforms allowed for affiliate agents (must match backend AFFILIATE_ALLOWED_PLATFORMS)
+const AFF_ALLOWED_PLATFORMS = ['whatsapp', 'telegram', 'twitter', 'linkedin', 'facebook', 'reddit', 'instagram', 'threads'];
+
+// Platform display info for affiliate UI
+const AFF_PLATFORM_INFO = {
+    twitter:   { name: 'Twitter/X',  color: '#1DA1F2', icon: '\uD835\uDD4F' },
+    linkedin:  { name: 'LinkedIn',   color: '#0077B5', icon: 'in' },
+    reddit:    { name: 'Reddit',     color: '#FF4500', icon: 'r/' },
+    facebook:  { name: 'Facebook',   color: '#1877F2', icon: 'f' },
+    telegram:  { name: 'Telegram',   color: '#0088cc', icon: 'tg' },
+    whatsapp:  { name: 'WhatsApp',   color: '#25D366', icon: 'wa' },
+    instagram: { name: 'Instagram',  color: '#E4405F', icon: 'ig' },
+    threads:   { name: 'Threads',    color: '#000000', icon: '@' }
+};
 
 // ============================================
 // INITIALIZATION
@@ -25,6 +41,15 @@ async function initAffiliate() {
             loadKeywords(),
             loadCategories()
         ]);
+
+        // Support deep-link editing from agents grid (profile.html?tab=affiliate&editKeyword=...)
+        const urlParams = new URLSearchParams(window.location.search);
+        const editKeywordId = urlParams.get('editKeyword');
+        if (editKeywordId) {
+            showAffiliateSubTab('keywords');
+            const kw = affiliateKeywords.find(k => k.id === editKeywordId);
+            if (kw) showKeywordModal(kw);
+        }
     }
 }
 
@@ -373,12 +398,18 @@ async function disconnectAliExpress() {
 
 async function loadKeywords() {
     try {
-        const data = await affApiGet('/api/affiliate/keywords');
-        affiliateKeywords = data.keywords || [];
+        // Load keywords and agents in parallel for cross-referencing
+        const [kwData, agentsData] = await Promise.all([
+            affApiGet('/api/affiliate/keywords'),
+            affApiGet('/api/agents').catch(() => ({ agents: [] }))
+        ]);
+        affiliateKeywords = kwData.keywords || [];
+        affiliateAgents = (agentsData.agents || []).filter(a => a.settings?.contentSource === 'affiliate_products');
         renderKeywords();
     } catch (error) {
         console.error('Error loading keywords:', error);
         affiliateKeywords = [];
+        affiliateAgents = [];
         renderKeywords();
     }
 }
@@ -391,23 +422,36 @@ function renderKeywords() {
         container.innerHTML = `
             <div class="text-center py-8 text-ink-400">
                 <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                 </svg>
-                <p class="font-medium mb-1">No keyword sets yet</p>
-                <p class="text-sm">Create keyword sets to define which products to search for.</p>
+                <p class="font-medium mb-1">No affiliate agents yet</p>
+                <p class="text-sm">Create an affiliate agent to start automatically posting products.</p>
             </div>
         `;
         return;
     }
 
-    container.innerHTML = affiliateKeywords.map(kw => `
+    container.innerHTML = affiliateKeywords.map(kw => {
+        const linkedAgent = affiliateAgents.find(a => kw.metadata?.linkedAgentId === a.id);
+        const platform = linkedAgent?.platform;
+        const platformInfo = platform ? AFF_PLATFORM_INFO[platform] : null;
+        const agentStatus = linkedAgent?.status;
+
+        return `
         <div class="card-gradient p-4 rounded-xl mb-3" data-keyword-id="${kw.id}">
             <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center gap-2">
-                    <h4 class="font-medium text-ink-800">${escapeHtml(kw.name || 'Unnamed Set')}</h4>
-                    <span class="text-xs px-2 py-0.5 rounded-full ${kw.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
-                        ${kw.is_active ? 'Active' : 'Paused'}
-                    </span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    ${platformInfo ? `
+                    <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full" style="background: ${platformInfo.color}15; color: ${platformInfo.color};">
+                        <span class="font-bold text-[10px]">${platformInfo.icon}</span>
+                        ${platformInfo.name}
+                    </span>` : ''}
+                    <h4 class="font-medium text-ink-800">${escapeHtml(kw.name || 'Unnamed Agent')}</h4>
+                    ${agentStatus ? `
+                    <span class="text-xs px-2 py-0.5 rounded-full ${agentStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
+                        ${agentStatus === 'active' ? 'Publishing' : 'Paused'}
+                    </span>` : !linkedAgent ? `
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">No Agent</span>` : ''}
                 </div>
                 <div class="flex items-center gap-2">
                     <button onclick="toggleKeywordActive('${kw.id}', ${!kw.is_active})" class="text-xs ${kw.is_active ? 'text-amber-600 hover:text-amber-700' : 'text-green-600 hover:text-green-700'} transition-colors">
@@ -430,21 +474,24 @@ function renderKeywords() {
                 ${kw.min_rating ? `<span>Min Rating: ${kw.min_rating}</span>` : ''}
                 ${kw.sort_by ? `<span>Sort: ${kw.sort_by.replace('_', ' ')}</span>` : ''}
                 ${kw.target_currency && kw.target_currency !== 'USD' ? `<span>Currency: ${kw.target_currency}</span>` : ''}
+                ${linkedAgent ? `<span>Schedule: ${linkedAgent.settings?.schedule?.postsPerDay || 3}/day</span>` : ''}
+                ${linkedAgent?.settings?.geoFilter?.contentLanguage && linkedAgent.settings.geoFilter.contentLanguage !== 'en' ? `<span>Lang: ${linkedAgent.settings.geoFilter.contentLanguage === 'he' ? 'Hebrew' : linkedAgent.settings.geoFilter.contentLanguage === 'ar' ? 'Arabic' : linkedAgent.settings.geoFilter.contentLanguage}</span>` : ''}
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
-function showKeywordModal(keyword = null) {
+async function showKeywordModal(keyword = null) {
     const modal = document.getElementById('keywordModal');
     if (!modal) return;
 
     const isEdit = !!keyword;
-    document.getElementById('keywordModalTitle').textContent = isEdit ? 'Edit Keyword Set' : 'Create Keyword Set';
+    const linkedAgentId = keyword?.metadata?.linkedAgentId;
+    document.getElementById('keywordModalTitle').textContent = isEdit ? 'Edit Affiliate Agent' : 'Create Affiliate Agent';
     document.getElementById('keywordModalSubmitBtn').textContent = isEdit ? 'Update' : 'Create';
     document.getElementById('keywordModalSubmitBtn').setAttribute('data-keyword-id', keyword?.id || '');
 
-    // Populate fields
+    // Populate keyword fields
     document.getElementById('kwName').value = keyword?.name || '';
     document.getElementById('kwKeywords').value = (keyword?.keywords || []).join(', ');
     document.getElementById('kwCategory').value = keyword?.category || '';
@@ -455,6 +502,74 @@ function showKeywordModal(keyword = null) {
     document.getElementById('kwMinOrders').value = keyword?.min_orders || '';
     document.getElementById('kwSortBy').value = keyword?.sort_by || 'commission_rate';
     document.getElementById('kwCurrency').value = keyword?.target_currency || 'USD';
+
+    // Clear platform error
+    const platformError = document.getElementById('kwPlatformError');
+    if (platformError) { platformError.textContent = ''; platformError.classList.add('hidden'); }
+
+    // Load connections and populate platform dropdown
+    const platformSelect = document.getElementById('kwPlatform');
+    if (platformSelect) {
+        platformSelect.innerHTML = '<option value="">Loading platforms...</option>';
+        platformSelect.disabled = true;
+
+        try {
+            const token = localStorage.getItem('token');
+            const [connResp, agentsResp] = await Promise.all([
+                fetch('/api/connections', { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' }),
+                fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' })
+            ]);
+
+            const connData = connResp.ok ? await connResp.json() : { connections: [] };
+            const agentsData = agentsResp.ok ? await agentsResp.json() : { agents: [] };
+
+            const connections = (connData.connections || []).filter(c => c.status === 'active' && AFF_ALLOWED_PLATFORMS.includes(c.platform));
+            const existingAgentConnectionIds = (agentsData.agents || []).map(a => a.connection_id);
+
+            platformSelect.innerHTML = '<option value="">Select a connected platform...</option>';
+
+            if (connections.length === 0) {
+                platformSelect.innerHTML = '<option value="">No supported platforms connected</option>';
+            } else {
+                for (const conn of connections) {
+                    const info = AFF_PLATFORM_INFO[conn.platform] || { name: conn.platform };
+                    const hasAgent = existingAgentConnectionIds.includes(conn.id);
+                    const isLinkedToThis = linkedAgentId && affiliateAgents.find(a => a.id === linkedAgentId && a.connection_id === conn.id);
+                    const opt = document.createElement('option');
+                    opt.value = conn.id;
+                    opt.dataset.platform = conn.platform;
+                    opt.textContent = `${info.name}${conn.platform_username ? ' - @' + conn.platform_username : ''}${hasAgent && !isLinkedToThis ? ' (agent exists)' : ''}`;
+                    if (hasAgent && !isLinkedToThis) opt.disabled = true;
+                    platformSelect.appendChild(opt);
+                }
+            }
+
+            // If editing with linked agent, pre-select the platform
+            if (isEdit && linkedAgentId) {
+                const linkedAgent = affiliateAgents.find(a => a.id === linkedAgentId);
+                if (linkedAgent) {
+                    platformSelect.value = linkedAgent.connection_id;
+                    platformSelect.disabled = true; // Can't change platform for existing agent
+                }
+            }
+        } catch (error) {
+            console.error('Error loading connections for modal:', error);
+            platformSelect.innerHTML = '<option value="">Failed to load platforms</option>';
+        }
+
+        if (!isEdit || !linkedAgentId) platformSelect.disabled = false;
+    }
+
+    // Populate agent settings (schedule/tone) from linked agent or defaults
+    const linkedAgent = linkedAgentId ? affiliateAgents.find(a => a.id === linkedAgentId) : null;
+    const agentSettings = linkedAgent?.settings || {};
+
+    document.getElementById('kwPostsPerDay').value = agentSettings.schedule?.postsPerDay || '3';
+    document.getElementById('kwStartTime').value = agentSettings.schedule?.startTime || '09:00';
+    document.getElementById('kwEndTime').value = agentSettings.schedule?.endTime || '21:00';
+    document.getElementById('kwTone').value = agentSettings.contentStyle?.tone || 'casual';
+    document.getElementById('kwIncludeHashtags').checked = agentSettings.contentStyle?.includeHashtags ?? true;
+    document.getElementById('kwLanguage').value = agentSettings.geoFilter?.contentLanguage || 'en';
 
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -471,7 +586,9 @@ function closeKeywordModal() {
 async function submitKeyword() {
     const btn = document.getElementById('keywordModalSubmitBtn');
     const keywordId = btn?.getAttribute('data-keyword-id');
+    const isEdit = !!keywordId;
 
+    // Validate keywords
     const keywordsRaw = document.getElementById('kwKeywords')?.value?.trim();
     if (!keywordsRaw) {
         showToast('Please enter at least one keyword.', 'error');
@@ -484,8 +601,25 @@ async function submitKeyword() {
         return;
     }
 
-    const payload = {
-        name: document.getElementById('kwName')?.value?.trim() || 'Default',
+    // Validate platform selection (only for new agents)
+    const platformSelect = document.getElementById('kwPlatform');
+    const selectedConnectionId = platformSelect?.value;
+    const platformError = document.getElementById('kwPlatformError');
+
+    if (!isEdit && !selectedConnectionId) {
+        if (platformError) {
+            platformError.textContent = 'Please select a platform to post to.';
+            platformError.classList.remove('hidden');
+        }
+        showToast('Please select a platform for this affiliate agent.', 'error');
+        return;
+    }
+    if (platformError) platformError.classList.add('hidden');
+
+    // Build keyword payload
+    const kwName = document.getElementById('kwName')?.value?.trim() || 'Default';
+    const kwPayload = {
+        name: kwName,
         keywords,
         category: document.getElementById('kwCategory')?.value?.trim() || null,
         minPrice: parseFloat(document.getElementById('kwMinPrice')?.value) || null,
@@ -497,21 +631,114 @@ async function submitKeyword() {
         targetCurrency: document.getElementById('kwCurrency')?.value || 'USD'
     };
 
+    // Agent settings from publishing section
+    const selectedLanguage = document.getElementById('kwLanguage')?.value || 'en';
+    const agentSettings = {
+        contentSource: 'affiliate_products',
+        affiliateSettings: { keywordSetIds: [], includeHotProducts: false },
+        topics: [],
+        keywords: [],
+        geoFilter: {
+            contentLanguage: selectedLanguage
+        },
+        schedule: {
+            postsPerDay: parseInt(document.getElementById('kwPostsPerDay')?.value) || 3,
+            startTime: document.getElementById('kwStartTime')?.value || '09:00',
+            endTime: document.getElementById('kwEndTime')?.value || '21:00'
+        },
+        contentStyle: {
+            tone: document.getElementById('kwTone')?.value || 'casual',
+            includeHashtags: document.getElementById('kwIncludeHashtags')?.checked ?? true
+        }
+    };
+
     const originalText = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
 
     try {
-        if (keywordId) {
-            await affApiPut(`/api/affiliate/keywords/${keywordId}`, payload);
-            showToast('Keyword set updated.', 'success');
+        if (isEdit) {
+            // UPDATE flow: update keyword set + update linked agent
+            await affApiPut(`/api/affiliate/keywords/${keywordId}`, kwPayload);
+
+            // If there's a linked agent, update its settings too
+            const existingKw = affiliateKeywords.find(k => k.id === keywordId);
+            const linkedAgentId = existingKw?.metadata?.linkedAgentId;
+            if (linkedAgentId) {
+                try {
+                    const token = localStorage.getItem('token');
+                    await fetch(`/api/agents/${linkedAgentId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': getCsrfToken()
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({ name: `${kwName} Agent`, settings: agentSettings })
+                    });
+                } catch (agentErr) {
+                    console.warn('Failed to update linked agent:', agentErr);
+                }
+            }
+            showToast('Affiliate agent updated.', 'success');
         } else {
-            await affApiPost('/api/affiliate/keywords', payload);
-            showToast('Keyword set created.', 'success');
+            // CREATE flow: create keyword → create agent → link them
+            const kwResult = await affApiPost('/api/affiliate/keywords', kwPayload);
+            const createdKeywordId = kwResult.keyword?.id;
+
+            if (!createdKeywordId) {
+                showToast('Keyword set created but failed to get ID.', 'warning');
+                closeKeywordModal();
+                await loadKeywords();
+                return;
+            }
+
+            // Create agent linked to this keyword set
+            agentSettings.affiliateSettings.keywordSetIds = [createdKeywordId];
+
+            try {
+                const token = localStorage.getItem('token');
+                const agentResp = await fetch('/api/agents', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getCsrfToken()
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        connectionId: selectedConnectionId,
+                        name: `${kwName} Agent`,
+                        settings: agentSettings
+                    })
+                });
+
+                const agentData = await agentResp.json();
+
+                if (agentResp.ok && agentData.agent?.id) {
+                    // Link keyword set to agent via metadata
+                    try {
+                        await affApiPut(`/api/affiliate/keywords/${createdKeywordId}`, {
+                            metadata: { linkedAgentId: agentData.agent.id }
+                        });
+                    } catch (linkErr) {
+                        console.warn('Failed to link keyword to agent:', linkErr);
+                    }
+                    showToast('Affiliate agent created successfully!', 'success');
+                } else {
+                    // Agent creation failed - show specific error
+                    const errorMsg = agentData.error || 'Failed to create agent';
+                    showToast(`Keywords saved but agent creation failed: ${errorMsg}`, 'warning');
+                }
+            } catch (agentErr) {
+                showToast(`Keywords saved but agent creation failed: ${agentErr.message}`, 'warning');
+            }
         }
+
         closeKeywordModal();
         await loadKeywords();
     } catch (error) {
-        showToast(error.message || 'Failed to save keyword set.', 'error');
+        showToast(error.message || 'Failed to save affiliate agent.', 'error');
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = originalText; }
     }
@@ -523,14 +750,39 @@ function editKeyword(id) {
 }
 
 async function deleteKeyword(id) {
-    if (!confirm('Delete this keyword set? This cannot be undone.')) return;
+    const kw = affiliateKeywords.find(k => k.id === id);
+    const linkedAgentId = kw?.metadata?.linkedAgentId;
+    const confirmMsg = linkedAgentId
+        ? 'Delete this affiliate agent and its keyword set? The agent will stop posting. This cannot be undone.'
+        : 'Delete this keyword set? This cannot be undone.';
+
+    if (!confirm(confirmMsg)) return;
 
     try {
+        // Delete keyword set
         await affApiDelete(`/api/affiliate/keywords/${id}`);
-        showToast('Keyword set deleted.', 'success');
+
+        // Also delete linked agent if exists
+        if (linkedAgentId) {
+            try {
+                const token = localStorage.getItem('token');
+                await fetch(`/api/agents/${linkedAgentId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'X-CSRF-Token': getCsrfToken()
+                    },
+                    credentials: 'include'
+                });
+            } catch (agentErr) {
+                console.warn('Failed to delete linked agent:', agentErr);
+            }
+        }
+
+        showToast('Affiliate agent deleted.', 'success');
         await loadKeywords();
     } catch (error) {
-        showToast('Failed to delete keyword set.', 'error');
+        showToast('Failed to delete affiliate agent.', 'error');
     }
 }
 
@@ -592,7 +844,7 @@ let _productCache = {};
 // Track current search state for pagination
 let _searchState = { keywords: '', sortBy: '', categoryId: '', pageNo: 1, totalResults: 0, pageSize: 20 };
 // Detail modal state
-let _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp' };
+let _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp', selectedLanguage: 'en' };
 
 async function previewProducts(pageNo) {
     const container = document.getElementById('productPreviewContainer');
@@ -774,7 +1026,7 @@ function openProductDetail(productId) {
     }
 
     // Reset detail state
-    _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp' };
+    _detailState = { affiliateUrl: null, generatedContent: null, selectedPlatform: 'whatsapp', selectedLanguage: 'en' };
 
     const modal = document.getElementById('productDetailModal');
     if (!modal) return;
@@ -858,12 +1110,23 @@ function renderProductDetailModal(product) {
                         <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500" style="margin-top:8px;">
                             ${product.category ? `<span>Category: <span class="font-medium text-ink-700">${escapeHtml(product.category)}</span></span>` : ''}
                             ${product.storeName ? `<span>Store: <span class="font-medium text-ink-700">${escapeHtml(product.storeName)}</span></span>` : ''}
+                            ${product.shipToDays ? `<span>Shipping: <span class="font-medium text-ink-700">~${product.shipToDays} days</span></span>` : ''}
                             ${product.productUrl ? `
                             <a href="${escapeHtml(product.productUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium transition-colors">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                                 View on AliExpress
                             </a>` : ''}
+                            ${product.videoUrl ? `
+                            <a href="${escapeHtml(product.videoUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium transition-colors">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                Product Video
+                            </a>` : ''}
                         </div>
+                        ${product.promoCode?.code ? `
+                        <div class="flex items-center gap-2 text-xs" style="margin-top:6px;padding:4px 8px;background:var(--color-accent-50,#fef3c7);border-radius:8px;">
+                            <svg class="w-3.5 h-3.5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+                            <span class="text-amber-800 font-medium">Coupon: <code class="bg-amber-100 px-1 py-0.5 rounded text-amber-900">${escapeHtml(product.promoCode.code)}</code>${product.promoCode.value ? ` — save ${escapeHtml(product.promoCode.value)}` : ''}${product.promoCode.minSpend ? ` (min $${escapeHtml(product.promoCode.minSpend)})` : ''}</span>
+                        </div>` : ''}
                     </div>
 
                     <!-- Right: Content Generation & Actions -->
@@ -879,6 +1142,16 @@ function renderProductDetailModal(product) {
                             <button onclick="selectDetailPlatform('telegram')" id="detailPlatformTelegram" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300">
                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
                                 Telegram
+                            </button>
+                        </div>
+
+                        <!-- Language Toggle -->
+                        <div class="flex gap-2" style="margin-bottom:8px;">
+                            <button onclick="selectDetailLanguage('en')" id="detailLangEn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-blue-500 bg-blue-50 text-blue-700">
+                                🇺🇸 English
+                            </button>
+                            <button onclick="selectDetailLanguage('he')" id="detailLangHe" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300">
+                                🇮🇱 עברית
                             </button>
                         </div>
 
@@ -932,6 +1205,21 @@ function renderProductDetailModal(product) {
     `;
 }
 
+function selectDetailLanguage(lang) {
+    _detailState.selectedLanguage = lang;
+
+    const enBtn = document.getElementById('detailLangEn');
+    const heBtn = document.getElementById('detailLangHe');
+
+    if (lang === 'en') {
+        enBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-blue-500 bg-blue-50 text-blue-700';
+        heBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300';
+    } else {
+        heBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-blue-500 bg-blue-50 text-blue-700';
+        enBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2 border-surface-200 text-ink-500 hover:border-blue-300';
+    }
+}
+
 function selectDetailPlatform(platform) {
     _detailState.selectedPlatform = platform;
 
@@ -972,7 +1260,8 @@ async function generateContentPreview(productId) {
     try {
         const data = await affApiPost('/api/affiliate/products/generate-content', {
             productId,
-            platform: _detailState.selectedPlatform
+            platform: _detailState.selectedPlatform,
+            language: _detailState.selectedLanguage
         });
 
         _detailState.affiliateUrl = data.affiliateUrl;
@@ -1054,7 +1343,8 @@ async function copyAffiliateLink(productId) {
     try {
         const data = await affApiPost('/api/affiliate/products/generate-content', {
             productId,
-            platform: _detailState.selectedPlatform
+            platform: _detailState.selectedPlatform,
+            language: _detailState.selectedLanguage
         });
 
         _detailState.affiliateUrl = data.affiliateUrl;
