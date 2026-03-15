@@ -89,13 +89,66 @@ router.post('/credentials/validate', async (req, res) => {
 });
 
 // ============================================
+// CATEGORIES
+// ============================================
+
+// Get product categories for filter dropdown (cached per-process)
+let _cachedCategories = null;
+let _categoriesCachedAt = 0;
+const CATEGORY_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+router.get('/categories', async (req, res) => {
+  try {
+    // Return cached if fresh
+    if (_cachedCategories && (Date.now() - _categoriesCachedAt) < CATEGORY_CACHE_TTL) {
+      return res.json(_cachedCategories);
+    }
+
+    const credentials = await AffiliateCredentialManager.getCredentials(req.user.id);
+    if (!credentials) {
+      return res.status(400).json({ error: 'AE credentials not configured' });
+    }
+
+    const AliExpressService = (await import('../services/AliExpressService.js')).default;
+    const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
+    const result = await service.getCategories();
+
+    if (!result.success) {
+      return res.status(502).json({ error: result.error || 'Failed to fetch categories' });
+    }
+
+    // Build hierarchical structure: top-level categories with children
+    const topLevel = result.categories.filter(c => !c.parentCategoryId || c.parentCategoryId === '0');
+    const children = result.categories.filter(c => c.parentCategoryId && c.parentCategoryId !== '0');
+    const childMap = {};
+    for (const child of children) {
+      if (!childMap[child.parentCategoryId]) childMap[child.parentCategoryId] = [];
+      childMap[child.parentCategoryId].push(child);
+    }
+
+    const structured = topLevel.map(cat => ({
+      ...cat,
+      children: (childMap[cat.categoryId] || []).sort((a, b) => a.categoryName.localeCompare(b.categoryName))
+    })).sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+
+    _cachedCategories = { success: true, categories: structured };
+    _categoriesCachedAt = Date.now();
+
+    res.json(_cachedCategories);
+  } catch (error) {
+    console.error('[AFFILIATE] Error fetching categories:', error);
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+// ============================================
 // PRODUCT SEARCH (Manual Preview)
 // ============================================
 
 // Search products by keywords
 router.get('/products/search', async (req, res) => {
   try {
-    const { keywords, pageNo, pageSize, sortBy, minPrice, maxPrice, currency } = req.query;
+    const { keywords, pageNo, pageSize, sortBy, minPrice, maxPrice, currency, categoryIds } = req.query;
 
     if (!keywords) {
       return res.status(400).json({ error: 'keywords parameter is required' });
@@ -106,16 +159,26 @@ router.get('/products/search', async (req, res) => {
       return res.status(400).json({ error: 'AE credentials not configured. Please set up your credentials first.' });
     }
 
-    console.log(`[AFFILIATE] Product search for user ${req.user.id}, keywords: "${keywords}", trackingId: ${credentials.trackingId ? 'present' : 'missing'}`);
+    console.log(`[AFFILIATE] Product search for user ${req.user.id}, keywords: "${keywords}", sort: "${sortBy || 'relevance'}", trackingId: ${credentials.trackingId ? 'present' : 'missing'}`);
+
+    // Commission sort is not supported by product.query API — sort client-side
+    const CLIENT_SORT_VALUES = ['commissionDesc'];
+    const isClientSort = CLIENT_SORT_VALUES.includes(sortBy);
 
     const result = await AffiliateProductFetcher.searchProducts(credentials, keywords, {
       pageNo: parseInt(pageNo) || 1,
       pageSize: Math.min(parseInt(pageSize) || 20, 50),
-      sortBy,
+      sortBy: isClientSort ? undefined : sortBy,
       minPrice: minPrice ? parseFloat(minPrice) : undefined,
       maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+      categoryIds: categoryIds || undefined,
       targetCurrency: currency || 'USD'
     });
+
+    // Client-side sort for commission (AE product.query doesn't support commission sort)
+    if (isClientSort && result.success && result.products?.length > 0) {
+      result.products.sort((a, b) => (b.commissionRate || 0) - (a.commissionRate || 0));
+    }
 
     if (!result.success) {
       console.error('[AFFILIATE] Product search API error:', result.error, result.errorCode || '');

@@ -1942,13 +1942,30 @@
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Product Preview</h3>
                             <p class="text-ink-500 text-sm">Search AliExpress products to preview what your agents will post.</p>
                         </div>
-                        <div class="flex gap-3 mb-6">
-                            <input type="text" id="previewKeywords" class="input-field flex-1" placeholder="Search keywords (e.g., wireless earbuds, phone cases)">
-                            <button onclick="previewProducts()" class="btn-primary btn-sm whitespace-nowrap">Search</button>
-                            <button disabled class="btn-secondary btn-sm whitespace-nowrap opacity-50 cursor-not-allowed relative group">
-                                Hot Products
-                                <span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-ink-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Coming Soon</span>
-                            </button>
+                        <div class="flex flex-col gap-3 mb-6">
+                            <div class="flex gap-3">
+                                <input type="text" id="previewKeywords" class="input-field flex-1" placeholder="Search keywords (e.g., wireless earbuds, phone cases)" onkeydown="if(event.key==='Enter')previewProducts(1)">
+                                <button onclick="previewProducts(1)" class="btn-primary btn-sm whitespace-nowrap">Search</button>
+                                <button disabled class="btn-secondary btn-sm whitespace-nowrap opacity-50 cursor-not-allowed relative group">
+                                    Hot Products
+                                    <span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-ink-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Coming Soon</span>
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-xs text-ink-500 whitespace-nowrap">Sort by:</label>
+                                <select id="productSortBy" class="input-field text-sm py-1.5 px-3" style="max-width: 200px;" onchange="if(document.getElementById('previewKeywords').value.trim()) previewProducts(1)">
+                                    <option value="">Search Relevance</option>
+                                    <option value="commissionDesc">Commission: High to Low</option>
+                                    <option value="SALE_PRICE_ASC">Price: Low to High</option>
+                                    <option value="SALE_PRICE_DESC">Price: High to Low</option>
+                                    <option value="LAST_VOLUME_DESC">Most Orders</option>
+                                </select>
+                                <label class="text-xs text-ink-500 whitespace-nowrap ml-2">Category:</label>
+                                <select id="productCategoryFilter" class="input-field text-sm py-1.5 px-3" style="max-width: 220px;" onchange="if(document.getElementById('previewKeywords').value.trim()) previewProducts(1)">
+                                    <option value="">All Categories</option>
+                                </select>
+                                <span id="searchResultsCount" class="text-xs text-ink-400 ml-auto"></span>
+                            </div>
                         </div>
                         <div id="productPreviewContainer">
                             <div class="text-center py-8 text-ink-400">

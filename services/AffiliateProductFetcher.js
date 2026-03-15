@@ -201,6 +201,17 @@ class AffiliateProductFetcher {
   }
 
   /**
+   * Get featured/promo products with rich sorting (commission, rating, discount, etc.)
+   * @param {object} credentials - User credential record { trackingId, sessionToken }
+   * @param {object} options - Search options (keywords, sortBy, promotionName, etc.)
+   * @returns {object} { success, products, totalResults, totalPages }
+   */
+  static async getFeaturedProducts(credentials, options = {}) {
+    const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
+    return await service.getFeaturedProducts(options);
+  }
+
+  /**
    * Generate affiliate link for a specific product URL
    * @param {object} credentials - User credential record { trackingId }
    * @param {string} productUrl - Product URL to convert

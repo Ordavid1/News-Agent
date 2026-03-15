@@ -241,6 +241,83 @@ class AliExpressService {
     };
   }
 
+  /**
+   * Get featured/promo products — supports richer sort options including commission
+   * Uses aliexpress.affiliate.featuredpromo.products.get
+   * @param {object} options
+   * @param {string} [options.keywords] - Filter by keywords
+   * @param {string} [options.sortBy] - commissionAsc, commissionDesc, priceAsc, priceDesc, volumeAsc, volumeDesc, discountAsc, discountDesc, ratingAsc, ratingDesc
+   * @param {string} [options.promotionName] - "Hot Product", "New Arrival", "Best Seller", "weeklydeals"
+   * @param {string} [options.categoryIds] - Category filter
+   * @param {number} [options.pageNo=1]
+   * @param {number} [options.pageSize=20]
+   * @returns {object} { success, products, totalResults, totalPages, pageNo, pageSize }
+   */
+  async getFeaturedProducts(options = {}) {
+    const params = {
+      target_currency: options.targetCurrency || 'USD',
+      target_language: options.targetLanguage || 'en',
+      page_no: options.pageNo || 1,
+      page_size: Math.min(options.pageSize || 20, 50)
+    };
+
+    if (this.trackingId) params.tracking_id = this.trackingId;
+    if (options.keywords) params.keywords = options.keywords;
+    if (options.categoryIds) params.category_id = options.categoryIds;
+    if (options.sortBy) params.sort = options.sortBy;
+    if (options.promotionName) params.promotion_name = options.promotionName;
+    if (options.country) params.country = options.country;
+
+    params.fields = 'product_id,product_title,product_detail_url,product_main_image_url,product_small_image_urls,app_sale_price,app_sale_price_currency,original_price,original_price_currency,discount,evaluate_rate,lastest_volume,shop_url,shop_id,commission_rate,promotion_link,first_level_category_name,second_level_category_name';
+
+    const result = await this._makeApiCall('aliexpress.affiliate.featuredpromo.products.get', params);
+
+    if (!result.success) return result;
+
+    const responseKey = 'aliexpress_affiliate_featuredpromo_products_get_response';
+    const responseData = result.data[responseKey] || result.data;
+    const productsField = responseData?.resp_result?.result?.products;
+    const rawProducts = Array.isArray(productsField) ? productsField : (productsField?.product || []);
+
+    return {
+      success: true,
+      products: Array.isArray(rawProducts) ? rawProducts.map(p => this._normalizeProduct(p)) : [],
+      totalResults: parseInt(responseData?.resp_result?.result?.total_record_count || '0', 10),
+      totalPages: parseInt(responseData?.resp_result?.result?.total_page_no || '0', 10),
+      pageNo: params.page_no,
+      pageSize: params.page_size
+    };
+  }
+
+  // ============================================
+  // CATEGORIES
+  // ============================================
+
+  /**
+   * Get all affiliate product categories
+   * Uses aliexpress.affiliate.category.get
+   * @returns {object} { success, categories: Array<{ categoryId, categoryName, parentCategoryId }> }
+   */
+  async getCategories() {
+    const result = await this._makeApiCall('aliexpress.affiliate.category.get', {});
+
+    if (!result.success) return result;
+
+    const responseKey = 'aliexpress_affiliate_category_get_response';
+    const responseData = result.data[responseKey] || result.data;
+    const categoriesField = responseData?.resp_result?.result?.categories;
+    const rawCategories = Array.isArray(categoriesField) ? categoriesField : (categoriesField?.category || []);
+
+    return {
+      success: true,
+      categories: rawCategories.map(c => ({
+        categoryId: String(c.category_id),
+        categoryName: c.category_name,
+        parentCategoryId: c.parent_category_id ? String(c.parent_category_id) : null
+      }))
+    };
+  }
+
   // ============================================
   // AFFILIATE LINK GENERATION
   // ============================================
@@ -257,10 +334,9 @@ class AliExpressService {
 
     const params = {
       source_values: productUrls.join(','),
-      promotion_link_type: 0 // 0 = search link, 2 = hot link
+      promotion_link_type: 0, // 0 = normal link (standard commission), 2 = hot link (hot product commission)
+      tracking_id: this.trackingId || 'default' // Required per AE docs
     };
-
-    if (this.trackingId) params.tracking_id = this.trackingId;
 
     const result = await this._makeApiCall('aliexpress.affiliate.link.generate', params);
 

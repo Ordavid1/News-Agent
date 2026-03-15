@@ -19,10 +19,11 @@ async function initAffiliate() {
     const hasAddon = await checkAffiliateAddon();
 
     if (hasAddon) {
-        // Load credentials status and keywords
+        // Load credentials status, keywords, and categories in parallel
         await Promise.all([
             loadCredentialStatus(),
-            loadKeywords()
+            loadKeywords(),
+            loadCategories()
         ]);
     }
 }
@@ -546,7 +547,52 @@ async function toggleKeywordActive(id, isActive) {
 // PRODUCT PREVIEW & SEARCH
 // ============================================
 
-async function previewProducts() {
+// ============================================
+// CATEGORY FILTER
+// ============================================
+
+let _categoriesLoaded = false;
+
+async function loadCategories() {
+    if (_categoriesLoaded) return;
+    const select = document.getElementById('productCategoryFilter');
+    if (!select) return;
+
+    try {
+        const data = await affApiGet('/api/affiliate/categories');
+        const categories = data.categories || [];
+
+        for (const cat of categories) {
+            // Top-level category
+            const opt = document.createElement('option');
+            opt.value = cat.categoryId;
+            opt.textContent = cat.categoryName;
+            select.appendChild(opt);
+
+            // Sub-categories (indented)
+            if (cat.children?.length) {
+                for (const child of cat.children) {
+                    const subOpt = document.createElement('option');
+                    subOpt.value = child.categoryId;
+                    subOpt.textContent = `  └ ${child.categoryName}`;
+                    select.appendChild(subOpt);
+                }
+            }
+        }
+        _categoriesLoaded = true;
+    } catch (e) {
+        console.warn('Failed to load categories:', e.message);
+    }
+}
+
+// ============================================
+// PRODUCT SEARCH
+// ============================================
+
+// Track current search state for pagination
+let _searchState = { keywords: '', sortBy: '', categoryId: '', pageNo: 1, totalResults: 0, pageSize: 20 };
+
+async function previewProducts(pageNo) {
     const container = document.getElementById('productPreviewContainer');
     if (!container) return;
 
@@ -558,6 +604,17 @@ async function previewProducts() {
         return;
     }
 
+    const sortSelect = document.getElementById('productSortBy');
+    const sortBy = sortSelect?.value || '';
+    const categorySelect = document.getElementById('productCategoryFilter');
+    const categoryId = categorySelect?.value || '';
+    const page = pageNo || 1;
+
+    _searchState.keywords = keywords;
+    _searchState.sortBy = sortBy;
+    _searchState.categoryId = categoryId;
+    _searchState.pageNo = page;
+
     container.innerHTML = `
         <div class="text-center py-8">
             <div class="loader mx-auto mb-3" style="width:32px;height:32px;"></div>
@@ -566,8 +623,22 @@ async function previewProducts() {
     `;
 
     try {
-        const data = await affApiGet(`/api/affiliate/products/search?keywords=${encodeURIComponent(keywords)}`);
+        let url = `/api/affiliate/products/search?keywords=${encodeURIComponent(keywords)}&pageNo=${page}&pageSize=${_searchState.pageSize}`;
+        if (sortBy) url += `&sortBy=${encodeURIComponent(sortBy)}`;
+        if (categoryId) url += `&categoryIds=${encodeURIComponent(categoryId)}`;
+
+        const data = await affApiGet(url);
         const products = data.products || [];
+        const totalResults = data.totalResults || 0;
+        _searchState.totalResults = totalResults;
+
+        // Update results count
+        const countEl = document.getElementById('searchResultsCount');
+        if (countEl) {
+            const start = (page - 1) * _searchState.pageSize + 1;
+            const end = start + products.length - 1;
+            countEl.textContent = totalResults > 0 ? `${start}-${end} of ${totalResults.toLocaleString()} results` : '';
+        }
 
         if (products.length === 0) {
             container.innerHTML = `
@@ -579,10 +650,22 @@ async function previewProducts() {
             return;
         }
 
+        const totalPages = Math.ceil(totalResults / _searchState.pageSize);
+
         container.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 ${products.map(p => renderProductCard(p)).join('')}
             </div>
+            ${totalPages > 1 ? `
+            <div class="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-surface-200">
+                <button onclick="previewProducts(${page - 1})" class="btn-secondary btn-sm ${page <= 1 ? 'opacity-30 pointer-events-none' : ''}" ${page <= 1 ? 'disabled' : ''}>
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Previous
+                </button>
+                <span class="text-sm text-ink-500">Page ${page} of ${totalPages.toLocaleString()}</span>
+                <button onclick="previewProducts(${page + 1})" class="btn-secondary btn-sm ${page >= totalPages ? 'opacity-30 pointer-events-none' : ''}" ${page >= totalPages ? 'disabled' : ''}>
+                    Next<svg class="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>` : ''}
         `;
     } catch (error) {
         container.innerHTML = `
