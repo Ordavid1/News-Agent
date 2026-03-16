@@ -199,7 +199,7 @@ const PRICING_TIERS = {
     postsPerDay: 30,
     videosPerMonth: 30,
     variantId: process.env.LEMON_SQUEEZY_499_VARIANT_ID,
-    features: ['30 text posts/day (900/mo)', '30 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', '24/7 phone support']
+    features: ['30 text posts/day (900/mo)', '30 video posts/month', 'All 9 platforms', 'White-label options', 'Webhook integrations', 'Custom analytics', 'Direct support']
   }
 };
 
