@@ -1205,7 +1205,7 @@ router.get('/brand-voice/profiles/:id/posts', async (req, res) => {
  */
 router.post('/brand-voice/generate', async (req, res) => {
   try {
-    const { profileId, platform, topic, count, generateWithImage, purchaseId } = req.body;
+    const { profileId, platform, topic, count, generateWithImage, purchaseId, loraScale, guidanceScale, aspectRatio } = req.body;
     logger.info(`[BrandVoice] POST /generate - user=${req.user.id}, profileId=${profileId}, platform=${platform || 'auto'}, topic=${topic || 'auto'}, withImage=${!!generateWithImage}`);
 
     if (!profileId) {
@@ -1307,12 +1307,17 @@ router.post('/brand-voice/generate', async (req, res) => {
               profile?.profile_data || {}
             );
 
-            // Generate the image using the LoRA model
+            // Generate the image using the LoRA model (pass through user's generation preferences)
             const generatedMedia = await mediaAssetService.generateImage(
               req.user.id,
               adAccount.id,
               imagePrompt,
-              defaultJob.id
+              defaultJob.id,
+              {
+                loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
+                guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
+                aspectRatio: aspectRatio || undefined
+              }
             );
 
             // Attach image URL to the post response
@@ -1622,7 +1627,7 @@ router.put('/media-assets/training/:id/set-default', async (req, res) => {
  */
 router.post('/media-assets/generate', async (req, res) => {
   try {
-    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale } = req.body;
+    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale, numOutputs, aspectRatio } = req.body;
     if (!adAccountId || !prompt) {
       return res.status(400).json({ error: 'adAccountId and prompt are required' });
     }
@@ -1630,15 +1635,19 @@ router.post('/media-assets/generate', async (req, res) => {
       return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
     }
 
-    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}`);
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}, outputs=${numOutputs ?? 1}, aspect=${aspectRatio ?? '1:1'}`);
 
     const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId, {
       loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
-      guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined
+      guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
+      numOutputs: numOutputs != null ? parseInt(numOutputs, 10) : undefined,
+      aspectRatio: aspectRatio || undefined
     });
 
-    logger.info(`[MediaAssets] Image generated: ${media.id}`);
-    res.json({ media });
+    // Normalize response: always return array for consistency, but keep backwards compat
+    const mediaArray = Array.isArray(media) ? media : [media];
+    logger.info(`[MediaAssets] ${mediaArray.length} image(s) generated`);
+    res.json({ media: mediaArray });
   } catch (error) {
     logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);
     const status = error.message.includes('not completed') || error.message.includes('not found') ? 400 : 500;

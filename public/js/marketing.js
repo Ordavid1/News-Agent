@@ -3211,12 +3211,19 @@ async function generateBrandVoiceContentWithImage(purchaseId) {
     imageBtn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Generating post + image...';
 
     try {
+        // Read generation settings from advanced panel if available (shared with Brand Media)
+        const loraScaleEl = document.getElementById('mediaLoraScale');
+        const guidanceScaleEl = document.getElementById('mediaGuidanceScale');
+
         const body = {
             profileId: currentBrandVoiceProfile.id,
             topic: topic || undefined,
             count: 1,
             generateWithImage: true,
-            purchaseId
+            purchaseId,
+            loraScale: loraScaleEl ? parseFloat(loraScaleEl.value) : undefined,
+            guidanceScale: guidanceScaleEl ? parseFloat(guidanceScaleEl.value) : undefined,
+            aspectRatio: typeof getSelectedAspectRatio === 'function' ? getSelectedAspectRatio() : undefined
         };
 
         const response = await apiPost('/api/marketing/brand-voice/generate', body);
@@ -4331,7 +4338,29 @@ function renderGenerationSection() {
 }
 
 /**
- * Generate an image using the selected trained model.
+ * Select an aspect ratio button in the advanced settings panel.
+ */
+function selectAspectRatio(btn) {
+    const container = document.getElementById('mediaAspectRatio');
+    if (!container) return;
+    container.querySelectorAll('.aspect-ratio-btn').forEach(b => {
+        b.classList.remove('active', 'border-brand-300', 'bg-brand-50', 'text-brand-700');
+        b.classList.add('border-surface-200', 'text-ink-500');
+    });
+    btn.classList.add('active', 'border-brand-300', 'bg-brand-50', 'text-brand-700');
+    btn.classList.remove('border-surface-200', 'text-ink-500');
+}
+
+/**
+ * Get the currently selected aspect ratio from the aspect ratio buttons.
+ */
+function getSelectedAspectRatio() {
+    const active = document.querySelector('#mediaAspectRatio .aspect-ratio-btn.active');
+    return active ? active.dataset.ratio : '1:1';
+}
+
+/**
+ * Generate image(s) using the selected trained model.
  */
 async function generateMediaImage() {
     if (!selectedAdAccount || !selectedTrainingJob) return;
@@ -4352,33 +4381,40 @@ async function generateMediaImage() {
     if (result) result.classList.add('hidden');
 
     try {
-        // Read advanced generation settings (if panel is open / values differ from defaults)
+        // Read advanced generation settings
         const loraScaleEl = document.getElementById('mediaLoraScale');
         const guidanceScaleEl = document.getElementById('mediaGuidanceScale');
-        const loraScale = loraScaleEl ? parseFloat(loraScaleEl.value) : 0.85;
+        const numOutputsEl = document.getElementById('mediaNumOutputs');
+        const loraScale = loraScaleEl ? parseFloat(loraScaleEl.value) : 1.0;
         const guidanceScale = guidanceScaleEl ? parseFloat(guidanceScaleEl.value) : 3.0;
+        const numOutputs = numOutputsEl ? parseInt(numOutputsEl.value, 10) : 2;
+        const aspectRatio = getSelectedAspectRatio();
 
         const data = await apiPost('/api/marketing/media-assets/generate', {
             adAccountId: selectedAdAccount.id,
             prompt,
             trainingJobId: selectedTrainingJob.id,
             loraScale,
-            guidanceScale
+            guidanceScale,
+            numOutputs,
+            aspectRatio
         });
 
-        const media = data.media;
-        latestGeneratedImageUrl = media.public_url;
+        // Response is always an array now
+        const mediaArray = Array.isArray(data.media) ? data.media : [data.media];
+        latestGeneratedImageUrl = mediaArray[0].public_url;
 
-        // Show preview
+        // Show preview of first image
         const preview = document.getElementById('mediaGeneratedPreview');
-        if (preview) preview.src = media.public_url;
+        if (preview) preview.src = mediaArray[0].public_url;
         if (result) result.classList.remove('hidden');
 
-        // Add to gallery
-        generatedMedia = [media, ...generatedMedia];
+        // Add all generated images to gallery
+        generatedMedia = [...mediaArray, ...generatedMedia];
         renderGeneratedMedia();
 
-        showToast('Image generated successfully!', 'success');
+        const countMsg = mediaArray.length > 1 ? `${mediaArray.length} images` : 'Image';
+        showToast(`${countMsg} generated successfully!`, 'success');
     } catch (error) {
         showToast(error.message, 'error');
     } finally {

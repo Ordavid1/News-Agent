@@ -56,30 +56,34 @@ const MIN_TRAINING_IMAGES = 10;
 const TRAINER_OWNER = 'ostris';
 const TRAINER_NAME = 'flux-dev-lora-trainer';
 
+// Selective layer training — for subject LoRAs only (proven across 50+ A/B tests)
+// Style LoRAs train ALL layers to capture complex brand identity (colors, layout, illustration style)
+const SUBJECT_LAYERS_TO_OPTIMIZE = 'transformer.single_transformer_blocks.(7|12|16|20).proj_out';
+
 // Training type presets — optimized per research (2025-2026 best practices)
 const TRAINING_PRESETS = {
   style: {
-    lora_rank: 16,               // Styles need less capacity than subjects
-    steps_per_image: 30,         // ~30 steps per training image
-    min_steps: 800,
-    max_steps: 2000
+    lora_rank: 32,               // Brand identity needs full capacity (colors, illustration, layout, characters)
+    steps_per_image: 35,         // ~35 steps per training image for deeper style learning
+    min_steps: 1000,
+    max_steps: 2500,
+    caption_dropout_rate: 0.15,  // Higher dropout forces trigger→style association over content memorization
+    layers_to_optimize_regex: null  // null = train ALL layers — essential for complex brand styles
   },
   subject: {
     lora_rank: 32,               // Subjects/products need higher capacity
     steps_per_image: 40,         // ~40 steps per training image
     min_steps: 1000,
-    max_steps: 2000
+    max_steps: 2000,
+    caption_dropout_rate: 0.05,  // Lower dropout — captions help subject identity
+    layers_to_optimize_regex: SUBJECT_LAYERS_TO_OPTIMIZE  // Selective training works well for subjects
   }
 };
-
-// Selective layer training — training only these 4 transformer blocks
-// produces better quality AND lighter/faster LoRA (proven across 50+ A/B tests)
-const LAYERS_TO_OPTIMIZE = 'transformer.single_transformer_blocks.(7|12|16|20).proj_out';
 
 // Generation defaults
 const DEFAULT_GUIDANCE_SCALE = 3.0;    // Slightly lower than 3.5 for more natural results
 const DEFAULT_INFERENCE_STEPS = 32;    // Higher than 28 for better LoRA coherence
-const DEFAULT_LORA_SCALE = 0.85;       // Controls LoRA influence strength (0.5-1.5 range)
+const DEFAULT_LORA_SCALE = 1.0;        // Controls LoRA influence strength (0.5-1.5 range)
 
 class MediaAssetService {
   constructor() {
@@ -302,6 +306,28 @@ class MediaAssetService {
 
     logger.info(`Training preset: ${validType} (lora_rank=${preset.lora_rank}, steps=${steps}, images=${assetCount})`);
 
+    // Build training input with preset-specific parameters
+    const trainingInput = {
+      input_images: inputImagesUrl,
+      trigger_word: triggerWord,
+      steps,
+      lora_rank: preset.lora_rank,
+      optimizer: 'adamw8bit',
+      batch_size: 1,
+      resolution: '512,768,1024',
+      learning_rate: 0.0004,
+      autocaption: true,
+      autocaption_prefix: `in the style of ${triggerWord}, `,
+      caption_dropout_rate: preset.caption_dropout_rate,
+      cache_latents_to_disk: true
+    };
+
+    // Only restrict layer training for presets that specify it (e.g., subject mode).
+    // Style mode trains ALL layers for full brand identity capture.
+    if (preset.layers_to_optimize_regex) {
+      trainingInput.layers_to_optimize_regex = preset.layers_to_optimize_regex;
+    }
+
     // Start training with optimized parameters
     const training = await this.replicate.trainings.create(
       TRAINER_OWNER,
@@ -309,20 +335,7 @@ class MediaAssetService {
       trainerVersion,
       {
         destination: replicateModelName,
-        input: {
-          input_images: inputImagesUrl,
-          trigger_word: triggerWord,
-          steps,
-          lora_rank: preset.lora_rank,
-          optimizer: 'adamw8bit',
-          batch_size: 1,
-          resolution: '1024',
-          learning_rate: 0.0004,
-          autocaption: true,
-          caption_dropout_rate: 0.05,
-          cache_latents_to_disk: true,
-          layers_to_optimize_regex: LAYERS_TO_OPTIMIZE
-        }
+        input: trainingInput
       }
     );
 
@@ -464,16 +477,18 @@ class MediaAssetService {
   // ============================================
 
   /**
-   * Generate an image using a specific trained LoRA model.
+   * Generate image(s) using a specific trained LoRA model.
    *
    * @param {string} userId
    * @param {string} adAccountId
    * @param {string} prompt
    * @param {string} trainingJobId - Which training session to generate from
    * @param {object} options - Optional generation parameters
-   * @param {number} options.loraScale - LoRA influence strength (0.5-1.5, default 0.85)
+   * @param {number} options.loraScale - LoRA influence strength (0.5-1.5, default 1.0)
    * @param {number} options.guidanceScale - Prompt adherence (1.0-5.0, default 3.0)
-   * @returns {object} Generated media record
+   * @param {number} options.numOutputs - Number of images to generate (1-4, default 1)
+   * @param {string} options.aspectRatio - Aspect ratio (1:1, 16:9, 9:16, 4:5, 5:4, 3:2, 2:3, 4:3, 3:4)
+   * @returns {object|object[]} Generated media record(s) — single object when numOutputs=1, array otherwise
    */
   async generateImage(userId, adAccountId, prompt, trainingJobId, options = {}) {
     if (!this.replicate) {
@@ -490,6 +505,14 @@ class MediaAssetService {
       throw new Error('Training completed but no model version was recorded.');
     }
 
+    // Auto-inject trigger word if not already present in the prompt.
+    // The trigger word is essential for the LoRA to activate the brand style.
+    let finalPrompt = prompt;
+    if (job.trigger_word && !prompt.toLowerCase().includes(job.trigger_word.toLowerCase())) {
+      finalPrompt = `in the style of ${job.trigger_word}, ${prompt}`;
+      logger.info(`Trigger word "${job.trigger_word}" auto-injected into prompt`);
+    }
+
     // Build the model reference — use stored model name if available
     const modelName = job.replicate_model_name
       || `${this.replicateOwner}/media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
@@ -504,17 +527,28 @@ class MediaAssetService {
     const guidanceScale = typeof options.guidanceScale === 'number'
       ? Math.max(1.0, Math.min(5.0, options.guidanceScale))
       : DEFAULT_GUIDANCE_SCALE;
+    const numOutputs = typeof options.numOutputs === 'number'
+      ? Math.max(1, Math.min(4, Math.floor(options.numOutputs)))
+      : 1;
 
-    logger.info(`Generating image with model ${modelRef}, lora_scale=${loraScale}, guidance=${guidanceScale}, prompt: "${prompt.slice(0, 80)}..."`);
+    // Validate aspect ratio against supported values
+    const VALID_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:5', '5:4', '3:2', '2:3', '4:3', '3:4', '21:9', '9:21'];
+    const aspectRatio = VALID_ASPECT_RATIOS.includes(options.aspectRatio)
+      ? options.aspectRatio
+      : '1:1';
+
+    logger.info(`Generating ${numOutputs} image(s) with model ${modelRef}, lora_scale=${loraScale}, guidance=${guidanceScale}, aspect=${aspectRatio}, prompt: "${finalPrompt.slice(0, 80)}..."`);
 
     // Run prediction
     const output = await this.replicate.run(modelRef, {
       input: {
-        prompt,
-        num_outputs: 1,
+        prompt: finalPrompt,
+        num_outputs: numOutputs,
         guidance_scale: guidanceScale,
         num_inference_steps: DEFAULT_INFERENCE_STEPS,
         lora_scale: loraScale,
+        aspect_ratio: aspectRatio,
+        output_format: 'webp',
         output_quality: 90
       }
     });
@@ -523,56 +557,69 @@ class MediaAssetService {
       throw new Error('No output received from Replicate.');
     }
 
-    // Download the generated image
-    const imageSource = output[0];
-    let imageBuffer;
-
-    if (typeof imageSource === 'string') {
-      // URL string
-      const response = await axios.get(imageSource, { responseType: 'arraybuffer' });
-      imageBuffer = Buffer.from(response.data);
-    } else if (imageSource && typeof imageSource.blob === 'function') {
-      // FileOutput object
-      const blob = await imageSource.blob();
-      imageBuffer = Buffer.from(await blob.arrayBuffer());
-    } else {
-      throw new Error('Unexpected output format from Replicate.');
-    }
-
-    // Upload to Supabase Storage
+    // Process all generated images
     await this.ensureBucket();
-    const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-    const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+    const records = [];
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(STORAGE_BUCKET)
-      .upload(storagePath, imageBuffer, {
-        contentType: 'image/png',
-        upsert: false
+    for (let i = 0; i < output.length; i++) {
+      const imageSource = output[i];
+      let imageBuffer;
+
+      if (typeof imageSource === 'string') {
+        // URL string
+        const response = await axios.get(imageSource, { responseType: 'arraybuffer' });
+        imageBuffer = Buffer.from(response.data);
+      } else if (imageSource && typeof imageSource.blob === 'function') {
+        // FileOutput object
+        const blob = await imageSource.blob();
+        imageBuffer = Buffer.from(await blob.arrayBuffer());
+      } else {
+        logger.warn(`Skipping output[${i}]: unexpected format`);
+        continue;
+      }
+
+      // Upload to Supabase Storage
+      const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+      const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .upload(storagePath, imageBuffer, {
+          contentType: 'image/webp',
+          upsert: false
+        });
+
+      if (uploadError) {
+        logger.error(`Error uploading generated image ${i}:`, uploadError);
+        continue;
+      }
+
+      const { data: urlData } = supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(storagePath);
+
+      // Create DB record (including generation parameters for reproducibility)
+      const record = await createGeneratedMedia(userId, adAccountId, {
+        training_job_id: job.id,
+        prompt: finalPrompt,
+        storage_path: storagePath,
+        public_url: urlData.publicUrl,
+        replicate_prediction_id: null,
+        lora_scale: loraScale,
+        guidance_scale: guidanceScale
       });
 
-    if (uploadError) {
-      logger.error('Error uploading generated image:', uploadError);
-      throw new Error(`Failed to save generated image: ${uploadError.message}`);
+      records.push(record);
     }
 
-    const { data: urlData } = supabaseAdmin.storage
-      .from(STORAGE_BUCKET)
-      .getPublicUrl(storagePath);
+    if (records.length === 0) {
+      throw new Error('Failed to process any generated images.');
+    }
 
-    // Create DB record (including generation parameters for reproducibility)
-    const record = await createGeneratedMedia(userId, adAccountId, {
-      training_job_id: job.id,
-      prompt,
-      storage_path: storagePath,
-      public_url: urlData.publicUrl,
-      replicate_prediction_id: null, // run() doesn't expose prediction ID directly
-      lora_scale: loraScale,
-      guidance_scale: guidanceScale
-    });
+    logger.info(`Generated ${records.length} image(s) saved`);
 
-    logger.info(`Generated image saved: ${record.id}`);
-    return record;
+    // Return single record for backwards compatibility when numOutputs=1
+    return records.length === 1 ? records[0] : records;
   }
 
   /**

@@ -809,19 +809,21 @@ class BrandVoiceService {
       brandContext.push(`Visual style: ${JSON.stringify(profileData.visual_style)}`);
     }
 
-    const systemPrompt = `You are an expert at creating image generation prompts for Flux LoRA fine-tuned models.
+    const systemPrompt = `You are an expert at creating image generation prompts for Flux LoRA fine-tuned brand models.
 
-Your task is to create a vivid, descriptive image prompt that:
-1. Visually represents the essence of a social media post
-2. MUST include the trigger word "${triggerWord}" naturally in the prompt (e.g., "a photo in the style of ${triggerWord} showing...")
-3. Is optimized for Flux image generation — be descriptive, focus on visual elements
-4. Captures the brand's visual identity and aesthetic
-5. Avoids text, words, or letters in the image (these render poorly in AI images)
-6. Is a single paragraph, 1-3 sentences, no more than 150 words
+CRITICAL RULE: Every prompt MUST begin with "in the style of ${triggerWord}," — this activates the trained brand visual identity. NEVER omit this prefix.
+
+Your task is to create a prompt that produces a brand-consistent visual asset:
+1. START the prompt with "in the style of ${triggerWord}," — this is mandatory and non-negotiable
+2. Describe a visual scene INSPIRED BY the social media post topic — do NOT literally depict the text
+3. Focus on VISUAL COMPOSITION: colors, layout, mood, atmosphere, design elements
+4. Reference the brand's visual language: illustration style, color palette, graphic design patterns
+5. AVOID requesting text, words, letters, or typography in the image — these render poorly in AI
+6. Keep it to 1-3 sentences, no more than 120 words
 
 ${brandContext.length > 0 ? `Brand context:\n${brandContext.join('\n')}` : ''}
 
-Return ONLY the image prompt text, nothing else.`;
+Return ONLY the image prompt text, starting with "in the style of ${triggerWord},". Nothing else.`;
 
     const userPrompt = `Create an image prompt for this social media post:\n\n"${postText}"`;
 

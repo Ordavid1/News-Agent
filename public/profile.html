@@ -1733,12 +1733,43 @@
                                     Advanced Settings
                                 </button>
                                 <div id="advancedGenSettings" class="hidden mt-3 p-4 bg-surface-50 border border-surface-200 rounded-xl space-y-4">
+                                    <!-- Aspect Ratio -->
+                                    <div>
+                                        <label class="text-xs font-medium text-ink-600 mb-1.5 block">Aspect Ratio</label>
+                                        <div class="grid grid-cols-4 gap-1.5" id="mediaAspectRatio">
+                                            <button type="button" data-ratio="1:1" onclick="selectAspectRatio(this)" class="aspect-ratio-btn active text-[11px] py-1.5 px-2 rounded-lg border border-brand-300 bg-brand-50 text-brand-700 font-medium transition-colors">1:1</button>
+                                            <button type="button" data-ratio="16:9" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">16:9</button>
+                                            <button type="button" data-ratio="9:16" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">9:16</button>
+                                            <button type="button" data-ratio="4:5" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">4:5</button>
+                                            <button type="button" data-ratio="5:4" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">5:4</button>
+                                            <button type="button" data-ratio="3:2" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">3:2</button>
+                                            <button type="button" data-ratio="4:3" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">4:3</button>
+                                            <button type="button" data-ratio="3:4" onclick="selectAspectRatio(this)" class="aspect-ratio-btn text-[11px] py-1.5 px-2 rounded-lg border border-surface-200 text-ink-500 hover:border-brand-200 hover:bg-brand-50/50 transition-colors">3:4</button>
+                                        </div>
+                                    </div>
+                                    <!-- Number of Variations -->
+                                    <div>
+                                        <div class="flex items-center justify-between mb-1.5">
+                                            <label class="text-xs font-medium text-ink-600">Variations <span class="font-normal text-ink-400">— Generate multiple images to pick the best</span></label>
+                                            <span id="numOutputsValue" class="text-xs font-mono text-ink-500">2</span>
+                                        </div>
+                                        <input type="range" id="mediaNumOutputs" min="1" max="4" step="1" value="2"
+                                            oninput="document.getElementById('numOutputsValue').textContent = this.value"
+                                            class="w-full h-1.5 bg-surface-200 rounded-full appearance-none cursor-pointer accent-brand-500">
+                                        <div class="flex justify-between text-[10px] text-ink-300 mt-0.5">
+                                            <span>1</span>
+                                            <span>2</span>
+                                            <span>3</span>
+                                            <span>4</span>
+                                        </div>
+                                    </div>
+                                    <!-- LoRA Strength -->
                                     <div>
                                         <div class="flex items-center justify-between mb-1.5">
                                             <label class="text-xs font-medium text-ink-600">LoRA Strength <span class="font-normal text-ink-400">— How much your brand style influences the image</span></label>
-                                            <span id="loraScaleValue" class="text-xs font-mono text-ink-500">0.85</span>
+                                            <span id="loraScaleValue" class="text-xs font-mono text-ink-500">1.0</span>
                                         </div>
-                                        <input type="range" id="mediaLoraScale" min="0.5" max="1.5" step="0.05" value="0.85"
+                                        <input type="range" id="mediaLoraScale" min="0.5" max="1.5" step="0.05" value="1.0"
                                             oninput="document.getElementById('loraScaleValue').textContent = this.value"
                                             class="w-full h-1.5 bg-surface-200 rounded-full appearance-none cursor-pointer accent-brand-500">
                                         <div class="flex justify-between text-[10px] text-ink-300 mt-0.5">
@@ -1747,6 +1778,7 @@
                                             <span>Strong</span>
                                         </div>
                                     </div>
+                                    <!-- Guidance Scale -->
                                     <div>
                                         <div class="flex items-center justify-between mb-1.5">
                                             <label class="text-xs font-medium text-ink-600">Guidance Scale <span class="font-normal text-ink-400">— How closely the image follows your text prompt</span></label>
