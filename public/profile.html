@@ -386,7 +386,7 @@
             <!-- Welcome Section -->
             <div class="mb-8">
                 <h2 class="text-2xl sm:text-3xl font-bold mb-2" style="font-family: 'Satoshi', sans-serif;">Welcome back, <span id="userName" class="gradient-text">User</span>!</h2>
-                <p class="text-ink-500">Manage your AI News Agent and social connections</p>
+                <p class="text-ink-500">Automate News Agents, Automate Meta Campaigns and And Generate Client Brand Voice and Assets, Automate AliExpress Affiliate Agents</p>
             </div>
 
             <!-- Tab Scroll Hint (mobile) -->
@@ -399,9 +399,9 @@
 
             <!-- Tab Navigation -->
             <div class="mb-8 relative" id="tabsContainer">
-                <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto" id="tabsScrollWrapper">
+                <div class="scrollbar-hide flex gap-2 pb-0 overflow-x-auto" id="tabsScrollWrapper">
 
-                    <button onclick="showTab('agents')" id="tab-agents" class="tab-btn tab-active whitespace-nowrap">
+                    <button onclick="showTab('agents')" id="tab-agents" class="tab-btn tab-active whitespace-nowrap" data-color="brand">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
@@ -411,9 +411,7 @@
                         </span>
                     </button>
 
-                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
-
-                    <button onclick="showTab('marketing')" id="tab-marketing" class="tab-btn whitespace-nowrap">
+                    <button onclick="showTab('marketing')" id="tab-marketing" class="tab-btn whitespace-nowrap" data-color="accent">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
@@ -422,9 +420,7 @@
                         </span>
                     </button>
 
-                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
-
-                    <button onclick="showTab('affiliate')" id="tab-affiliate" class="tab-btn whitespace-nowrap">
+                    <button onclick="showTab('affiliate')" id="tab-affiliate" class="tab-btn whitespace-nowrap" data-color="amber">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
@@ -433,9 +429,7 @@
                         </span>
                     </button>
 
-                    <span class="flex-shrink-0 mx-1 hidden sm:inline-flex" style="width:1px; align-self:stretch; margin-top:8px; margin-bottom:8px; background:#9CA3AF;"></span>
-
-                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap">
+                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap" data-color="emerald">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
@@ -445,7 +439,7 @@
                         </span>
                     </button>
 
-                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap">
+                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap" data-color="cyan">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
