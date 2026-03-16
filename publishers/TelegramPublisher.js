@@ -176,8 +176,31 @@ class TelegramPublisher {
       const formattedText = this.formatForTelegram(content);
       let result;
 
-      if (mediaUrl && this.isImageUrl(mediaUrl)) {
-        result = await this.sendPhoto(formattedText, mediaUrl);
+      if (mediaUrl) {
+        // Attempt to send with image — retry up to 2 times before falling back to text-only
+        const MEDIA_MAX_RETRIES = 2;
+        const MEDIA_RETRY_DELAY_MS = 3000;
+        let imageSent = false;
+
+        for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+          try {
+            result = await this.sendPhoto(formattedText, mediaUrl);
+            imageSent = true;
+            break;
+          } catch (photoError) {
+            logger.error(`Telegram sendPhoto attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, photoError.message);
+            if (attempt < MEDIA_MAX_RETRIES) {
+              logger.info(`Retrying sendPhoto in ${MEDIA_RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+            } else {
+              logger.warn('Telegram sendPhoto failed after all retries — publishing without image as fallback');
+            }
+          }
+        }
+
+        if (!imageSent) {
+          result = await this.sendMessage(formattedText);
+        }
       } else {
         result = await this.sendMessage(formattedText);
       }

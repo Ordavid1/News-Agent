@@ -70,17 +70,47 @@ class ThreadsPublisher {
 
       const formattedText = this.formatForThreads(content);
 
-      // Determine media type
-      let mediaType = 'TEXT';
+      let containerId;
+      let usedMediaUrl = mediaUrl;
+
       if (mediaUrl) {
-        mediaType = this.isVideoUrl(mediaUrl) ? 'VIDEO' : 'IMAGE';
+        // Attempt to create container with image — retry up to 2 times before falling back to text-only
+        const MEDIA_MAX_RETRIES = 2;
+        const MEDIA_RETRY_DELAY_MS = 3000;
+        const mediaType = this.isVideoUrl(mediaUrl) ? 'VIDEO' : 'IMAGE';
+
+        for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+          try {
+            containerId = await this.createThreadContainer(formattedText, mediaUrl, mediaType);
+            logger.debug(`Created thread container with media: ${containerId}`);
+            break;
+          } catch (mediaError) {
+            // Only retry on media-specific failures, not auth errors
+            const isAuthError = mediaError.response?.status === 401 || mediaError.response?.data?.error?.code === 190;
+            if (isAuthError) throw mediaError;
+
+            logger.error(`Threads media container attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, mediaError.message);
+            if (attempt < MEDIA_MAX_RETRIES) {
+              logger.info(`Retrying media container in ${MEDIA_RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+            } else {
+              logger.warn('Threads media container failed after all retries — falling back to text-only');
+              usedMediaUrl = null;
+            }
+          }
+        }
+
+        // Fall back to text-only container if media failed
+        if (!containerId) {
+          containerId = await this.createThreadContainer(formattedText, null, 'TEXT');
+          logger.debug(`Created text-only thread container (fallback): ${containerId}`);
+        }
+      } else {
+        containerId = await this.createThreadContainer(formattedText, null, 'TEXT');
+        logger.debug(`Created text-only thread container: ${containerId}`);
       }
 
-      // Step 1: Create thread container
-      const containerId = await this.createThreadContainer(formattedText, mediaUrl, mediaType);
-      logger.debug(`Created thread container: ${containerId}`);
-
-      // Step 2: Publish the container
+      // Publish the container
       const result = await this.publishThreadContainer(containerId);
 
       logger.info(`Successfully published to Threads: ${result.id}`);

@@ -205,84 +205,93 @@ formatForLinkedIn(content) {
    * @returns {Object|null} Media asset object for the post, or null if upload fails
    */
   async uploadImage(imageUrl) {
-    try {
-      logger.info(`Uploading image to LinkedIn: ${imageUrl}`);
+    const MEDIA_MAX_RETRIES = 2;
+    const MEDIA_RETRY_DELAY_MS = 3000;
 
-      // Step 1: Register the image upload
-      const registerResponse = await axios.post(
-        'https://api.linkedin.com/v2/assets?action=registerUpload',
-        {
-          registerUploadRequest: {
-            recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-            owner: `urn:li:person:${this.authorId}`,
-            serviceRelationships: [
-              {
-                relationshipType: 'OWNER',
-                identifier: 'urn:li:userGeneratedContent'
-              }
-            ]
+    for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+      try {
+        logger.info(`Uploading image to LinkedIn (attempt ${attempt}/${MEDIA_MAX_RETRIES}): ${imageUrl}`);
+
+        // Step 1: Register the image upload
+        const registerResponse = await axios.post(
+          'https://api.linkedin.com/v2/assets?action=registerUpload',
+          {
+            registerUploadRequest: {
+              recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+              owner: `urn:li:person:${this.authorId}`,
+              serviceRelationships: [
+                {
+                  relationshipType: 'OWNER',
+                  identifier: 'urn:li:userGeneratedContent'
+                }
+              ]
+            }
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.accessToken}`,
+              'Content-Type': 'application/json',
+              'X-Restli-Protocol-Version': '2.0.0'
+            }
           }
-        },
-        {
+        );
+
+        const uploadUrl = registerResponse.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
+        const asset = registerResponse.data.value.asset;
+
+        logger.debug(`Got upload URL and asset: ${asset}`);
+
+        // Step 2: Download the image
+        logger.debug(`Downloading image from: ${imageUrl}`);
+        const imageResponse = await axios.get(imageUrl, {
+          responseType: 'arraybuffer',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; LinkedInBot/1.0)',
+            'Accept': 'image/*'
+          },
+          timeout: 15000,
+          maxContentLength: 10 * 1024 * 1024 // 10MB limit
+        });
+
+        // Step 3: Upload the image to LinkedIn
+        logger.debug(`Uploading ${imageResponse.data.length} bytes to LinkedIn...`);
+        await axios.put(uploadUrl, imageResponse.data, {
           headers: {
             'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Restli-Protocol-Version': '2.0.0'
+            'Content-Type': 'application/octet-stream'
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity
+        });
+
+        logger.info(`Image uploaded successfully to LinkedIn`);
+
+        // Return the media asset for the post
+        return {
+          status: 'READY',
+          description: {
+            text: 'Article image'
+          },
+          media: asset,
+          title: {
+            text: 'Article image'
           }
+        };
+
+      } catch (error) {
+        logger.error(`Image upload attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, error.message);
+        if (error.response) {
+          logger.error('Error status:', error.response.status);
+          logger.error('Error details:', JSON.stringify(error.response.data, null, 2));
         }
-      );
-
-      const uploadUrl = registerResponse.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
-      const asset = registerResponse.data.value.asset;
-
-      logger.debug(`Got upload URL and asset: ${asset}`);
-
-      // Step 2: Download the image
-      logger.debug(`Downloading image from: ${imageUrl}`);
-      const imageResponse = await axios.get(imageUrl, {
-        responseType: 'arraybuffer',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; LinkedInBot/1.0)',
-          'Accept': 'image/*'
-        },
-        timeout: 15000,
-        maxContentLength: 10 * 1024 * 1024 // 10MB limit
-      });
-
-      // Step 3: Upload the image to LinkedIn
-      logger.debug(`Uploading ${imageResponse.data.length} bytes to LinkedIn...`);
-      await axios.put(uploadUrl, imageResponse.data, {
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/octet-stream'
-        },
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity
-      });
-
-      logger.info(`Image uploaded successfully to LinkedIn`);
-
-      // Return the media asset for the post
-      return {
-        status: 'READY',
-        description: {
-          text: 'Article image'
-        },
-        media: asset,
-        title: {
-          text: 'Article image'
+        if (attempt < MEDIA_MAX_RETRIES) {
+          logger.info(`Retrying image upload in ${MEDIA_RETRY_DELAY_MS}ms...`);
+          await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+        } else {
+          logger.warn('Image upload failed after all retries — post will continue without image');
+          return null;
         }
-      };
-
-    } catch (error) {
-      logger.error('Error uploading image to LinkedIn:', error.message);
-      if (error.response) {
-        logger.error('Error status:', error.response.status);
-        logger.error('Error details:', JSON.stringify(error.response.data, null, 2));
       }
-      logger.warn('Image upload failed, post will continue without image');
-      // Return null if image upload fails - post will continue without image
-      return null;
     }
   }
 

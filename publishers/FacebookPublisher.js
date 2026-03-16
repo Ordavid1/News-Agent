@@ -216,11 +216,36 @@ class FacebookPublisher {
       if (mediaUrl) {
         // Determine if it's a video or image
         const isVideo = this.isVideoUrl(mediaUrl);
+        const MEDIA_MAX_RETRIES = 2;
+        const MEDIA_RETRY_DELAY_MS = 3000;
+        let mediaSent = false;
 
-        if (isVideo) {
-          result = await this.publishVideoPost(pageId, pageAccessToken, formattedContent, mediaUrl);
-        } else {
-          result = await this.publishPhotoPost(pageId, pageAccessToken, formattedContent, mediaUrl);
+        for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+          try {
+            if (isVideo) {
+              result = await this.publishVideoPost(pageId, pageAccessToken, formattedContent, mediaUrl);
+            } else {
+              result = await this.publishPhotoPost(pageId, pageAccessToken, formattedContent, mediaUrl);
+            }
+            mediaSent = true;
+            break;
+          } catch (mediaError) {
+            // Only retry on media-specific failures, not auth errors
+            const isAuthError = mediaError.response?.status === 401 || mediaError.response?.data?.error?.code === 190;
+            if (isAuthError) throw mediaError;
+
+            logger.error(`Facebook media post attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, mediaError.message);
+            if (attempt < MEDIA_MAX_RETRIES) {
+              logger.info(`Retrying media post in ${MEDIA_RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+            } else {
+              logger.warn('Facebook media post failed after all retries — publishing text-only as fallback');
+            }
+          }
+        }
+
+        if (!mediaSent) {
+          result = await this.publishTextPost(pageId, pageAccessToken, formattedContent, options);
         }
       } else {
         // Text-only post

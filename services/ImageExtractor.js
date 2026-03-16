@@ -130,8 +130,13 @@ class ImageExtractor {
       }
 
       if (imageUrl && this.isValidImage(imageUrl)) {
-        logger.info(`Found valid image: ${imageUrl}`);
-        return imageUrl;
+        // Verify the image URL is actually reachable (catches expired/broken URLs)
+        const isReachable = await this.validateImageUrl(imageUrl);
+        if (isReachable) {
+          logger.info(`Found valid and reachable image: ${imageUrl}`);
+          return imageUrl;
+        }
+        logger.warn(`Image URL passed pattern validation but is unreachable: ${imageUrl}`);
       }
 
       logger.debug('No suitable image found in article');
@@ -172,10 +177,14 @@ class ImageExtractor {
     maxRetries = 2,
     retryDelayMs = 3000
   } = {}) {
-    // Step 1: If we already have an image URL (from news API), validate it
+    // Step 1: If we already have an image URL (from news API), validate pattern + reachability
     if (preExistingImageUrl && this.isValidImage(preExistingImageUrl)) {
-      logger.info(`Pre-existing image URL is valid: ${preExistingImageUrl}`);
-      return preExistingImageUrl;
+      const isReachable = await this.validateImageUrl(preExistingImageUrl);
+      if (isReachable) {
+        logger.info(`Pre-existing image URL is valid and reachable: ${preExistingImageUrl}`);
+        return preExistingImageUrl;
+      }
+      logger.warn(`Pre-existing image URL is unreachable, will try extraction: ${preExistingImageUrl}`);
     }
 
     if (!articleUrl) {
@@ -421,6 +430,48 @@ class ImageExtractor {
     }
 
     return isImageUrl;
+  }
+
+  /**
+   * Validate that an image URL is actually reachable via a lightweight HEAD request.
+   * Catches expired, broken, or paywalled image URLs before they reach publishers.
+   * @param {string} imageUrl - The image URL to validate
+   * @param {number} timeoutMs - Request timeout in milliseconds
+   * @returns {Promise<boolean>} true if the URL responds with 2xx/3xx status
+   */
+  async validateImageUrl(imageUrl, timeoutMs = 5000) {
+    try {
+      const response = await axios.head(imageUrl, {
+        timeout: timeoutMs,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'image/*,*/*'
+        },
+        maxRedirects: 3,
+        validateStatus: (status) => status < 400
+      });
+      return true;
+    } catch (error) {
+      // Some servers block HEAD requests — retry with a small-range GET as fallback
+      try {
+        const getResponse = await axios.get(imageUrl, {
+          timeout: timeoutMs,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'image/*,*/*',
+            'Range': 'bytes=0-1023'
+          },
+          maxRedirects: 3,
+          responseType: 'arraybuffer',
+          maxContentLength: 2048,
+          validateStatus: (status) => status < 400
+        });
+        return true;
+      } catch (getError) {
+        logger.debug(`Image URL validation failed for ${imageUrl}: ${getError.message}`);
+        return false;
+      }
+    }
   }
 
   async checkImageDimensions(img) {

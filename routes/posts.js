@@ -406,14 +406,13 @@ router.post('/test', async (req, res) => {
     const userTier = req.user.subscription?.tier || 'free';
 
     if (TIERS_WITH_IMAGES.includes(userTier)) {
-      const isInstagramTargeted = targetPlatforms.includes('instagram');
-      console.log(`[Test Post] Step 4b: Extracting image (${userTier} tier)${isInstagramTargeted ? ' [Instagram targeted — retry enabled]' : ''}...`);
+      console.log(`[Test Post] Step 4b: Extracting image (${userTier} tier) with retry...`);
 
       try {
         const imageExtractor = new ImageExtractor();
 
-        if (isInstagramTargeted && trendData.url) {
-          // Instagram requires an image — use robust retry logic
+        if (trendData.url) {
+          // Use robust retry logic for ALL platforms
           imageUrl = await imageExtractor.extractImageWithRetry({
             articleUrl: trendData.url,
             articleTitle: trendData.title,
@@ -424,30 +423,16 @@ router.post('/test', async (req, res) => {
           });
 
           if (imageUrl) {
-            console.log(`[Test Post] ✓ Image extracted (with retry): ${imageUrl}`);
-          } else {
-            console.log(`[Test Post] ⚠️ No image found after retries — Instagram post will be blocked`);
-          }
-        } else if (trendData.url) {
-          // Other platforms: single attempt, graceful fallback
-          imageUrl = await imageExtractor.extractImageFromArticle(
-            trendData.url,
-            trendData.title,
-            trendData.source
-          );
-
-          if (imageUrl) {
             console.log(`[Test Post] ✓ Image extracted: ${imageUrl}`);
           } else {
-            console.log(`[Test Post] ⚠️ No suitable image found in article`);
+            console.log(`[Test Post] ⚠️ No image found after retries — publishing without image as fallback`);
           }
         } else {
           console.log(`[Test Post] ⚠️ No article URL available for image extraction`);
         }
       } catch (imageError) {
         console.error(`[Test Post] Image extraction failed:`, imageError.message);
-        // Continue without image - graceful fallback for non-Instagram platforms
-        // Instagram will be blocked by PublishingService validation
+        // Continue without image as last resort
         imageUrl = null;
       }
     } else {

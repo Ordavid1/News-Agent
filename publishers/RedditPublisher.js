@@ -280,58 +280,97 @@ class RedditPublisher {
       // Reddit API endpoint for submitting posts
       const submitUrl = 'https://oauth.reddit.com/api/submit';
       
-      // Determine if this is an image post or text post
-      const isImagePost = mediaUrl && this.isImageUrl(mediaUrl);
-
       let postData;
 
-      if (isImagePost) {
-        // For image posts, we use kind: 'link' with the image URL
-        // Reddit will automatically create an image post if the URL points to an image
-        logger.debug(`Creating image post with URL: ${mediaUrl}`);
-        postData = {
-          sr: subredditToUse,
-          kind: 'link', // Link post (Reddit treats image URLs as image posts)
-          title: title,
-          url: mediaUrl, // The image URL becomes the post content
-          api_type: 'json',
-          sendreplies: true,
-          nsfw: false,
-          spoiler: false
-        };
-      } else {
-        // Text post (self post)
-        postData = {
-          sr: subredditToUse,
-          kind: 'self',
-          title: title,
-          text: formattedContent,
-          api_type: 'json',
-          sendreplies: true,
-          nsfw: false,
-          spoiler: false
-        };
-      }
+      // Build base post data shared by both link and self posts
+      const basePostData = {
+        sr: subredditToUse,
+        title: title,
+        api_type: 'json',
+        sendreplies: true,
+        nsfw: false,
+        spoiler: false
+      };
 
       // Add flair if provided (required by some subreddits)
       if (flairId) {
-        postData.flair_id = flairId;
+        basePostData.flair_id = flairId;
         logger.debug(`Applying flair ID: ${flairId}`);
       }
 
-      logger.info(`Posting to r/${subredditToUse} with title: ${title}`);
-      
-      const response = await axios.post(submitUrl, new URLSearchParams(postData), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'NewsBot/1.0 (by /u/' + this.username + ')',
-          'Content-Type': 'application/x-www-form-urlencoded'
+      let response;
+
+      if (mediaUrl) {
+        // Try as link/image post first — retry up to 2 times, then fall back to text post
+        const MEDIA_MAX_RETRIES = 2;
+        const MEDIA_RETRY_DELAY_MS = 3000;
+        let imageSent = false;
+
+        for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+          try {
+            postData = { ...basePostData, kind: 'link', url: mediaUrl };
+            logger.debug(`Creating image/link post (attempt ${attempt}/${MEDIA_MAX_RETRIES}) with URL: ${mediaUrl}`);
+            logger.info(`Posting to r/${subredditToUse} with title: ${title}`);
+
+            response = await axios.post(submitUrl, new URLSearchParams(postData), {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'User-Agent': 'NewsBot/1.0 (by /u/' + this.username + ')',
+                'Content-Type': 'application/x-www-form-urlencoded'
+              }
+            });
+
+            if (response.data.json?.errors?.length > 0) {
+              const errors = response.data.json.errors.map(e => e[1]).join(', ');
+              throw new Error(`Reddit API errors: ${errors}`);
+            }
+            imageSent = true;
+            break;
+          } catch (linkError) {
+            logger.error(`Reddit link post attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, linkError.message);
+            if (attempt < MEDIA_MAX_RETRIES) {
+              logger.info(`Retrying link post in ${MEDIA_RETRY_DELAY_MS}ms...`);
+              await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+            } else {
+              logger.warn('Reddit link post failed after all retries — falling back to text post');
+            }
+          }
         }
-      });
-      
-      if (response.data.json?.errors?.length > 0) {
-        const errors = response.data.json.errors.map(e => e[1]).join(', ');
-        throw new Error(`Reddit API errors: ${errors}`);
+
+        if (!imageSent) {
+          postData = { ...basePostData, kind: 'self', text: formattedContent };
+          logger.info(`Posting text-only fallback to r/${subredditToUse} with title: ${title}`);
+
+          response = await axios.post(submitUrl, new URLSearchParams(postData), {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'User-Agent': 'NewsBot/1.0 (by /u/' + this.username + ')',
+              'Content-Type': 'application/x-www-form-urlencoded'
+            }
+          });
+
+          if (response.data.json?.errors?.length > 0) {
+            const errors = response.data.json.errors.map(e => e[1]).join(', ');
+            throw new Error(`Reddit API errors: ${errors}`);
+          }
+        }
+      } else {
+        // Text post (self post)
+        postData = { ...basePostData, kind: 'self', text: formattedContent };
+        logger.info(`Posting to r/${subredditToUse} with title: ${title}`);
+
+        response = await axios.post(submitUrl, new URLSearchParams(postData), {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'User-Agent': 'NewsBot/1.0 (by /u/' + this.username + ')',
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+
+        if (response.data.json?.errors?.length > 0) {
+          const errors = response.data.json.errors.map(e => e[1]).join(', ');
+          throw new Error(`Reddit API errors: ${errors}`);
+        }
       }
 
       const postId = response.data.json?.data?.id;

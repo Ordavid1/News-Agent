@@ -297,41 +297,43 @@ class AutomationManager {
 
     agentLog('info', `Generated content (${content.text.length} chars)`);
 
-    // 3.5 For platforms requiring media, ensure we have an image
-    if (ImageExtractor.PLATFORMS_REQUIRING_MEDIA.includes(platform)) {
-      if (!content.imageUrl) {
-        agentLog('info', `${platform} requires media — extracting image from article...`);
+    // 3.5 Ensure we have an image for ALL platforms (extract if missing)
+    if (!content.imageUrl) {
+      agentLog('info', `No image available — extracting image from article...`);
 
-        const extractedImage = await this.imageExtractor.extractImageWithRetry({
-          articleUrl: trend.url,
-          articleTitle: trend.title || trend.topic,
-          articleSource: trend.source,
-          preExistingImageUrl: trend.imageUrl || null,
-          fallbackUrls: this.extractFallbackUrls(trend),
-          maxRetries: 2,
-          retryDelayMs: 3000
+      const extractedImage = await this.imageExtractor.extractImageWithRetry({
+        articleUrl: trend.url,
+        articleTitle: trend.title || trend.topic,
+        articleSource: trend.source,
+        preExistingImageUrl: trend.imageUrl || null,
+        fallbackUrls: this.extractFallbackUrls(trend),
+        maxRetries: 2,
+        retryDelayMs: 3000
+      });
+
+      if (extractedImage) {
+        content.imageUrl = extractedImage;
+        agentLog('info', `Image extracted successfully: ${extractedImage}`);
+      } else if (ImageExtractor.PLATFORMS_REQUIRING_MEDIA.includes(platform)) {
+        // Platforms that strictly require media (Instagram, TikTok) — block the post
+        agentLog('warn', `No image could be extracted for ${platform} — post blocked`);
+
+        await logAgentAutomation(agent.id, userId, 'image_extraction_failed', {
+          platform,
+          trend: trend.title || trend.topic,
+          trendUrl: trend.url
         });
 
-        if (extractedImage) {
-          content.imageUrl = extractedImage;
-          agentLog('info', `Image extracted successfully: ${extractedImage}`);
-        } else {
-          agentLog('warn', `No image could be extracted for ${platform} — post blocked`);
-
-          await logAgentAutomation(agent.id, userId, 'image_extraction_failed', {
-            platform,
-            trend: trend.title || trend.topic,
-            trendUrl: trend.url
-          });
-
-          return {
-            success: false,
-            error: `${platform} requires an image but none could be extracted from the article. Post skipped.`
-          };
-        }
+        return {
+          success: false,
+          error: `${platform} requires an image but none could be extracted from the article. Post skipped.`
+        };
       } else {
-        agentLog('info', `Image already available from trend data: ${content.imageUrl}`);
+        // Other platforms — warn but allow text-only as last resort
+        agentLog('warn', `No image could be extracted for ${platform} — publishing without image as fallback`);
       }
+    } else {
+      agentLog('info', `Image already available from trend data: ${content.imageUrl}`);
     }
 
     // 3.7 For video platforms (TikTok, YouTube): check video quota then generate video from image + caption

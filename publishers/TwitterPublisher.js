@@ -80,24 +80,35 @@ async publishPost(content, mediaUrl = null) {
     
     let mediaId = null;
 
-    // Upload media if provided (image or video)
+    // Upload media if provided (image or video) — retry up to 2 attempts
     if (mediaUrl) {
-      try {
-        logger.debug(`Downloading media from: ${mediaUrl}`);
-        const mediaBuffer = await this.downloadMedia(mediaUrl);
-        logger.debug(`Media downloaded, size: ${mediaBuffer.length} bytes`);
+      const MEDIA_MAX_RETRIES = 2;
+      const MEDIA_RETRY_DELAY_MS = 3000;
 
-        // Detect if it's an image or video based on URL
-        const mimeType = this.detectMediaMimeType(mediaUrl);
-        logger.debug(`Detected mime type: ${mimeType}`);
+      for (let attempt = 1; attempt <= MEDIA_MAX_RETRIES; attempt++) {
+        try {
+          logger.debug(`Downloading media (attempt ${attempt}/${MEDIA_MAX_RETRIES}): ${mediaUrl}`);
+          const mediaBuffer = await this.downloadMedia(mediaUrl);
+          logger.debug(`Media downloaded, size: ${mediaBuffer.length} bytes`);
 
-        mediaId = await this.client.v2.uploadMedia(mediaBuffer, {
-          media_type: mimeType
-        });
-        logger.debug(`Media uploaded with ID: ${mediaId}`);
-      } catch (mediaError) {
-        logger.error('Failed to upload media:', mediaError);
-        // Continue without media rather than failing entirely
+          // Detect if it's an image or video based on URL
+          const mimeType = this.detectMediaMimeType(mediaUrl);
+          logger.debug(`Detected mime type: ${mimeType}`);
+
+          mediaId = await this.client.v2.uploadMedia(mediaBuffer, {
+            media_type: mimeType
+          });
+          logger.debug(`Media uploaded with ID: ${mediaId}`);
+          break; // Success — exit retry loop
+        } catch (mediaError) {
+          logger.error(`Media upload attempt ${attempt}/${MEDIA_MAX_RETRIES} failed:`, mediaError.message);
+          if (attempt < MEDIA_MAX_RETRIES) {
+            logger.info(`Retrying media upload in ${MEDIA_RETRY_DELAY_MS}ms...`);
+            await new Promise(resolve => setTimeout(resolve, MEDIA_RETRY_DELAY_MS));
+          } else {
+            logger.warn('Media upload failed after all retries — publishing without image as fallback');
+          }
+        }
       }
     }
     
