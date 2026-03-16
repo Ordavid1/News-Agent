@@ -27,6 +27,7 @@ var selectedTrainingJob = null;       // Which completed model to generate from
 var generatedMedia = [];
 var mediaTrainingPollingTimer = null;
 var latestGeneratedImageUrl = null;
+var mediaViewMode = 'new';           // 'new' (fresh upload) or 'view' (past model context)
 
 // Current modal state
 var currentBoostPost = null;
@@ -3592,7 +3593,6 @@ async function loadMediaAssets() {
         console.error('[MediaAssets] Failed to load assets:', assetsResult.reason);
         mediaAssets = [];
     }
-    renderMediaAssetGrid();
 
     // Training history (all sessions)
     if (historyResult.status === 'fulfilled') {
@@ -3610,10 +3610,12 @@ async function loadMediaAssets() {
         activeTrainingJob = null;
     }
 
-    // Start clean — no model selected, no generated media loaded
+    // Start clean — new model mode, no model selected
+    mediaViewMode = 'new';
     selectedTrainingJob = null;
     generatedMedia = [];
 
+    renderMediaAssetGrid();
     renderActiveTrainingStatus();
     renderTrainingHistory();
     renderGenerationSection();
@@ -3624,6 +3626,77 @@ async function loadMediaAssets() {
     // If training is in progress, start polling
     if (activeTrainingJob && activeTrainingJob.status === 'training') {
         startTrainingPolling();
+    }
+}
+
+/**
+ * Switch to New Model mode — fresh state for creating a new model.
+ * Called by the "+New Model" button.
+ */
+function switchToNewModelMode() {
+    mediaViewMode = 'new';
+    selectedTrainingJob = null;
+    generatedMedia = [];
+    latestGeneratedImageUrl = null;
+
+    // Clear reference images pool for a fresh start.
+    // Training snapshots are already preserved in training_image_urls on each completed model.
+    const assetsToDelete = [...mediaAssets];
+    mediaAssets = [];
+
+    // Re-render all sections in new-model context
+    renderMediaAssetGrid();
+    updateTrainButtonState();
+    renderTrainingHistory();
+    renderGenerationSection();
+    renderGeneratedMedia();
+
+    // Clear any previous generation preview
+    const result = document.getElementById('mediaGenerateResult');
+    if (result) result.classList.add('hidden');
+    const promptInput = document.getElementById('mediaGeneratePrompt');
+    if (promptInput) promptInput.value = '';
+
+    // Delete old pool assets from DB in background so clean state persists across refreshes
+    if (assetsToDelete.length > 0) {
+        Promise.allSettled(
+            assetsToDelete.map(a => apiDelete(`/api/marketing/media-assets/${a.id}`))
+        ).catch(() => { /* silent — snapshots already preserved */ });
+    }
+}
+
+/**
+ * Switch to View Model mode — inspect a past model's context.
+ * Shows read-only training image snapshots, generated images for this model, and enables generation.
+ */
+function switchToViewModelMode(jobId) {
+    const job = mediaTrainingJobs.find(j => j.id === jobId);
+    if (!job || job.status !== 'completed') return;
+
+    mediaViewMode = 'view';
+    selectedTrainingJob = job;
+
+    // Re-render all sections in view-model context
+    renderMediaAssetGrid();
+    renderTrainingHistory();
+    renderGenerationSection();
+
+    // Clear previous generation preview
+    const result = document.getElementById('mediaGenerateResult');
+    if (result) result.classList.add('hidden');
+    latestGeneratedImageUrl = null;
+
+    // Load generated images filtered to this model
+    if (selectedAdAccount) {
+        apiGet(`/api/marketing/media-assets/generated?adAccountId=${selectedAdAccount.id}&trainingJobId=${jobId}`)
+            .then(data => {
+                generatedMedia = data.media || [];
+                renderGeneratedMedia();
+            })
+            .catch(() => {
+                generatedMedia = [];
+                renderGeneratedMedia();
+            });
     }
 }
 
@@ -3708,6 +3781,10 @@ function handleMediaFileSelect(fileList) {
  */
 async function uploadMediaFiles(files) {
     if (!selectedAdAccount) return;
+    if (mediaViewMode !== 'new') {
+        showToast('Switch to New Model mode to upload images', 'warning');
+        return;
+    }
 
     const progressEl = document.getElementById('mediaUploadProgress');
     const barEl = document.getElementById('mediaUploadBar');
@@ -3771,6 +3848,7 @@ async function uploadMediaFiles(files) {
  * Delete an uploaded media asset.
  */
 async function deleteMediaAsset(assetId) {
+    if (mediaViewMode !== 'new') return;
     if (!confirm('Delete this image?')) return;
 
     try {
@@ -3791,40 +3869,97 @@ function renderMediaAssetGrid() {
     const grid = document.getElementById('mediaAssetGrid');
     const empty = document.getElementById('mediaAssetEmpty');
     const badge = document.getElementById('mediaAssetCountBadge');
+    const sectionTitle = document.getElementById('mediaRefSectionTitle');
+    const sectionSubtitle = document.getElementById('mediaRefSectionSubtitle');
+    const dropZone = document.getElementById('mediaDropZone');
+    const trainSection = document.getElementById('mediaTrainSection');
 
     if (!grid) return;
 
-    const count = mediaAssets.length;
-    badge.textContent = `${count} / 10 min`;
-    badge.className = count >= 10
-        ? 'text-sm font-medium text-green-700 bg-green-100 px-3 py-1 rounded-full'
-        : 'text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full';
+    if (mediaViewMode === 'view' && selectedTrainingJob) {
+        // VIEW MODE: Show read-only training image snapshots
+        const urls = selectedTrainingJob.training_image_urls || [];
+        const count = urls.length;
 
-    if (count === 0) {
-        grid.innerHTML = '';
-        empty.classList.remove('hidden');
-        return;
+        if (sectionTitle) sectionTitle.textContent = 'Training Images';
+        if (sectionSubtitle) sectionSubtitle.textContent =
+            `Images used to train "${selectedTrainingJob.name || 'Untitled'}"`;
+        if (badge) {
+            badge.textContent = `${count} images`;
+            badge.className = 'text-sm font-medium text-brand-700 bg-brand-50 px-3 py-1 rounded-full';
+        }
+
+        // Hide upload controls and train section
+        if (dropZone) dropZone.classList.add('hidden');
+        if (trainSection) trainSection.classList.add('hidden');
+
+        if (count === 0) {
+            grid.innerHTML = '';
+            if (empty) {
+                empty.classList.remove('hidden');
+                const emptyP = empty.querySelector('p');
+                if (emptyP) emptyP.textContent = 'No training image snapshot available for this model.';
+            }
+            return;
+        }
+
+        if (empty) empty.classList.add('hidden');
+        grid.innerHTML = urls.map((url, idx) => `
+            <div class="relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
+                <img src="${escapeHtml(url)}" alt="Training image ${idx + 1}"
+                    class="w-full h-full object-cover"
+                    onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-ink-300\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>';">
+            </div>
+        `).join('');
+
+    } else {
+        // NEW MODEL MODE: Show editable upload pool
+        const count = mediaAssets.length;
+
+        if (sectionTitle) sectionTitle.textContent = 'Reference Images';
+        if (sectionSubtitle) sectionSubtitle.textContent =
+            'Upload at least 10 images that represent your brand\'s visual style';
+        if (badge) {
+            badge.textContent = `${count} / 10 min`;
+            badge.className = count >= 10
+                ? 'text-sm font-medium text-green-700 bg-green-100 px-3 py-1 rounded-full'
+                : 'text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full';
+        }
+
+        // Show upload controls and train section
+        if (dropZone) dropZone.classList.remove('hidden');
+        if (trainSection) trainSection.classList.remove('hidden');
+
+        if (count === 0) {
+            grid.innerHTML = '';
+            if (empty) {
+                empty.classList.remove('hidden');
+                const emptyP = empty.querySelector('p');
+                if (emptyP) emptyP.textContent = 'No images uploaded yet. Start by dropping images above.';
+            }
+            return;
+        }
+
+        if (empty) empty.classList.add('hidden');
+        grid.innerHTML = mediaAssets.map(asset => `
+            <div class="group relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
+                <img src="${escapeHtml(asset.public_url)}" alt="${escapeHtml(asset.file_name)}"
+                    class="w-full h-full object-cover"
+                    onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-ink-300\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>';">
+                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <button onclick="deleteMediaAsset('${asset.id}')"
+                        class="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <p class="text-[10px] text-white truncate">${escapeHtml(asset.file_name)}</p>
+                </div>
+            </div>
+        `).join('');
     }
-
-    empty.classList.add('hidden');
-    grid.innerHTML = mediaAssets.map(asset => `
-        <div class="group relative rounded-lg overflow-hidden border border-surface-200 aspect-square bg-surface-50">
-            <img src="${escapeHtml(asset.public_url)}" alt="${escapeHtml(asset.file_name)}"
-                class="w-full h-full object-cover"
-                onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-ink-300\\' title=\\'Image failed to load: ${escapeHtml(asset.public_url).replace(/'/g, '')}\\'><svg class=\\'w-8 h-8\\' fill=\\'none\\' stroke=\\'currentColor\\' viewBox=\\'0 0 24 24\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'></path></svg></div>';">
-            <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                <button onclick="deleteMediaAsset('${asset.id}')"
-                    class="opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <p class="text-[10px] text-white truncate">${escapeHtml(asset.file_name)}</p>
-            </div>
-        </div>
-    `).join('');
 }
 
 /**
@@ -3973,20 +4108,20 @@ function startTrainingPolling() {
                     const idx = mediaTrainingJobs.findIndex(j => j.id === job.id);
                     if (idx !== -1) mediaTrainingJobs[idx] = job;
 
-                    // If completed, auto-select and mark as default
-                    // (backend already set is_default via checkTrainingStatus)
+                    // If completed, auto-switch to view mode for the new model
                     if (job.status === 'completed') {
                         mediaTrainingJobs.forEach(j => j.is_default = false);
                         job.is_default = true;
-                        selectedTrainingJob = job;
-                        generatedMedia = []; // New model, no generated images yet
+                        activeTrainingJob = null;
+                        renderActiveTrainingStatus();
+                        switchToViewModelMode(job.id);
+                    } else {
+                        activeTrainingJob = null;
+                        renderActiveTrainingStatus();
+                        renderTrainingHistory();
+                        renderGenerationSection();
+                        renderGeneratedMedia();
                     }
-
-                    activeTrainingJob = null;
-                    renderActiveTrainingStatus();
-                    renderTrainingHistory();
-                    renderGenerationSection();
-                    renderGeneratedMedia();
                 }
             }
         } catch (error) {
@@ -4112,30 +4247,24 @@ function renderTrainingHistory() {
             </div>
         `;
     }).join('');
+
+    // Toggle "+New Model" button active state
+    const newModelBtn = document.getElementById('newModelBtn');
+    if (newModelBtn) {
+        if (mediaViewMode === 'new') {
+            newModelBtn.classList.add('ring-2', 'ring-brand-300', 'ring-offset-2');
+        } else {
+            newModelBtn.classList.remove('ring-2', 'ring-brand-300', 'ring-offset-2');
+        }
+    }
 }
 
 /**
  * Select a completed training session for image generation.
+ * Delegates to switchToViewModelMode for full model-centric context switch.
  */
 function selectTrainingForGeneration(jobId) {
-    const job = mediaTrainingJobs.find(j => j.id === jobId);
-    if (!job || job.status !== 'completed') return;
-
-    selectedTrainingJob = job;
-    renderTrainingHistory();
-    renderGenerationSection();
-
-    // Load generated images filtered to this training job
-    if (selectedAdAccount) {
-        apiGet(`/api/marketing/media-assets/generated?adAccountId=${selectedAdAccount.id}&trainingJobId=${jobId}`)
-            .then(data => {
-                generatedMedia = data.media || [];
-                renderGeneratedMedia();
-            })
-            .catch(err => {
-                console.error('[MediaAssets] Failed to load generated media for job:', err);
-            });
-    }
+    switchToViewModelMode(jobId);
 }
 
 /**
@@ -4177,16 +4306,22 @@ function renderGenerationSection() {
     const generateBtn = document.getElementById('mediaGenerateBtn');
     const result = document.getElementById('mediaGenerateResult');
 
-    if (selectedTrainingJob && selectedTrainingJob.status === 'completed') {
+    if (mediaViewMode === 'view' && selectedTrainingJob && selectedTrainingJob.status === 'completed') {
         if (selectedLabel) {
-            selectedLabel.textContent = `Generating from: ${selectedTrainingJob.name || 'Untitled'}`;
+            const typeLabel = selectedTrainingJob.training_type === 'style' ? 'Style' : 'Subject';
+            const triggerInfo = selectedTrainingJob.trigger_word
+                ? ` | Trigger: ${selectedTrainingJob.trigger_word}`
+                : '';
+            selectedLabel.innerHTML = `Generating from: <strong>${escapeHtml(selectedTrainingJob.name || 'Untitled')}</strong> <span class="text-xs text-ink-400">(${typeLabel}${triggerInfo})</span>`;
             selectedLabel.classList.remove('text-ink-400');
             selectedLabel.classList.add('text-brand-600');
         }
         if (generateBtn) generateBtn.disabled = false;
     } else {
         if (selectedLabel) {
-            selectedLabel.textContent = 'Select a model from Past Models to start generating images.';
+            selectedLabel.textContent = mediaViewMode === 'new'
+                ? 'Upload reference images and train a model first, then generate images.'
+                : 'Select a model from Past Models to start generating images.';
             selectedLabel.classList.remove('text-brand-600');
             selectedLabel.classList.add('text-ink-400');
         }

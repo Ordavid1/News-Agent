@@ -35,9 +35,13 @@ You MUST include explicit audio cues in your prompt:
 - Sync points: moments where audio aligns with visual beats (a door opening, applause erupting, a notification chime)
 Place audio direction as a final paragraph, clearly describing the soundscape.`;
 
-  return `You are an elite cinematographic prompt engineer — a visual storytelling director who transforms news articles into vivid, specific, cinematic video scene prompts for AI video generation models.
+  return `You are a CINEMATIC DIRECTOR creating a video production directive — you command a virtual production crew (director of photography, set designer, sound engineer, editor) by writing the creative brief that tells them exactly what to shoot.
 
-YOUR TASK: Read the article and caption provided, then output a SINGLE video generation prompt. This prompt is fed DIRECTLY to ${isRunway ? 'Runway Gen-4.5' : 'Google Veo 3.1'} along with the article's featured image as the starting frame. The model generates a ${duration}-second 9:16 vertical video${isRunway ? '' : ' with native audio'}.
+You receive a rich STORYLINE (editorial analysis of the full article) alongside the headline, caption, and image. The STORYLINE is your PRIMARY narrative source — it contains the article's full meaning, tone, context worlds, and visual anchors. Use it to craft a video that TELLS THE STORY, not just illustrates the headline.
+
+YOUR TASK: Read all provided material and output a SINGLE video generation prompt — a production directive. This is fed DIRECTLY to ${isRunway ? 'Runway Gen-4.5' : 'Google Veo 3.1'} along with the article's featured image as the starting frame. The model generates a ${duration}-second 9:16 vertical video${isRunway ? '' : ' with native audio'}.
+
+YOUR GOAL: Create a video that triggers FOMO — viewers who scroll past must feel they're missing something extraordinary. The video must make the story UNMISSABLE, creating engagement through visual spectacle and emotional resonance.
 
 HARD OUTPUT CONSTRAINT: Your ENTIRE response must be UNDER ${charLimit} characters. No exceptions. Every word must carry visual weight. Output ONLY the raw prompt text — no labels, no explanations, no markdown, no quotation marks.
 
@@ -45,16 +49,22 @@ ${categoryContext}
 ${moodContext}
 
 ═══════════════════════════════════════════════════════════════
-THE RULES OF CINEMATIC VIDEO PROMPTING
+THE CINEMATIC DIRECTOR'S PLAYBOOK
 ═══════════════════════════════════════════════════════════════
 
-1. CONCRETE VISUALS — NEVER ABSTRACTIONS
+1. STORYLINE IS KING — MINE IT FOR VISUAL GOLD
+   The STORYLINE field contains the article's full narrative: who, what, where, why, the stakes, the tone, primary and secondary context worlds. READ IT CAREFULLY.
+   - PRIMARY CONTEXT WORLD (e.g., Sports, Technology, Politics): This drives your main visual setting, props, and character archetypes
+   - SECONDARY CONTEXT (e.g., geopolitical tensions behind a sports story): Weave this into background details, color palette shifts, or atmospheric tension
+   - Use the storyline's emotional register to set the visual tempo: urgent = fast cuts and sharp movements, somber = slow dolly and muted tones, exciting = dynamic crane shots and vibrant colors
+
+2. CONCRETE VISUALS — NEVER ABSTRACTIONS
    Your #1 job is to describe WHAT THE VIEWER SEES — specific people, places, objects, textures, colors, and actions.
    FORBIDDEN: "A professional business environment with dynamic lighting" — this produces nothing.
    REQUIRED: "A glass-walled trading floor at dawn, screens flickering with green numbers, a trader's hands gripping a phone as morning light cuts through skyscrapers outside" — this produces cinema.
    Be SPECIFIC. Name materials (glass, steel, wood, concrete). Name colors (amber, cobalt, crimson). Name textures (rain-slicked, sun-bleached, frost-covered). Name actions (typing, gesturing, walking, turning).
 
-2. THE STARTING IMAGE IS A LAUNCH PAD
+3. THE STARTING IMAGE IS A LAUNCH PAD
    The source image is often a company logo, headshot, stock photo, or news thumbnail. Your prompt MUST describe the world the camera MOVES INTO from that starting frame:
    - Logo → describe the surface it's etched/displayed on, then the camera pushes past it into the scene behind
    - Headshot → the person's environment expands around them as the camera pulls back
@@ -62,12 +72,12 @@ THE RULES OF CINEMATIC VIDEO PROMPTING
    - News thumbnail → the frozen moment unfolds into a living narrative
    The key technique: START from what the image shows, then EXPAND into a full cinematic world. The first sentence should connect to the starting image. The rest describes the world that unfolds.
 
-3. THREE-BEAT NARRATIVE ARC (even in ${duration} seconds)
-   BEAT 1 — ESTABLISH (0-3s): The opening frame expands into a world. Environment, lighting, atmosphere, spatial context. Where are we? What time of day? What's the feel?
-   BEAT 2 — DEVELOP (3-${parseInt(duration) - 2}s): Something HAPPENS. Movement, reveal, transformation, a shift in scale or perspective. This is the story beat — the moment that carries the article's meaning visually.
-   BEAT 3 — RESOLVE (${parseInt(duration) - 2}-${duration}s): The visual culmination. A wider reveal, an emotional reaction, a shift to the bigger picture. Leave the viewer with a sense of the story's significance.
+4. THREE-BEAT NARRATIVE ARC — MAKE IT UNMISSABLE
+   BEAT 1 — THE HOOK (0-3s): Arrest the viewer's attention. The opening frame expands into a world that DEMANDS watching. Environment, lighting, atmosphere, spatial context. Immediate visual intrigue — something the viewer has never seen before.
+   BEAT 2 — THE STORY (3-${parseInt(duration) - 2}s): This is where the STORYLINE comes alive visually. Movement, reveal, transformation, a shift in scale or perspective. This beat should convey the article's MEANING through visual metaphor and action — not just its subject.
+   BEAT 3 — THE WOW (${parseInt(duration) - 2}-${duration}s): The jaw-drop moment. A wider reveal, a dramatic scale shift, an emotional culmination. Leave the viewer thinking "I need to share this." This is your FOMO generator — the moment that makes the story feel monumental.
 
-4. EXACT CAMERA MOVEMENTS
+5. EXACT CAMERA MOVEMENTS
    Name specific cinematographic techniques:
    - "Smooth dolly push forward through the corridor"
    - "Camera cranes up from street level to rooftop view"
@@ -76,21 +86,21 @@ THE RULES OF CINEMATIC VIDEO PROMPTING
    - "Rack focus shifts from foreground document to the person behind"
    NEVER say just "the camera moves" or "camera slowly zooms in."
 
-5. PEOPLE AND HUMAN ACTIONS
+6. PEOPLE AND HUMAN ACTIONS
    News is about people. When the article involves humans, describe them vividly:
    - What they wear (lab coat, sharp navy suit, construction vest, scrubs)
    - Expressions and body language (furrowed brow of concentration, confident stride, hands clasped in deliberation)
    - Actions (reviewing data on a screen, signing a document, addressing a packed auditorium)
    - Their environment and how they interact with it
 
-6. LIGHTING AND ATMOSPHERE — NON-NEGOTIABLE
+7. LIGHTING AND ATMOSPHERE — NON-NEGOTIABLE
    Every prompt MUST specify:
    - Time of day and light source (golden hour sun, harsh fluorescent overheads, soft dawn glow, blue-tinted moonlight)
    - Color temperature (warm amber, cool steel blue, neutral daylight)
    - Atmospheric elements (morning haze, dust motes in a sunbeam, steam rising, rain on glass, bokeh city lights)
    - These details are what separate cinematic from generic.
 
-7. PHOTOREALISM MANDATE
+8. PHOTOREALISM MANDATE
    Always include near the end: "Photorealistic rendering, natural color grading, sharp focus, 9:16 portrait orientation, broadcast-quality documentary footage."
    The output must look like professional news footage or documentary filmmaking — never cartoon, anime, CGI-obvious, or stylized.
 
@@ -108,9 +118,10 @@ WHAT TO AVOID
 
 /**
  * Generate the user prompt for video prompt generation.
- * Provides article data, caption context, image description, and technical requirements.
- * @param {Object} article - { title, summary, description, source }
- * @param {string} caption - Generated TikTok caption (for story context)
+ * Provides article data with editorial storyline, caption context, image description,
+ * full article excerpt, and technical requirements for cinematic directive generation.
+ * @param {Object} article - { title, summary, description (storyline), source }
+ * @param {string} caption - Generated TikTok/YouTube caption (for story context)
  * @param {string} model - 'runway' or 'veo'
  * @param {Object} sceneMetadata - { category, secondaryCategory, mood, style, lighting, ambient, music }
  * @param {string|null} imageDescription - Vision model description of the source image (null if unavailable)
@@ -121,13 +132,13 @@ const getVideoPromptUserPrompt = (article, caption, model = 'veo', sceneMetadata
   const charLimit = isRunway ? 950 : 1400;
   const duration = isRunway ? 10 : 8;
 
-  // Provide scene metadata hints if available (from VideoPromptEngine classification)
-  let atmosphereHints = '';
+  // Production direction from scene classification (atmosphere, lighting, audio)
+  let productionDirection = '';
   if (sceneMetadata.lighting || sceneMetadata.ambient || sceneMetadata.music) {
-    atmosphereHints = `\nATMOSPHERE HINTS (use as inspiration, not as rigid templates):`;
-    if (sceneMetadata.lighting) atmosphereHints += `\n- Lighting suggestion: ${sceneMetadata.lighting}`;
-    if (!isRunway && sceneMetadata.ambient) atmosphereHints += `\n- Ambient audio suggestion: ${sceneMetadata.ambient}`;
-    if (!isRunway && sceneMetadata.music) atmosphereHints += `\n- Music suggestion: ${sceneMetadata.music}`;
+    productionDirection = `\nPRODUCTION DIRECTION (from scene analysis — use as creative inspiration):`;
+    if (sceneMetadata.lighting) productionDirection += `\n- Lighting direction: ${sceneMetadata.lighting}`;
+    if (!isRunway && sceneMetadata.ambient) productionDirection += `\n- Ambient soundscape: ${sceneMetadata.ambient}`;
+    if (!isRunway && sceneMetadata.music) productionDirection += `\n- Score direction: ${sceneMetadata.music}`;
   }
 
   // When a vision model has described the actual image, provide that concrete description.
@@ -141,31 +152,38 @@ The starting frame is the article's featured image. It could be a company logo, 
 
   // Note secondary category if present (cross-domain article)
   const crossDomainNote = sceneMetadata.secondaryCategory
-    ? `\nNOTE: This article spans multiple domains (primary: ${sceneMetadata.category}, secondary: ${sceneMetadata.secondaryCategory}). Prioritize the primary domain for visual direction but acknowledge the secondary context where appropriate.`
+    ? `\nCROSS-DOMAIN CONTEXT: This story spans multiple domains (primary: ${sceneMetadata.category}, secondary: ${sceneMetadata.secondaryCategory}). Your primary visual world should reflect ${sceneMetadata.category}. Weave ${sceneMetadata.secondaryCategory} context into background elements, atmospheric tension, or secondary visual motifs.`
     : '';
 
-  return `ARTICLE TO TRANSFORM INTO A CINEMATIC VIDEO SCENE:
+  // Build the STORYLINE section — this is the key enhancement
+  const storylineSection = article.description && article.description !== article.summary
+    ? `\nSTORYLINE (editorial analysis of the full article — THIS IS YOUR PRIMARY NARRATIVE SOURCE):
+${article.description}
+↑ Use this storyline to drive your three-beat arc. It contains the story's meaning, tone, key players, and visual anchors.`
+    : '';
+
+  return `ARTICLE TO TRANSFORM INTO A CINEMATIC VIDEO PRODUCTION:
 
 Headline: ${article.title}
 Summary: ${article.summary || article.description || '(No summary available)'}
-${article.description && article.description !== article.summary ? `Details: ${article.description}` : ''}
+${storylineSection}
 Source: ${article.source || 'Unknown'}
 
 CAPTION (for story context — do NOT include this text in the video prompt):
 ${caption || '(No caption provided)'}
 
 ${imageSection}
-${atmosphereHints}${crossDomainNote}
+${productionDirection}${crossDomainNote}
 
 TECHNICAL REQUIREMENTS:
 - Video model: ${isRunway ? 'Runway Gen-4.5' : 'Google Veo 3.1'}
 - Duration: ${duration} seconds
-- Orientation: 9:16 portrait (vertical TikTok video)
+- Orientation: 9:16 portrait (vertical TikTok/YouTube Shorts)
 - Style: Photorealistic, documentary/news quality
 - MAXIMUM ${charLimit} characters (CRITICAL — exceeding this will truncate your prompt)
 ${!isRunway ? '- MUST include audio direction (ambient sounds + music) as a final paragraph' : '- Do NOT include any audio/music direction'}
 
-Now write the video generation prompt. Remember: CONCRETE visuals, THREE-BEAT arc, SPECIFIC camera, REAL atmosphere. Transform this article into a scene a viewer can FEEL.`;
+Now write the cinematic video production directive. You are the DIRECTOR — your prompt tells the crew exactly what to shoot. Mine the STORYLINE for narrative depth. Create a scene that triggers FOMO, demands engagement, and makes the viewer feel they CANNOT scroll past this story. THREE-BEAT arc, CONCRETE visuals, SPECIFIC camera movements, REAL atmosphere.`;
 };
 
 /**

@@ -126,48 +126,54 @@ class NewsService {
         }
       }
 
-      // Try different news sources (as fallback or primary for non-Hebrew)
-      if (topicNews.length === 0 || !useHebrewSearch) {
+      // Try news sources, supplementing until we reach the requested article count.
+      // Sources are tried in priority order; each is only called if we still need more articles.
+      const minArticles = limit;
+
+      if (topicNews.length < minArticles || !useHebrewSearch) {
         // PRIMARY: Try GNews first
-        if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
+        if (topicNews.length < minArticles && sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
           try {
             const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region });
             topicNews.push(...gnewsResults);
-            logger.info(`GNews returned ${gnewsResults.length} articles for topic: ${topic}`);
+            logger.info(`GNews returned ${gnewsResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`GNews error for topic ${topic}:`, error.message);
           }
         }
 
-        // FALLBACK: Only try NewsAPI if GNews returned no results
-        if (topicNews.length === 0 && sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
+        // SUPPLEMENT/FALLBACK: Try NewsAPI if we still need more articles
+        if (topicNews.length < minArticles && sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
           try {
-            logger.info(`GNews returned 0 results, falling back to NewsAPI for topic: ${topic}`);
+            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI for topic: ${topic}`);
             const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
             topicNews.push(...newsApiResults);
+            logger.info(`NewsAPI returned ${newsApiResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`NewsAPI error for topic ${topic}:`, error.message);
           }
         }
 
-        // FALLBACK 2: Try NewsAPI.ai (Event Registry) if GNews+NewsAPI returned no results
-        if (topicNews.length === 0 && this.newsAiKey && this.newsAiKey !== 'mock-key') {
+        // SUPPLEMENT/FALLBACK: Try NewsAPI.ai if we still need more articles
+        if (topicNews.length < minArticles && this.newsAiKey && this.newsAiKey !== 'mock-key') {
           try {
-            logger.info(`GNews+NewsAPI returned 0, falling back to NewsAPI.ai for topic: ${topic}`);
+            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI.ai for topic: ${topic}`);
             const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region });
             topicNews.push(...newsAiResults);
+            logger.info(`NewsAPI.ai returned ${newsAiResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`NewsAPI.ai error for topic ${topic}:`, error.message);
           }
         }
 
-        // Google CSE is configured for Israeli news outlets — only use for Israel/Global geo
+        // Google CSE — only for Israel/Global geo, last resort
         const isIsraelOrGlobal = useHebrewSearch || (region && region.toLowerCase() === 'il') || includeGlobal;
-        if (topicNews.length === 0 && isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+        if (topicNews.length < minArticles && isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
           try {
-            logger.info(`GNews+NewsAPI returned 0, falling back to Google CSE (Israel/Global) for topic: ${topic}`);
+            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from Google CSE for topic: ${topic}`);
             const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region });
             topicNews.push(...googleResults);
+            logger.info(`Google CSE returned ${googleResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`Google CSE error for topic ${topic}:`, error.message);
           }

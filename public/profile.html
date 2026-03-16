@@ -1550,10 +1550,19 @@
                             <h3 class="text-xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Media Assets</h3>
                             <p class="text-ink-500 text-sm">Upload reference images, train a custom AI model, and generate brand-consistent visuals</p>
                         </div>
-                        <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-                            <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                            </svg>
+                        <div class="flex items-center gap-3">
+                            <button id="newModelBtn" onclick="switchToNewModelMode()"
+                                class="btn-primary btn-sm flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                New Model
+                            </button>
+                            <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                            </div>
                         </div>
                     </div>
 
@@ -1595,8 +1604,8 @@
                     <div class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Reference Images</h4>
-                                <p class="text-sm text-ink-400 mt-0.5">Upload at least 10 images that represent your brand's visual style</p>
+                                <h4 id="mediaRefSectionTitle" class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Reference Images</h4>
+                                <p id="mediaRefSectionSubtitle" class="text-sm text-ink-400 mt-0.5">Upload at least 10 images that represent your brand's visual style</p>
                             </div>
                             <div id="mediaAssetCountBadge" class="text-sm font-medium text-ink-500 bg-surface-100 px-3 py-1 rounded-full">
                                 0 / 10 min
@@ -1633,7 +1642,7 @@
                     </div>
 
                     <!-- Section 3: Train New Model -->
-                    <div class="card-gradient p-6 mb-6">
+                    <div id="mediaTrainSection" class="card-gradient p-6 mb-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
                                 <h4 class="text-lg font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Train New Model</h4>

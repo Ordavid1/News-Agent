@@ -1,7 +1,9 @@
 // services/ContentGenerator.js
 import OpenAI from 'openai';
 import axios from 'axios';
+import { extract } from '@extractus/article-extractor';
 import winston from 'winston';
+import ArticleResolver from './ArticleResolver.js';
 
 // Import platform-specific prompts
 import { getLinkedInSystemPrompt, getLinkedInUserPrompt } from '../public/components/linkedInPrompts.mjs';
@@ -480,6 +482,162 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
   }
 
   /**
+   * Extract the full article content from its URL using @extractus/article-extractor.
+   * Resolves redirects (including Google News URLs) before extraction.
+   * Handles SPAs, paywalled content, and JS-heavy pages far better than raw Cheerio.
+   *
+   * Used to provide the video storyline generator with the full article text
+   * instead of relying solely on the ~200-char API summary.
+   *
+   * @param {string} articleUrl - The article URL to extract content from
+   * @returns {Promise<string|null>} Cleaned article text (up to ~3000 chars), or null on failure
+   */
+  async scrapeArticleContent(articleUrl) {
+    if (!articleUrl) {
+      logger.info('Article extraction skipped — no URL provided');
+      return null;
+    }
+
+    try {
+      // Resolve Google News or redirect URLs to the actual article
+      const resolver = new ArticleResolver();
+      let actualUrl = await resolver.resolveArticleUrl(articleUrl);
+      if (!actualUrl) actualUrl = articleUrl;
+
+      logger.info(`Extracting article content from: ${actualUrl}`);
+
+      // Use @extractus/article-extractor — purpose-built for article content extraction
+      // Handles diverse site structures, readability scoring, and content cleanup
+      const articleData = await extract(actualUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        timeout: 10000
+      });
+
+      if (!articleData || !articleData.content) {
+        logger.info('Article extractor returned no content — falling back to API summary');
+        return null;
+      }
+
+      // article-extractor returns HTML content — strip tags to get clean text
+      let articleText = articleData.content
+        .replace(/<[^>]+>/g, ' ')   // Strip HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, ' ')       // Collapse whitespace
+        .trim();
+
+      if (articleText.length < 100) {
+        logger.info('Article extraction returned insufficient content — falling back to API summary');
+        return null;
+      }
+
+      // Cap at ~3000 chars (enough for LLM summarization)
+      if (articleText.length > 3000) {
+        const truncated = articleText.slice(0, 3000);
+        const lastPeriod = truncated.lastIndexOf('.');
+        if (lastPeriod > 2000) {
+          articleText = truncated.slice(0, lastPeriod + 1);
+        } else {
+          articleText = truncated;
+        }
+      }
+
+      logger.info(`Extracted article content: ${articleText.length} chars from ${actualUrl}`);
+      return articleText;
+
+    } catch (error) {
+      // Non-critical — fall back to API summary if extraction fails
+      logger.warn(`Article extraction failed (non-blocking): ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Generate an editorial storyline from full article content using Gemini Flash.
+   * Produces a rich 500-800 char narrative summary that captures the article's
+   * story arc, tone, emotional context, primary/secondary context worlds,
+   * and visual elements — designed as input for cinematic video prompt generation.
+   *
+   * @param {string} articleTitle - The article headline
+   * @param {string|null} fullContent - Full scraped article text (null if scraping failed)
+   * @param {string} fallbackSummary - API summary to use if fullContent unavailable
+   * @returns {Promise<string>} Editorial storyline (500-800 chars), or fallbackSummary on failure
+   */
+  async generateArticleStoryline(articleTitle, fullContent, fallbackSummary) {
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    const sourceText = fullContent || fallbackSummary || '';
+
+    // If we only have a short summary and no API key, return as-is
+    if (!googleApiKey || sourceText.length < 50) {
+      logger.info('Storyline generation skipped — insufficient source text or no API key');
+      return fallbackSummary || '';
+    }
+
+    try {
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+
+      const prompt = `You are an editorial director preparing a video production brief. Read this article and produce a STORYLINE SUMMARY (500-800 characters) that a cinematic video director will use to create a compelling news video.
+
+ARTICLE TITLE: ${articleTitle}
+
+ARTICLE TEXT:
+${sourceText.slice(0, 2500)}
+
+YOUR STORYLINE MUST CAPTURE:
+1. NARRATIVE ARC: What happened, who is involved, what's at stake, and what's the outcome or tension
+2. TONE & MOOD: Is this urgent/breaking? Hopeful/inspiring? Somber/tragic? Exciting/revolutionary? Convey the emotional register
+3. PRIMARY CONTEXT WORLD: The main domain this story lives in (e.g., Technology, Sports, Politics, Health) — this will drive the visual focus
+4. SECONDARY CONTEXT: Any background context that adds depth (e.g., a sports story with geopolitical tensions, a tech story with environmental impact)
+5. VISUAL ANCHORS: Mention specific settings, people, objects, or scenes described in the article that could be visually represented
+6. WHY IT MATTERS: The broader significance — what makes this story compelling, what creates FOMO for viewers who might scroll past
+
+OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bullet points. Write it as a narrative brief — vivid, specific, emotionally resonant. Start with the story's hook, build through the key details, and end with the stakes or significance.`;
+
+      const response = await axios.post(endpoint, {
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 20000
+      });
+
+      const candidate = response.data?.candidates?.[0];
+      const storyline = candidate?.content?.parts?.[0]?.text?.trim();
+      const finishReason = candidate?.finishReason;
+
+      // Debug: log what the model actually returned
+      if (!storyline) {
+        logger.warn(`Storyline generation returned empty — finishReason: ${finishReason}, candidates: ${JSON.stringify(response.data?.candidates?.length)}, promptFeedback: ${JSON.stringify(response.data?.promptFeedback)}`);
+      } else {
+        logger.info(`Storyline raw response: ${storyline.length} chars, finishReason: ${finishReason}`);
+      }
+
+      if (storyline && storyline.length >= 100) {
+        logger.info(`Generated article storyline (${storyline.length} chars)`);
+        return storyline;
+      }
+
+      logger.warn(`Gemini Flash returned insufficient storyline (${storyline?.length || 0} chars) — falling back to summary`);
+      return fallbackSummary || '';
+
+    } catch (error) {
+      // Non-critical — fall back to API summary if storyline generation fails
+      logger.warn(`Storyline generation failed (non-blocking): ${error.message}`);
+      return fallbackSummary || '';
+    }
+  }
+
+  /**
    * Describe an image using Gemini Flash vision model.
    * Returns a concise 1-2 sentence description of the image contents,
    * focusing on visible subjects, their appearance, the setting, and any logos/text.
@@ -514,7 +672,7 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
       const base64Image = Buffer.from(imageResponse.data).toString('base64');
 
       // Call Gemini Flash for vision description
-      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent';
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
       const response = await axios.post(endpoint, {
         contents: [{
@@ -570,11 +728,22 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
 
     const model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
     const charLimit = model === 'runway' ? 950 : 1400;
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+
+    // Phase 1: Parallel data enrichment — scrape article + describe image simultaneously
+    const originalSummary = trend.summary || trend.description || '';
+    const [fullContent, imageDescription] = await Promise.all([
+      this.scrapeArticleContent(trend.url),
+      this.describeImage(imageUrl)
+    ]);
+
+    // Phase 2: Generate editorial storyline from full article content
+    const storyline = await this.generateArticleStoryline(trend.title, fullContent, originalSummary);
 
     const article = {
       title: trend.title,
-      summary: trend.summary || trend.description || '',
-      description: trend.description || trend.summary || '',
+      summary: originalSummary,
+      description: storyline, // Rich editorial storyline (different from summary → STORYLINE section renders)
       source: trend.source
     };
 
@@ -583,9 +752,6 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
 
     // Cache sceneMetadata and imageDescription for rephrase calls
     this._lastSceneMetadata = sceneMetadata;
-
-    // Describe the actual image via vision model so the LLM knows what the starting frame shows
-    const imageDescription = await this.describeImage(imageUrl);
     this._lastImageDescription = imageDescription;
 
     // Build LLM prompts for cinematographic video scene generation
@@ -594,19 +760,37 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
 
     let videoPrompt;
 
-    if (this.openai) {
-      logger.info(`Generating LLM video prompt for ${model} (category: ${sceneMetadata.category}${sceneMetadata.secondaryCategory ? `, secondary: ${sceneMetadata.secondaryCategory}` : ''}, mood: ${sceneMetadata.mood})...`);
+    if (googleApiKey) {
+      logger.info(`Generating cinematic video directive via Gemini Flash for ${model} (category: ${sceneMetadata.category}${sceneMetadata.secondaryCategory ? `, secondary: ${sceneMetadata.secondaryCategory}` : ''}, mood: ${sceneMetadata.mood})...`);
 
-      const config = {
-        model: 'gpt-5-nano',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-      };
+      // Use Gemini 3 Flash for video prompt generation (same REST pattern as describeImage)
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
-      const completion = await this.openai.chat.completions.create(config);
-      videoPrompt = completion.choices[0].message.content.trim();
+      const response = await axios.post(endpoint, {
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [{
+          role: 'user',
+          parts: [{ text: userPrompt }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 2000,
+          temperature: 0.9
+        }
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      videoPrompt = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+      if (!videoPrompt) {
+        throw new Error('Gemini Flash returned empty video prompt');
+      }
 
       // Strip common LLM meta-framing if present (e.g., "Here's the video prompt:")
       videoPrompt = videoPrompt
@@ -615,7 +799,7 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
         .replace(/^["'`]+|["'`]+$/g, '')
         .trim();
     } else {
-      // Mock fallback for testing without OpenAI
+      // Mock fallback for testing without API keys
       videoPrompt = `Photorealistic 9:16 cinematic news footage. A modern newsroom, screens glowing with breaking updates about ${article.title}. Camera pushes forward past anchor desks into a wall of monitors. Sharp focus, natural lighting, broadcast-quality documentary footage.`;
     }
 
@@ -631,7 +815,7 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
       }
     }
 
-    logger.info(`Generated LLM video prompt for ${model} (${videoPrompt.length} chars)`);
+    logger.info(`Generated cinematic video directive for ${model} (${videoPrompt.length} chars)`);
     logger.debug(`Video prompt: ${videoPrompt}`);
     return videoPrompt;
   }
@@ -671,21 +855,40 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
     const userPrompt = getVideoRephraseUserPrompt(originalPrompt, article, model, attemptNumber, imageDescription);
 
     let rephrasedPrompt;
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
 
-    if (this.openai) {
-      logger.info(`Rephrasing content-filtered video prompt via LLM (model: ${model})...`);
+    if (googleApiKey) {
+      logger.info(`Rephrasing content-filtered video prompt via Gemini Flash (model: ${model})...`);
       logger.info(`Original prompt (${originalPrompt.length} chars): ${originalPrompt.slice(0, 120)}...`);
 
-      const config = {
-        model: 'gpt-5-nano',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-      };
+      // Use Gemini 3 Flash for rephrase (same pattern as generateVideoPrompt)
+      const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
-      const completion = await this.openai.chat.completions.create(config);
-      rephrasedPrompt = completion.choices[0].message.content.trim();
+      const response = await axios.post(endpoint, {
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [{
+          role: 'user',
+          parts: [{ text: userPrompt }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 2000,
+          temperature: 0.9
+        }
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      rephrasedPrompt = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+      if (!rephrasedPrompt) {
+        throw new Error('Gemini Flash returned empty rephrased prompt');
+      }
 
       // Strip common LLM meta-framing (same cleanup as generateVideoPrompt)
       rephrasedPrompt = rephrasedPrompt
@@ -695,7 +898,7 @@ ${hasValidUrl ? '🔗 Read more: [URL]' : ''}
         .trim();
     } else {
       // Mock fallback — in test mode, return a generic safe prompt
-      logger.warn('OpenAI not configured — returning generic safe prompt as mock rephrase');
+      logger.warn('Gemini API not configured — returning generic safe prompt as mock rephrase');
       rephrasedPrompt = `Photorealistic 9:16 cinematic news footage. A modern conference room, screens displaying charts and data related to ${article.title}. Camera pushes forward past a polished table into a wall of monitors. Sharp focus, natural lighting, broadcast-quality documentary footage.`;
     }
 
