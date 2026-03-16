@@ -574,6 +574,24 @@ class AutomationManager {
       return { success: false, error: 'content_generation_failed' };
     }
 
+    // 5.5. Pre-warm the affiliate URL so platforms can fetch OG metadata for link preview
+    try {
+      agentLog('info', 'Pre-warming affiliate URL for link preview...');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      await fetch(product.affiliateUrl, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)' }
+      });
+      clearTimeout(timeout);
+      // Brief delay to let CDN/edge caches propagate the resolved OG data
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (warmErr) {
+      agentLog('warn', `Link pre-warm failed (non-blocking): ${warmErr.message}`);
+    }
+
     // 6. Publish via existing infrastructure
     const publishResult = await this.publishForAgent(agent, content, {
       title: product.title,

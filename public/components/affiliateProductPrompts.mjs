@@ -145,17 +145,16 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 - ${isHebrew ? 'תכתוב כמו שאתה מדבר — לא כמו מודעה. שום בן אדם לא שולח לחברים "הצעה מוגבלת! מלאי הולך ואוזל!"' : 'Write how you talk — not like an ad. No real person texts their friend "Limited offer! Stock running out!"'}
 - ${isHebrew ? 'תהיה ספציפי — "הדפסה של 970 אלף מדבקות בלי להחליף ראש" >> "ביצועים מדהימים"' : 'Be specific — "prints 970K labels without replacing the head" >> "amazing performance"'}
 - ${isHebrew ? 'תגיד למה אתה מתלהב, לא תפרט מפרטים' : 'Say WHY you\'re excited, don\'t list specs'}
-- ${isHebrew ? 'אם המחיר מטורף — תגיב כמו בן אדם: "אחי זה 25% הנחה, מתי ראית את זה ככה?"' : 'If the price is crazy — react like a human: "dude this is 25% off, when have you seen that?"'}
 - ${isHebrew ? 'כל פוסט חייב להישמע כאילו בן אדם ספציפי כתב אותו, לא תבנית' : 'Every post must sound like a specific person wrote it, not a template'}
 
-${isHebrew ? 'מה שבוטים כותבים (אל תעשה את זה):' : 'WHAT BOTS WRITE (don\'t do this):'}
+${isHebrew ? 'מה שבוטים כותבים (אל תעשה את זה):' : 'DON"T WRITE HOW BOTS WRITE (don\'t do these kind of text opening examples):'}
 - ${isHebrew ? '"🔥 מבצע שאסור לפספס! 🔥" — גנרי, אף אחד לא מדבר ככה' : '"🔥 Deal you can\'t miss! 🔥" — generic, nobody talks like this'}
 - ${isHebrew ? 'רשימת מפרטים טכניים: "רוחב הדפסה 1.57-4.25 אינץ\', שיעור תקלות <0.01%"' : 'Listing tech specs: "Print width 1.57-4.25 inches, jam rate <0.01%"'}
 - ${isHebrew ? '"⚡ תתפסו לפני שנגמר 👇" — CTA מוכן מראש. בנאדם אמיתי פשוט שם את הלינק' : '"⚡ Grab it before it\'s gone 👇" — canned CTA. A real person just drops the link'}
 - ${isHebrew ? 'חזרה על שם המוצר המלא מAliExpress — אף אחד לא כותב ככה בוואטסאפ' : 'Repeating the full AliExpress product name — nobody writes like that on WhatsApp'}
 
 ${isHebrew ? 'מה שבני אדם כותבים (תעשה את זה):' : 'WHAT HUMANS WRITE (do this):'}
-- ${isHebrew ? '"שמעו מצאתי מדפסת מדבקות בלוטות\' ל-shipping שעובדת עם אייפון ואנדרואיד, ובמחיר הזה אני מזמין שתיים"' : '"yo I found this bluetooth label printer for shipping that works with iPhone AND Android, at this price I\'m ordering two"'}
+- ${isHebrew ? '"שמעו מצאתי מדפסת מדבקות בלוטות\' ל-shipping שעובדת עם אייפון ואנדרואיד, ובמחיר הזה אני מזמין שתיים"' : '"I found this bluetooth label printer for shipping that works with iPhone AND Android"'}
 - ${isHebrew ? '"650 דולר במקום 860, אני לא יודע למה ככה אבל אני לא מתווכח"' : '"$650 instead of $860, idk why it\'s that cheap but I\'m not complaining"'}
 - ${isHebrew ? '"מי פה מוכר באונליין? תבדקו את זה"' : '"anyone here selling online? check this out"'}
 
@@ -163,8 +162,16 @@ ${isHebrew ? 'פורמט וואטסאפ:' : 'WHATSAPP FORMAT:'}
 - *bold* ${isHebrew ? 'למה שחשוב' : 'for what matters'}, ~strikethrough~ ${isHebrew ? 'למחיר ישן' : 'for old price'}, _italic_ ${isHebrew ? 'לדגש' : 'for emphasis'}
 - ${isHebrew ? 'אין HTML. קישור ישירות בפוסט.' : 'No HTML. Link directly in the post.'}
 
+${isHebrew ? 'מבנה הודעה (חובה):' : 'MESSAGE STRUCTURE (mandatory):'}
+1. ${isHebrew ? 'פתיחה מלהיבה — מה מצאת ולמה זה שווה (2-3 שורות)' : 'Exciting opener — what you found and why it\'s worth it (2-3 lines)'}
+2. ${isHebrew ? 'שורה ריקה' : 'Blank line'}
+3. ${isHebrew ? 'מחיר + הנחה (שורה אחת)' : 'Price + discount (one line)'}
+4. ${isHebrew ? 'שורה ריקה' : 'Blank line'}
+5. ${isHebrew ? 'הקישור לבד בשורה נפרדת — שום טקסט לפניו או אחריו באותה שורה' : 'The link ALONE on its own line — no text before or after it on the same line'}
+
 ${isHebrew ? 'כללים:' : 'RULES:'}
-- ${isHebrew ? '750 תווים. הודעת וואטסאפ, לא מאמר' : '750 chars. It\'s a WhatsApp message, not an article'}
+- ${isHebrew ? '700 תווים. הודעת וואטסאפ, לא מאמר' : '700 chars. It\'s a WhatsApp message, not an article'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי (למשל "מדפסת מדבקות בלוטות\'" במקום "HTD 600-5M 615-5M PowerGrip Belt...")' : 'Product name: NEVER use the full AliExpress title — give it a short, human name (e.g. "bluetooth label printer" instead of "HTD 600-5M 615-5M PowerGrip Belt...")'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided — don\'t modify it'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs that weren\'t provided'}
 - ${isHebrew ? 'אל תכתוב כתבי ויתור או "מחירים עשויים להשתנות"' : 'No disclaimers, no "prices may vary"'}
@@ -232,8 +239,16 @@ ${isHebrew ? 'פורמט HTML של טלגרם:' : 'TELEGRAM HTML FORMAT:'}
 - <b>bold</b>, <i>italic</i>, <s>strikethrough</s>, <a href="url">link</a>
 - ${isHebrew ? 'אין markdown — טלגרם משתמש ב-HTML בלבד' : 'No markdown — Telegram uses HTML only'}
 
+${isHebrew ? 'מבנה פוסט (חובה):' : 'POST STRUCTURE (mandatory):'}
+1. ${isHebrew ? 'פתיחה מלהיבה — מה מצאת ולמה זה שווה (2-3 שורות)' : 'Exciting opener — what you found and why it\'s worth it (2-3 lines)'}
+2. ${isHebrew ? 'שורה ריקה' : 'Blank line'}
+3. ${isHebrew ? 'מחיר + הנחה (שורה אחת)' : 'Price + discount (one line)'}
+4. ${isHebrew ? 'שורה ריקה' : 'Blank line'}
+5. ${isHebrew ? 'הקישור לבד בשורה נפרדת — שום טקסט לפניו או אחריו באותה שורה' : 'The link ALONE on its own line — no text before or after it on the same line'}
+
 ${isHebrew ? 'כללים:' : 'RULES:'}
-- ${isHebrew ? '750 תווים. פוסט ערוץ, לא מאמר' : '750 chars. Channel post, not an article'}
+- ${isHebrew ? '700 תווים. פוסט ערוץ, לא מאמר' : '700 chars. Channel post, not an article'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs that weren\'t provided'}
 - ${isHebrew ? 'בלי כתבי ויתור' : 'No disclaimers'}
@@ -301,6 +316,8 @@ ${isHebrew ? 'כללי טוויטר:' : 'TWITTER RULES:'}
 
 ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 - ${isHebrew ? 'ציוץ אמיתי, לא מודעה. "מצאתי את זה ב-$X, מישהו ראה את זה?" >> "🔥 עסקה מטורפת! 🔥"' : 'Real tweet, not an ad. "found this for $X, anyone seen this before?" >> "🔥 INSANE deal alert! 🔥"'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
+- ${isHebrew ? 'הקישור בשורה נפרדת בסוף' : 'Put the link on its own line at the end'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}
 - ${isHebrew ? 'לא "affiliate", לא "עמלה"' : 'No "affiliate", no "commission"'}`;
 };
@@ -364,6 +381,9 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
 - ${isHebrew ? '300-700 תווים' : '300-700 characters'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
+- ${isHebrew ? 'הקישור לבד בשורה נפרדת בסוף הפוסט' : 'Put the link ALONE on its own line at the end of the post'}
+- ${isHebrew ? 'שורות ריקות בין פסקאות' : 'Blank lines between paragraphs'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}
 - ${isHebrew ? 'לא "affiliate", לא "עמלה"' : 'No "affiliate", no "commission"'}`;
@@ -429,6 +449,9 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
 - ${isHebrew ? '250-600 תווים' : '250-600 characters'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
+- ${isHebrew ? 'הקישור לבד בשורה נפרדת בסוף' : 'Put the link ALONE on its own line at the end'}
+- ${isHebrew ? 'שורות ריקות בין פסקאות' : 'Blank lines between paragraphs'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}
 - ${isHebrew ? 'לא "affiliate", לא "עמלה"' : 'No "affiliate", no "commission"'}`;
@@ -495,7 +518,9 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
 - ${isHebrew ? '200-500 תווים' : '200-500 characters'}
-- ${isHebrew ? 'כלול את הקישור המדויק + "(affiliate link)" חובה' : 'Include the EXACT link + "(affiliate link)" required'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ועניני' : 'Product name: NEVER use the full AliExpress title — give it a short, factual name'}
+- ${isHebrew ? 'הקישור לבד בשורה נפרדת + "(affiliate link)"' : 'Put the link ALONE on its own line + "(affiliate link)"'}
+- ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}`;
 };
 
@@ -562,6 +587,8 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
 - ${isHebrew ? '300-600 תווים (בלי האשטגים)' : '300-600 characters (excluding hashtags)'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
+- ${isHebrew ? 'שורות ריקות בין חלקי הכיתוב' : 'Blank lines between caption sections'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}
 - ${isHebrew ? 'לא "affiliate", לא "עמלה"' : 'No "affiliate", no "commission"'}`;
 };
@@ -627,6 +654,8 @@ ${isHebrew ? 'הקול שלך:' : 'YOUR VOICE:'}
 
 ${isHebrew ? 'כללים:' : 'RULES:'}
 - ${isHebrew ? '150-500 תווים' : '150-500 characters'}
+- ${isHebrew ? 'שם המוצר: אל תשתמש בשם המלא מAliExpress — תן לו שם קצר ואנושי' : 'Product name: NEVER use the full AliExpress title — give it a short, human name'}
+- ${isHebrew ? 'הקישור לבד בשורה נפרדת בסוף' : 'Put the link ALONE on its own line at the end'}
 - ${isHebrew ? 'כלול את הקישור המדויק שסופק' : 'Include the EXACT link provided'}
 - ${isHebrew ? 'אל תמציא מפרטים שלא סופקו' : 'Don\'t invent specs not provided'}
 - ${isHebrew ? 'לא "affiliate", לא "עמלה"' : 'No "affiliate", no "commission"'}`;

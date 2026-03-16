@@ -28,7 +28,7 @@ import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
 import TokenManager from '../services/TokenManager.js';
 import ConnectionManager from '../services/ConnectionManager.js';
-import { getAffiliateCredentials, updateAffiliateKeyword } from '../services/database-wrapper.js';
+import { getAffiliateCredentials, updateAffiliateKeyword, getAffiliateAddon, recordAffiliatePublishedProduct } from '../services/database-wrapper.js';
 import AffiliateCredentialManager from '../services/AffiliateCredentialManager.js';
 import AffiliateProductFetcher from '../services/AffiliateProductFetcher.js';
 import { checkVideoQuota } from '../middleware/subscription.js';
@@ -692,7 +692,13 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const platform = agent.platform;
     const platformSettings = settings.platformSettings || {};
 
-    // Validate agent has topics or keywords (should be caught by activation check, but double-check)
+    // ── Affiliate agent test flow ──
+    const contentSource = settings.contentSource || 'news';
+    if (contentSource === 'affiliate_products') {
+      return await testAffiliateAgent(req, res, agent, settings, userId, agentId, platform);
+    }
+
+    // Validate agent has topics or keywords (news agents only)
     if (topics.length === 0 && keywords.length === 0) {
       testProgressEmitter.emitProgress(userId, agentId, 'error', 'No topics or keywords configured');
       return res.status(400).json({
@@ -1183,6 +1189,229 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     });
   }
 });
+
+/**
+ * Test flow for affiliate product agents.
+ * Mirrors AutomationManager.processAffiliateAgent() but with progress events and test recording.
+ */
+async function testAffiliateAgent(req, res, agent, settings, userId, agentId, platform) {
+  const platformDisplayName = platform.charAt(0).toUpperCase() + platform.slice(1);
+  const tone = settings.contentStyle?.tone || 'casual';
+
+  try {
+    // 1. Verify affiliate add-on is active
+    testProgressEmitter.emitProgress(userId, agentId, 'trends', 'Checking affiliate subscription...');
+    const addon = await getAffiliateAddon(userId);
+    if (!addon || addon.status !== 'active') {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Affiliate add-on not active');
+      return res.status(400).json({
+        success: false,
+        error: 'Affiliate add-on is not active. Please activate it in your subscription settings.',
+        step: 'settings'
+      });
+    }
+
+    // 2. Load AE credentials
+    const credentials = await AffiliateCredentialManager.getCredentials(userId);
+    if (!credentials || credentials.status !== 'active') {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'AliExpress credentials not configured');
+      return res.status(400).json({
+        success: false,
+        error: 'AliExpress API credentials are not configured or invalid. Set them up in the AE Affiliate tab.',
+        step: 'settings'
+      });
+    }
+
+    // 3. Connection health check
+    testProgressEmitter.emitProgress(userId, agentId, 'connection_check', 'Verifying platform connection...');
+    try {
+      const connection = await TokenManager.getTokens(userId, platform);
+      if (!connection || connection.status !== 'active') {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', `No active ${platform} connection`);
+        return res.status(400).json({
+          success: false,
+          error: `No active ${platform} connection found. Please connect your account in Settings.`,
+          step: 'connection'
+        });
+      }
+      if (TokenManager.needsRefresh(connection)) {
+        try { await ConnectionManager.refreshTokens(connection.id); }
+        catch {
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} token expired`);
+          return res.status(400).json({ success: false, error: `Your ${platform} token has expired and could not be refreshed.`, step: 'connection' });
+        }
+      }
+    } catch (connError) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} connection credentials are invalid`);
+      return res.status(400).json({ success: false, error: `Your ${platform} connection credentials are invalid. Please reconnect.`, step: 'connection' });
+    }
+
+    // 4. Fetch a product using the agent's keyword sets
+    testProgressEmitter.emitProgress(userId, agentId, 'trends', 'Searching for affiliate products...');
+    let product;
+    try {
+      product = await AffiliateProductFetcher.getProductForAgent(agent, credentials);
+    } catch (fetchError) {
+      console.error('[Agent Test/Affiliate] Product fetch error:', fetchError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Failed to fetch products');
+      return res.status(500).json({
+        success: false,
+        error: `Failed to fetch affiliate products: ${fetchError.message}`,
+        step: 'trends'
+      });
+    }
+
+    if (!product) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'No suitable product found');
+      return res.status(400).json({
+        success: false,
+        error: 'No suitable products found for this agent\'s keywords. All matching products may have already been published, or the keywords returned no results.',
+        step: 'trends'
+      });
+    }
+
+    console.log(`[Agent Test/Affiliate] Selected product: "${product.title.slice(0, 60)}..." ($${product.salePrice})`);
+
+    // 5. Generate affiliate content using the dedicated prompts
+    testProgressEmitter.emitProgress(userId, agentId, 'generating', 'Generating affiliate post...');
+    const contentGenerator = new ContentGenerator();
+    const generatedContent = await contentGenerator.generateAffiliateContent(product, platform, agent.settings);
+
+    if (!generatedContent || !generatedContent.text) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Failed to generate content');
+      return res.status(500).json({ success: false, error: 'Failed to generate affiliate content', step: 'generation' });
+    }
+
+    // 6. Handle product image for platforms that support/require it
+    let imageUrl = product.imageUrl || null;
+    const userTier = req.user.subscription?.tier || 'free';
+
+    // Instagram requires an image
+    if (platform === 'instagram' && !imageUrl) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image — product has none');
+      return res.status(400).json({ success: false, error: 'Instagram requires an image. This product has no image available.', step: 'publishing' });
+    }
+
+    // Only send images for tiers that support it
+    if (!TIERS_WITH_IMAGES.includes(userTier)) {
+      imageUrl = null;
+    }
+
+    // 6.5. Pre-warm the affiliate URL for link preview
+    testProgressEmitter.emitProgress(userId, agentId, 'publishing', 'Warming link preview...');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      await fetch(product.affiliateUrl, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)' }
+      });
+      clearTimeout(timeout);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (warmErr) {
+      console.warn('[Agent Test/Affiliate] Link pre-warm failed (non-blocking):', warmErr.message);
+    }
+
+    // 7. Publish
+    testProgressEmitter.emitProgress(userId, agentId, 'publishing', `Publishing to ${platformDisplayName}...`);
+    const content = {
+      text: generatedContent.text,
+      trend: product.title,
+      topic: 'affiliate_product',
+      source: { url: product.affiliateUrl, title: product.title },
+      imageUrl,
+      generatedAt: new Date().toISOString()
+    };
+
+    let publishResult;
+    try {
+      switch (platform) {
+        case 'twitter':    publishResult = await publishToTwitter(content, userId, imageUrl); break;
+        case 'linkedin':   publishResult = await publishToLinkedIn(content, userId, imageUrl); break;
+        case 'reddit':     publishResult = await publishToReddit(content, settings.platformSettings?.reddit?.subreddit || null, userId, settings.platformSettings?.reddit?.flairId || null, imageUrl); break;
+        case 'facebook':   publishResult = await publishToFacebook(content, userId, imageUrl); break;
+        case 'telegram':   publishResult = await publishToTelegram(content, userId, imageUrl); break;
+        case 'whatsapp':   publishResult = await publishToWhatsApp(content, userId, imageUrl); break;
+        case 'instagram':  publishResult = await publishToInstagram(content, userId, imageUrl); break;
+        case 'threads':    publishResult = await publishToThreads(content, userId, imageUrl); break;
+        default:
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `Platform ${platform} not supported`);
+          return res.status(400).json({ success: false, error: `Platform ${platform} not supported`, step: 'publishing' });
+      }
+    } catch (publishError) {
+      console.error('[Agent Test/Affiliate] Publishing error:', publishError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', publishError.message || 'Publishing failed');
+      return res.status(500).json({ success: false, error: publishError.message || 'Publishing failed', step: 'publishing' });
+    }
+
+    // 8. Record post, update stats, record published product for dedup
+    testProgressEmitter.emitProgress(userId, agentId, 'saving', 'Saving results...');
+    const post = await createPost(userId, {
+      topic: 'affiliate_product',
+      content: generatedContent.text,
+      platforms: [platform],
+      status: publishResult?.success ? 'published' : 'failed',
+      metadata: {
+        tone,
+        sourceUrl: product.affiliateUrl,
+        trend: product.title,
+        agentId: agent.id,
+        agentName: agent.name,
+        testPost: true,
+        contentType: 'affiliate_product',
+        productId: product.productId
+      }
+    });
+
+    if (publishResult?.success) {
+      try { await incrementAgentPost(agentId); } catch (e) { console.warn('[Agent Test/Affiliate] Failed to increment post count:', e); }
+      try {
+        await recordAffiliatePublishedProduct({
+          userId, agentId: agent.id, productId: product.productId, platform,
+          productTitle: product.title, productUrl: product.productUrl,
+          affiliateUrl: product.affiliateUrl, commissionRate: product.commissionRate,
+          salePrice: product.salePrice, imageUrl: product.imageUrl
+        });
+      } catch (e) { console.warn('[Agent Test/Affiliate] Failed to record published product:', e); }
+    }
+
+    try { await markAgentTestUsed(agentId); } catch (e) { console.warn('[Agent Test/Affiliate] Failed to mark test used:', e); }
+    await logUsage(userId, 'agent_test_post', { agentId, platform, topic: 'affiliate_product', success: publishResult?.success || false });
+
+    testProgressEmitter.emitProgress(userId, agentId, 'complete',
+      publishResult?.success ? `Published to ${platformDisplayName}!` : `Publishing to ${platformDisplayName} failed`
+    );
+
+    return res.json({
+      success: publishResult?.success || false,
+      message: publishResult?.success ? `Successfully posted affiliate product to ${platform}!` : `Failed to post to ${platform}`,
+      agent: { id: agent.id, name: agent.name, platform },
+      post: {
+        id: post.id,
+        topic: 'affiliate_product',
+        content: generatedContent.text,
+        tone,
+        trend: product.title,
+        articleUrl: product.affiliateUrl
+      },
+      result: publishResult,
+      debug: {
+        productTitle: product.title,
+        productPrice: `$${product.salePrice}`,
+        productDiscount: `${product.discount}%`,
+        imageUrl: imageUrl || 'none',
+        userTier
+      }
+    });
+
+  } catch (error) {
+    console.error('[Agent Test/Affiliate] Error:', error);
+    testProgressEmitter.emitProgress(userId, agentId, 'error', error.message || 'Test post failed');
+    return res.status(500).json({ success: false, error: 'Test post failed', message: error.message, step: 'unknown' });
+  }
+}
 
 /**
  * GET /api/agents/limits
