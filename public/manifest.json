@@ -80,7 +80,7 @@
       "name": "Dashboard",
       "short_name": "Dashboard",
       "description": "Go to your dashboard",
-      "url": "/dashboard.html",
+      "url": "/profile.html",
       "icons": [{ "src": "/images/icon-dashboard.png", "sizes": "96x96" }]
     },
     {

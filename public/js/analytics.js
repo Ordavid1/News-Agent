@@ -2,7 +2,7 @@
  * Analytics Dashboard Module
  *
  * Handles all analytics data fetching, chart rendering, and section management.
- * Loaded by dashboard.html alongside chart.min.js.
+ * Loaded by profile.html alongside chart.min.js.
  */
 
 // ============================================
@@ -13,7 +13,7 @@ let analyticsCurrentPeriod = '30d';
 let analyticsCharts = {};  // Chart.js instances keyed by canvas id
 let analyticsLoaded = false;
 
-// Platform display config (mirrors dashboard.js PLATFORMS)
+// Platform display config
 const PLATFORM_CONFIG = {
   twitter: { name: 'Twitter', icon: '🐦', color: '#1DA1F2' },
   linkedin: { name: 'LinkedIn', icon: '💼', color: '#0A66C2' },
@@ -34,8 +34,7 @@ const TIER_HIERARCHY = { free: 0, starter: 1, growth: 2, business: 3 };
 // ============================================
 
 function getAuthHeaders() {
-  // Support both profile.js ('token') and dashboard.js ('authToken') key names
-  const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+  const token = localStorage.getItem('token');
   return { 'Authorization': `Bearer ${token}` };
 }
 
@@ -90,8 +89,7 @@ async function fetchAnalytics(endpoint, params = {}) {
 // ============================================
 
 async function loadAnalyticsSection() {
-  // Support both profile.html ('content-analytics') and dashboard.html ('analyticsSection')
-  const container = document.getElementById('content-analytics') || document.getElementById('analyticsSection');
+  const container = document.getElementById('content-analytics');
   if (!container) return;
 
   // Show loading state

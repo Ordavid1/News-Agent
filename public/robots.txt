@@ -12,7 +12,6 @@ Allow: /sitemap.xml
 
 # Block private/authenticated pages
 Disallow: /auth.html
-Disallow: /dashboard.html
 Disallow: /profile.html
 Disallow: /settings.html
 Disallow: /test.html

@@ -73,7 +73,7 @@ A modern SaaS platform for AI-powered social media post generation with subscrip
 ### Frontend Structure
 - `public/` - Static files
   - `index.html` - Landing page
-  - `dashboard.html` - User dashboard
+  - `profile.html` - User dashboard
   - `js/` - JavaScript files
   - `styles/` - CSS files
 
