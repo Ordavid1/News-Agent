@@ -125,7 +125,7 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.fontshare.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
-      frameSrc: ["'self'", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com"],
+      frameSrc: ["'self'", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com", "https://www.youtube.com", "https://www.tiktok.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
@@ -728,8 +728,9 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
         const purchaseType = customData?.purchase_type;
         if (purchaseType && customData?.user_id) {
           const PER_USE_CONFIG = {
-            model_training: { amountCents: 500, description: 'Brand Asset Model Training' },
-            image_generation: { amountCents: 75, description: 'Brand Image Generation' }
+            model_training: { amountCents: 500, description: 'Brand Asset Model Training', creditsPerPurchase: 1 },
+            image_generation: { amountCents: 75, description: 'Brand Image Generation', creditsPerPurchase: 1 },
+            asset_image_gen_pack: { amountCents: 450, description: 'Brand Asset Image Generation Pack (6 credits)', creditsPerPurchase: 6 }
           };
           const config = PER_USE_CONFIG[purchaseType];
           if (config) {
@@ -742,12 +743,13 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
               paymentProvider: 'lemon_squeezy',
               providerReferenceId: String(payload.data.id),
               description: config.description,
+              creditsTotal: config.creditsPerPurchase || 1,
               metadata: {
                 ad_account_id: customData.ad_account_id || null,
                 ls_order_number: payload.data.attributes?.order_number
               }
             });
-            console.log(`[WEBHOOK] Per-use purchase recorded: ${purchaseType} for user ${customData.user_id}`);
+            console.log(`[WEBHOOK] Per-use purchase recorded: ${purchaseType} (${config.creditsPerPurchase || 1} credits) for user ${customData.user_id}`);
           }
         }
         break;

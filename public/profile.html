@@ -344,6 +344,22 @@
         }
         [data-theme="dark"] .chat-msg-input-bar textarea:focus { border-color: #818CF8; }
 
+        /* Responsive container — adapts to screen width with proportional gutters */
+        .responsive-container {
+            width: 100%;
+            max-width: 1152px; /* fallback for small screens, same as max-w-6xl */
+        }
+        @media (min-width: 1280px) {
+            .responsive-container {
+                max-width: 90%;
+            }
+        }
+        @media (min-width: 1536px) {
+            .responsive-container {
+                max-width: 80%;
+            }
+        }
+
         /* Mobile responsive */
         @media (max-width: 640px) {
             .chat-panel {
@@ -360,7 +376,7 @@
 
     <!-- Header -->
     <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="responsive-container mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <a href="/" class="text-lg sm:text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
                 <div class="flex items-center gap-2 sm:gap-3">
@@ -381,7 +397,7 @@
 
     <!-- Main Content -->
     <main class="pb-16">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        <div class="responsive-container mx-auto px-4 sm:px-6 lg:px-8 pt-8">
 
             <!-- Welcome Section -->
             <div class="mb-8">

@@ -72,6 +72,72 @@ function feedFormatNumber(num) {
   return num.toString();
 }
 
+// Video ID extraction for inline embeds
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const patterns = [
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/,
+    /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+    /youtu\.be\/([a-zA-Z0-9_-]+)/
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function extractTikTokId(url) {
+  if (!url) return null;
+  const m = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * IntersectionObserver: auto-activate video embeds when they scroll into view.
+ * Once activated, the iframe stays loaded (no deactivation on scroll-out).
+ */
+const feedVideoObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    const container = entry.target;
+    const embedSrc = container.dataset.embedSrc;
+    if (!embedSrc) return;
+
+    // Stop observing — activate only once
+    feedVideoObserver.unobserve(container);
+
+    // Fixed height for both platforms — gives vertical Shorts/TikToks
+    // room to display without making cards excessively tall in masonry
+    const iframeClass = 'w-full';
+    const iframeStyle = 'height:480px;';
+
+    container.innerHTML = `<iframe
+      src="${embedSrc}"
+      frameborder="0" allow="autoplay; encrypted-media" allowfullscreen
+      class="${iframeClass}" style="${iframeStyle}"></iframe>`;
+    container.classList.remove('feed-video-trigger');
+    container.classList.add('feed-video-embed');
+  });
+}, { rootMargin: '200px 0px', threshold: 0.1 });
+
+/**
+ * Build the embed src URL for a video post.
+ */
+function getVideoEmbedSrc(post) {
+  if (post.platform === 'youtube') {
+    const videoId = extractYouTubeId(post.platform_url);
+    if (!videoId) return null;
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&playsinline=1&rel=0`;
+  }
+  if (post.platform === 'tiktok') {
+    const postId = extractTikTokId(post.platform_url);
+    if (!postId) return null;
+    return `https://www.tiktok.com/player/v1/${postId}?autoplay=1&mute=1&loop=1&music_info=0&description=0&rel=0`;
+  }
+  return null;
+}
+
 // ============================================
 // MAIN LOADER
 // ============================================
@@ -173,19 +239,51 @@ function createFeedCard(post) {
   };
   const isVideo = ['youtube', 'tiktok'].includes(post.platform);
 
+  // Determine if this video post can be embedded inline
+  const canEmbed = isVideo && post.platform_url && (
+    (post.platform === 'youtube' && extractYouTubeId(post.platform_url)) ||
+    (post.platform === 'tiktok' && extractTikTokId(post.platform_url))
+  );
+
   const card = document.createElement('div');
   card.className = 'overflow-hidden rounded-xl break-inside-avoid mb-4 hover:shadow-card-hover transition-all duration-200 group cursor-pointer bg-surface-0';
   card.style.border = `2px solid ${config.color}`;
 
-  // Build image section
-  let imageHtml = '';
-  if (post.image_url) {
+  // Build image / video section
+  let mediaHtml = '';
+  const embedSrc = canEmbed ? getVideoEmbedSrc(post) : null;
+
+  if (embedSrc) {
+    // Video post → placeholder that auto-embeds when scrolled into view
+    const thumbSrc = post.image_url ? feedEscapeHtml(post.image_url) : '';
+    const thumbImg = thumbSrc
+      ? `<img src="${thumbSrc}" alt="" class="w-full h-auto object-cover" loading="lazy"
+              onerror="this.style.display='none'">`
+      : '';
+
+    const minHeight = 'height:480px;';
+
+    mediaHtml = `
+      <div class="feed-video-trigger relative overflow-hidden" data-embed-src="${feedEscapeHtml(embedSrc)}" data-embed-platform="${post.platform}" style="${minHeight}">
+        ${thumbImg}
+        <div class="absolute inset-0 flex items-center justify-center bg-black/10">
+          <div class="w-12 h-12 rounded-full bg-white/80 flex items-center justify-center shadow animate-pulse">
+            <svg class="w-6 h-6 text-ink-600 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          </div>
+        </div>
+        <div class="absolute bottom-2 left-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-black/60 text-white">
+          ${config.svg}
+          ${post.platform === 'youtube' ? 'YouTube Short' : 'TikTok'}
+        </div>
+      </div>`;
+  } else if (post.image_url) {
+    // Non-video post or video without embeddable URL → static thumbnail
     const playOverlay = isVideo
       ? `<div class="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
            <svg class="w-12 h-12 text-white/90 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
          </div>`
       : '';
-    imageHtml = `
+    mediaHtml = `
       <div class="relative overflow-hidden">
         <img src="${feedEscapeHtml(post.image_url)}" alt="" class="w-full h-auto object-cover" loading="lazy"
              onerror="this.parentElement.remove()">
@@ -200,7 +298,7 @@ function createFeedCard(post) {
     : '';
 
   card.innerHTML = `
-    ${imageHtml}
+    ${mediaHtml}
     <div class="p-4">
       <div class="flex items-center gap-2 mb-2">
         <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${config.bg} ${config.text}">
@@ -220,11 +318,24 @@ function createFeedCard(post) {
       </div>
     </div>`;
 
-  // Card click → open platform URL
+  // Click handling
   card.addEventListener('click', (e) => {
+    // Let anchor links work normally
     if (e.target.closest('a')) return;
-    window.open(post.platform_url, '_blank', 'noopener,noreferrer');
+    // Don't navigate away when an iframe is playing
+    if (e.target.closest('.feed-video-embed')) return;
+    // Everything else → open platform URL externally
+    if (post.platform_url) {
+      window.open(post.platform_url, '_blank', 'noopener,noreferrer');
+    }
   });
+
+  // Register video trigger with IntersectionObserver for auto-embed
+  // (must happen after innerHTML is set so the .feed-video-trigger element exists)
+  if (embedSrc) {
+    const trigger = card.querySelector('.feed-video-trigger');
+    if (trigger) feedVideoObserver.observe(trigger);
+  }
 
   return card;
 }

@@ -3625,6 +3625,9 @@ async function loadMediaAssets() {
     selectedTrainingJob = null;
     generatedMedia = [];
 
+    // Pre-load generation credits so they're ready when a model is selected
+    loadMediaGenCredits();
+
     renderMediaAssetGrid();
     renderActiveTrainingStatus();
     renderTrainingHistory();
@@ -3636,6 +3639,12 @@ async function loadMediaAssets() {
     // If training is in progress, start polling
     if (activeTrainingJob && activeTrainingJob.status === 'training') {
         startTrainingPolling();
+    }
+
+    // Auto-select the default model if one exists (so credits bar and generate form are ready)
+    const defaultJob = mediaTrainingJobs.find(j => j.is_default && j.status === 'completed');
+    if (defaultJob && !activeTrainingJob) {
+        switchToViewModelMode(defaultJob.id);
     }
 }
 
