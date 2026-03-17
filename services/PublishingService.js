@@ -632,15 +632,32 @@ class PublishingService {
       });
 
       if (result.success) {
-        await this.savePostToDatabase(userId, 'tiktok', content, result, null);
+        // Construct TikTok post URL when a postId is available (audited apps).
+        // For unaudited apps (inbox flow), postId is null so no URL can be built.
+        let postUrl = null;
+        if (result.postId) {
+          // Fetch connection to get the TikTok username for URL construction
+          const connection = await TokenManager.getTokens(userId, 'tiktok');
+          const tiktokHandle = connection?.platform_metadata?.tiktokUsername
+            || connection?.platform_username;
+          if (tiktokHandle && tiktokHandle !== 'TikTok User') {
+            postUrl = `https://www.tiktok.com/@${tiktokHandle}/video/${result.postId}`;
+          }
+        }
+
+        // Merge the URL into result so savePostToDatabase picks it up
+        const enrichedResult = { ...result, url: postUrl };
+        await this.savePostToDatabase(userId, 'tiktok', content, enrichedResult, null);
         await this.updateConnectionLastUsed(userId, 'tiktok');
 
-        logger.info(`Successfully published to TikTok for user ${userId}`);
+        logger.info(`Successfully published to TikTok for user ${userId}${result.sentToInbox ? ' (sent to inbox)' : ''}`);
         return {
           success: true,
           platform: 'tiktok',
           publishId: result.publishId,
-          postId: result.postId
+          postId: result.postId,
+          url: postUrl,
+          sentToInbox: result.sentToInbox || false
         };
       }
 

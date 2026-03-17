@@ -143,6 +143,8 @@ export {
   updatePerUsePurchase,
   getUserPerUsePurchases,
   getLatestUnusedPurchase,
+  getAssetImageGenCredits,
+  consumeAssetImageGenCredit,
   // Quota enforcement
   decrementPostsRemaining,
   calculatePostingInterval,

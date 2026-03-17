@@ -447,6 +447,16 @@
                             Analytics
                         </span>
                     </button>
+
+                    <button onclick="showTab('feed')" id="tab-feed" class="tab-btn whitespace-nowrap" data-color="rose">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path>
+                            </svg>
+                            Live Feed
+                            <span class="text-[10px] sm:text-xs bg-gradient-to-r from-rose-500 to-pink-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">LIVE</span>
+                        </span>
+                    </button>
                 </div>
                 <!-- Mobile fade gradient -->
                 <div class="absolute right-0 top-0 bottom-0 w-16 pointer-events-none transition-opacity duration-300 md:hidden" id="tabsFadeGradient" style="background: linear-gradient(to right, transparent, var(--bg-secondary));"></div>
@@ -589,8 +599,8 @@
                         <p class="text-xs text-ink-400">Share to pages and groups</p>
                     </div>
 
-                    <!-- TikTok -->
-                    <div class="platform-card rounded-xl p-6" id="platform-tiktok">
+                    <!-- TikTok (Starter+) -->
+                    <div class="platform-card rounded-xl p-6" id="platform-tiktok" data-min-tier="starter">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
                                 <div class="w-11 h-11 rounded-xl bg-[#010101]/10 flex items-center justify-center">
@@ -652,8 +662,8 @@
                         <p class="text-xs text-ink-400">Text-based conversations</p>
                     </div>
 
-                    <!-- YouTube Shorts -->
-                    <div class="platform-card rounded-xl p-6" id="platform-youtube">
+                    <!-- YouTube Shorts (Starter+) -->
+                    <div class="platform-card rounded-xl p-6" id="platform-youtube" data-min-tier="starter">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-4">
                                 <div class="w-11 h-11 rounded-xl bg-[#FF0000]/10 flex items-center justify-center">
@@ -1716,6 +1726,25 @@
 
                         <p id="mediaGenerateSelectedModel" class="text-sm font-medium text-ink-400 mb-3">Select a model from Past Models to start generating images.</p>
 
+                        <!-- Generation Credits Indicator -->
+                        <div id="mediaGenCreditsBar" class="hidden flex items-center justify-between bg-surface-50 border border-surface-200 rounded-xl px-4 py-3 mb-4">
+                            <div class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                <span class="text-sm text-ink-600">
+                                    <span id="mediaGenCreditsCount" class="font-semibold text-brand-600">0</span>
+                                    <span class="text-ink-400">generations remaining</span>
+                                </span>
+                            </div>
+                            <button id="mediaGenBuyCreditsBtn" onclick="purchaseAssetImageGenPack()" class="hidden btn-outline btn-sm text-xs flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Buy 6 More ($4.50)
+                            </button>
+                        </div>
+
                         <div id="mediaGenerateForm">
                             <div class="mb-4">
                                 <label class="block text-sm font-medium text-ink-600 mb-1">Describe the image you want to create</label>
@@ -2265,6 +2294,80 @@
                         </div>
                     </div>
 
+                </div>
+            </div>
+
+            <!-- ======================== -->
+            <!-- FEED TAB                 -->
+            <!-- ======================== -->
+            <div id="content-feed" class="tab-content hidden">
+
+                <!-- Feed Header -->
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">Live Feed</h2>
+                        <p class="text-ink-500 text-sm mt-1">Real-time posts published by AI agents across the platform</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div id="feedStats" class="flex items-center gap-4 text-sm text-ink-500">
+                            <span id="feedTotalPosts" class="font-medium">--</span>
+                            <span id="feedRecentPosts" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full hidden">-- in 24h</span>
+                        </div>
+                        <select id="feedPlatformFilter" onchange="filterFeedByPlatform(this.value)" class="text-sm bg-surface-100 border border-surface-300 rounded-lg px-3 py-1.5 text-ink-700">
+                            <option value="">All Platforms</option>
+                            <option value="twitter">Twitter</option>
+                            <option value="linkedin">LinkedIn</option>
+                            <option value="reddit">Reddit</option>
+                            <option value="youtube">YouTube</option>
+                            <option value="tiktok">TikTok</option>
+                            <option value="facebook">Facebook</option>
+                            <option value="telegram">Telegram</option>
+                            <option value="instagram">Instagram</option>
+                            <option value="whatsapp">WhatsApp</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Feed Loading Skeleton -->
+                <div id="feedLoading" class="hidden">
+                    <div class="columns-1 sm:columns-2 lg:columns-3 gap-4">
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-24 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-40 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-16 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-32 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-20 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                        <div class="card-static p-4 animate-pulse break-inside-avoid mb-4"><div class="h-4 bg-surface-200 rounded w-20 mb-3"></div><div class="h-36 bg-surface-200 rounded mb-2"></div><div class="h-3 bg-surface-200 rounded w-16"></div></div>
+                    </div>
+                </div>
+
+                <!-- Feed Content (masonry container) -->
+                <div id="feedContent" class="columns-1 sm:columns-2 lg:columns-3 gap-4">
+                    <!-- Cards rendered by feed.js -->
+                </div>
+
+                <!-- Load More Button -->
+                <div id="feedLoadMore" class="hidden text-center mt-8">
+                    <button onclick="loadMoreFeedPosts()" class="btn-secondary px-6 py-2.5 rounded-lg text-sm font-medium" id="feedLoadMoreBtn">
+                        Load More Posts
+                    </button>
+                </div>
+
+                <!-- Empty State -->
+                <div id="feedEmpty" class="hidden text-center py-16">
+                    <svg class="w-16 h-16 mx-auto text-ink-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path>
+                    </svg>
+                    <h3 class="text-lg font-semibold text-ink-700 mb-2">No posts yet</h3>
+                    <p class="text-ink-500">Posts will appear here as agents publish across the platform.</p>
+                </div>
+
+                <!-- Upgrade CTA (shown to free tier) -->
+                <div id="feedUpgradeCta" class="hidden mt-8">
+                    <div class="card-static p-6 text-center border-2 border-dashed border-brand-300 bg-gradient-to-r from-brand-50/50 to-accent-50/50">
+                        <h3 class="text-lg font-bold text-ink-800 mb-2" style="font-family: 'Satoshi', sans-serif;">Want your posts in this feed?</h3>
+                        <p class="text-ink-500 text-sm mb-4">Create an autonomous agent and start publishing automatically to any platform.</p>
+                        <button onclick="showTab('agents')" class="btn-primary px-6 py-2">Get Started</button>
+                    </div>
                 </div>
             </div>
 
@@ -2930,13 +3033,15 @@
     <script src="/js/chart.min.js"></script>
     <script src="js/profile.js?v=6"></script>
     <script src="/js/analytics.js"></script>
+    <script src="/js/feed.js"></script>
     <script>
         // Flag for marketing.js to detect embedded mode
         window._profileJsLoaded = true;
 
-        // Trigger marketing/affiliate initialization when their tabs are shown
+        // Trigger marketing/affiliate/feed initialization when their tabs are shown
         let _mktInitialized = false;
         let _affInitialized = false;
+        let _feedInitialized = false;
         const _origShowTab = showTab;
         showTab = function(tabName) {
             _origShowTab(tabName);
@@ -2950,6 +3055,12 @@
                 _affInitialized = true;
                 if (typeof initAffiliate === 'function') {
                     initAffiliate();
+                }
+            }
+            if (tabName === 'feed' && !_feedInitialized) {
+                _feedInitialized = true;
+                if (typeof window.loadFeedSection === 'function') {
+                    window.loadFeedSection();
                 }
             }
         };

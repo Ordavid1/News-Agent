@@ -436,6 +436,13 @@
   .platform-card.connected {
     @apply border-l-4 border-l-green-500 border-green-200 bg-green-50/30;
   }
+  .platform-card.tier-gated {
+    @apply opacity-70 border-dashed border-surface-300;
+  }
+  .platform-card.tier-gated:hover {
+    @apply opacity-90;
+    transform: none;
+  }
 
   /* ===== CONNECT / DISCONNECT BUTTONS ===== */
   .connect-btn {
@@ -476,12 +483,14 @@
   .tab-btn[data-color="amber"]   { background: rgba(255, 237, 213, 0.5); color: rgba(180, 83, 9, 0.7); }
   .tab-btn[data-color="emerald"] { background: rgba(209, 250, 229, 0.5); color: rgba(4, 120, 87, 0.7); }
   .tab-btn[data-color="cyan"]    { background: rgba(207, 250, 254, 0.5); color: rgba(14, 116, 144, 0.7); }
+  .tab-btn[data-color="rose"]    { background: rgba(255, 228, 230, 0.5); color: rgba(190, 18, 60, 0.7); }
 
   .tab-btn[data-color="brand"]:hover   { background: rgb(var(--color-brand-50)); color: rgb(var(--color-brand-700)); }
   .tab-btn[data-color="accent"]:hover  { background: rgb(var(--color-accent-50)); color: rgb(var(--color-accent-700)); }
   .tab-btn[data-color="amber"]:hover   { background: rgba(255, 237, 213, 0.85); color: rgba(180, 83, 9, 1); }
   .tab-btn[data-color="emerald"]:hover { background: rgba(209, 250, 229, 0.85); color: rgba(4, 120, 87, 1); }
   .tab-btn[data-color="cyan"]:hover    { background: rgba(207, 250, 254, 0.85); color: rgba(14, 116, 144, 1); }
+  .tab-btn[data-color="rose"]:hover    { background: rgba(255, 228, 230, 0.85); color: rgba(190, 18, 60, 1); }
 
   /* Active state — full saturation with subtle left border */
   .tab-btn.tab-active[data-color="brand"]   { background: rgb(var(--color-brand-100)); color: rgb(var(--color-brand-700)); box-shadow: inset 0 -2px 0 rgb(var(--color-brand-500)); }
@@ -489,6 +498,7 @@
   .tab-btn.tab-active[data-color="amber"]   { background: rgba(254, 243, 199, 1); color: rgba(146, 64, 14, 1); box-shadow: inset 0 -2px 0 rgba(245, 158, 11, 1); }
   .tab-btn.tab-active[data-color="emerald"] { background: rgba(209, 250, 229, 1); color: rgba(4, 120, 87, 1); box-shadow: inset 0 -2px 0 rgba(16, 185, 129, 1); }
   .tab-btn.tab-active[data-color="cyan"]    { background: rgba(207, 250, 254, 1); color: rgba(14, 116, 144, 1); box-shadow: inset 0 -2px 0 rgba(6, 182, 212, 1); }
+  .tab-btn.tab-active[data-color="rose"]    { background: rgba(255, 228, 230, 1); color: rgba(159, 18, 57, 1); box-shadow: inset 0 -2px 0 rgba(244, 63, 94, 1); }
 
   /* Fallback for tabs without data-color */
   .tab-btn:not([data-color]) { @apply text-ink-500; }

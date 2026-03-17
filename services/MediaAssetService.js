@@ -31,7 +31,8 @@ import {
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,
-  deleteGeneratedMedia as dbDeleteGeneratedMedia
+  deleteGeneratedMedia as dbDeleteGeneratedMedia,
+  createPerUsePurchase
 } from './database-wrapper.js';
 
 const logger = winston.createLogger({
@@ -426,6 +427,37 @@ class MediaAssetService {
         logger.info(`Training ${jobId} auto-set as default model for account ${job.ad_account_id}`);
       } catch (err) {
         logger.warn(`Failed to auto-set default training job: ${err.message}`);
+      }
+
+      // Auto-grant 6 free generation credits included with training
+      try {
+        await createPerUsePurchase(userId, {
+          purchaseType: 'asset_image_gen_pack',
+          amountCents: 0,
+          currency: 'usd',
+          status: 'completed',
+          paymentProvider: 'system',
+          creditsTotal: 6,
+          creditsUsed: 0,
+          referenceId: jobId,
+          referenceType: 'media_training_job',
+          idempotencyKey: `training_completion_credits_${jobId}`,
+          description: 'Free generation credits (included with training)',
+          metadata: {
+            ad_account_id: job.ad_account_id,
+            auto_granted: true,
+            training_job_id: jobId
+          }
+        });
+        logger.info(`Auto-granted 6 free generation credits for training ${jobId} (user ${userId})`);
+      } catch (creditErr) {
+        // Non-fatal: training succeeded, credits can be manually reconciled
+        // Idempotency key prevents duplicate grants on re-polls
+        if (creditErr.code === '23505') {
+          logger.info(`Free credits already granted for training ${jobId} (idempotency)`);
+        } else {
+          logger.error(`Failed to auto-grant generation credits for training ${jobId}: ${creditErr.message}`);
+        }
       }
     }
 

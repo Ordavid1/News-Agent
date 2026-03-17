@@ -409,8 +409,8 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
         attributes: {
           checkout_data: checkoutData,
           checkout_options: {
-            embed: true,
-            media: false,
+            embed: false,
+            media: true,
             desc: false
           },
           product_options: {
@@ -1162,8 +1162,8 @@ router.post('/marketing-checkout', async (req, res) => {
         attributes: {
           checkout_data: checkoutData,
           checkout_options: {
-            embed: true,
-            media: false,
+            embed: false,
+            media: true,
             desc: false
           },
           product_options: {
@@ -1410,8 +1410,8 @@ router.post('/marketing-add-account-checkout', async (req, res) => {
         attributes: {
           checkout_data: checkoutData,
           checkout_options: {
-            embed: true,
-            media: false,
+            embed: false,
+            media: true,
             desc: false
           },
           product_options: {
@@ -1602,12 +1602,20 @@ const PER_USE_PRICING = {
   model_training: {
     amountCents: 500, // $5
     variantId: process.env.LEMON_SQUEEZY_TRAINING_VARIANT_ID,
-    description: 'Brand Asset Model Training'
+    description: 'Brand Asset Model Training',
+    creditsPerPurchase: 1
   },
   image_generation: {
     amountCents: 75, // $0.75
     variantId: process.env.LEMON_SQUEEZY_IMAGE_GEN_VARIANT_ID,
-    description: 'Brand Image Generation'
+    description: 'Brand Image Generation',
+    creditsPerPurchase: 1
+  },
+  asset_image_gen_pack: {
+    amountCents: 450, // $4.50
+    variantId: process.env.LEMON_SQUEEZY_IMAGE_GEN_PACK_VARIANT_ID,
+    description: 'Brand Asset Image Generation Pack (6 credits)',
+    creditsPerPurchase: 6
   }
 };
 
@@ -1661,7 +1669,7 @@ router.post('/training-checkout', async (req, res) => {
           type: 'checkouts',
           attributes: {
             checkout_data: checkoutData,
-            checkout_options: { embed: true, media: false, desc: false },
+            checkout_options: { embed: false, media: true, desc: false },
             product_options: {
               enabled_variants: [Number(pricing.variantId)],
               redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
@@ -1756,7 +1764,7 @@ router.post('/image-gen-checkout', async (req, res) => {
           type: 'checkouts',
           attributes: {
             checkout_data: checkoutData,
-            checkout_options: { embed: true, media: false, desc: false },
+            checkout_options: { embed: false, media: true, desc: false },
             product_options: {
               enabled_variants: [Number(pricing.variantId)],
               redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
@@ -1803,6 +1811,86 @@ router.get('/image-gen-purchase-status', async (req, res) => {
   } catch (error) {
     console.error('[IMAGE-GEN-PURCHASE] Error checking status:', error);
     res.status(500).json({ error: 'Failed to check image generation purchase status' });
+  }
+});
+
+// Create image generation pack checkout (6 credits for $4.50, LS one-time purchase)
+router.post('/asset-image-gen-pack-checkout', async (req, res) => {
+  console.log('[ASSET-IMGGEN-PACK-CHECKOUT] POST - User:', req.user?.id);
+  try {
+    const addon = await getMarketingAddon(req.user.id);
+    if (!addon || addon.status !== 'active') {
+      return res.status(403).json({ error: 'Active marketing add-on required for image generation' });
+    }
+
+    const pricing = PER_USE_PRICING.asset_image_gen_pack;
+    if (!pricing.variantId) {
+      console.error('[ASSET-IMGGEN-PACK-CHECKOUT] Missing image gen pack variant ID');
+      return res.status(500).json({ error: 'Image generation pack checkout configuration error' });
+    }
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: { user_id: req.user.id, purchase_type: 'asset_image_gen_pack' }
+    };
+
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: false, media: true, desc: false },
+            product_options: {
+              enabled_variants: [Number(pricing.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+            }
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(pricing.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[ASSET-IMGGEN-PACK-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[ASSET-IMGGEN-PACK-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[ASSET-IMGGEN-PACK-CHECKOUT] Checkout created for user ${req.user.id}`);
+    res.json({ checkoutUrl });
+  } catch (error) {
+    console.error('[ASSET-IMGGEN-PACK-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create image generation pack checkout session' });
   }
 });
 
@@ -2483,6 +2571,7 @@ async function handleOrderCreated(payload, customData) {
       paymentProvider: 'lemon_squeezy',
       providerReferenceId: String(orderId),
       description: pricing.description,
+      creditsTotal: pricing.creditsPerPurchase || 1,
       metadata: {
         ad_account_id: ad_account_id || null,
         ls_order_number: orderAttributes.order_number,
@@ -2490,7 +2579,7 @@ async function handleOrderCreated(payload, customData) {
       }
     });
 
-    console.log(`[WEBHOOK] Per-use purchase recorded: ${purchase_type} for user ${user_id}`);
+    console.log(`[WEBHOOK] Per-use purchase recorded: ${purchase_type} (${pricing.creditsPerPurchase || 1} credits) for user ${user_id}`);
   } catch (error) {
     console.error(`[WEBHOOK] Failed to record per-use purchase:`, error);
   }

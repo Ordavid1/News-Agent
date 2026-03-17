@@ -1028,7 +1028,8 @@ class AutomationManager {
         platform_post_id: result.postId,
         platform_url: result.url,
         success: result.success,
-        content: content.text
+        content: content.text,
+        image_url: content.imageUrl || null
       };
 
       try {

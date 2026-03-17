@@ -75,7 +75,7 @@ const PLATFORM_CONFIGS = {
     authUrl: 'https://www.tiktok.com/v2/auth/authorize/',
     tokenUrl: 'https://open.tiktokapis.com/v2/oauth/token/',
     userInfoUrl: 'https://open.tiktokapis.com/v2/user/info/',
-    scopes: ['user.info.basic', 'video.upload', 'video.publish'],
+    scopes: ['user.info.basic', 'user.info.profile', 'video.upload', 'video.publish'],
     usePKCE: true
   },
   youtube: {
@@ -864,7 +864,7 @@ async function fetchTikTokUserInfo(accessToken, openId) {
   logger.info(`Fetching TikTok user info — token starts with: ${accessToken ? accessToken.substring(0, 10) + '...' : 'EMPTY'}`);
 
   const response = await fetch(
-    'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name',
+    'https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username',
     {
       headers: {
         'Authorization': `Bearer ${accessToken}`
@@ -900,12 +900,13 @@ async function fetchTikTokUserInfo(accessToken, openId) {
 
   return {
     id: user.open_id || openId,
-    username: user.display_name || 'TikTok User',
-    displayName: user.display_name || 'TikTok User',
+    username: user.username || user.display_name || 'TikTok User',
+    displayName: user.display_name || user.username || 'TikTok User',
     avatarUrl: user.avatar_url,
     metadata: {
       openId: user.open_id || openId,
-      unionId: user.union_id
+      unionId: user.union_id,
+      tiktokUsername: user.username || null
     }
   };
 }

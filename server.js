@@ -39,6 +39,7 @@ import redditRoutes from './routes/reddit.js';
 import marketingRoutes from './routes/marketing.js';
 import affiliateRoutes from './routes/affiliate.js';
 import supportRoutes from './routes/support.js';
+import feedRoutes from './routes/feed.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -933,6 +934,7 @@ app.use('/api/reddit', authenticateToken, csrfProtection, redditRoutes); // Redd
 app.use('/api/marketing', marketingRoutes); // Marketing API (auth + CSRF + marketing addon handled in router)
 app.use('/api/affiliate', authenticateToken, csrfProtection, affiliateRoutes); // AE Affiliate API (affiliate addon middleware in router)
 app.use('/api/support', supportRoutes); // Support chat (public, no auth — rate limited in router)
+app.use('/api/feed', feedRoutes);       // Public feed — no auth required, rate limited in router
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

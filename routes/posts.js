@@ -5,7 +5,7 @@ import { postGenerationLimiter } from '../middleware/rateLimiter.js';
 import { requireTier } from '../middleware/subscription.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
-import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToYouTube } from '../services/PublishingService.js';
+import publishingService, { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToYouTube, publishToTikTok } from '../services/PublishingService.js';
 import ConnectionManager from '../services/ConnectionManager.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 // SECURITY: Input validation
@@ -487,6 +487,15 @@ router.post('/test', async (req, res) => {
           case 'whatsapp':
             result = await publishToWhatsApp(content, userId);
             break;
+          case 'tiktok':
+            // TikTok requires a video URL — video generation must have run beforehand
+            if (!content.videoUrl) {
+              console.log(`[Test Post] TikTok requires a video — no videoUrl in content, skipping`);
+              results.failed.push({ platform, error: 'TikTok requires a video. Video generation must complete before publishing.' });
+              continue;
+            }
+            result = await publishToTikTok(content, userId, content.videoUrl);
+            break;
           case 'youtube':
             // YouTube requires a video URL — video generation must have run beforehand
             if (!content.videoUrl) {
@@ -539,7 +548,8 @@ router.post('/test', async (req, res) => {
           content: generatedContent.text,
           trendTopic: trendData.title,
           topic: selectedTopic,
-          success: true
+          success: true,
+          imageUrl: imageUrl
         });
       } catch (ppErr) {
         console.error(`[Test Post] Failed to record published_post for ${success.platform}:`, ppErr.message);

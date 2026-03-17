@@ -64,7 +64,9 @@ import {
   deleteBrandVoiceGeneratedPost,
   updateBrandVoiceGeneratedPost,
   getPerUsePurchase,
-  updatePerUsePurchase
+  updatePerUsePurchase,
+  getAssetImageGenCredits,
+  consumeAssetImageGenCredit
 } from '../services/database-wrapper.js';
 import winston from 'winston';
 
@@ -1635,7 +1637,26 @@ router.post('/media-assets/generate', async (req, res) => {
       return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
     }
 
-    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}, outputs=${numOutputs ?? 1}, aspect=${aspectRatio ?? '1:1'}`);
+    // Credit gate: check and consume one generation credit before proceeding
+    const { totalRemaining } = await getAssetImageGenCredits(req.user.id);
+    if (totalRemaining <= 0) {
+      return res.status(402).json({
+        error: 'No generation credits remaining. Purchase a credit pack to continue.',
+        code: 'CREDITS_EXHAUSTED',
+        credits: 0
+      });
+    }
+
+    const consumed = await consumeAssetImageGenCredit(req.user.id);
+    if (!consumed) {
+      return res.status(402).json({
+        error: 'No generation credits remaining.',
+        code: 'CREDITS_EXHAUSTED',
+        credits: 0
+      });
+    }
+
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, credit consumed from pack=${consumed.id}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}, outputs=${numOutputs ?? 1}, aspect=${aspectRatio ?? '1:1'}`);
 
     const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId, {
       loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
@@ -1646,12 +1667,29 @@ router.post('/media-assets/generate', async (req, res) => {
 
     // Normalize response: always return array for consistency, but keep backwards compat
     const mediaArray = Array.isArray(media) ? media : [media];
-    logger.info(`[MediaAssets] ${mediaArray.length} image(s) generated`);
-    res.json({ media: mediaArray });
+
+    // Return updated credit count alongside generated media
+    const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
+    logger.info(`[MediaAssets] ${mediaArray.length} image(s) generated, credits remaining: ${creditsAfter}`);
+    res.json({ media: mediaArray, credits: creditsAfter });
   } catch (error) {
     logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);
     const status = error.message.includes('not completed') || error.message.includes('not found') ? 400 : 500;
     res.status(status).json({ error: error.message || 'Failed to generate image' });
+  }
+});
+
+/**
+ * GET /api/marketing/media-assets/generation-credits
+ * Return the user's remaining Brand Asset image generation credits.
+ */
+router.get('/media-assets/generation-credits', async (req, res) => {
+  try {
+    const { totalRemaining } = await getAssetImageGenCredits(req.user.id);
+    res.json({ credits: totalRemaining });
+  } catch (error) {
+    logger.error(`[MediaAssets] GET /generation-credits failed: ${error.message}`);
+    res.status(500).json({ error: 'Failed to get generation credits' });
   }
 });
 

@@ -28,6 +28,7 @@ var generatedMedia = [];
 var mediaTrainingPollingTimer = null;
 var latestGeneratedImageUrl = null;
 var mediaViewMode = 'new';           // 'new' (fresh upload) or 'view' (past model context)
+var mediaGenCredits = 0;             // Remaining Brand Asset generation credits
 
 // Current modal state
 var currentBoostPost = null;
@@ -3088,9 +3089,11 @@ function showCompactCheckout(checkoutUrl, anchorEl, options = {}) {
         closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
         closeBtn.title = 'Close';
 
-        // Iframe for LS checkout
+        // Iframe for LS checkout — strip embed=1 param to get full (two-column) layout
+        const iframeUrl = new URL(checkoutUrl);
+        iframeUrl.searchParams.delete('embed');
         const iframe = document.createElement('iframe');
-        iframe.src = checkoutUrl;
+        iframe.src = iframeUrl.toString();
         iframe.className = 'ls-checkout-iframe';
         iframe.setAttribute('allowtransparency', 'true');
         iframe.setAttribute('allow', 'payment');
@@ -3098,10 +3101,10 @@ function showCompactCheckout(checkoutUrl, anchorEl, options = {}) {
         popup.appendChild(closeBtn);
         popup.appendChild(iframe);
 
-        // Position popup near the anchor button
+        // Position popup near the anchor button — scale with viewport on larger screens
         const rect = anchorEl.getBoundingClientRect();
-        const popupWidth = 420;
-        const popupHeight = 560;
+        const popupWidth = Math.min(1100, Math.max(420, Math.round(window.innerWidth * 0.7)));
+        const popupHeight = Math.min(Math.round(window.innerHeight * 0.8), Math.max(560, Math.round(window.innerHeight * 0.7)));
 
         // Position popup relative to button based on direction
         let left = rect.left + (rect.width / 2) - (popupWidth / 2);
@@ -3682,6 +3685,9 @@ function switchToViewModelMode(jobId) {
 
     mediaViewMode = 'view';
     selectedTrainingJob = job;
+
+    // Load generation credits for the selected model context
+    loadMediaGenCredits();
 
     // Re-render all sections in view-model context
     renderMediaAssetGrid();
@@ -4323,7 +4329,9 @@ function renderGenerationSection() {
             selectedLabel.classList.remove('text-ink-400');
             selectedLabel.classList.add('text-brand-600');
         }
-        if (generateBtn) generateBtn.disabled = false;
+        // Enable generate button only if credits available
+        if (generateBtn) generateBtn.disabled = mediaGenCredits <= 0;
+        updateMediaGenCreditsUI();
     } else {
         if (selectedLabel) {
             selectedLabel.textContent = mediaViewMode === 'new'
@@ -4334,6 +4342,9 @@ function renderGenerationSection() {
         }
         if (generateBtn) generateBtn.disabled = true;
         if (result) result.classList.add('hidden');
+        // Hide credits bar when no model selected
+        const creditsBar = document.getElementById('mediaGenCreditsBar');
+        if (creditsBar) creditsBar.classList.add('hidden');
     }
 }
 
@@ -4364,6 +4375,12 @@ function getSelectedAspectRatio() {
  */
 async function generateMediaImage() {
     if (!selectedAdAccount || !selectedTrainingJob) return;
+
+    // Check credits before attempting
+    if (mediaGenCredits <= 0) {
+        showToast('No generation credits remaining. Purchase a credit pack to continue.', 'error');
+        return;
+    }
 
     const promptInput = document.getElementById('mediaGeneratePrompt');
     const prompt = promptInput?.value?.trim();
@@ -4400,6 +4417,12 @@ async function generateMediaImage() {
             aspectRatio
         });
 
+        // Update credits from response
+        if (data.credits !== undefined) {
+            mediaGenCredits = data.credits;
+            updateMediaGenCreditsUI();
+        }
+
         // Response is always an array now
         const mediaArray = Array.isArray(data.media) ? data.media : [data.media];
         latestGeneratedImageUrl = mediaArray[0].public_url;
@@ -4416,10 +4439,126 @@ async function generateMediaImage() {
         const countMsg = mediaArray.length > 1 ? `${mediaArray.length} images` : 'Image';
         showToast(`${countMsg} generated successfully!`, 'success');
     } catch (error) {
+        // Handle credits exhausted specifically
+        if (error.message && error.message.includes('credits')) {
+            mediaGenCredits = 0;
+            updateMediaGenCreditsUI();
+        }
         showToast(error.message, 'error');
     } finally {
-        if (btn) btn.disabled = false;
+        if (btn) btn.disabled = mediaGenCredits <= 0;
         if (loading) loading.classList.add('hidden');
+    }
+}
+
+/**
+ * Load the user's Brand Asset generation credit balance from the backend.
+ */
+async function loadMediaGenCredits() {
+    try {
+        const result = await apiGet('/api/marketing/media-assets/generation-credits');
+        mediaGenCredits = result.credits || 0;
+        updateMediaGenCreditsUI();
+    } catch (error) {
+        console.error('Failed to load generation credits:', error);
+        mediaGenCredits = 0;
+        updateMediaGenCreditsUI();
+    }
+}
+
+/**
+ * Update the generation credits indicator bar and button state.
+ */
+function updateMediaGenCreditsUI() {
+    const bar = document.getElementById('mediaGenCreditsBar');
+    const countEl = document.getElementById('mediaGenCreditsCount');
+    const buyBtn = document.getElementById('mediaGenBuyCreditsBtn');
+    const generateBtn = document.getElementById('mediaGenerateBtn');
+
+    if (!bar) return;
+
+    // Show credits bar only when a training job is selected
+    if (selectedTrainingJob && selectedTrainingJob.status === 'completed') {
+        bar.classList.remove('hidden');
+    } else {
+        bar.classList.add('hidden');
+        return;
+    }
+
+    if (countEl) countEl.textContent = mediaGenCredits;
+
+    // Show buy button when credits are low (0 or 1 remaining)
+    if (buyBtn) {
+        if (mediaGenCredits <= 1) {
+            buyBtn.classList.remove('hidden');
+        } else {
+            buyBtn.classList.add('hidden');
+        }
+    }
+
+    // Disable generate button when no credits
+    if (generateBtn) {
+        if (mediaGenCredits <= 0) {
+            generateBtn.disabled = true;
+            generateBtn.title = 'No generation credits remaining';
+        } else {
+            generateBtn.disabled = false;
+            generateBtn.title = '';
+        }
+    }
+}
+
+/**
+ * Purchase a 6-credit generation pack via compact LS checkout ($4.50).
+ */
+async function purchaseAssetImageGenPack() {
+    const btn = document.getElementById('mediaGenBuyCreditsBtn');
+    if (!btn) return;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Preparing...';
+
+    try {
+        const { checkoutUrl } = await apiPost('/api/subscriptions/asset-image-gen-pack-checkout');
+
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.50...';
+        const paid = await showCompactCheckout(checkoutUrl, btn, { direction: 'up' });
+
+        if (!paid) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
+
+        // Poll for webhook confirmation (credits should increase)
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Confirming...';
+        const previousCredits = mediaGenCredits;
+        let confirmed = false;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const result = await apiGet('/api/marketing/media-assets/generation-credits');
+                if (result.credits > previousCredits) {
+                    mediaGenCredits = result.credits;
+                    confirmed = true;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (confirmed) {
+            showToast(`${mediaGenCredits} generation credits available!`, 'success');
+            updateMediaGenCreditsUI();
+        } else {
+            showToast('Payment received but confirmation pending. Credits will appear shortly.', 'warning');
+            // Try one more load after a delay
+            setTimeout(loadMediaGenCredits, 5000);
+        }
+    } catch (error) {
+        showToast(error.message || 'Payment failed. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 

@@ -2999,6 +2999,7 @@ export async function createPublishedPost(postData) {
     error_message: postData.errorMessage || null,
     agent_id: postData.agentId || null,
     engagement: postData.engagement || {},
+    image_url: postData.imageUrl || null,
     published_at: postData.publishedAt || new Date().toISOString()
   };
 
@@ -3739,6 +3740,8 @@ export async function createPerUsePurchase(userId, purchaseData) {
     reference_type: purchaseData.referenceType || null,
     idempotency_key: purchaseData.idempotencyKey || null,
     description: purchaseData.description || null,
+    credits_total: purchaseData.creditsTotal || 1,
+    credits_used: purchaseData.creditsUsed || 0,
     metadata: purchaseData.metadata || {}
   };
 
@@ -3884,6 +3887,75 @@ export async function getLatestUnusedPurchase(userId, purchaseType) {
   return data;
 }
 
+/**
+ * Get the total remaining Brand Asset image generation credits for a user.
+ * Sums (credits_total - credits_used) across all completed asset_image_gen_pack purchases.
+ */
+export async function getAssetImageGenCredits(userId) {
+  const { data: packs, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('id, credits_total, credits_used, created_at')
+    .eq('user_id', userId)
+    .eq('purchase_type', 'asset_image_gen_pack')
+    .eq('status', 'completed')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('Error getting asset image gen credits:', error);
+    throw error;
+  }
+
+  const activePacks = (packs || []).filter(p => p.credits_used < p.credits_total);
+  const totalRemaining = activePacks.reduce((sum, p) => sum + (p.credits_total - p.credits_used), 0);
+  return { totalRemaining, packs: activePacks };
+}
+
+/**
+ * Consume one Brand Asset image generation credit (FIFO — oldest pack first).
+ * Uses optimistic concurrency to prevent double-spending.
+ * Returns the updated purchase row, or null if no credits available.
+ */
+export async function consumeAssetImageGenCredit(userId) {
+  const { data: packs, error: findError } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('purchase_type', 'asset_image_gen_pack')
+    .eq('status', 'completed')
+    .order('created_at', { ascending: true });
+
+  if (findError) {
+    logger.error('Error finding asset image gen credit pack:', findError);
+    throw findError;
+  }
+
+  const pack = (packs || []).find(p => p.credits_used < p.credits_total);
+  if (!pack) return null;
+
+  // Atomically increment credits_used with optimistic concurrency check
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .update({
+      credits_used: pack.credits_used + 1,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', pack.id)
+    .eq('credits_used', pack.credits_used) // Only if unchanged since read
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      // Race condition: another request consumed this credit — retry
+      return consumeAssetImageGenCredit(userId);
+    }
+    logger.error('Error consuming asset image gen credit:', error);
+    throw error;
+  }
+
+  return data;
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -4015,6 +4087,8 @@ export default {
   updatePerUsePurchase,
   getUserPerUsePurchases,
   getLatestUnusedPurchase,
+  getAssetImageGenCredits,
+  consumeAssetImageGenCredit,
   // Affiliate add-on functions
   getAffiliateAddon,
   getAffiliateAddonByLsId,

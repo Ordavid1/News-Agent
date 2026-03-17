@@ -402,9 +402,9 @@
                             <input type="checkbox" name="platforms" value="whatsapp" class="checkbox">
                         </label>
 
-                        <!-- TikTok -->
-                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
-                            <div class="flex items-center gap-3">
+                        <!-- TikTok (Starter+) -->
+                        <div class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors" data-min-tier="starter" data-platform-gate="tiktok">
+                            <label class="flex items-center gap-3 cursor-pointer flex-1">
                                 <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#010101]/10">
                                     <svg class="w-5 h-5 text-[#010101]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13a8.28 8.28 0 005.58 2.15v-3.44a4.85 4.85 0 01-2.65-.78V6.69h2.65z"/>
@@ -414,13 +414,13 @@
                                     <p class="font-medium text-ink-800">TikTok</p>
                                     <p class="text-sm text-ink-400">AI-generated video content</p>
                                 </div>
-                            </div>
+                            </label>
                             <input type="checkbox" name="platforms" value="tiktok" class="checkbox">
-                        </label>
+                        </div>
 
-                        <!-- YouTube -->
-                        <label class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors cursor-pointer">
-                            <div class="flex items-center gap-3">
+                        <!-- YouTube (Starter+) -->
+                        <div class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors" data-min-tier="starter" data-platform-gate="youtube">
+                            <label class="flex items-center gap-3 cursor-pointer flex-1">
                                 <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#FF0000]/10">
                                     <svg class="w-5 h-5 text-[#FF0000]" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
@@ -430,9 +430,9 @@
                                     <p class="font-medium text-ink-800">YouTube</p>
                                     <p class="text-sm text-ink-400">AI-generated Shorts</p>
                                 </div>
-                            </div>
+                            </label>
                             <input type="checkbox" name="platforms" value="youtube" class="checkbox">
-                        </label>
+                        </div>
                     </div>
 
                     <!-- Connection status hint -->

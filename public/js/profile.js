@@ -260,11 +260,41 @@ function updateConnectionsUI() {
     const platforms = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'threads', 'telegram', 'whatsapp', 'tiktok', 'youtube'];
     let connectedCount = 0;
 
+    // Tier hierarchy for gating comparisons
+    const TIER_ORDER = ['free', 'starter', 'growth', 'business'];
+    const userTier = currentUser?.subscription?.tier || 'free';
+    const userTierIndex = TIER_ORDER.indexOf(userTier);
+
     platforms.forEach(platform => {
         const connection = connections.find(c => c.platform === platform);
         const card = document.getElementById(`platform-${platform}`);
         const statusEl = document.getElementById(`${platform}-status`);
         const btn = document.getElementById(`${platform}-btn`);
+
+        // Check tier-gating: if card has data-min-tier, enforce it
+        if (card && card.dataset.minTier) {
+            const requiredTierIndex = TIER_ORDER.indexOf(card.dataset.minTier);
+            if (userTierIndex < requiredTierIndex) {
+                const requiredTierName = card.dataset.minTier.charAt(0).toUpperCase() + card.dataset.minTier.slice(1);
+                card.classList.add('tier-gated');
+                if (statusEl) {
+                    statusEl.textContent = `${requiredTierName}+ plan required`;
+                    statusEl.classList.remove('text-green-400');
+                    statusEl.classList.add('text-gray-400');
+                }
+                if (btn) {
+                    btn.textContent = `Upgrade to ${requiredTierName}`;
+                    btn.className = 'px-4 py-2 rounded-lg bg-gradient-to-r from-brand-500 to-purple-500 text-white text-sm font-medium hover:from-brand-600 hover:to-purple-600 transition-all';
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        showTab('subscription');
+                    };
+                }
+                return; // Skip normal connection rendering for gated platforms
+            } else {
+                card.classList.remove('tier-gated');
+            }
+        }
 
         if (connection && connection.status === 'active') {
             connectedCount++;
@@ -921,7 +951,7 @@ async function selectPlan(plan) {
         }
     }
 
-    // New subscription - Production checkout flow via Lemon Squeezy
+    // New subscription - Production checkout flow via Lemon Squeezy (embedded popup)
     try {
         const response = await fetch('/api/subscriptions/create-checkout', {
             method: 'POST',
@@ -936,20 +966,26 @@ async function selectPlan(plan) {
         const data = await response.json();
 
         if (response.ok && data.checkoutUrl) {
-            // Redirect to Lemon Squeezy hosted checkout
-            window.location.href = data.checkoutUrl;
+            // Show compact checkout popup (same as marketing tab payments)
+            if (typeof showCompactCheckout === 'function') {
+                const anchorEl = button || planCard || document.body;
+                const paid = await showCompactCheckout(data.checkoutUrl, anchorEl, { direction: 'down' });
+                if (paid) {
+                    showPaymentSuccessMessage();
+                    await loadUserProfile();
+                }
+            } else {
+                // Fallback to redirect if marketing.js not loaded
+                window.location.href = data.checkoutUrl;
+            }
         } else {
             console.error('Checkout error:', data);
             alert(data.error || 'Failed to create checkout session. Please try again.');
-            // Reset button
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = originalText;
-            }
         }
     } catch (error) {
         console.error('Checkout error:', error);
         alert('An error occurred during checkout. Please try again.');
+    } finally {
         // Reset button
         if (button) {
             button.disabled = false;

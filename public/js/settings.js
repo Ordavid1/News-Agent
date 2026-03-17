@@ -82,6 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load user profile first to get subscription tier for plan limits
     await loadUserProfile();
 
+    // Apply tier-gating to platform checkboxes (YouTube, TikTok, etc.)
+    applyPlatformTierGates();
+
     // Always load connections first for the platform dropdown
     await loadAllConnections();
 
@@ -667,6 +670,56 @@ async function loadUserProfile() {
     } catch (error) {
         console.error('Error loading user profile:', error);
     }
+}
+
+/**
+ * Apply tier-gating to platform checkboxes in the settings form.
+ * Platforms with data-min-tier will be disabled for users below the required tier.
+ */
+function applyPlatformTierGates() {
+    const TIER_ORDER = ['free', 'starter', 'growth', 'business'];
+    const userTier = currentUser?.subscription?.tier || 'free';
+    const userTierIndex = TIER_ORDER.indexOf(userTier);
+
+    document.querySelectorAll('[data-min-tier][data-platform-gate]').forEach(container => {
+        const requiredTier = container.dataset.minTier;
+        const requiredTierIndex = TIER_ORDER.indexOf(requiredTier);
+
+        if (userTierIndex < requiredTierIndex) {
+            const checkbox = container.querySelector('input[type="checkbox"]');
+            const description = container.querySelector('.text-ink-400');
+            const requiredTierName = requiredTier.charAt(0).toUpperCase() + requiredTier.slice(1);
+
+            // Disable the checkbox
+            if (checkbox) {
+                checkbox.disabled = true;
+                checkbox.checked = false;
+            }
+
+            // Update the description to show tier requirement
+            if (description) {
+                description.textContent = `Upgrade to ${requiredTierName} to unlock`;
+            }
+
+            // Apply visual gating style
+            container.classList.add('opacity-60', 'border-dashed');
+            container.style.cursor = 'default';
+
+            // Prevent label click from doing anything, show redirect to upgrade
+            const label = container.querySelector('label');
+            if (label) {
+                label.style.cursor = 'default';
+            }
+
+            // Add upgrade badge next to checkbox
+            if (checkbox) {
+                const badge = document.createElement('span');
+                badge.className = 'text-xs font-medium px-2 py-1 rounded-full bg-brand-100 text-brand-700 whitespace-nowrap';
+                badge.textContent = `${requiredTierName}+`;
+                checkbox.parentNode.replaceChild(badge, checkbox);
+            }
+        }
+    });
 }
 
 /**
