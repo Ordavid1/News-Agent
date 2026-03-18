@@ -291,7 +291,11 @@ class AliExpressService {
     if (options.keywords) params.keywords = options.keywords;
     if (options.productId) params.product_id = options.productId;
     if (options.country) params.country = options.country;
-    if (options.deviceId) params.device_id = options.deviceId;
+
+    // device_id is mandatory per AE API — generate a stable one from trackingId if not provided
+    params.device_id = options.deviceId
+      || crypto.createHash('md5').update(this.trackingId || this.appKey).digest('hex');
+
     if (options.device) params.device = options.device;
     if (options.app) params.app = options.app;
 
