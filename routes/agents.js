@@ -1302,23 +1302,6 @@ async function testAffiliateAgent(req, res, agent, settings, userId, agentId, pl
       imageUrl = null;
     }
 
-    // 6.5. Pre-warm the affiliate URL for link preview
-    testProgressEmitter.emitProgress(userId, agentId, 'publishing', 'Warming link preview...');
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      await fetch(product.affiliateUrl, {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)' }
-      });
-      clearTimeout(timeout);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } catch (warmErr) {
-      console.warn('[Agent Test/Affiliate] Link pre-warm failed (non-blocking):', warmErr.message);
-    }
-
     // 7. Publish
     testProgressEmitter.emitProgress(userId, agentId, 'publishing', `Publishing to ${platformDisplayName}...`);
     const content = {
