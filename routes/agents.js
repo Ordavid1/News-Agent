@@ -281,7 +281,8 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
         ...(contentSource === 'affiliate_products' && {
           affiliateSettings: {
             keywordSetIds: settings.affiliateSettings?.keywordSetIds || [],
-            includeHotProducts: settings.affiliateSettings?.includeHotProducts ?? true
+            includeHotProducts: settings.affiliateSettings?.includeHotProducts ?? true,
+            includeSmartMatch: settings.affiliateSettings?.includeSmartMatch ?? true
           }
         }),
         topics,
@@ -385,7 +386,11 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
       const validatedSettings = {
         contentSource: existingContentSource,
         ...(existingContentSource === 'affiliate_products' && {
-          affiliateSettings: settings.affiliateSettings || agent.settings?.affiliateSettings
+          affiliateSettings: {
+            keywordSetIds: settings.affiliateSettings?.keywordSetIds || agent.settings?.affiliateSettings?.keywordSetIds || [],
+            includeHotProducts: settings.affiliateSettings?.includeHotProducts ?? agent.settings?.affiliateSettings?.includeHotProducts ?? true,
+            includeSmartMatch: settings.affiliateSettings?.includeSmartMatch ?? agent.settings?.affiliateSettings?.includeSmartMatch ?? true
+          }
         }),
         topics,
         keywords,

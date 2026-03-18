@@ -225,6 +225,44 @@ router.get('/products/hot', async (req, res) => {
   }
 });
 
+// Get AI-recommended products via Smart Match (Advanced API)
+router.get('/products/smart-match', async (req, res) => {
+  try {
+    const { keywords, productId, pageNo, pageSize, currency, country } = req.query;
+
+    if (!keywords && !productId) {
+      return res.status(400).json({ error: 'Either keywords or productId parameter is required' });
+    }
+
+    const credentials = await AffiliateCredentialManager.getCredentials(req.user.id);
+    if (!credentials) {
+      return res.status(400).json({ error: 'AE credentials not configured. Please set up your credentials first.' });
+    }
+
+    console.log(`[AFFILIATE] Smart Match for user ${req.user.id}, keywords: "${keywords || ''}", productId: "${productId || ''}"`)
+
+    const result = await AffiliateProductFetcher.getSmartMatchProducts(credentials, {
+      keywords: keywords || undefined,
+      productId: productId || undefined,
+      pageNo: parseInt(pageNo) || 1,
+      pageSize: Math.min(parseInt(pageSize) || 20, 50),
+      targetCurrency: currency || 'USD',
+      country: country || undefined
+    });
+
+    if (!result.success) {
+      console.error('[AFFILIATE] Smart Match API error:', result.error, result.errorCode || '');
+      return res.status(502).json({ error: result.error || 'AliExpress API error' });
+    }
+
+    console.log(`[AFFILIATE] Smart Match returned ${result.products?.length || 0} products`);
+    res.json(result);
+  } catch (error) {
+    console.error('[AFFILIATE] Error fetching smart match products:', error);
+    res.status(500).json({ error: 'Failed to fetch smart match products' });
+  }
+});
+
 // ============================================
 // KEYWORD MANAGEMENT
 // ============================================

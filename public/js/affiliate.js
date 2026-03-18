@@ -448,6 +448,11 @@ async function showKeywordModal(keyword = null) {
     document.getElementById('kwIncludeHashtags').checked = agentSettings.contentStyle?.includeHashtags ?? true;
     document.getElementById('kwLanguage').value = agentSettings.geoFilter?.contentLanguage || 'en';
 
+    // Product source toggles
+    const affSettings = agentSettings.affiliateSettings || {};
+    document.getElementById('kwIncludeHotProducts').checked = affSettings.includeHotProducts ?? true;
+    document.getElementById('kwIncludeSmartMatch').checked = affSettings.includeSmartMatch ?? true;
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
@@ -512,7 +517,11 @@ async function submitKeyword() {
     const selectedLanguage = document.getElementById('kwLanguage')?.value || 'en';
     const agentSettings = {
         contentSource: 'affiliate_products',
-        affiliateSettings: { keywordSetIds: [], includeHotProducts: false },
+        affiliateSettings: {
+            keywordSetIds: [],
+            includeHotProducts: document.getElementById('kwIncludeHotProducts')?.checked ?? true,
+            includeSmartMatch: document.getElementById('kwIncludeSmartMatch')?.checked ?? true
+        },
         topics: [],
         keywords: [],
         geoFilter: {
@@ -813,9 +822,11 @@ async function previewProducts(pageNo) {
     }
 }
 
-async function previewHotProducts() {
+async function previewHotProducts(pageNo) {
     const container = document.getElementById('productPreviewContainer');
     if (!container) return;
+
+    const page = pageNo || 1;
 
     container.innerHTML = `
         <div class="text-center py-8">
@@ -825,11 +836,19 @@ async function previewHotProducts() {
     `;
 
     try {
-        const data = await affApiGet('/api/affiliate/products/hot');
+        const data = await affApiGet(`/api/affiliate/products/hot?pageNo=${page}&pageSize=${_searchState.pageSize}`);
         const products = data.products || [];
+        const totalResults = data.totalResults || 0;
 
         for (const p of products) {
             _productCache[p.productId] = p;
+        }
+
+        const countEl = document.getElementById('searchResultsCount');
+        if (countEl) {
+            const start = (page - 1) * _searchState.pageSize + 1;
+            const end = start + products.length - 1;
+            countEl.textContent = totalResults > 0 ? `${start}-${end} of ${totalResults.toLocaleString()} hot products` : '';
         }
 
         if (products.length === 0) {
@@ -841,10 +860,22 @@ async function previewHotProducts() {
             return;
         }
 
+        const totalPages = Math.ceil(totalResults / _searchState.pageSize);
+
         container.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                ${products.map(p => renderProductCard(p)).join('')}
+                ${products.map(p => renderProductCard(p, 'hot')).join('')}
             </div>
+            ${totalPages > 1 ? `
+            <div class="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-surface-200">
+                <button onclick="previewHotProducts(${page - 1})" class="btn-secondary btn-sm ${page <= 1 ? 'opacity-30 pointer-events-none' : ''}" ${page <= 1 ? 'disabled' : ''}>
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Previous
+                </button>
+                <span class="text-sm text-ink-500">Page ${page} of ${totalPages.toLocaleString()}</span>
+                <button onclick="previewHotProducts(${page + 1})" class="btn-secondary btn-sm ${page >= totalPages ? 'opacity-30 pointer-events-none' : ''}" ${page >= totalPages ? 'disabled' : ''}>
+                    Next<svg class="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>` : ''}
         `;
     } catch (error) {
         container.innerHTML = `
@@ -856,15 +887,99 @@ async function previewHotProducts() {
     }
 }
 
+async function previewSmartMatch(pageNo, productId) {
+    const container = document.getElementById('productPreviewContainer');
+    if (!container) return;
+
+    const page = pageNo || 1;
+    const keywordsInput = document.getElementById('previewKeywords');
+    const keywords = keywordsInput?.value?.trim() || '';
+
+    if (!keywords && !productId) {
+        showToast('Enter keywords to get AI-recommended products, or click "Find Similar" on a product card.', 'error');
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="text-center py-8">
+            <div class="loader mx-auto mb-3" style="width:32px;height:32px;"></div>
+            <p class="text-ink-400 text-sm">${productId ? 'Finding similar products...' : 'Getting AI recommendations...'}</p>
+        </div>
+    `;
+
+    try {
+        let url = `/api/affiliate/products/smart-match?pageNo=${page}&pageSize=${_searchState.pageSize}`;
+        if (keywords) url += `&keywords=${encodeURIComponent(keywords)}`;
+        if (productId) url += `&productId=${encodeURIComponent(productId)}`;
+
+        const data = await affApiGet(url);
+        const products = data.products || [];
+        const totalResults = data.totalResults || 0;
+
+        for (const p of products) {
+            _productCache[p.productId] = p;
+        }
+
+        const countEl = document.getElementById('searchResultsCount');
+        if (countEl) {
+            const start = (page - 1) * _searchState.pageSize + 1;
+            const end = start + products.length - 1;
+            countEl.textContent = totalResults > 0 ? `${start}-${end} of ${totalResults.toLocaleString()} smart match results` : '';
+        }
+
+        if (products.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-ink-400">
+                    <p class="font-medium">No recommendations found</p>
+                    <p class="text-sm mt-1">Try different keywords or search for products first.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const totalPages = Math.ceil(totalResults / _searchState.pageSize);
+        const paginationFn = productId ? `previewSmartMatch(PAGE, '${escapeHtml(productId)}')` : 'previewSmartMatch(PAGE)';
+
+        container.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                ${products.map(p => renderProductCard(p, 'smart')).join('')}
+            </div>
+            ${totalPages > 1 ? `
+            <div class="flex items-center justify-center gap-4 mt-6 pt-4 border-t border-surface-200">
+                <button onclick="${paginationFn.replace('PAGE', page - 1)}" class="btn-secondary btn-sm ${page <= 1 ? 'opacity-30 pointer-events-none' : ''}" ${page <= 1 ? 'disabled' : ''}>
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Previous
+                </button>
+                <span class="text-sm text-ink-500">Page ${page} of ${totalPages.toLocaleString()}</span>
+                <button onclick="${paginationFn.replace('PAGE', page + 1)}" class="btn-secondary btn-sm ${page >= totalPages ? 'opacity-30 pointer-events-none' : ''}" ${page >= totalPages ? 'disabled' : ''}>
+                    Next<svg class="w-4 h-4 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>` : ''}
+        `;
+    } catch (error) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-red-400">
+                <p class="font-medium">Smart Match failed</p>
+                <p class="text-sm mt-1">${escapeHtml(error.message || 'Please try again.')}</p>
+            </div>
+        `;
+    }
+}
+
 // ============================================
 // PRODUCT CARDS (clickable → detail modal)
 // ============================================
 
-function renderProductCard(product) {
+function renderProductCard(product, source) {
     const discount = product.discount ? Math.round(product.discount) : 0;
     const commission = product.commissionRate ? product.commissionRate.toFixed(1) : '0';
     const rating = product.rating ? product.rating.toFixed(1) : 'N/A';
     const orders = product.totalOrders ? product.totalOrders.toLocaleString() : '0';
+
+    const sourceBadge = source === 'hot'
+        ? '<span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">Hot</span>'
+        : source === 'smart'
+        ? '<span class="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-medium">Smart Match</span>'
+        : '';
 
     return `
         <div class="card-gradient rounded-xl p-4 flex gap-4 cursor-pointer hover:shadow-md hover:border-brand-200 border border-transparent transition-all" onclick="openProductDetail('${escapeHtml(product.productId)}')">
@@ -872,7 +987,10 @@ function renderProductCard(product) {
                 ${product.imageUrl ? `<img src="${escapeHtml(product.imageUrl)}" alt="" class="w-full h-full object-cover" loading="lazy" onerror="this.style.display='none'">` : ''}
             </div>
             <div class="flex-1 min-w-0">
-                <h4 class="text-sm font-medium text-ink-800 line-clamp-2 mb-1">${escapeHtml(product.title || 'Untitled')}</h4>
+                <div class="flex items-center gap-2 mb-1">
+                    <h4 class="text-sm font-medium text-ink-800 line-clamp-2">${escapeHtml(product.title || 'Untitled')}</h4>
+                    ${sourceBadge}
+                </div>
                 <div class="flex items-center gap-2 mb-1">
                     ${product.originalPrice && product.originalPrice > product.salePrice ? `<span class="text-xs text-ink-400 line-through">$${product.originalPrice.toFixed(2)}</span>` : ''}
                     <span class="text-sm font-bold text-green-600">$${(product.salePrice || 0).toFixed(2)}</span>
@@ -882,6 +1000,7 @@ function renderProductCard(product) {
                     <span class="bg-green-50 text-green-700 px-1.5 py-0.5 rounded">${commission}% comm.</span>
                     <span>${rating} rating</span>
                     <span>${orders} orders</span>
+                    <button class="text-purple-600 hover:text-purple-800 font-medium hover:underline" onclick="event.stopPropagation(); previewSmartMatch(1, '${escapeHtml(product.productId)}')">Find Similar</button>
                 </div>
             </div>
             <div class="flex items-center flex-shrink-0">

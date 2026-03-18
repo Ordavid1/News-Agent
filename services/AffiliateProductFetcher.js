@@ -69,6 +69,46 @@ class AffiliateProductFetcher {
       allProducts.push(...products);
     }
 
+    const affiliateSettings = agent.settings?.affiliateSettings || {};
+
+    // 4b. Optionally fetch hot/trending products (Advanced API)
+    if (affiliateSettings.includeHotProducts !== false) {
+      try {
+        const hotResult = await service.getHotProducts({
+          pageSize: 20,
+          targetCurrency: keywordSets[0]?.target_currency || 'USD'
+        });
+        if (hotResult.success && hotResult.products?.length) {
+          logger.debug(`Hot products: fetched ${hotResult.products.length} products`);
+          allProducts.push(...hotResult.products);
+          await incrementAffiliateApiCalls(userId);
+        }
+      } catch (e) {
+        logger.warn(`Hot products fetch failed (non-blocking): ${e.message}`);
+      }
+    }
+
+    // 4c. Optionally fetch AI Smart Match recommendations (Advanced API)
+    if (affiliateSettings.includeSmartMatch !== false) {
+      try {
+        const keywords = keywordSets[0]?.keywords?.join(' ');
+        if (keywords) {
+          const smartResult = await service.getSmartMatchProducts({
+            keywords,
+            pageSize: 20,
+            targetCurrency: keywordSets[0]?.target_currency || 'USD'
+          });
+          if (smartResult.success && smartResult.products?.length) {
+            logger.debug(`Smart Match: fetched ${smartResult.products.length} products for "${keywords}"`);
+            allProducts.push(...smartResult.products);
+            await incrementAffiliateApiCalls(userId);
+          }
+        }
+      } catch (e) {
+        logger.warn(`Smart Match fetch failed (non-blocking): ${e.message}`);
+      }
+    }
+
     // 5. Filter out already published products
     allProducts = allProducts.filter(p => !publishedIdSet.has(p.productId));
 
@@ -209,6 +249,17 @@ class AffiliateProductFetcher {
   static async getFeaturedProducts(credentials, options = {}) {
     const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
     return await service.getFeaturedProducts(options);
+  }
+
+  /**
+   * Get AI-recommended products via Smart Match (Advanced API)
+   * @param {object} credentials - User credential record { trackingId, sessionToken }
+   * @param {object} options - { keywords, productId, pageNo, pageSize, targetCurrency, country }
+   * @returns {object} { success, products, totalResults }
+   */
+  static async getSmartMatchProducts(credentials, options = {}) {
+    const service = new AliExpressService(credentials.trackingId, credentials.sessionToken || null);
+    return await service.getSmartMatchProducts(options);
   }
 
   /**

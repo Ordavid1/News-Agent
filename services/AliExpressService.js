@@ -263,6 +263,59 @@ class AliExpressService {
   }
 
   /**
+   * Get AI-recommended products via Smart Match
+   * Uses aliexpress.affiliate.product.smartmatch (Advanced API)
+   * Returns contextually relevant products based on keywords, product_id, or device context.
+   * @param {object} options
+   * @param {string} [options.keywords] - Search keywords for recommendation
+   * @param {string} [options.productId] - Product ID to find similar products
+   * @param {string} [options.country] - Shipping country filter
+   * @param {string} [options.deviceId] - Device ID for personalization (can be null)
+   * @param {string} [options.device] - Device model
+   * @param {string} [options.app] - App name
+   * @param {number} [options.pageNo=1]
+   * @param {number} [options.pageSize=20] - Max 50
+   * @param {string} [options.targetCurrency='USD']
+   * @param {string} [options.targetLanguage='en']
+   * @returns {object} { success, products: NormalizedProduct[], totalResults, pageNo, pageSize }
+   */
+  async getSmartMatchProducts(options = {}) {
+    const params = {
+      target_currency: options.targetCurrency || 'USD',
+      target_language: options.targetLanguage || 'en',
+      page_no: options.pageNo || 1,
+      page_size: Math.min(options.pageSize || 20, 50)
+    };
+
+    if (this.trackingId) params.tracking_id = this.trackingId;
+    if (options.keywords) params.keywords = options.keywords;
+    if (options.productId) params.product_id = options.productId;
+    if (options.country) params.country = options.country;
+    if (options.deviceId) params.device_id = options.deviceId;
+    if (options.device) params.device = options.device;
+    if (options.app) params.app = options.app;
+
+    params.fields = 'product_id,product_title,product_detail_url,product_main_image_url,product_small_image_urls,app_sale_price,app_sale_price_currency,original_price,original_price_currency,discount,evaluate_rate,lastest_volume,shop_url,shop_id,commission_rate,promotion_link,first_level_category_name,second_level_category_name';
+
+    const result = await this._makeApiCall('aliexpress.affiliate.product.smartmatch', params);
+
+    if (!result.success) return result;
+
+    const responseKey = 'aliexpress_affiliate_product_smartmatch_response';
+    const responseData = result.data[responseKey] || result.data;
+    const productsField = responseData?.resp_result?.result?.products;
+    const rawProducts = Array.isArray(productsField) ? productsField : (productsField?.product || []);
+
+    return {
+      success: true,
+      products: Array.isArray(rawProducts) ? rawProducts.map(p => this._normalizeProduct(p)) : [],
+      totalResults: responseData?.resp_result?.result?.total_record_count || 0,
+      pageNo: params.page_no,
+      pageSize: params.page_size
+    };
+  }
+
+  /**
    * Get featured/promo products — supports richer sort options including commission
    * Uses aliexpress.affiliate.featuredpromo.products.get
    * @param {object} options
@@ -587,7 +640,11 @@ class AliExpressService {
         endTime: promoCodeInfo.code_endtime || null
       } : null,
       // Affiliate URL is populated separately via generateAffiliateLinks
-      affiliateUrl: raw.promotion_link || null
+      affiliateUrl: raw.promotion_link || null,
+      // Smart Match / Hot Products extra fields (0/null for regular search results)
+      hotCommissionRate: parseFloat(raw.hot_product_commission_rate || '0'),
+      relevantMarketCommissionRate: parseFloat(raw.relevant_market_commission_rate || '0'),
+      skuId: raw.sku_id || null
     };
   }
 

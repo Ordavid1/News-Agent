@@ -2005,10 +2005,8 @@
                             <div class="flex gap-3">
                                 <input type="text" id="previewKeywords" class="input-field flex-1" placeholder="Search keywords (e.g., wireless earbuds, phone cases)" onkeydown="if(event.key==='Enter')previewProducts(1)">
                                 <button onclick="previewProducts(1)" class="btn-primary btn-sm whitespace-nowrap">Search</button>
-                                <button disabled class="btn-secondary btn-sm whitespace-nowrap opacity-50 cursor-not-allowed relative group">
-                                    Hot Products
-                                    <span class="absolute -top-8 left-1/2 -translate-x-1/2 bg-ink-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">Coming Soon</span>
-                                </button>
+                                <button onclick="previewHotProducts(1)" class="btn-secondary btn-sm whitespace-nowrap">Hot Products</button>
+                                <button onclick="previewSmartMatch(1)" class="btn-secondary btn-sm whitespace-nowrap">Smart Match</button>
                             </div>
                             <div class="flex items-center gap-3 flex-wrap">
                                 <label class="text-xs text-ink-500 whitespace-nowrap">Sort by:</label>
@@ -2202,6 +2200,22 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Product Sources -->
+                    <div class="mt-4">
+                        <p class="text-sm font-medium text-ink-600 mb-2">Product Sources</p>
+                        <div class="flex flex-col gap-2">
+                            <label class="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
+                                <input type="checkbox" id="kwIncludeHotProducts" class="checkbox" checked>
+                                <span>Include Hot/Trending Products</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-sm text-ink-600 cursor-pointer">
+                                <input type="checkbox" id="kwIncludeSmartMatch" class="checkbox" checked>
+                                <span>Include AI Smart Match Recommendations</span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-ink-400 mt-1">When enabled, the agent mixes keyword search results with hot products and AI-recommended products for better variety.</p>
                     </div>
 
                     <div class="flex gap-3 mt-6 pt-4 border-t border-surface-200">
