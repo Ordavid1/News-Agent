@@ -210,6 +210,19 @@ class NewsService {
       logger.info(`Filtered ${allNews.length} articles down to ${filteredNews.length} using keywords`);
     }
 
+    // Filter out articles in wrong language (e.g. Japanese article when expecting English)
+    if (effectiveLanguage === 'en') {
+      const beforeLangFilter = filteredNews.length;
+      filteredNews = filteredNews.filter(article => {
+        const title = article.title || '';
+        // Reject if title contains CJK, Arabic, Cyrillic, or Hebrew characters (when expecting English)
+        return !/[\u3000-\u9FFF\u4E00-\u9FFF\uAC00-\uD7AF\u0600-\u06FF\u0400-\u04FF\u0590-\u05FF]/.test(title);
+      });
+      if (filteredNews.length < beforeLangFilter) {
+        logger.info(`Filtered ${beforeLangFilter - filteredNews.length} non-English articles from results`);
+      }
+    }
+
     // Deduplicate and sort by relevance/date
     const uniqueNews = this.deduplicateNews(filteredNews);
     const sortedNews = this.sortNews(uniqueNews, sortBy);
@@ -330,7 +343,7 @@ class NewsService {
     const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
+    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
 
     const params = {
       q: query,
@@ -381,7 +394,7 @@ class NewsService {
     const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 7); // Last 7 days
+    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
     const toDate = new Date();
 
     const params = {
@@ -518,7 +531,7 @@ class NewsService {
     const keywords = searchQueries.length > 0 ? searchQueries : [topic];
 
     const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 7);
+    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
 
     const requestBody = {
       action: 'getArticles',
@@ -624,19 +637,23 @@ class NewsService {
   }
 
   deduplicateNews(articles) {
-    const seen = new Map();
+    const seenTitles = new Set();
+    const seenUrls = new Set();
     const unique = [];
-    
+
     for (const article of articles) {
-      // Create a normalized key from title
-      const key = article.title.toLowerCase().replace(/[^\w\s]/g, '').substring(0, 50);
-      
-      if (!seen.has(key)) {
-        seen.set(key, true);
-        unique.push(article);
+      const titleKey = article.title.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      const urlKey = article.url ? article.url.split('?')[0].toLowerCase() : null;
+
+      if (seenTitles.has(titleKey) || (urlKey && seenUrls.has(urlKey))) {
+        continue;
       }
+
+      seenTitles.add(titleKey);
+      if (urlKey) seenUrls.add(urlKey);
+      unique.push(article);
     }
-    
+
     return unique;
   }
 

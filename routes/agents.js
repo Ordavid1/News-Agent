@@ -23,6 +23,7 @@ import {
 import { authenticateToken } from '../middleware/auth.js';
 import ContentGenerator from '../services/ContentGenerator.js';
 import trendAnalyzer from '../services/TrendAnalyzer.js';
+import ArticleDeduplicationService from '../services/ArticleDeduplicationService.js';
 import { publishToTwitter, publishToLinkedIn, publishToReddit, publishToFacebook, publishToTelegram, publishToWhatsApp, publishToInstagram, publishToThreads, publishToTikTok, publishToYouTube } from '../services/PublishingService.js';
 import ImageExtractor from '../services/ImageExtractor.js';
 import testProgressEmitter from '../services/TestProgressEmitter.js';
@@ -804,9 +805,22 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         });
 
         scored.sort((a, b) => b.calculatedScore - a.calculatedScore);
-        trendData = scored[0];
 
-        console.log(`[Agent Test] Selected article: "${trendData.title}"`);
+        // Weighted random selection from top candidates for variety across test runs
+        const topCandidates = scored.slice(0, Math.min(5, scored.length));
+        const totalScore = topCandidates.reduce((sum, t) => sum + t.calculatedScore, 0);
+        const random = Math.random() * totalScore;
+        let cumulative = 0;
+        trendData = topCandidates[topCandidates.length - 1];
+        for (const candidate of topCandidates) {
+          cumulative += candidate.calculatedScore;
+          if (random <= cumulative) {
+            trendData = candidate;
+            break;
+          }
+        }
+
+        console.log(`[Agent Test] Selected article: "${trendData.title}" (from ${scored.length} candidates, top 5 scores: ${topCandidates.map(t => t.calculatedScore).join(', ')})`);
       } else {
         const searchDescription = topics.length > 0
           ? `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`
@@ -1129,6 +1143,22 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       } catch (e) {
         console.warn('[Agent Test] Failed to increment agent post count:', e);
       }
+    }
+
+    // Track article in dedup system so automation cycle won't reuse same article/topic
+    try {
+      const { supabaseAdmin } = await import('../services/supabase.js');
+      const articleDedup = new ArticleDeduplicationService(supabaseAdmin);
+      await articleDedup.markArticleUsed(agentId, {
+        url: trendData.url,
+        title: trendData.title || trendData.topic,
+        description: trendData.description,
+        publishedAt: trendData.publishedAt,
+        source: trendData.source
+      });
+      console.log(`[Agent Test] Marked article in dedup system: "${trendData.title?.substring(0, 50)}..."`);
+    } catch (e) {
+      console.warn('[Agent Test] Failed to mark article in dedup system:', e.message);
     }
 
     // Mark test as used (one-time per agent) - do this regardless of success

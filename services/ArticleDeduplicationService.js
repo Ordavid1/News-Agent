@@ -10,6 +10,7 @@
  */
 
 import winston from 'winston';
+import OpenAI from 'openai';
 import ArticleFingerprintService from './ArticleFingerprintService.js';
 
 const logger = winston.createLogger({
@@ -28,13 +29,18 @@ class ArticleDeduplicationService {
     this.db = db;
     this.fingerprintService = new ArticleFingerprintService();
 
+    // Initialize OpenAI for topic+context analysis
+    const apiKey = process.env.OPENAI_API_KEY;
+    this.openai = apiKey ? new OpenAI({ apiKey }) : null;
+
     // Configuration - can be overridden via environment variables
     this.config = {
       cooldownHours: parseInt(process.env.ARTICLE_DEDUP_COOLDOWN_HOURS) || 24,
       similarityWindowHours: parseInt(process.env.ARTICLE_DEDUP_SIMILARITY_WINDOW) || 48,
       maxSimilarityResults: 100,
       keywordOverlapThreshold: parseFloat(process.env.ARTICLE_DEDUP_KEYWORD_OVERLAP) || 0.5,
-      entityOverlapThreshold: parseFloat(process.env.ARTICLE_DEDUP_ENTITY_OVERLAP) || 0.6
+      entityOverlapThreshold: parseFloat(process.env.ARTICLE_DEDUP_ENTITY_OVERLAP) || 0.6,
+      topicContextWindowHours: parseInt(process.env.ARTICLE_DEDUP_TOPIC_CONTEXT_WINDOW) || 72
     };
 
     logger.info(`ArticleDeduplicationService initialized with config: ${JSON.stringify(this.config)}`);
@@ -75,6 +81,17 @@ class ArticleDeduplicationService {
           canUse: false,
           reason: 'similar_story',
           message: `Similar story already used: "${similarMatch.title?.substring(0, 60)}..."`
+        };
+      }
+
+      // 3. Check topic+context overlap (LLM-generated semantic summary)
+      const topicContextMatch = await this.checkTopicContextOverlap(agentId, article);
+      if (topicContextMatch) {
+        logger.debug(`Article blocked - same topic+context: "${article.title?.substring(0, 50)}..." overlaps with "${topicContextMatch.title?.substring(0, 50)}..."`);
+        return {
+          canUse: false,
+          reason: 'topic_context_overlap',
+          message: `Same topic already covered: "${topicContextMatch.topicContext}"`
         };
       }
 
@@ -174,12 +191,120 @@ class ArticleDeduplicationService {
   }
 
   /**
+   * Generate a ~100 char topic+context summary using gpt-5-nano
+   * @param {Object} article - Article with title, description, content
+   * @returns {string|null} Topic+context string or null on failure
+   */
+  async generateTopicContext(article) {
+    if (!this.openai) {
+      logger.debug('OpenAI not available, skipping topic+context generation');
+      return null;
+    }
+
+    const title = article.title || '';
+    const description = article.description || '';
+    const snippet = `${title}. ${description}`.substring(0, 500);
+
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-5-nano',
+        messages: [
+          {
+            role: 'system',
+            content: 'You extract the core topic and context of news articles. Respond with ONLY a concise topic+context label, max 100 characters. Format: "[specific subject] — [key context/angle]". Examples: "NFL 2026 Draft WR prospects — rankings and predictions", "Tesla Q4 earnings — revenue miss and stock impact", "Israel-Iran tensions — diplomatic response to drone strikes"'
+          },
+          {
+            role: 'user',
+            content: snippet
+          }
+        ],
+        max_completion_tokens: 60,
+        temperature: 0
+      });
+
+      const topicContext = completion.choices[0]?.message?.content?.trim();
+      if (topicContext && topicContext.length <= 150) {
+        logger.debug(`Generated topic+context: "${topicContext}" for "${title.substring(0, 50)}..."`);
+        return topicContext;
+      }
+      return topicContext ? topicContext.substring(0, 150) : null;
+    } catch (error) {
+      logger.error(`Error generating topic+context: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Check if an article's topic+context overlaps with recently used articles
+   * Generates a topic+context for the candidate article, then compares against stored ones
+   * @param {string} agentId - Agent ID
+   * @param {Object} article - Article to check
+   * @returns {Object|null} Match details or null
+   */
+  async checkTopicContextOverlap(agentId, article) {
+    if (!this.openai) return null;
+
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - this.config.topicContextWindowHours);
+
+    // Fetch recent topic_context values for this agent
+    const { data, error } = await this.db
+      .from('agent_article_usage')
+      .select('topic_context, article_title')
+      .eq('agent_id', agentId)
+      .not('topic_context', 'is', null)
+      .gt('used_at', cutoff.toISOString())
+      .order('used_at', { ascending: false })
+      .limit(50);
+
+    if (error || !data || data.length === 0) {
+      return null;
+    }
+
+    // Generate topic+context for the candidate article
+    const candidateContext = await this.generateTopicContext(article);
+    if (!candidateContext) return null;
+
+    // Temporarily store on article for later use in markArticleUsed
+    article._topicContext = candidateContext;
+
+    // Compare: normalize both strings and check for high token overlap
+    const candidateTokens = new Set(candidateContext.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(t => t.length > 2));
+
+    for (const record of data) {
+      const existingTokens = new Set(record.topic_context.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(t => t.length > 2));
+
+      // Calculate overlap
+      let common = 0;
+      for (const token of candidateTokens) {
+        if (existingTokens.has(token)) common++;
+      }
+      const smaller = Math.min(candidateTokens.size, existingTokens.size);
+      const overlap = smaller > 0 ? common / smaller : 0;
+
+      // 70% token overlap = same topic
+      if (overlap >= 0.7) {
+        logger.info(`Topic+context overlap ${(overlap * 100).toFixed(0)}%: "${candidateContext}" ≈ "${record.topic_context}"`);
+        return {
+          match: true,
+          topicContext: record.topic_context,
+          title: record.article_title,
+          overlap
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Mark an article as used by an agent
    * @param {string} agentId - Agent ID
    * @param {Object} article - Article with url, title, publishedAt, source
+   * @param {string} [topicContext] - Optional pre-generated topic+context
    * @returns {boolean} Success status
    */
-  async markArticleUsed(agentId, article) {
+  async markArticleUsed(agentId, article, topicContext = null) {
     if (!agentId || !article?.url) {
       logger.warn('markArticleUsed called with missing agentId or article URL');
       return false;
@@ -190,6 +315,9 @@ class ArticleDeduplicationService {
     const publishedDate = article.publishedAt
       ? new Date(article.publishedAt).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0];
+
+    // Use pre-generated topic_context from dedup check, or generate now
+    const resolvedTopicContext = topicContext || article._topicContext || await this.generateTopicContext(article);
 
     try {
       const { error } = await this.db
@@ -202,7 +330,8 @@ class ArticleDeduplicationService {
           article_title: article.title || null,
           article_source: article.source?.name || article.source || 'unknown',
           published_date: publishedDate,
-          used_at: new Date().toISOString()
+          used_at: new Date().toISOString(),
+          topic_context: resolvedTopicContext
         }, {
           onConflict: 'agent_id,article_url_hash',
           ignoreDuplicates: false // Update timestamp on re-use attempt
@@ -237,6 +366,7 @@ class ArticleDeduplicationService {
     const results = [];
     let blockedExact = 0;
     let blockedSimilar = 0;
+    let blockedTopicContext = 0;
 
     for (const article of articles) {
       const check = await this.checkArticleUsability(agentId, article);
@@ -245,12 +375,13 @@ class ArticleDeduplicationService {
       } else {
         if (check.reason === 'exact_url_reuse') blockedExact++;
         if (check.reason === 'similar_story') blockedSimilar++;
+        if (check.reason === 'topic_context_overlap') blockedTopicContext++;
         logger.debug(`Filtered out article (${check.reason}): "${article.title?.substring(0, 50)}..."`);
       }
     }
 
-    if (blockedExact > 0 || blockedSimilar > 0) {
-      logger.info(`Agent ${agentId}: Filtered ${articles.length} -> ${results.length} articles (${blockedExact} exact URL, ${blockedSimilar} similar story)`);
+    if (blockedExact > 0 || blockedSimilar > 0 || blockedTopicContext > 0) {
+      logger.info(`Agent ${agentId}: Filtered ${articles.length} -> ${results.length} articles (${blockedExact} exact URL, ${blockedSimilar} similar story, ${blockedTopicContext} topic overlap)`);
     }
 
     return results;

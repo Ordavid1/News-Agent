@@ -182,8 +182,13 @@ export async function checkVideoQuota(userId, subscription) {
   const now = new Date();
   const videoResetDate = subscription.videoResetDate ? new Date(subscription.videoResetDate) : new Date(0);
 
-  // Check if monthly reset is needed
-  if (now >= videoResetDate) {
+  // Detect uninitialized video quota: tier allows videos but quota was never set
+  // (e.g., subscription upgraded without setting video fields)
+  const currentMonthlyLimit = subscription.videoMonthlyLimit ?? 0;
+  const quotaUninitialized = currentMonthlyLimit !== limit;
+
+  // Reset quota if monthly cycle expired OR if quota was never initialized for this tier
+  if (now >= videoResetDate || quotaUninitialized) {
     const nextReset = getMonthlyVideoResetDate();
     await updateUser(userId, {
       'subscription.videosRemaining': limit,
