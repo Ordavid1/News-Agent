@@ -218,8 +218,7 @@ class ArticleDeduplicationService {
             content: snippet
           }
         ],
-        max_completion_tokens: 60,
-        temperature: 0
+        max_completion_tokens: 60
       });
 
       const topicContext = completion.choices[0]?.message?.content?.trim();
