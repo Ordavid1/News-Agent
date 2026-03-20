@@ -474,12 +474,19 @@ router.get('/portal', async (req, res) => {
     const subscription = await getSubscription(req.user.id);
     console.log('[PORTAL] Subscription found:', !!subscription?.lsSubscriptionId);
     console.log('[PORTAL] lsSubscriptionId value:', subscription?.lsSubscriptionId);
+    console.log('[PORTAL] lsCustomerId value:', subscription?.lsCustomerId);
     console.log('[PORTAL] Subscription tier:', subscription?.tier);
+    console.log('[PORTAL] Subscription status:', subscription?.status);
 
     if (!subscription?.lsSubscriptionId) {
       console.log('[PORTAL] No lsSubscriptionId found');
       return res.status(404).json({ error: 'No active subscription found' });
     }
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
 
     // Validate & recover the LS subscription ID if needed
     const validation = await validateOrRecoverLsSubscription(
@@ -487,18 +494,44 @@ router.get('/portal', async (req, res) => {
       req.user.id
     );
 
-    if (validation.stale) {
-      return res.status(410).json({ error: validation.reason, stale: true });
+    let portalUrl = null;
+
+    if (validation.valid) {
+      portalUrl = validation.lsData.data.attributes.urls?.customer_portal;
+      console.log('[PORTAL] Portal URL from subscription:', portalUrl ? 'found' : 'not available');
+    } else {
+      console.log('[PORTAL] Subscription validation failed:', validation.stale ? 'stale' : 'error', validation.reason);
     }
 
-    if (validation.error) {
-      return res.status(502).json({ error: validation.reason });
+    // Fallback: fetch portal URL from the LS customer object directly
+    // (works even when the subscription is cancelled/expired in LS)
+    if (!portalUrl && subscription.lsCustomerId) {
+      console.log('[PORTAL] Attempting fallback via customer API, customerId:', subscription.lsCustomerId);
+      try {
+        const customerResponse = await fetch(
+          `https://api.lemonsqueezy.com/v1/customers/${subscription.lsCustomerId}`,
+          { headers: lsHeaders }
+        );
+        if (customerResponse.ok) {
+          const customerData = await customerResponse.json();
+          portalUrl = customerData.data?.attributes?.urls?.customer_portal;
+          console.log('[PORTAL] Portal URL from customer:', portalUrl ? 'found' : 'not available');
+        } else {
+          console.warn('[PORTAL] Customer API failed:', customerResponse.status);
+        }
+      } catch (custErr) {
+        console.error('[PORTAL] Customer API error:', custErr.message);
+      }
     }
-
-    const portalUrl = validation.lsData.data.attributes.urls?.customer_portal;
 
     if (!portalUrl) {
-      return res.status(404).json({ error: 'Customer portal not available' });
+      const errorMsg = validation.stale
+        ? 'Your subscription data is out of sync. Please contact support.'
+        : 'Customer portal not available';
+      return res.status(validation.stale ? 410 : 404).json({
+        error: errorMsg,
+        stale: validation.stale || false
+      });
     }
 
     res.json({ portalUrl });
@@ -856,6 +889,15 @@ router.post('/downgrade-to-free', async (req, res) => {
     if (subscription.lsSubscriptionId) {
       console.log('[DOWNGRADE] Processing LS subscription:', subscription.lsSubscriptionId);
 
+      // Mark the subscription record as expired BEFORE calling LS DELETE,
+      // so that incoming webhooks (subscription_cancelled, subscription_updated, etc.)
+      // triggered by the DELETE see the expired status and skip overwriting
+      await updateSubscriptionRecord(subscription.lsSubscriptionId, {
+        status: 'expired',
+        cancelAtPeriodEnd: false
+      });
+      console.log('[DOWNGRADE] Subscription record marked as expired (pre-DELETE)');
+
       try {
         // Validate & find the correct LS subscription ID
         const validation = await validateOrRecoverLsSubscription(
@@ -869,14 +911,18 @@ router.post('/downgrade-to-free', async (req, res) => {
           const renewsAt = lsAttrs.renews_at;
 
           // --- Pro-rata refund calculation ---
-          // Fetch the latest paid invoice for this subscription
+          // Fetch invoices for this subscription (filter/sort in code to avoid LS API 400 errors)
           try {
-            const invoiceUrl = `https://api.lemonsqueezy.com/v1/subscription-invoices?filter[subscription_id]=${validSubId}&filter[status]=paid&sort=-created_at&page[size]=1`;
+            const invoiceUrl = `https://api.lemonsqueezy.com/v1/subscription-invoices?filter[subscription_id]=${validSubId}`;
             const invoiceResponse = await fetch(invoiceUrl, { headers: lsHeaders });
 
             if (invoiceResponse.ok) {
               const invoiceData = await invoiceResponse.json();
-              const latestInvoice = invoiceData.data?.[0];
+              // Find the latest paid invoice (sort by created_at descending, filter status=paid)
+              const paidInvoices = (invoiceData.data || [])
+                .filter(inv => inv.attributes?.status === 'paid')
+                .sort((a, b) => new Date(b.attributes.created_at) - new Date(a.attributes.created_at));
+              const latestInvoice = paidInvoices[0];
 
               if (latestInvoice && renewsAt) {
                 const invoiceId = latestInvoice.id;
@@ -953,13 +999,8 @@ router.post('/downgrade-to-free', async (req, res) => {
       }
     }
 
-    // Mark the subscription record as expired
-    if (subscription.lsSubscriptionId) {
-      await updateSubscriptionRecord(subscription.lsSubscriptionId, {
-        status: 'expired',
-        cancelAtPeriodEnd: false
-      });
-    }
+    // If there was no LS subscription, still mark expired in the subscriptions table
+    // (LS subscriptions were already marked expired before the DELETE call above)
 
     // Calculate weekly reset date for free tier
     const now = new Date();
@@ -2153,6 +2194,13 @@ async function handleSubscriptionUpdated(payload) {
     return;
   }
 
+  // If the subscription was already marked as expired by downgrade-to-free,
+  // do not let incoming LS webhooks overwrite the downgrade
+  if (subscription.status === 'expired') {
+    console.log(`[WEBHOOK] Ignoring subscription_updated for expired subscription ${subscriptionId} (already downgraded)`);
+    return;
+  }
+
   // Determine new tier from variant ID
   const variantId = String(subscriptionData.variant_id);
   let newTier = subscription.tier;
@@ -2212,6 +2260,13 @@ async function handleSubscriptionCancelled(payload) {
     return;
   }
 
+  // If the subscription was already marked as expired by downgrade-to-free,
+  // do not let incoming LS webhooks overwrite the downgrade
+  if (subscription.status === 'expired') {
+    console.log(`[WEBHOOK] Ignoring subscription_cancelled for expired subscription ${subscriptionId} (already downgraded)`);
+    return;
+  }
+
   // Update subscriptions table
   await updateSubscriptionRecord(subscriptionId, {
     status: 'cancelled',
@@ -2240,6 +2295,13 @@ async function handleSubscriptionResumed(payload) {
 
   if (!subscription) {
     console.error(`Subscription not found for LS ID: ${subscriptionId}`);
+    return;
+  }
+
+  // If the subscription was already marked as expired by downgrade-to-free,
+  // do not let incoming LS webhooks overwrite the downgrade
+  if (subscription.status === 'expired') {
+    console.log(`[WEBHOOK] Ignoring subscription_resumed for expired subscription ${subscriptionId} (already downgraded)`);
     return;
   }
 
