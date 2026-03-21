@@ -592,8 +592,8 @@ ${sourceText.slice(0, 2500)}
 YOUR STORYLINE MUST CAPTURE:
 1. NARRATIVE ARC: What happened, who is involved, what's at stake, and what's the outcome or tension
 2. TONE & MOOD: Is this urgent/breaking? Hopeful/inspiring? Somber/tragic? Exciting/revolutionary? Convey the emotional register
-3. PRIMARY CONTEXT WORLD: The main domain this story lives in (e.g., Technology, Sports, Politics, Health) — this will drive the visual focus
-4. SECONDARY CONTEXT: Any background context that adds depth (e.g., a sports story with geopolitical tensions, a tech story with environmental impact)
+3. KEY PLAYERS & SETTING: Who are the central figures? Describe the physical setting where this story takes place — the specific venue, location, or environment
+4. CAUSE & CONSEQUENCE: What caused this event and what are its consequences? What changed or is at stake?
 5. VISUAL ANCHORS: Mention specific settings, people, objects, or scenes described in the article that could be visually represented
 6. WHY IT MATTERS: The broader significance — what makes this story compelling, what creates FOMO for viewers who might scroll past
 

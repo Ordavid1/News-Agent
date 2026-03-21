@@ -24,7 +24,7 @@ const logger = winston.createLogger({
 const SCENE_CATEGORIES = {
   politics: {
     keywords: [
-      'election', 'president', 'congress', 'senate', 'parliament', 'government', 'law', 'policy', 'vote', 'legislation', 'diplomat', 'treaty', 'political', 'minister', 'chancellor', 'governor', 'mayor', 'democratic', 'republican', 'coalition', 'opposition',
+      'election', 'president', 'congress', 'senate', 'parliament', 'government', 'law', 'policy', 'vote', 'legislation', 'diplomat', 'treaty', 'political', 'minister', 'chancellor', 'governor', 'mayor', 'democratic', 'republican', 'coalition', 'opposition', 'white house', 'supreme court', 'executive order', 'campaign', 'bipartisan', 'constitutional', 'ballot', 'swing state', 'impeach', 'veto', 'caucus', 'referendum',
       'בחירות', 'נשיא', 'כנסת', 'ממשלה', 'חוק', 'מדיניות', 'הצבעה', 'חקיקה', 'דיפלומט', 'שר', 'ראש ממשלה', 'קואליציה', 'אופוזיציה', 'מפלגה', 'שלטון', 'פוליטי', 'פרלמנט'
     ],
     lighting: 'natural institutional lighting with warm undertones',
@@ -35,7 +35,7 @@ const SCENE_CATEGORIES = {
   },
   technology: {
     keywords: [
-      'ai', 'artificial intelligence', 'software', 'startup', 'app', 'robot', 'digital', 'cyber', 'data', 'algorithm', 'chip', 'semiconductor', 'cloud', 'quantum', 'blockchain', 'tech', 'innovation', 'silicon valley', 'computing', 'neural', 'machine learning', 'automation',
+      'ai', 'artificial intelligence', 'software', 'startup', 'app', 'robot', 'digital', 'cyber', 'data', 'algorithm', 'chip', 'semiconductor', 'cloud', 'quantum', 'blockchain', 'tech', 'innovation', 'silicon valley', 'computing', 'neural', 'machine learning', 'automation', 'chatbot', 'gpu', 'saas', 'open source', 'generative', 'llm', 'deepfake', 'metaverse', 'cryptocurrency',
       'בינה מלאכותית', 'תוכנה', 'סטארטאפ', 'אפליקציה', 'רובוט', 'דיגיטל', 'סייבר', 'מידע', 'אלגוריתם', 'שבב', 'ענן', 'בלוקצ\'יין', 'טכנולוגיה', 'חדשנות', 'מחשוב', 'הייטק'
     ],
     lighting: 'clean modern lighting with cool blue and white tones',
@@ -46,7 +46,7 @@ const SCENE_CATEGORIES = {
   },
   business: {
     keywords: [
-      'market', 'stock', 'economy', 'trade', 'ceo', 'company', 'revenue', 'profit', 'merger', 'acquisition', 'ipo', 'investment', 'bank', 'finance', 'gdp', 'inflation', 'corporate', 'earnings', 'wall street', 'nasdaq', 'dow',
+      'market', 'stock', 'economy', 'trade', 'ceo', 'company', 'revenue', 'profit', 'merger', 'acquisition', 'ipo', 'investment', 'bank', 'finance', 'gdp', 'inflation', 'corporate', 'earnings', 'wall street', 'nasdaq', 'dow', 'layoff', 'recession', 'bankruptcy', 'shareholder', 'quarterly', 'valuation', 'dividend', 'tariff', 'subsidy',
       'שוק', 'מניה', 'כלכלה', 'סחר', 'מנכ"ל', 'חברה', 'הכנסות', 'רווח', 'מיזוג', 'רכישה', 'השקעה', 'בנק', 'פיננסי', 'אינפלציה', 'בורסה', 'תאגיד', 'עסקים'
     ],
     lighting: 'professional warm lighting, clean and polished',
@@ -57,7 +57,7 @@ const SCENE_CATEGORIES = {
   },
   science: {
     keywords: [
-      'research', 'study', 'scientist', 'discovery', 'space', 'nasa', 'climate', 'environment', 'biology', 'physics', 'chemistry', 'medical', 'experiment', 'journal', 'peer-reviewed', 'telescope', 'genome', 'evolution', 'species', 'laboratory',
+      'research', 'study', 'scientist', 'discovery', 'space', 'nasa', 'climate', 'environment', 'biology', 'physics', 'chemistry', 'medical', 'experiment', 'journal', 'peer-reviewed', 'telescope', 'genome', 'evolution', 'species', 'laboratory', 'astronomy', 'dna', 'molecule', 'mars', 'satellite', 'fossil', 'clinical trial', 'hypothesis', 'observatory',
       'מחקר', 'מדען', 'גילוי', 'חלל', 'אקלים', 'סביבה', 'ביולוגיה', 'פיזיקה', 'כימיה', 'ניסוי', 'מעבדה', 'טלסקופ', 'גנום', 'מדע', 'אוניברסיטה'
     ],
     lighting: 'soft natural or laboratory lighting with precise highlights',
@@ -68,7 +68,7 @@ const SCENE_CATEGORIES = {
   },
   health: {
     keywords: [
-      'health', 'disease', 'virus', 'hospital', 'doctor', 'patient', 'treatment', 'vaccine', 'drug', 'fda', 'clinical', 'symptom', 'pandemic', 'epidemic', 'mental health', 'therapy', 'surgery', 'pharmaceutical', 'wellness', 'diagnosis',
+      'health', 'disease', 'virus', 'hospital', 'doctor', 'patient', 'treatment', 'vaccine', 'drug', 'fda', 'clinical', 'symptom', 'pandemic', 'epidemic', 'mental health', 'therapy', 'surgery', 'pharmaceutical', 'wellness', 'diagnosis', 'cdc', 'nurse', 'outbreak', 'prescription', 'medicaid', 'medicare', 'oncology', 'cardiology',
       'בריאות', 'מחלה', 'וירוס', 'בית חולים', 'רופא', 'מטופל', 'טיפול', 'חיסון', 'תרופה', 'קליני', 'מגפה', 'בריאות הנפש', 'ניתוח', 'אבחון', 'רפואה'
     ],
     lighting: 'soft warm lighting with clinical precision where needed',
@@ -79,7 +79,7 @@ const SCENE_CATEGORIES = {
   },
   sports: {
     keywords: [
-      'game', 'match', 'team', 'player', 'coach', 'season', 'championship', 'tournament', 'score', 'goal', 'victory', 'defeat', 'athlete', 'olympic', 'league', 'nba', 'nfl', 'mlb', 'nhl', 'mls', 'fifa', 'tennis', 'soccer', 'football', 'baseball', 'basketball', 'hockey', 'boxing', 'ufc', 'rugby', 'cricket', 'golf', 'swimming', 'track', 'marathon', 'draft', 'roster', 'playoff', 'super bowl', 'world cup', 'stadium', 'arena', 'sack', 'touchdown', 'home run', 'slam dunk',
+      'game', 'match', 'team', 'player', 'coach', 'season', 'championship', 'tournament', 'score', 'goal', 'victory', 'defeat', 'athlete', 'olympic', 'league', 'nba', 'nfl', 'mlb', 'nhl', 'mls', 'fifa', 'tennis', 'soccer', 'football', 'baseball', 'basketball', 'hockey', 'boxing', 'ufc', 'rugby', 'cricket', 'golf', 'swimming', 'track', 'marathon', 'draft', 'roster', 'playoff', 'super bowl', 'world cup', 'stadium', 'arena', 'sack', 'touchdown', 'home run', 'slam dunk', 'ncaa', 'bracket', 'espn', 'march madness', 'final four', 'halftime', 'overtime', 'referee', 'mvp', 'seed', 'qualifier', 'varsity', 'collegiate', 'all-star', 'transfer portal', 'free agent', 'wild card',
       'משחק', 'קבוצה', 'שחקן', 'מאמן', 'עונה', 'אליפות', 'טורניר', 'ניצחון', 'תבוסה', 'ספורטאי', 'אולימפי', 'ליגה', 'כדורגל', 'כדורסל', 'גביע', 'אצטדיון', 'אימון', 'שער', 'נבחרת'
     ],
     lighting: 'vibrant stadium or arena lighting, high contrast',
@@ -90,7 +90,7 @@ const SCENE_CATEGORIES = {
   },
   entertainment: {
     keywords: [
-      'movie', 'film', 'music', 'celebrity', 'actor', 'singer', 'album', 'concert', 'award', 'oscar', 'grammy', 'netflix', 'streaming', 'show', 'series', 'premiere', 'box office', 'hollywood', 'broadway', 'festival',
+      'movie', 'film', 'music', 'celebrity', 'actor', 'singer', 'album', 'concert', 'award', 'oscar', 'grammy', 'netflix', 'streaming', 'show', 'series', 'premiere', 'box office', 'hollywood', 'broadway', 'festival', 'emmy', 'tony', 'disney', 'hbo', 'viral', 'influencer', 'trailer', 'soundtrack', 'blockbuster', 'director',
       'סרט', 'סלבריטי', 'שחקן', 'זמר', 'אלבום', 'קונצרט', 'פרס', 'אוסקר', 'נטפליקס', 'סדרה', 'הוליווד', 'פסטיבל', 'בידור', 'הופעה'
     ],
     lighting: 'dramatic cinematic lighting with rich colors',
@@ -101,7 +101,7 @@ const SCENE_CATEGORIES = {
   },
   conflict: {
     keywords: [
-      'war', 'attack', 'military', 'troops', 'bomb', 'missile', 'conflict', 'terror', 'crisis', 'emergency', 'refugee', 'protest', 'riot', 'violence', 'ceasefire', 'sanctions', 'nato', 'defense', 'invasion', 'occupation',
+      'war', 'attack', 'military', 'troops', 'bomb', 'missile', 'conflict', 'terror', 'crisis', 'emergency', 'refugee', 'protest', 'riot', 'violence', 'ceasefire', 'sanctions', 'nato', 'defense', 'invasion', 'occupation', 'hostage', 'airstrike', 'drone strike', 'peacekeeping', 'insurgent', 'coup', 'shelling', 'casualties',
       'מלחמה', 'התקפה', 'צבא', 'פצצה', 'טיל', 'סכסוך', 'טרור', 'משבר', 'חירום', 'פליט', 'מחאה', 'הפגנה', 'אלימות', 'הפסקת אש', 'סנקציות', 'הגנה', 'פלישה', 'כיבוש'
     ],
     lighting: 'muted natural lighting with atmospheric haze',
@@ -112,7 +112,7 @@ const SCENE_CATEGORIES = {
   },
   weather: {
     keywords: [
-      'weather', 'storm', 'hurricane', 'tornado', 'flood', 'drought', 'earthquake', 'wildfire', 'temperature', 'climate change', 'snow', 'rain', 'wind', 'forecast', 'natural disaster', 'heatwave', 'blizzard', 'tsunami',
+      'weather', 'storm', 'hurricane', 'tornado', 'flood', 'drought', 'earthquake', 'wildfire', 'temperature', 'climate change', 'snow', 'rain', 'wind', 'forecast', 'natural disaster', 'heatwave', 'blizzard', 'tsunami', 'monsoon', 'frost', 'cyclone', 'mudslide', 'evacuation', 'power outage', 'thunderstorm',
       'מזג אוויר', 'סופה', 'הוריקן', 'שיטפון', 'בצורת', 'רעידת אדמה', 'שריפה', 'טמפרטורה', 'שלג', 'גשם', 'רוח', 'תחזית', 'אסון טבע', 'גל חום'
     ],
     lighting: 'dramatic natural lighting matching weather conditions',
@@ -123,7 +123,7 @@ const SCENE_CATEGORIES = {
   },
   real_estate: {
     keywords: [
-      'real estate', 'property', 'mortgage', 'housing', 'apartment', 'condo', 'rental', 'tenant', 'landlord', 'construction', 'developer', 'zoning', 'residential', 'commercial property', 'home prices', 'home sales', 'foreclosure', 'realty', 'listing', 'square feet', 'renovation', 'building permit',
+      'real estate', 'property', 'mortgage', 'housing', 'apartment', 'condo', 'rental', 'tenant', 'landlord', 'construction', 'developer', 'zoning', 'residential', 'commercial property', 'home prices', 'home sales', 'foreclosure', 'realty', 'listing', 'square feet', 'renovation', 'building permit', 'homeowner', 'interest rate', 'down payment', 'escrow', 'appraisal', 'closing cost', 'refinance',
       'נדל"ן', 'דירה', 'משכנתא', 'בנייה', 'קבלן', 'פינוי בינוי', 'תמ"א', 'שכירות', 'מכירה', 'נכס', 'קרקע', 'דיור', 'מגדל', 'שיכון', 'מחיר דירה', 'יזם', 'התחדשות עירונית', 'רכישה', 'מתווך', 'טאבו'
     ],
     lighting: 'warm inviting natural lighting, golden tones on structures',
@@ -134,7 +134,7 @@ const SCENE_CATEGORIES = {
   },
   human_interest: {
     keywords: [
-      'community', 'family', 'child', 'education', 'school', 'charity', 'volunteer', 'rescue', 'hero', 'inspire', 'overcome', 'personal', 'story', 'journey', 'milestone', 'achievement', 'tradition', 'culture',
+      'community', 'family', 'child', 'education', 'school', 'charity', 'volunteer', 'rescue', 'hero', 'inspire', 'overcome', 'personal', 'story', 'journey', 'milestone', 'achievement', 'tradition', 'culture', 'fundraiser', 'nonprofit', 'reunion', 'survivor', 'scholarship', 'graduation', 'mentor', 'adoption',
       'קהילה', 'משפחה', 'ילד', 'חינוך', 'בית ספר', 'צדקה', 'מתנדב', 'הצלה', 'גיבור', 'השראה', 'הישג', 'מסורת', 'תרבות'
     ],
     lighting: 'warm golden hour lighting, natural and inviting',
@@ -204,6 +204,8 @@ class VideoPromptEngine {
     const secondaryLabel = secondary && secondary !== primary ? secondary : null;
     logger.info(`Scene metadata: category=${primary}${secondaryLabel ? ` (secondary: ${secondaryLabel})` : ''}, mood=${mood}`);
 
+    const secondaryConfig = secondaryLabel ? SCENE_CATEGORIES[secondaryLabel] : null;
+
     return {
       category: primary,
       secondaryCategory: secondaryLabel,
@@ -212,7 +214,8 @@ class VideoPromptEngine {
       lighting: sceneConfig.lighting,
       ambient: sceneConfig.ambient,
       music: sceneConfig.music,
-      safeAlternatives: sceneConfig.safeAlternatives
+      safeAlternatives: sceneConfig.safeAlternatives,
+      secondarySafeAlternatives: secondaryConfig ? secondaryConfig.safeAlternatives : null
     };
   }
 
@@ -237,18 +240,50 @@ class VideoPromptEngine {
       if (category === 'general') continue;
 
       let score = 0;
+      let titleMatches = 0; // Count of distinct keywords found in the title
+
       for (const keyword of config.keywords) {
-        if (titleText.includes(keyword)) score += TITLE_WEIGHT;
-        else if (bodyText.includes(keyword)) score += BODY_WEIGHT;
+        // For short Latin-alphabet keywords (<=3 chars), use word-boundary matching
+        // to prevent false positives (e.g., "ai" matching inside "said", "war" inside "software")
+        const useWordBoundary = keyword.length <= 3 && /^[a-zA-Z]+$/.test(keyword);
+        let matchesTitle, matchesBody;
+
+        if (useWordBoundary) {
+          const re = new RegExp(`\\b${keyword}\\b`, 'i');
+          matchesTitle = re.test(titleText);
+          matchesBody = re.test(bodyText);
+        } else {
+          matchesTitle = titleText.includes(keyword);
+          matchesBody = bodyText.includes(keyword);
+        }
+
+        if (matchesTitle) {
+          score += TITLE_WEIGHT;
+          titleMatches++;
+        } else if (matchesBody) {
+          score += BODY_WEIGHT;
+        }
       }
 
       if (score > 0) {
-        scores.push({ category, score });
+        scores.push({ category, score, titleMatches });
       }
     }
 
     // Sort descending by score
     scores.sort((a, b) => b.score - a.score);
+
+    // Tiebreaking: when top two categories are within one title-keyword gap,
+    // prefer the one with MORE distinct title keyword matches.
+    // This prevents a single keyword (e.g., "ai") from beating multiple keywords
+    // from another category (e.g., "ncaa" + "basketball" + "bracket").
+    if (scores.length >= 2) {
+      const gap = scores[0].score - scores[1].score;
+      if (gap <= TITLE_WEIGHT && scores[1].titleMatches > scores[0].titleMatches) {
+        logger.info(`Swapping primary/secondary: ${scores[1].category} has ${scores[1].titleMatches} title keywords vs ${scores[0].category}'s ${scores[0].titleMatches} (score gap: ${gap})`);
+        [scores[0], scores[1]] = [scores[1], scores[0]];
+      }
+    }
 
     const primary = scores.length > 0 && scores[0].score >= MIN_WEIGHTED_SCORE
       ? scores[0].category
@@ -263,7 +298,7 @@ class VideoPromptEngine {
     }
 
     if (primary !== 'general' && secondary) {
-      logger.info(`Classification scores: ${primary}=${scores[0].score}, ${secondary}=${scores[1].score}`);
+      logger.info(`Classification scores: ${primary}=${scores[0].score} (${scores[0].titleMatches} title), ${secondary}=${scores[1].score} (${scores[1].titleMatches} title)`);
     }
 
     return { primary, secondary };

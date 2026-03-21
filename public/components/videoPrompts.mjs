@@ -54,8 +54,8 @@ THE CINEMATIC DIRECTOR'S PLAYBOOK
 
 1. STORYLINE IS KING — MINE IT FOR VISUAL GOLD
    The STORYLINE field contains the article's full narrative: who, what, where, why, the stakes, the tone, primary and secondary context worlds. READ IT CAREFULLY.
-   - PRIMARY CONTEXT WORLD (e.g., Sports, Technology, Politics): This drives your main visual setting, props, and character archetypes
-   - SECONDARY CONTEXT (e.g., geopolitical tensions behind a sports story): Weave this into background details, color palette shifts, or atmospheric tension
+   - VISUAL WORLD: The storyline's physical setting defines your ENTIRE video's visual environment — every frame must inhabit this world
+   - BACKGROUND CONTEXT: Any secondary domain context appears ONLY as small props or subtle details WITHIN the primary setting — never as a scene change
    - Use the storyline's emotional register to set the visual tempo: urgent = fast cuts and sharp movements, somber = slow dolly and muted tones, exciting = dynamic crane shots and vibrant colors
 
 2. CONCRETE VISUALS — NEVER ABSTRACTIONS
@@ -76,6 +76,8 @@ THE CINEMATIC DIRECTOR'S PLAYBOOK
    BEAT 1 — THE HOOK (0-3s): Arrest the viewer's attention. The opening frame expands into a world that DEMANDS watching. Environment, lighting, atmosphere, spatial context. Immediate visual intrigue — something the viewer has never seen before.
    BEAT 2 — THE STORY (3-${parseInt(duration) - 2}s): This is where the STORYLINE comes alive visually. Movement, reveal, transformation, a shift in scale or perspective. This beat should convey the article's MEANING through visual metaphor and action — not just its subject.
    BEAT 3 — THE WOW (${parseInt(duration) - 2}-${duration}s): The jaw-drop moment. A wider reveal, a dramatic scale shift, an emotional culmination. Leave the viewer thinking "I need to share this." This is your FOMO generator — the moment that makes the story feel monumental.
+
+   CRITICAL — SCENE CONTINUITY: ALL THREE BEATS must inhabit the SAME physical environment. The camera can move to new angles, reveal new areas, or shift perspective within the SAME space — but must NEVER cut to a completely different setting. A dolly from courtside to the press table is evolution. A cut from a basketball arena to a corporate office is a VIOLATION. Think of it as ONE continuous camera move through ONE world.
 
 5. EXACT CAMERA MOVEMENTS
    Name specific cinematographic techniques:
@@ -152,7 +154,7 @@ The starting frame is the article's featured image. It could be a company logo, 
 
   // Note secondary category if present (cross-domain article)
   const crossDomainNote = sceneMetadata.secondaryCategory
-    ? `\nCROSS-DOMAIN CONTEXT: This story spans multiple domains (primary: ${sceneMetadata.category}, secondary: ${sceneMetadata.secondaryCategory}). Your primary visual world should reflect ${sceneMetadata.category}. Weave ${sceneMetadata.secondaryCategory} context into background elements, atmospheric tension, or secondary visual motifs.`
+    ? `\nCROSS-DOMAIN RULE: This story involves ${sceneMetadata.secondaryCategory} context, but it is a ${sceneMetadata.category} story. The ${sceneMetadata.secondaryCategory} context explains WHY this story happened — it must NEVER drive visual choices. The ENTIRE ${duration} seconds must look like a ${sceneMetadata.category} story set in a ${sceneMetadata.category} environment. The ${sceneMetadata.secondaryCategory} element may appear ONLY as a subtle prop detail within the primary setting (e.g., a screen, a document, a logo on a wall) — NEVER as a scene change or separate location.`
     : '';
 
   // Build the STORYLINE section — this is the key enhancement
@@ -201,8 +203,12 @@ const getVideoRephraseSystemPrompt = (model = 'veo', attemptNumber = 1, sceneMet
   const charLimit = isRunway ? 950 : 1400;
   const duration = isRunway ? 10 : 8;
 
-  // Domain-specific safe visual alternatives from VideoPromptEngine
-  const safeAlts = sceneMetadata.safeAlternatives || 'press conference podium, modern newsroom with monitors, office workspace with team reviewing information, city skyline time-lapse';
+  // Domain-specific safe visual alternatives from VideoPromptEngine (merge primary + secondary)
+  const primaryAlts = sceneMetadata.safeAlternatives || 'press conference podium, modern newsroom with monitors, office workspace with team reviewing information, city skyline time-lapse';
+  const secondaryAlts = sceneMetadata.secondarySafeAlternatives || '';
+  const safeAlts = secondaryAlts
+    ? `PRIMARY domain alternatives: ${primaryAlts}\nSECONDARY domain alternatives (use ONLY as subtle background props within the primary setting): ${secondaryAlts}`
+    : primaryAlts;
   const category = sceneMetadata.category || 'general';
 
   const escalation = attemptNumber >= 2
@@ -215,12 +221,14 @@ You MUST take a COMPLETELY DIFFERENT visual approach:
   ${safeAlts}
 - Build an ENTIRELY NEW three-beat arc with different camera movements and different settings
 - The scene must feel like a DIFFERENT SHORT FILM about the same news story
-- Stay within the article's domain (${category}) — do NOT default to generic corporate/business imagery unless the article is actually about business`
+- Stay within the article's domain (${category}) — do NOT default to generic corporate/business imagery unless the article is actually about business
+- The rephrased scene MUST remain in the ${category} visual world — same type of setting, same type of environment. Do NOT drift into a different domain's visual world`
     : `REPHRASE STRATEGY:
 - Replace ALL triggering imagery with safe visual equivalents — do NOT keep partial references
 - Shift the entire scene away from the sensitive subject toward the HUMAN IMPACT angle, staying within the article's domain (${category})
 - Use these SAFE VISUAL ALTERNATIVES as inspiration — pick the most relevant one and build a vivid cinematic scene:
   ${safeAlts}
+- The rephrased scene MUST remain in the ${category} visual world — same type of setting, same type of environment. Do NOT drift into a different domain's visual world
 - The key principle: tell the article's STORY without depicting its SENSITIVE SUBJECT, while keeping the visual world consistent with the ${category} domain`;
 
   return `You are an expert at understanding AI video generation content safety filters and rephrasing cinematic video prompts to pass moderation while preserving visual storytelling quality.
