@@ -1687,8 +1687,39 @@
                         <div id="mediaTrainingIdle" class="py-4">
                             <p id="mediaTrainHint" class="text-sm text-ink-500 mb-4 text-center">Upload at least 10 reference images, then train your custom model.</p>
 
-                            <!-- Training Type Selector -->
+                            <!-- Generation Model Selector -->
                             <div class="mb-5">
+                                <label class="block text-sm font-medium text-ink-600 mb-2">Model Type</label>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <label class="relative cursor-pointer">
+                                        <input type="radio" name="mediaGenerationModel" value="flux-2-pro" class="peer sr-only" checked onchange="onGenerationModelChange()">
+                                        <div class="border-2 border-surface-300 rounded-xl p-4 transition-all peer-checked:border-brand-500 peer-checked:bg-brand-50/50 hover:border-surface-400">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <svg class="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                                                </svg>
+                                                <span class="text-sm font-semibold text-ink-700">FLUX.2 Pro</span>
+                                            </div>
+                                            <p class="text-xs text-ink-400">Reference images, instant setup, FLUX.2 quality, up to 4MP</p>
+                                        </div>
+                                    </label>
+                                    <label class="relative cursor-pointer">
+                                        <input type="radio" name="mediaGenerationModel" value="lora" class="peer sr-only" onchange="onGenerationModelChange()">
+                                        <div class="border-2 border-surface-300 rounded-xl p-4 transition-all peer-checked:border-brand-500 peer-checked:bg-brand-50/50 hover:border-surface-400">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <svg class="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                                </svg>
+                                                <span class="text-sm font-semibold text-ink-700">LoRA Training</span>
+                                            </div>
+                                            <p class="text-xs text-ink-400">Deep fine-tuning with trigger word, 5-10 min training</p>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Training Type Selector (only shown for LoRA) -->
+                            <div id="mediaLoraOptions" class="mb-5 hidden">
                                 <label class="block text-sm font-medium text-ink-600 mb-2">Training Type</label>
                                 <div class="grid grid-cols-2 gap-3">
                                     <label class="relative cursor-pointer">
@@ -1724,7 +1755,7 @@
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                                     </svg>
-                                    Train New Model ($5)
+                                    <span id="mediaTrainBtnText">Create Model ($5)</span>
                                 </button>
                             </div>
                         </div>
@@ -1754,14 +1785,14 @@
                                 </svg>
                                 <span class="text-sm text-ink-600">
                                     <span id="mediaGenCreditsCount" class="font-semibold text-brand-600">0</span>
-                                    <span class="text-ink-400">generations remaining</span>
+                                    <span class="text-ink-400">images remaining</span>
                                 </span>
                             </div>
                             <button id="mediaGenBuyCreditsBtn" onclick="purchaseAssetImageGenPack()" class="hidden btn-outline btn-sm text-xs flex items-center gap-1">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                                 </svg>
-                                Buy 6 More ($4.50)
+                                Buy 8 More ($4.50)
                             </button>
                         </div>
 
@@ -1812,8 +1843,8 @@
                                             <span>4</span>
                                         </div>
                                     </div>
-                                    <!-- LoRA Strength -->
-                                    <div>
+                                    <!-- LoRA Strength (hidden for FLUX.2 Pro models) -->
+                                    <div id="mediaLoraStrengthContainer">
                                         <div class="flex items-center justify-between mb-1.5">
                                             <label class="text-xs font-medium text-ink-600">LoRA Strength <span class="font-normal text-ink-400">— How much your brand style influences the image</span></label>
                                             <span id="loraScaleValue" class="text-xs font-mono text-ink-500">1.0</span>
@@ -1827,8 +1858,8 @@
                                             <span>Strong</span>
                                         </div>
                                     </div>
-                                    <!-- Guidance Scale -->
-                                    <div>
+                                    <!-- Guidance Scale (hidden for FLUX.2 Pro models) -->
+                                    <div id="mediaGuidanceScaleContainer">
                                         <div class="flex items-center justify-between mb-1.5">
                                             <label class="text-xs font-medium text-ink-600">Guidance Scale <span class="font-normal text-ink-400">— How closely the image follows your text prompt</span></label>
                                             <span id="guidanceScaleValue" class="text-xs font-mono text-ink-500">3.0</span>

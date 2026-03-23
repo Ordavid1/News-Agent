@@ -730,7 +730,7 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
           const PER_USE_CONFIG = {
             model_training: { amountCents: 500, description: 'Brand Asset Model Training', creditsPerPurchase: 1 },
             image_generation: { amountCents: 75, description: 'Brand Image Generation', creditsPerPurchase: 1 },
-            asset_image_gen_pack: { amountCents: 450, description: 'Brand Asset Image Generation Pack (6 credits)', creditsPerPurchase: 6 }
+            asset_image_gen_pack: { amountCents: 450, description: 'Brand Asset Image Generation Pack (8 images)', creditsPerPurchase: 8 }
           };
           const config = PER_USE_CONFIG[purchaseType];
           if (config) {

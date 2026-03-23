@@ -267,14 +267,18 @@ export async function createSubscription(subscriptionData) {
     throw error;
   }
 
-  // Update user's profile with subscription info
+  // Update user's profile with subscription info (including video quota)
+  const videoLimit = getTierVideoLimit(subscriptionData.tier);
   await updateUser(subscriptionData.userId, {
     subscription: {
       tier: subscriptionData.tier,
       status: 'active',
       postsRemaining: getTierPostLimit(subscriptionData.tier),
       dailyLimit: getTierPostLimit(subscriptionData.tier),
-      resetDate: getDailyResetDate()
+      resetDate: getDailyResetDate(),
+      videosRemaining: videoLimit,
+      videoMonthlyLimit: videoLimit,
+      videoResetDate: getMonthlyVideoResetDate()
     }
   });
 
@@ -1340,6 +1344,9 @@ export async function upsertMarketingAddon(addonData) {
     updated_at: new Date().toISOString()
   };
 
+  // Remove undefined values to avoid overwriting existing data
+  Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
+
   const { data, error } = await supabaseAdmin
     .from('marketing_addons')
     .upsert(record, { onConflict: 'user_id' })
@@ -1436,6 +1443,9 @@ export async function upsertAffiliateAddon(addonData) {
     current_period_end: rest.currentPeriodEnd,
     updated_at: new Date().toISOString()
   };
+
+  // Remove undefined values to avoid overwriting existing data
+  Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
 
   const { data, error } = await supabaseAdmin
     .from('affiliate_addons')

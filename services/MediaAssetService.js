@@ -81,7 +81,11 @@ const TRAINING_PRESETS = {
   }
 };
 
-// Generation defaults
+// FLUX.2 Pro — reference-image generation (no LoRA training needed)
+const FLUX2_PRO_MODEL = 'black-forest-labs/flux-2-pro';
+const FLUX2_PRO_MAX_REFS = 7; // 7 at 2MP resolution (8 at 1MP, but we use 2MP for better quality)
+
+// Generation defaults (FLUX.1 LoRA path)
 const DEFAULT_GUIDANCE_SCALE = 3.0;    // Slightly lower than 3.5 for more natural results
 const DEFAULT_INFERENCE_STEPS = 32;    // Higher than 28 for better LoRA coherence
 const DEFAULT_LORA_SCALE = 1.0;        // Controls LoRA influence strength (0.5-1.5 range)
@@ -437,7 +441,7 @@ class MediaAssetService {
           currency: 'usd',
           status: 'completed',
           paymentProvider: 'system',
-          creditsTotal: 6,
+          creditsTotal: 8,
           creditsUsed: 0,
           referenceId: jobId,
           referenceType: 'media_training_job',
@@ -449,7 +453,7 @@ class MediaAssetService {
             training_job_id: jobId
           }
         });
-        logger.info(`Auto-granted 6 free generation credits for training ${jobId} (user ${userId})`);
+        logger.info(`Auto-granted 8 free image credits for training ${jobId} (user ${userId})`);
       } catch (creditErr) {
         // Non-fatal: training succeeded, credits can be manually reconciled
         // Idempotency key prevents duplicate grants on re-polls
@@ -505,21 +509,124 @@ class MediaAssetService {
   }
 
   // ============================================
+  // FLUX.2 PRO — REFERENCE-IMAGE MODEL CREATION
+  // ============================================
+
+  /**
+   * Create a FLUX.2 Pro "model" using reference images (no training needed).
+   *
+   * Instead of LoRA training, this snapshots the uploaded reference images
+   * and creates a completed model record immediately. At generation time,
+   * the reference images are passed to FLUX.2 Pro's input_images parameter.
+   *
+   * @param {string} userId
+   * @param {string} adAccountId
+   * @param {string} name - User-provided model name
+   * @returns {object} Completed model record
+   */
+  async createFlux2ProModel(userId, adAccountId, name) {
+    if (!this.replicate) {
+      throw new Error('Replicate not configured. Set REPLICATE_API_TOKEN environment variable.');
+    }
+
+    // Check minimum images
+    const assetCount = await countMediaAssets(userId, adAccountId);
+    if (assetCount < MIN_TRAINING_IMAGES) {
+      throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required. Currently have ${assetCount}.`);
+    }
+
+    // Concurrency guard (same as training)
+    const activeJob = await getActiveMediaTrainingJob(userId, adAccountId);
+    if (activeJob) {
+      throw new Error('A training is already in progress for this account. Please wait for it to complete.');
+    }
+
+    // Snapshot reference image URLs (up to 8 for FLUX.2 Pro)
+    const assets = await getUserMediaAssets(userId, adAccountId);
+    const imageUrls = assets.map(a => a.public_url);
+    const refUrls = imageUrls.slice(0, FLUX2_PRO_MAX_REFS);
+
+    logger.info(`Creating FLUX.2 Pro model with ${refUrls.length} reference images (${imageUrls.length} total uploaded)`);
+
+    // Create a completed model record immediately (no training)
+    const job = await createMediaTrainingJob(userId, adAccountId, {
+      name: name || 'Untitled',
+      training_type: 'reference',
+      status: 'completed',
+      replicate_training_id: null,
+      replicate_model_version: FLUX2_PRO_MODEL,
+      replicate_model_name: 'flux-2-pro',
+      trigger_word: null,
+      training_image_urls: imageUrls,
+      image_count: assetCount,
+      payment_status: 'free',
+      error_message: null,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString()
+    });
+
+    // Auto-set as default model
+    try {
+      await setDefaultTrainingJob(job.id, userId, adAccountId);
+      job.is_default = true;
+      logger.info(`FLUX.2 Pro model ${job.id} set as default for account ${adAccountId}`);
+    } catch (err) {
+      logger.warn(`Failed to auto-set default: ${err.message}`);
+    }
+
+    // Auto-grant 6 free generation credits
+    try {
+      await createPerUsePurchase(userId, {
+        purchaseType: 'asset_image_gen_pack',
+        amountCents: 0,
+        currency: 'usd',
+        status: 'completed',
+        paymentProvider: 'system',
+        creditsTotal: 6,
+        creditsUsed: 0,
+        referenceId: job.id,
+        referenceType: 'media_training_job',
+        idempotencyKey: `training_completion_credits_${job.id}`,
+        description: 'Free generation credits (included with model creation)',
+        metadata: {
+          ad_account_id: adAccountId,
+          auto_granted: true,
+          training_job_id: job.id,
+          model_type: 'flux-2-pro'
+        }
+      });
+      logger.info(`Auto-granted 8 free image credits for FLUX.2 Pro model ${job.id}`);
+    } catch (creditErr) {
+      if (creditErr.code === '23505') {
+        logger.info(`Free credits already granted for model ${job.id} (idempotency)`);
+      } else {
+        logger.error(`Failed to auto-grant generation credits: ${creditErr.message}`);
+      }
+    }
+
+    return job;
+  }
+
+  // ============================================
   // GENERATION
   // ============================================
 
   /**
-   * Generate image(s) using a specific trained LoRA model.
+   * Generate image(s) using a trained model.
+   *
+   * Routes to the appropriate generation path based on model type:
+   * - FLUX.1 LoRA: Uses the trained model version with trigger word
+   * - FLUX.2 Pro: Uses reference images with the FLUX.2 Pro base model
    *
    * @param {string} userId
    * @param {string} adAccountId
    * @param {string} prompt
-   * @param {string} trainingJobId - Which training session to generate from
+   * @param {string} trainingJobId - Which model/training session to generate from
    * @param {object} options - Optional generation parameters
-   * @param {number} options.loraScale - LoRA influence strength (0.5-1.5, default 1.0)
-   * @param {number} options.guidanceScale - Prompt adherence (1.0-5.0, default 3.0)
+   * @param {number} options.loraScale - LoRA influence strength (0.5-1.5, default 1.0) — LoRA only
+   * @param {number} options.guidanceScale - Prompt adherence (1.0-5.0, default 3.0) — LoRA only
    * @param {number} options.numOutputs - Number of images to generate (1-4, default 1)
-   * @param {string} options.aspectRatio - Aspect ratio (1:1, 16:9, 9:16, 4:5, 5:4, 3:2, 2:3, 4:3, 3:4)
+   * @param {string} options.aspectRatio - Aspect ratio (1:1, 16:9, 9:16, etc.)
    * @returns {object|object[]} Generated media record(s) — single object when numOutputs=1, array otherwise
    */
   async generateImage(userId, adAccountId, prompt, trainingJobId, options = {}) {
@@ -527,25 +634,135 @@ class MediaAssetService {
       throw new Error('Replicate not configured.');
     }
 
-    // Get the specific training job
+    // Get the specific training job / model
     const job = await getMediaTrainingJobById(trainingJobId, userId);
     if (!job || job.status !== 'completed') {
-      throw new Error('Selected training session is not completed or not found.');
+      throw new Error('Selected model is not completed or not found.');
     }
 
+    // Branch on model type
+    const isFlux2Pro = job.replicate_model_name === 'flux-2-pro';
+
+    if (isFlux2Pro) {
+      return this._generateFlux2Pro(userId, adAccountId, prompt, job, options);
+    }
+    return this._generateLoRA(userId, adAccountId, prompt, job, options);
+  }
+
+  /**
+   * FLUX.2 Pro generation path — uses reference images, no LoRA.
+   */
+  async _generateFlux2Pro(userId, adAccountId, prompt, job, options) {
+    // Reference images from the model snapshot
+    const refUrls = (job.training_image_urls || []).slice(0, FLUX2_PRO_MAX_REFS);
+    if (refUrls.length === 0) {
+      throw new Error('No reference images stored for this model.');
+    }
+
+    const numOutputs = typeof options.numOutputs === 'number'
+      ? Math.max(1, Math.min(4, Math.floor(options.numOutputs)))
+      : 1;
+
+    const VALID_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:5', '5:4', '3:2', '2:3', '4:3', '3:4'];
+    const aspectRatio = VALID_ASPECT_RATIOS.includes(options.aspectRatio)
+      ? options.aspectRatio
+      : '1:1';
+
+    logger.info(`Generating ${numOutputs} image(s) via FLUX.2 Pro with ${refUrls.length} reference images, aspect=${aspectRatio}, prompt: "${prompt.slice(0, 80)}..."`);
+
+    // Enhance prompt with reference context for better brand consistency
+    const enhancedPrompt = `Using the provided reference images as brand style guides, generate: ${prompt}`;
+
+    // Base seed for multi-output coherence (related but distinct variations)
+    const baseSeed = Math.floor(Math.random() * 2147483647);
+
+    // FLUX.2 Pro generates 1 image per call — loop for multiple outputs
+    await this.ensureBucket();
+    const records = [];
+
+    for (let i = 0; i < numOutputs; i++) {
+      const output = await this.replicate.run(FLUX2_PRO_MODEL, {
+        input: {
+          prompt: enhancedPrompt,
+          input_images: refUrls,
+          aspect_ratio: aspectRatio,
+          resolution: '2 MP',
+          output_format: 'webp',
+          output_quality: 95,
+          safety_tolerance: 3,
+          seed: baseSeed + i
+        }
+      });
+
+      // FLUX.2 Pro returns a single FileOutput or URL
+      const imageSource = Array.isArray(output) ? output[0] : output;
+      let imageBuffer;
+
+      if (typeof imageSource === 'string') {
+        const response = await axios.get(imageSource, { responseType: 'arraybuffer' });
+        imageBuffer = Buffer.from(response.data);
+      } else if (imageSource && typeof imageSource.blob === 'function') {
+        const blob = await imageSource.blob();
+        imageBuffer = Buffer.from(await blob.arrayBuffer());
+      } else {
+        logger.warn(`Skipping FLUX.2 Pro output ${i}: unexpected format`);
+        continue;
+      }
+
+      // Upload to Supabase Storage
+      const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+      const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .upload(storagePath, imageBuffer, { contentType: 'image/webp', upsert: false });
+
+      if (uploadError) {
+        logger.error(`Error uploading FLUX.2 Pro image ${i}:`, uploadError);
+        continue;
+      }
+
+      const { data: urlData } = supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(storagePath);
+
+      const record = await createGeneratedMedia(userId, adAccountId, {
+        training_job_id: job.id,
+        prompt,
+        storage_path: storagePath,
+        public_url: urlData.publicUrl,
+        replicate_prediction_id: null,
+        lora_scale: null,
+        guidance_scale: null
+      });
+
+      records.push(record);
+    }
+
+    if (records.length === 0) {
+      throw new Error('Failed to process any generated images.');
+    }
+
+    logger.info(`FLUX.2 Pro: ${records.length} image(s) saved`);
+    return records.length === 1 ? records[0] : records;
+  }
+
+  /**
+   * FLUX.1 LoRA generation path — uses trained model with trigger word.
+   */
+  async _generateLoRA(userId, adAccountId, prompt, job, options) {
     if (!job.replicate_model_version) {
       throw new Error('Training completed but no model version was recorded.');
     }
 
-    // Auto-inject trigger word if not already present in the prompt.
-    // The trigger word is essential for the LoRA to activate the brand style.
+    // Auto-inject trigger word if not already present in the prompt
     let finalPrompt = prompt;
     if (job.trigger_word && !prompt.toLowerCase().includes(job.trigger_word.toLowerCase())) {
       finalPrompt = `in the style of ${job.trigger_word}, ${prompt}`;
       logger.info(`Trigger word "${job.trigger_word}" auto-injected into prompt`);
     }
 
-    // Build the model reference — use stored model name if available
+    // Build the model reference
     const modelName = job.replicate_model_name
       || `${this.replicateOwner}/media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
     const modelRef = job.replicate_model_version.includes('/')
@@ -563,13 +780,12 @@ class MediaAssetService {
       ? Math.max(1, Math.min(4, Math.floor(options.numOutputs)))
       : 1;
 
-    // Validate aspect ratio against supported values
     const VALID_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:5', '5:4', '3:2', '2:3', '4:3', '3:4', '21:9', '9:21'];
     const aspectRatio = VALID_ASPECT_RATIOS.includes(options.aspectRatio)
       ? options.aspectRatio
       : '1:1';
 
-    logger.info(`Generating ${numOutputs} image(s) with model ${modelRef}, lora_scale=${loraScale}, guidance=${guidanceScale}, aspect=${aspectRatio}, prompt: "${finalPrompt.slice(0, 80)}..."`);
+    logger.info(`Generating ${numOutputs} image(s) with LoRA model ${modelRef}, lora_scale=${loraScale}, guidance=${guidanceScale}, aspect=${aspectRatio}, prompt: "${finalPrompt.slice(0, 80)}..."`);
 
     // Run prediction
     const output = await this.replicate.run(modelRef, {

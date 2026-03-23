@@ -457,7 +457,7 @@ router.post('/create-checkout', checkoutValidation, async (req, res) => {
       return res.status(500).json({ error: 'Failed to get checkout URL' });
     }
 
-    console.log('[CHECKOUT] Checkout created for tier:', tier);
+    console.log('[CHECKOUT] Checkout created for tier:', tier, '| URL:', checkoutUrl);
 
     res.json({ checkoutUrl });
 
@@ -892,11 +892,11 @@ router.post('/downgrade-to-free', async (req, res) => {
       // Mark the subscription record as expired BEFORE calling LS DELETE,
       // so that incoming webhooks (subscription_cancelled, subscription_updated, etc.)
       // triggered by the DELETE see the expired status and skip overwriting
-      await updateSubscriptionRecord(subscription.lsSubscriptionId, {
+      const expireResult = await updateSubscriptionRecord(subscription.lsSubscriptionId, {
         status: 'expired',
         cancelAtPeriodEnd: false
       });
-      console.log('[DOWNGRADE] Subscription record marked as expired (pre-DELETE)');
+      console.log('[DOWNGRADE] Subscription record marked as expired (pre-DELETE), result:', expireResult ? `status=${expireResult.status}` : 'NO RECORD UPDATED');
 
       try {
         // Validate & find the correct LS subscription ID
@@ -1655,8 +1655,8 @@ const PER_USE_PRICING = {
   asset_image_gen_pack: {
     amountCents: 450, // $4.50
     variantId: process.env.LEMON_SQUEEZY_IMAGE_GEN_PACK_VARIANT_ID,
-    description: 'Brand Asset Image Generation Pack (6 credits)',
-    creditsPerPurchase: 6
+    description: 'Brand Asset Image Generation Pack (8 images)',
+    creditsPerPurchase: 8
   }
 };
 
@@ -2194,6 +2194,8 @@ async function handleSubscriptionUpdated(payload) {
     return;
   }
 
+  console.log(`[WEBHOOK] subscription_updated DB status for ${subscriptionId}: '${subscription.status}', lsSubId: '${subscription.lsSubscriptionId}'`);
+
   // If the subscription was already marked as expired by downgrade-to-free,
   // do not let incoming LS webhooks overwrite the downgrade
   if (subscription.status === 'expired') {
@@ -2259,6 +2261,8 @@ async function handleSubscriptionCancelled(payload) {
     console.error(`Subscription not found for LS ID: ${subscriptionId}`);
     return;
   }
+
+  console.log(`[WEBHOOK] subscription_cancelled DB status for ${subscriptionId}: '${subscription.status}', lsSubId: '${subscription.lsSubscriptionId}'`);
 
   // If the subscription was already marked as expired by downgrade-to-free,
   // do not let incoming LS webhooks overwrite the downgrade

@@ -70,9 +70,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize CSRF token first
     await initCsrf();
 
-    // Load user data, connections, and agents
+    // Load user profile first (needed for tier-gating in connections)
+    await loadUserProfile();
+
+    // Then load connections and agents in parallel
     await Promise.all([
-        loadUserProfile(),
         loadConnections(),
         loadAgents()
     ]);

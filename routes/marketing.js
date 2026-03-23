@@ -1480,12 +1480,13 @@ router.delete('/media-assets/:id', async (req, res) => {
 
 /**
  * POST /api/marketing/media-assets/training/start
- * Start LoRA training on Replicate using uploaded images.
- * Accepts { adAccountId, name } — name is the user-chosen session name.
+ * Start model creation — either LoRA training or FLUX.2 Pro reference-image model.
+ * Accepts { adAccountId, name, purchaseId, trainingType, generationModel }
+ *   generationModel: 'lora' (default) or 'flux-2-pro'
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId, name, purchaseId, trainingType } = req.body;
+    const { adAccountId, name, purchaseId, trainingType, generationModel } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
     }
@@ -1493,18 +1494,21 @@ router.post('/media-assets/training/start', async (req, res) => {
     // Validate session name
     const sessionName = (name || '').trim();
     if (!sessionName) {
-      return res.status(400).json({ error: 'Training session name is required' });
+      return res.status(400).json({ error: 'Model name is required' });
     }
     if (sessionName.length > 100) {
-      return res.status(400).json({ error: 'Training session name must be 100 characters or less' });
+      return res.status(400).json({ error: 'Model name must be 100 characters or less' });
     }
 
-    // Validate training type (defaults to 'subject' if not provided)
+    // Determine model creation path
+    const isFlux2Pro = generationModel === 'flux-2-pro';
+
+    // Validate training type (only relevant for LoRA path)
     const validTrainingType = ['style', 'subject'].includes(trainingType) ? trainingType : 'subject';
 
-    // Verify per-use purchase ($5 training charge)
+    // Verify per-use purchase ($5 charge)
     if (!purchaseId) {
-      return res.status(402).json({ error: 'Training requires a $5 per-use purchase', code: 'PURCHASE_REQUIRED' });
+      return res.status(402).json({ error: 'Model creation requires a $5 per-use purchase', code: 'PURCHASE_REQUIRED' });
     }
 
     const purchase = await getPerUsePurchase(purchaseId, req.user.id);
@@ -1512,32 +1516,39 @@ router.post('/media-assets/training/start', async (req, res) => {
       return res.status(404).json({ error: 'Purchase not found' });
     }
     if (purchase.purchase_type !== 'model_training') {
-      return res.status(400).json({ error: 'Invalid purchase type for training' });
+      return res.status(400).json({ error: 'Invalid purchase type' });
     }
     if (purchase.status !== 'completed') {
       return res.status(402).json({ error: 'Purchase payment not completed', code: 'PURCHASE_PENDING' });
     }
     if (purchase.reference_id) {
-      return res.status(409).json({ error: 'This purchase has already been used for a training session' });
+      return res.status(409).json({ error: 'This purchase has already been used' });
     }
 
-    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}", type=${validTrainingType}, purchaseId=${purchaseId}`);
+    logger.info(`[MediaAssets] POST /training/start - user=${req.user.id}, account=${adAccountId}, name="${sessionName}", model=${isFlux2Pro ? 'flux-2-pro' : 'lora'}, type=${validTrainingType}, purchaseId=${purchaseId}`);
 
-    const job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName, validTrainingType);
+    let job;
+    if (isFlux2Pro) {
+      // FLUX.2 Pro: create reference-image model instantly (no training)
+      job = await mediaAssetService.createFlux2ProModel(req.user.id, adAccountId, sessionName);
+    } else {
+      // FLUX.1 LoRA: start Replicate training (5-10 min)
+      job = await mediaAssetService.startTraining(req.user.id, adAccountId, sessionName, validTrainingType);
+    }
 
-    // Mark purchase as consumed by linking it to the training job
+    // Mark purchase as consumed
     await updatePerUsePurchase(purchaseId, {
       reference_id: job.id,
       reference_type: 'media_training_job'
     });
 
-    logger.info(`[MediaAssets] Training started: job=${job.id}, replicate_id=${job.replicate_training_id}, purchase=${purchaseId}`);
+    logger.info(`[MediaAssets] Model created: job=${job.id}, model=${isFlux2Pro ? 'flux-2-pro' : 'lora'}, purchase=${purchaseId}`);
     res.json({ job });
   } catch (error) {
     logger.error(`[MediaAssets] POST /training/start failed: ${error.message}`);
     const status = error.message.includes('At least') || error.message.includes('already in progress')
       ? 400 : 500;
-    res.status(status).json({ error: error.message || 'Failed to start training' });
+    res.status(status).json({ error: error.message || 'Failed to create model' });
   }
 });
 
@@ -1637,40 +1648,45 @@ router.post('/media-assets/generate', async (req, res) => {
       return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
     }
 
-    // Credit gate: check and consume one generation credit before proceeding
+    // Credit gate: check remaining credits against requested image count
+    const requestedImages = numOutputs != null ? Math.max(1, Math.min(4, parseInt(numOutputs, 10))) : 1;
     const { totalRemaining } = await getAssetImageGenCredits(req.user.id);
     if (totalRemaining <= 0) {
       return res.status(402).json({
-        error: 'No generation credits remaining. Purchase a credit pack to continue.',
+        error: 'No image credits remaining. Purchase a credit pack to continue.',
         code: 'CREDITS_EXHAUSTED',
         credits: 0
       });
     }
-
-    const consumed = await consumeAssetImageGenCredit(req.user.id);
-    if (!consumed) {
+    if (totalRemaining < requestedImages) {
       return res.status(402).json({
-        error: 'No generation credits remaining.',
-        code: 'CREDITS_EXHAUSTED',
-        credits: 0
+        error: `Not enough credits. You have ${totalRemaining} image credit${totalRemaining === 1 ? '' : 's'} but requested ${requestedImages} image${requestedImages === 1 ? '' : 's'}.`,
+        code: 'INSUFFICIENT_CREDITS',
+        credits: totalRemaining
       });
     }
 
-    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, credit consumed from pack=${consumed.id}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}, outputs=${numOutputs ?? 1}, aspect=${aspectRatio ?? '1:1'}`);
+    logger.info(`[MediaAssets] POST /generate - user=${req.user.id}, account=${adAccountId}, job=${trainingJobId}, requested=${requestedImages} images, credits=${totalRemaining}, lora=${loraScale ?? 'default'}, guidance=${guidanceScale ?? 'default'}, aspect=${aspectRatio ?? '1:1'}`);
 
     const media = await mediaAssetService.generateImage(req.user.id, adAccountId, prompt, trainingJobId, {
       loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
       guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
-      numOutputs: numOutputs != null ? parseInt(numOutputs, 10) : undefined,
+      numOutputs: requestedImages,
       aspectRatio: aspectRatio || undefined
     });
 
-    // Normalize response: always return array for consistency, but keep backwards compat
+    // Normalize response: always return array
     const mediaArray = Array.isArray(media) ? media : [media];
 
-    // Return updated credit count alongside generated media
+    // Consume credits based on actual images generated (not requested — generation may produce fewer)
+    const actualImages = mediaArray.length;
+    for (let i = 0; i < actualImages; i++) {
+      await consumeAssetImageGenCredit(req.user.id);
+    }
+
+    // Return updated credit count
     const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
-    logger.info(`[MediaAssets] ${mediaArray.length} image(s) generated, credits remaining: ${creditsAfter}`);
+    logger.info(`[MediaAssets] ${actualImages} image(s) generated, ${actualImages} credit(s) consumed, credits remaining: ${creditsAfter}`);
     res.json({ media: mediaArray, credits: creditsAfter });
   } catch (error) {
     logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);

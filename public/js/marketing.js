@@ -138,20 +138,14 @@ async function purchaseAddon() {
         // 1. Create LS checkout via backend (pre-filled, embed mode)
         const { checkoutUrl } = await apiPost('/api/subscriptions/marketing-checkout');
 
-        // 2. Show compact checkout popup (always pops down from banner button)
-        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $19/mo...';
-        const paid = await showCompactCheckout(checkoutUrl, btn || document.getElementById('addonRequiredBanner'), { direction: 'down' });
+        // 2. Open LS checkout in new tab (standard payment page)
+        window.open(checkoutUrl, '_blank');
 
-        if (!paid) {
-            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-            return;
-        }
-
-        // 3. Poll for webhook confirmation (subscription_created may take a few seconds)
-        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Activating...';
+        // 3. Poll for webhook confirmation while user completes payment in the other tab
+        if (btn) btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Waiting for payment...';
         let activated = false;
-        for (let attempt = 0; attempt < 15; attempt++) {
-            await new Promise(r => setTimeout(r, 2000));
+        for (let attempt = 0; attempt < 60; attempt++) {
+            await new Promise(r => setTimeout(r, 3000));
             try {
                 activated = await checkMarketingAddon();
                 if (activated) break;
@@ -159,7 +153,7 @@ async function purchaseAddon() {
         }
 
         if (!activated) {
-            showToast('Payment received but activation pending. Please refresh in a moment.', 'warning');
+            showToast('Still waiting for payment confirmation. Please refresh after completing payment.', 'warning');
             if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
             return;
         }
@@ -3072,6 +3066,14 @@ async function purchaseImageGeneration() {
  * @returns {Promise<boolean>} true if payment succeeded, false if cancelled
  */
 function showCompactCheckout(checkoutUrl, anchorEl, options = {}) {
+    // Safari's ITP blocks third-party cookies in iframes, breaking LS checkout.
+    // Fall back to full-page redirect so the checkout loads as a first-party navigation.
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    if (isSafari) {
+        window.location.href = checkoutUrl;
+        return new Promise(() => {}); // Page is navigating away
+    }
+
     const direction = options.direction || 'up';
     return new Promise((resolve) => {
         // Remove any existing popup
@@ -4005,8 +4007,26 @@ function updateTrainButtonState() {
 // ============================================
 
 /**
- * Start LoRA training for the selected ad account.
- * Opens compact LS checkout popup ($5 per-use payment), then starts training on success.
+ * Handle generation model type radio change (FLUX.2 Pro vs LoRA).
+ * Shows/hides LoRA-specific options and updates button text.
+ */
+function onGenerationModelChange() {
+    const modelRadio = document.querySelector('input[name="mediaGenerationModel"]:checked');
+    const isLora = modelRadio && modelRadio.value === 'lora';
+    const loraOptions = document.getElementById('mediaLoraOptions');
+    const btnText = document.getElementById('mediaTrainBtnText');
+
+    if (loraOptions) {
+        loraOptions.classList.toggle('hidden', !isLora);
+    }
+    if (btnText) {
+        btnText.textContent = isLora ? 'Train New Model ($5)' : 'Create Model ($5)';
+    }
+}
+
+/**
+ * Start model creation for the selected ad account.
+ * Opens compact LS checkout popup ($5 per-use payment), then starts training/creation on success.
  */
 async function startMediaTraining() {
     if (!selectedAdAccount) return;
@@ -4056,11 +4076,15 @@ async function startMediaTraining() {
             return;
         }
 
-        // 4. Start training with confirmed purchase
-        showToast('Payment confirmed! Starting model training...', 'success');
+        // 4. Start model creation with confirmed purchase
+        const modelRadio = document.querySelector('input[name="mediaGenerationModel"]:checked');
+        const generationModel = modelRadio ? modelRadio.value : 'flux-2-pro';
+        const isFlux2Pro = generationModel === 'flux-2-pro';
+
+        showToast(`Payment confirmed! ${isFlux2Pro ? 'Creating model...' : 'Starting model training...'}`, 'success');
         renderActiveTrainingStatus();
 
-        // Get selected training type
+        // Get selected training type (only used for LoRA)
         const trainingTypeRadio = document.querySelector('input[name="mediaTrainingType"]:checked');
         const trainingType = trainingTypeRadio ? trainingTypeRadio.value : 'subject';
 
@@ -4068,15 +4092,27 @@ async function startMediaTraining() {
             adAccountId: selectedAdAccount.id,
             name: name.trim(),
             purchaseId: purchase.id,
-            trainingType
+            trainingType,
+            generationModel
         });
 
-        activeTrainingJob = data.job;
-        mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
-        renderTrainingHistory();
-
-        showToast('Training started! This takes about 5-10 minutes.', 'success');
-        startTrainingPolling();
+        if (isFlux2Pro && data.job && data.job.status === 'completed') {
+            // FLUX.2 Pro: model is ready instantly
+            mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
+            activeTrainingJob = null;
+            renderTrainingHistory();
+            renderActiveTrainingStatus();
+            showToast('FLUX.2 Pro model created! You can now generate images.', 'success');
+            switchToViewModelMode(data.job.id);
+            loadMediaGenCredits();
+        } else {
+            // LoRA: training in progress
+            activeTrainingJob = data.job;
+            mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
+            renderTrainingHistory();
+            showToast('Training started! This takes about 5-10 minutes.', 'success');
+            startTrainingPolling();
+        }
 
     } catch (error) {
         showToast(error.message || 'Payment failed. Please try again.', 'error');
@@ -4329,8 +4365,10 @@ function renderGenerationSection() {
     const result = document.getElementById('mediaGenerateResult');
 
     if (mediaViewMode === 'view' && selectedTrainingJob && selectedTrainingJob.status === 'completed') {
+        const isFlux2Pro = selectedTrainingJob.replicate_model_name === 'flux-2-pro';
         if (selectedLabel) {
-            const typeLabel = selectedTrainingJob.training_type === 'style' ? 'Style' : 'Subject';
+            const typeLabel = isFlux2Pro ? 'FLUX.2 Pro'
+                : selectedTrainingJob.training_type === 'style' ? 'Style LoRA' : 'Subject LoRA';
             const triggerInfo = selectedTrainingJob.trigger_word
                 ? ` | Trigger: ${selectedTrainingJob.trigger_word}`
                 : '';
@@ -4338,6 +4376,12 @@ function renderGenerationSection() {
             selectedLabel.classList.remove('text-ink-400');
             selectedLabel.classList.add('text-brand-600');
         }
+        // Show/hide LoRA-specific generation controls
+        const loraStrength = document.getElementById('mediaLoraStrengthContainer');
+        const guidanceScale = document.getElementById('mediaGuidanceScaleContainer');
+        if (loraStrength) loraStrength.classList.toggle('hidden', isFlux2Pro);
+        if (guidanceScale) guidanceScale.classList.toggle('hidden', isFlux2Pro);
+
         // Enable generate button only if credits available
         if (generateBtn) generateBtn.disabled = mediaGenCredits <= 0;
         updateMediaGenCreditsUI();
