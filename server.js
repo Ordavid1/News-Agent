@@ -892,6 +892,12 @@ app.get('/manifest.json', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'manifest.json'));
 });
 
+// AEO: Serve llms.txt for AI model discovery
+app.get('/llms.txt', (req, res) => {
+  res.type('text/plain');
+  res.sendFile(path.join(__dirname, 'public', 'llms.txt'));
+});
+
 // SEO: Add caching headers for static assets
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true,

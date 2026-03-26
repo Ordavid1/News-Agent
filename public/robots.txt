@@ -1,14 +1,14 @@
-# robots.txt for News Agent - aipostgenerator.dev
-# AI-Powered Social Media Content Generation Platform
+# robots.txt for Configure News - configure.news
+# AI-Powered Social Media Automation Platform
 
 # Allow all search engines to crawl public pages
 User-agent: *
 Allow: /
 Allow: /index.html
-Allow: /demo.html
 Allow: /payment.html
 Allow: /blog/
 Allow: /sitemap.xml
+Allow: /llms.txt
 
 # Block private/authenticated pages
 Disallow: /auth.html
@@ -44,30 +44,52 @@ Crawl-delay: 1
 User-agent: GPTBot
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
 
 User-agent: ChatGPT-User
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
 
 User-agent: Google-Extended
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
+
+User-agent: GoogleOther
+Allow: /
+Allow: /blog/
+Allow: /llms.txt
 
 User-agent: anthropic-ai
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
 
 User-agent: Claude-Web
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
 
 User-agent: PerplexityBot
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
 
 User-agent: Bytespider
 Allow: /
 Allow: /blog/
+Allow: /llms.txt
+
+User-agent: cohere-ai
+Allow: /
+Allow: /blog/
+Allow: /llms.txt
+
+User-agent: meta-externalagent
+Allow: /
+Allow: /blog/
+Allow: /llms.txt
 
 # Social media crawlers for rich previews
 User-agent: Twitterbot

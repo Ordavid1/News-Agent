@@ -1,7 +1,7 @@
 {
-  "name": "News Agent - AI Social Media Automation",
-  "short_name": "News Agent",
-  "description": "AI-powered platform to generate and publish news content across all your social media platforms automatically. Save 95% of your time with intelligent automation.",
+  "name": "Configure News - AI Social Media Automation Platform",
+  "short_name": "Configure News",
+  "description": "AI-powered platform to generate and publish content across 10 social media platforms using autonomous AI agents, brand voice training, AI video generation, and trend analysis. Automate Twitter, LinkedIn, Reddit, Facebook, Instagram, Threads, Telegram, WhatsApp, TikTok, and YouTube.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F8FAFC",
@@ -66,7 +66,7 @@
       "src": "/images/screenshot-dashboard.png",
       "sizes": "1280x720",
       "type": "image/png",
-      "label": "News Agent Dashboard"
+      "label": "Configure News Dashboard"
     },
     {
       "src": "/images/screenshot-demo.png",

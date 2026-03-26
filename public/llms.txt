@@ -1,0 +1,162 @@
+# Configure News
+
+> Configure News (configure.news) is a B2B SaaS AI-powered social media automation platform that generates and publishes content across 10 social media platforms using autonomous AI agents, brand voice training, AI video generation, and trend-driven content intelligence.
+
+## Overview
+
+Configure News automates the entire social media content lifecycle: from trending topic discovery and AI content generation to multi-platform publishing and performance analytics. It serves businesses, marketers, agencies, and content creators who need to maintain an active social media presence across multiple platforms without manual effort.
+
+The platform is accessible at https://configure.news
+
+## Core Capabilities
+
+### AI Content Generation
+- Generates platform-optimized social media posts using AI
+- Adapts content tone, length, and format per platform (e.g., Twitter character limits, LinkedIn professional tone, Reddit community style)
+- Trending news aggregation and topic relevance analysis
+- Content deduplication to prevent repeated posts across schedules
+- Image extraction from source articles for visual content
+
+### AI Agents System
+- Autonomous per-platform content publishing entities
+- Each agent manages its own publishing schedule, content style, and platform connection
+- Agents can be configured with specific topics, tones, and posting frequencies
+- Test agents with a single post before enabling full automation
+- Per-agent performance tracking and quota consumption
+- Free tier: 1 agent | Starter: 2 agents | Growth: 5 agents | Business: unlimited agents
+
+### Brand Voice Service
+- Train the AI on your existing writing style and brand guidelines
+- Generates brand-consistent content that matches your voice across all platforms
+- Learns from your past content to improve alignment over time
+- Media learning via LoRA training for visual brand consistency
+
+### AI Video Generation
+- Create AI-generated short-form videos for TikTok and YouTube using Flux2-Pro
+- Intelligent video prompt generation engine
+- Thumbnail generation from video content
+- Video quotas per tier: Free: 0 | Starter: 2/month | Growth: 10/month | Business: 30/month
+
+### Advanced Analytics Dashboard
+- Overview KPIs: total posts, active platforms, success rate, engagement
+- Per-platform and per-agent performance metrics
+- Content insights: topic performance, tone effectiveness, timing analysis
+- Optimal posting time recommendations
+- Connection health monitoring and token expiration alerts
+- Data export in JSON/CSV (Business tier)
+- Marketing and affiliate analytics (with respective add-ons)
+
+### Trend Analysis
+- AI-powered trend detection across news sources and social media
+- Topic relevance scoring for your niche
+- Automatic content suggestions based on trending subjects
+- Geo-filtering support for location-specific trends
+
+### Automation Engine
+- Configurable automation schedules (morning, lunch, evening, night)
+- Posts-per-day settings limited by subscription tier
+- Topic selection, keyword filtering, and tone/voice settings
+- Pause/resume automation on demand
+- Daily limit enforcement
+
+## Supported Platforms (10)
+
+1. **Twitter/X** - Text and media posts, conversation threading, Premium tier detection
+2. **LinkedIn** - Professional content, organization posting, article sharing
+3. **Reddit** - Community-aware posting with subreddit flair management and requirements
+4. **Facebook** - Page posting with Meta Business API (coming soon to UI)
+5. **Instagram** - Image and video posts via Meta container publishing (coming soon to UI)
+6. **Threads** - Text, image, and video with separate OAuth (coming soon to UI)
+7. **Telegram** - Bot API integration with group management
+8. **WhatsApp** - Self-hosted bridge integration with group distribution
+9. **TikTok** - AI-generated short-form video content
+10. **YouTube** - Video publishing with thumbnail generation
+
+## Add-On Modules
+
+### Marketing Pro+ ($19/month per ad account)
+- Meta Ads campaign management for Facebook and Instagram
+- Create, manage, and monitor advertising campaigns
+- Post boosting with configurable budgets
+- Auto-boost rules triggered by engagement thresholds (e.g., auto-promote posts exceeding performance metrics)
+- Reusable audience templates with age, location, and interest targeting
+- Audience reach estimation
+- Marketing analytics dashboard with spend and ROI tracking
+- Campaign sync with Meta API
+
+### AliExpress Affiliate Integration
+- Product search and hot products discovery
+- Smart product-to-content matching
+- Automated affiliate product posting to social platforms
+- Keyword management for product discovery
+- Revenue and engagement tracking
+- Supports WhatsApp, Telegram, Twitter, LinkedIn, Facebook, Reddit, Instagram, Threads
+
+## Subscription Tiers
+
+### Free ($0/month)
+- 1 post per week
+- 0 video generations
+- 1 AI agent
+- 9 platforms (text only)
+- 7-day analytics window
+- Basic posting features
+
+### Starter ($25/month)
+- 6 posts per day (180/month)
+- 2 videos per month
+- 2 AI agents
+- All 10 platforms
+- Image extraction enabled
+- Post scheduling
+- Brand Voice access
+- 30-day analytics
+- Email support
+
+### Growth ($75/month)
+- 12 posts per day (360/month)
+- 10 videos per month
+- 5 AI agents
+- All 10 platforms
+- Content insights and timing optimization
+- Advanced analytics
+- Brand Voice access
+- 30-day analytics
+
+### Business ($250/month)
+- 30 posts per day (900/month)
+- 30 videos per month
+- Unlimited AI agents
+- All 10 platforms
+- White-label options
+- Webhook integrations
+- Custom analytics with unlimited retention
+- Full data export (JSON/CSV)
+- Priority support
+- API access
+
+## Additional Features
+
+- **Live Feed**: Cross-user showcase of published posts for inspiration and discovery
+- **Built-in Support Chat**: In-app support system with conversation tracking and category routing
+- **Content Scheduling**: Time-based publishing with optimal timing recommendations
+- **OAuth 2.0 Security**: Secure platform connections with AES-256-GCM token encryption
+- **Multi-Account Support**: Connect multiple accounts per platform
+- **Per-Use Purchases**: Micro-transactions for additional image generation and video generation credits
+
+## Technical Details
+
+- Web-based SaaS application (no installation required)
+- Works on all modern browsers, responsive design with PWA support
+- Express.js backend with Supabase PostgreSQL database
+- Hosted on Render cloud infrastructure
+- Dual payment infrastructure (Lemon Squeezy / Paddle)
+- Background worker system for automation scheduling and content generation
+
+## Links
+
+- Website: https://configure.news
+- Pricing: https://configure.news/payment.html
+- Blog: https://configure.news/blog/
+- Privacy Policy: https://configure.news/privacy.html
+- Terms of Service: https://configure.news/terms.html
