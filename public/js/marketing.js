@@ -1117,6 +1117,12 @@ function openBoostModal(publishedPostId, platformPostId, platform) {
     // Load saved audiences into dropdown
     populateAudienceDropdown('boostAudienceSelect');
 
+    // Set currency from ad account
+    const currSym = getCurrencySymbol(getAdAccountCurrency());
+    const currCode = getAdAccountCurrency();
+    document.getElementById('boostCurrencySymbol').textContent = currSym;
+    document.getElementById('boostMinBudgetHint').textContent = `Minimum ${currSym}1.00 per day (${currCode})`;
+
     // Reset state
     document.getElementById('boostSelectedLocations').innerHTML = '';
     document.getElementById('boostSelectedInterests').innerHTML = '';
@@ -1168,9 +1174,10 @@ function updateBoostCostSummary() {
     const days = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
 
     let totalCost, breakdown;
+    const sym = getCurrencySymbol(getAdAccountCurrency());
     if (budgetType === 'daily') {
         totalCost = budget * days;
-        breakdown = `$${budget.toFixed(2)}/day x ${days} days`;
+        breakdown = `${sym}${budget.toFixed(2)}/day x ${days} days`;
     } else {
         totalCost = budget;
         breakdown = `Lifetime budget over ${days} days`;
@@ -1203,7 +1210,7 @@ async function submitBoost() {
     const endDate = document.getElementById('boostEndDate').value;
 
     if (!budgetAmount || budgetAmount < 1) {
-        errorText.textContent = 'Budget must be at least $1.00';
+        errorText.textContent = `Budget must be at least ${getCurrencySymbol(getAdAccountCurrency())}1.00`;
         errorEl.classList.remove('hidden');
         return;
     }
@@ -1365,9 +1372,9 @@ async function syncCampaigns() {
 function renderCampaignCard(campaign) {
     const platforms = (campaign.platforms || ['facebook']).join(', ');
     const budget = campaign.daily_budget
-        ? `$${parseFloat(campaign.daily_budget).toFixed(2)}/day`
+        ? `${formatCurrency(campaign.daily_budget)}/day`
         : campaign.lifetime_budget
-            ? `$${parseFloat(campaign.lifetime_budget).toFixed(2)} lifetime`
+            ? `${formatCurrency(campaign.lifetime_budget)} lifetime`
             : 'No budget set';
     const isSynced = campaign.metadata?.source === 'meta_sync';
 
@@ -1418,9 +1425,9 @@ async function openCampaignDetail(campaignId) {
 
 function renderCampaignDetail(campaign, adSets) {
     const budget = campaign.daily_budget
-        ? `$${parseFloat(campaign.daily_budget).toFixed(2)}/day`
+        ? `${formatCurrency(campaign.daily_budget)}/day`
         : campaign.lifetime_budget
-            ? `$${parseFloat(campaign.lifetime_budget).toFixed(2)} lifetime`
+            ? `${formatCurrency(campaign.lifetime_budget)} lifetime`
             : 'No budget';
 
     let html = `
@@ -1980,7 +1987,7 @@ function renderRuleCard(rule) {
     const conditionText = `${conditions.metric || 'reach'} ${conditions.operator || '>'} ${conditions.value || 0}`;
     const withinText = conditions.within_hours ? ` within ${conditions.within_hours}h` : '';
     const actionText = rule.rule_type === 'auto_boost'
-        ? `Boost with $${actions.budget || 10}/day for ${actions.duration_days || 7} days`
+        ? `Boost with ${formatCurrency(actions.budget || 10)}/day for ${actions.duration_days || 7} days`
         : rule.rule_type === 'pause_if'
             ? 'Pause the ad'
             : 'Custom action';
@@ -2488,8 +2495,26 @@ async function apiPatch(url, body) {
 // UTILITY FUNCTIONS
 // ============================================
 
+function getAdAccountCurrency() {
+    return selectedAdAccount?.currency || 'USD';
+}
+
+function getCurrencySymbol(currencyCode) {
+    try {
+        const parts = new Intl.NumberFormat('en', { style: 'currency', currency: currencyCode }).formatToParts(0);
+        return parts.find(p => p.type === 'currency')?.value || currencyCode;
+    } catch {
+        return currencyCode;
+    }
+}
+
 function formatCurrency(amount) {
-    return '$' + parseFloat(amount || 0).toFixed(2);
+    const code = getAdAccountCurrency();
+    try {
+        return new Intl.NumberFormat('en', { style: 'currency', currency: code }).format(parseFloat(amount || 0));
+    } catch {
+        return '$' + parseFloat(amount || 0).toFixed(2);
+    }
 }
 
 function formatNumber(num) {
