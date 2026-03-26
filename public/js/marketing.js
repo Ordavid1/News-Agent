@@ -879,6 +879,17 @@ async function loadBoostablePosts(days) {
             ? (metaResponse.value.posts || [])
             : [];
 
+        // Log source counts for debugging
+        if (appResponse.status === 'rejected') {
+            console.warn('App posts fetch failed:', appResponse.reason);
+        }
+        if (metaResponse.status === 'rejected') {
+            console.warn('Meta posts fetch failed:', metaResponse.reason);
+        } else if (metaResponse.status === 'fulfilled' && !metaResponse.value.success) {
+            console.warn('Meta posts returned error:', metaResponse.value.error);
+        }
+        console.log(`Boost posts: ${appPosts.length} from app DB, ${metaPosts.length} from Meta API (${days} days)`);
+
         // Deduplicate by platform_post_id — prefer Meta version (fresher engagement data)
         const seenIds = new Set();
         const merged = [];
@@ -898,6 +909,12 @@ async function loadBoostablePosts(days) {
 
         boostablePosts = merged;
         if (loading) loading.classList.add('hidden');
+
+        // Show post count
+        const countEl = document.getElementById('boostPostsCount');
+        if (countEl) {
+            countEl.textContent = boostablePosts.length > 0 ? `(${boostablePosts.length})` : '';
+        }
 
         if (boostablePosts.length === 0) {
             list.innerHTML = '';

@@ -286,7 +286,7 @@ class MarketingService {
     const adSetParams = {
       campaign_id: fbCampaign.id,
       name: adSetName,
-      optimization_goal: 'POST_ENGAGEMENT',
+      optimization_goal: 'ENGAGED_USERS',
       promoted_object: JSON.stringify(promotedObject),
       billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
