@@ -1099,7 +1099,7 @@ function openBoostModal(publishedPostId, platformPostId, platform) {
     const post = boostablePosts.find(p => p.id === publishedPostId);
     if (!post) return;
 
-    currentBoostPost = { ...post, platformPostId, platform };
+    currentBoostPost = { ...post, platformPostId, platform, publishedPostId: post.source !== 'meta' ? post.id : null };
     boostLocations = [];
     boostInterests = [];
 
@@ -1250,7 +1250,7 @@ async function submitBoost() {
         const response = await apiPost('/api/marketing/boost', {
             platformPostId: currentBoostPost.platformPostId || currentBoostPost.platform_post_id,
             sourcePlatform: currentBoostPost.platform,
-            sourcePublishedPostId: currentBoostPost.id,
+            sourcePublishedPostId: currentBoostPost.publishedPostId || null,
             budget: { type: budgetType, amount: budgetAmount },
             duration: {
                 startTime: new Date(startDate).toISOString(),
