@@ -225,7 +225,8 @@ router.post('/ad-accounts/:id/select', async (req, res) => {
 router.get('/boostable-posts', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const posts = await getBoostablePublishedPosts(req.user.id, limit);
+    const days = parseInt(req.query.days) || 0;
+    const posts = await getBoostablePublishedPosts(req.user.id, limit, days);
     res.json({ success: true, posts });
   } catch (error) {
     logger.error('Error getting boostable posts:', error);
@@ -235,13 +236,31 @@ router.get('/boostable-posts', async (req, res) => {
 
 /**
  * GET /api/marketing/page-posts
- * Fetch posts directly from the user's Facebook Page (last N days).
+ * Fetch posts directly from Meta (Facebook Page + Instagram) for the last N days.
  * Includes ALL posts, not just those published through this app.
  */
 router.get('/page-posts', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 30;
-    const posts = await marketingService.fetchPagePosts(req.user.id, days);
+
+    // Fetch Facebook and Instagram posts in parallel — settle both so one
+    // failing doesn't block the other (e.g. user has FB but no IG connection).
+    const [fbResult, igResult] = await Promise.allSettled([
+      marketingService.fetchPagePosts(req.user.id, days),
+      marketingService.fetchInstagramPosts(req.user.id, days)
+    ]);
+
+    const fbPosts = fbResult.status === 'fulfilled' ? fbResult.value : [];
+    const igPosts = igResult.status === 'fulfilled' ? igResult.value : [];
+
+    if (fbResult.status === 'rejected') {
+      logger.warn('Failed to fetch Facebook page posts:', fbResult.reason?.message);
+    }
+    if (igResult.status === 'rejected') {
+      logger.warn('Failed to fetch Instagram posts:', igResult.reason?.message);
+    }
+
+    const posts = [...fbPosts, ...igPosts];
     res.json({ success: true, posts, source: 'meta' });
   } catch (error) {
     logger.error('Error fetching page posts:', error);

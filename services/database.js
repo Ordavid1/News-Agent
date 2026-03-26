@@ -3029,17 +3029,27 @@ export async function createPublishedPost(postData) {
 
 /**
  * Get boostable published posts (Facebook/Instagram posts that can be promoted)
+ * @param {string} userId
+ * @param {number} limit - Max posts to return
+ * @param {number} days - Only return posts from the last N days (0 = no filter)
  */
-export async function getBoostablePublishedPosts(userId, limit = 50) {
-  const { data, error } = await supabaseAdmin
+export async function getBoostablePublishedPosts(userId, limit = 50, days = 0) {
+  let query = supabaseAdmin
     .from('published_posts')
     .select('*')
     .eq('user_id', userId)
     .in('platform', ['facebook', 'instagram'])
     .eq('success', true)
-    .not('platform_post_id', 'is', null)
-    .order('published_at', { ascending: false })
-    .limit(limit);
+    .not('platform_post_id', 'is', null);
+
+  if (days > 0) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte('published_at', since);
+  }
+
+  query = query.order('published_at', { ascending: false }).limit(limit);
+
+  const { data, error } = await query;
 
   if (error) {
     logger.error('Error getting boostable posts:', error);

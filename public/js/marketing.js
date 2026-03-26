@@ -830,10 +830,34 @@ async function loadBoostTab() {
         if (boostSection) boostSection.classList.add('hidden');
         return;
     }
+    initBoostPeriodSelector();
     await Promise.all([loadBoostablePosts(), loadActiveBoosts()]);
 }
 
-async function loadBoostablePosts() {
+let boostPostsDays = 90; // default period
+
+function initBoostPeriodSelector() {
+    document.querySelectorAll('.boost-period-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const days = parseInt(btn.dataset.boostDays);
+            if (days === boostPostsDays) return;
+            boostPostsDays = days;
+
+            // Update active button styling
+            document.querySelectorAll('.boost-period-btn').forEach(b => {
+                b.classList.remove('bg-white', 'text-ink-800', 'shadow-sm');
+                b.classList.add('text-ink-500');
+            });
+            btn.classList.add('bg-white', 'text-ink-800', 'shadow-sm');
+            btn.classList.remove('text-ink-500');
+
+            loadBoostablePosts(days);
+        });
+    });
+}
+
+async function loadBoostablePosts(days) {
+    if (days === undefined) days = boostPostsDays;
     const list = document.getElementById('boostablePostsList');
     const loading = document.getElementById('boostablePostsLoading');
     const empty = document.getElementById('boostablePostsEmpty');
@@ -844,8 +868,8 @@ async function loadBoostablePosts() {
     try {
         // Fetch both app-published posts and Meta page posts in parallel
         const [appResponse, metaResponse] = await Promise.allSettled([
-            apiGet('/api/marketing/boostable-posts?limit=50'),
-            apiGet('/api/marketing/page-posts?days=90')
+            apiGet(`/api/marketing/boostable-posts?limit=50&days=${days}`),
+            apiGet(`/api/marketing/page-posts?days=${days}`)
         ]);
 
         const appPosts = appResponse.status === 'fulfilled' && appResponse.value.success
