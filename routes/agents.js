@@ -310,6 +310,11 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
           },
           twitter: {
             isPremium: settings.platformSettings?.twitter?.isPremium ?? false
+          },
+          instagram: {
+            contentTypes: Array.isArray(settings.platformSettings?.instagram?.contentTypes)
+              ? settings.platformSettings.instagram.contentTypes.filter(t => ['post', 'reels'].includes(t))
+              : ['post']
           }
         }
       };
@@ -419,6 +424,11 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
           },
           twitter: {
             isPremium: settings.platformSettings?.twitter?.isPremium ?? agent.settings?.platformSettings?.twitter?.isPremium ?? false
+          },
+          instagram: {
+            contentTypes: Array.isArray(settings.platformSettings?.instagram?.contentTypes)
+              ? settings.platformSettings.instagram.contentTypes.filter(t => ['post', 'reels'].includes(t))
+              : (agent.settings?.platformSettings?.instagram?.contentTypes || ['post'])
           }
         }
       };
@@ -917,9 +927,21 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       console.log(`[Agent Test] User tier "${userTier}" - image extraction not available (Growth+ required)`);
     }
 
-    // Step 2.5: For video platforms (TikTok, YouTube) — check video quota then generate video from image + caption
+    // Step 2.5: Determine effective Instagram content type for this test
+    let effectiveIgContentType = null;
+    if (platform === 'instagram') {
+      const igContentTypes = platformSettings.instagram?.contentTypes || ['post'];
+      // Allow explicit override via query param (for testing specific content types)
+      effectiveIgContentType = req.query.contentType && ['post', 'reels'].includes(req.query.contentType)
+        ? req.query.contentType
+        : igContentTypes[0];
+      console.log(`[Agent Test] Instagram content type: ${effectiveIgContentType}`);
+    }
+
+    // Step 2.6: For video platforms (TikTok, YouTube, Instagram Reels) — check video quota then generate video
     const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
-    if (VIDEO_PLATFORMS.includes(platform)) {
+    const isVideoMode = VIDEO_PLATFORMS.includes(platform) || effectiveIgContentType === 'reels';
+    if (isVideoMode) {
       // Check video quota before expensive video generation
       const videoQuota = await checkVideoQuota(userId, req.user.subscription);
       if (!videoQuota.allowed) {
@@ -1060,15 +1082,28 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           publishResult = await publishToWhatsApp(content, userId, imageUrl);
           break;
         case 'instagram':
-          if (!imageUrl) {
-            testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image — none found');
-            return res.status(400).json({
-              success: false,
-              error: 'Instagram requires an image or video. No media was found for this article.',
-              step: 'publishing'
-            });
+          if (effectiveIgContentType === 'reels') {
+            if (!generatedContent.videoUrl) {
+              testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram Reels requires a video — generation failed');
+              return res.status(400).json({
+                success: false,
+                error: 'Instagram Reels requires a video but video generation was not completed.',
+                step: 'publishing'
+              });
+            }
+            content.videoUrl = generatedContent.videoUrl;
+            publishResult = await publishToInstagram(content, userId, generatedContent.videoUrl, { contentType: 'reels' });
+          } else {
+            if (!imageUrl) {
+              testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image — none found');
+              return res.status(400).json({
+                success: false,
+                error: 'Instagram requires an image or video. No media was found for this article.',
+                step: 'publishing'
+              });
+            }
+            publishResult = await publishToInstagram(content, userId, imageUrl, { contentType: 'post' });
           }
-          publishResult = await publishToInstagram(content, userId, imageUrl);
           break;
         case 'threads':
           publishResult = await publishToThreads(content, userId, imageUrl);

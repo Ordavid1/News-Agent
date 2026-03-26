@@ -78,30 +78,33 @@ class InstagramPublisher {
       throw new Error('Instagram Business Account ID not available. Please reconnect your Instagram account.');
     }
 
+    const contentType = options.contentType || 'post'; // 'post' or 'reels'
+
     try {
-      logger.debug(`Instagram publish attempt - Account: ${this.igUserId}`);
+      logger.debug(`Instagram publish attempt - Account: ${this.igUserId}, contentType: ${contentType}`);
 
       const caption = this.formatForInstagram(content);
-      const isVideo = this.isVideoUrl(mediaUrl);
+      const isVideo = contentType === 'reels' || this.isVideoUrl(mediaUrl);
 
       // Step 1: Create media container
-      const containerId = await this.createMediaContainer(mediaUrl, caption, isVideo);
-      logger.debug(`Created media container: ${containerId}`);
+      const containerId = await this.createMediaContainer(mediaUrl, caption, { contentType, isVideo });
+      logger.debug(`Created media container: ${containerId} (${contentType})`);
 
       // Step 2: Wait for container processing to complete
       // Instagram requires ALL containers (images AND videos) to reach FINISHED status
-      // before they can be published. Videos take longer; images usually 1-5 seconds.
+      // before they can be published. Videos/Reels take longer; images usually 1-5 seconds.
       const maxAttempts = isVideo ? CONTAINER_POLL_MAX_ATTEMPTS : IMAGE_POLL_MAX_ATTEMPTS;
       await this.waitForContainerReady(containerId, maxAttempts);
 
       // Step 3: Publish the container
       const result = await this.publishMediaContainer(containerId);
 
-      logger.info(`Successfully published to Instagram: ${result.id}`);
+      logger.info(`Successfully published ${contentType} to Instagram: ${result.id}`);
 
       return {
         success: true,
         platform: 'instagram',
+        contentType,
         postId: result.id,
         url: `https://www.instagram.com/p/${result.id}/`,
         igUserId: this.igUserId
@@ -126,16 +129,25 @@ class InstagramPublisher {
    * Create a media container for publishing
    * @param {string} mediaUrl - Image or video URL
    * @param {string} caption - Post caption
-   * @param {boolean} isVideo - Whether the media is a video
+   * @param {Object} options - Container options
+   * @param {string} options.contentType - 'post' or 'reels'
+   * @param {boolean} options.isVideo - Whether the media is a video
    * @returns {string} Container creation ID
    */
-  async createMediaContainer(mediaUrl, caption, isVideo) {
+  async createMediaContainer(mediaUrl, caption, options = {}) {
+    const { contentType = 'post', isVideo = false } = typeof options === 'boolean'
+      ? { isVideo: options } // backward compat: old callers may pass boolean directly
+      : options;
+
     const params = {
       caption,
       access_token: this.accessToken
     };
 
-    if (isVideo) {
+    if (contentType === 'reels') {
+      params.media_type = 'REELS';
+      params.video_url = mediaUrl;
+    } else if (isVideo) {
       params.media_type = 'VIDEO';
       params.video_url = mediaUrl;
     } else {

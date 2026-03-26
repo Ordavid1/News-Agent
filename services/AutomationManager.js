@@ -336,9 +336,19 @@ class AutomationManager {
       agentLog('info', `Image already available from trend data: ${content.imageUrl}`);
     }
 
-    // 3.7 For video platforms (TikTok, YouTube): check video quota then generate video from image + caption
+    // 3.6 Determine effective Instagram content type (post vs reels) via round-robin
+    let effectiveIgContentType = null;
+    if (platform === 'instagram') {
+      const igContentTypes = settings.platformSettings?.instagram?.contentTypes || ['post'];
+      effectiveIgContentType = this.getNextContentType(agent, igContentTypes);
+      content._igContentType = effectiveIgContentType;
+      agentLog('info', `Instagram content type for this cycle: ${effectiveIgContentType}`);
+    }
+
+    // 3.7 For video platforms (TikTok, YouTube, Instagram Reels): check video quota then generate video
     const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
-    if (VIDEO_PLATFORMS.includes(platform)) {
+    const isVideoMode = VIDEO_PLATFORMS.includes(platform) || effectiveIgContentType === 'reels';
+    if (isVideoMode) {
       // Check video quota before expensive video generation
       try {
         const user = await getUserById(userId);
@@ -788,6 +798,28 @@ class AutomationManager {
   }
 
   /**
+   * Get the next Instagram content type via round-robin rotation.
+   * When an agent has both 'post' and 'reels' enabled, this alternates between them.
+   * @param {Object} agent - Agent object from database
+   * @param {string[]} contentTypes - Enabled content types (e.g., ['post', 'reels'])
+   * @returns {string} The content type to use this cycle
+   */
+  getNextContentType(agent, contentTypes) {
+    if (contentTypes.length <= 1) return contentTypes[0] || 'post';
+
+    const lastIndex = agent.settings?._igContentTypeIndex || 0;
+    const nextIndex = (lastIndex + 1) % contentTypes.length;
+
+    // Persist the index for next cycle (fire-and-forget)
+    const updatedSettings = { ...agent.settings, _igContentTypeIndex: nextIndex };
+    updateAgentInDb(agent.id, { settings: updatedSettings }).catch(err =>
+      logger.warn(`Failed to persist Instagram content type index: ${err.message}`)
+    );
+
+    return contentTypes[nextIndex];
+  }
+
+  /**
    * Map platform to preferred content category
    */
   mapPlatformToCategory(platform) {
@@ -938,18 +970,23 @@ class AutomationManager {
           result = await publishToWhatsApp(content, userId, imageUrl);
           break;
 
-        case 'instagram':
-          // Instagram requires an image — skip gracefully if no image available
-          if (!imageUrl) {
-            logger.warn(`Skipping Instagram for agent ${agent.id}: no image available (Instagram requires media)`);
-            return {
-              success: false,
-              platform,
-              error: 'Instagram requires an image or video. Post skipped because no media was available.'
-            };
+        case 'instagram': {
+          const igContentType = content._igContentType || 'post';
+          if (igContentType === 'reels') {
+            if (!content.videoUrl) {
+              logger.warn(`Skipping Instagram Reels for agent ${agent.id}: no video available`);
+              return { success: false, platform, error: 'Instagram Reels requires a video. Video generation must complete before publishing.' };
+            }
+            result = await publishToInstagram(content, userId, content.videoUrl, { contentType: 'reels' });
+          } else {
+            if (!imageUrl) {
+              logger.warn(`Skipping Instagram for agent ${agent.id}: no image available (Instagram requires media)`);
+              return { success: false, platform, error: 'Instagram requires an image or video. Post skipped because no media was available.' };
+            }
+            result = await publishToInstagram(content, userId, imageUrl, { contentType: 'post' });
           }
-          result = await publishToInstagram(content, userId, imageUrl);
           break;
+        }
 
         case 'threads':
           result = await publishToThreads(content, userId, imageUrl);

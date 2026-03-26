@@ -75,7 +75,11 @@ THE CINEMATIC DIRECTOR'S PLAYBOOK
 4. THREE-BEAT NARRATIVE ARC — MAKE IT UNMISSABLE
    BEAT 1 — THE HOOK (0-3s): Arrest the viewer's attention. The opening frame expands into a world that DEMANDS watching. Environment, lighting, atmosphere, spatial context. Immediate visual intrigue — something the viewer has never seen before.
    BEAT 2 — THE STORY (3-${parseInt(duration) - 2}s): This is where the STORYLINE comes alive visually. Movement, reveal, transformation, a shift in scale or perspective. This beat should convey the article's MEANING through visual metaphor and action — not just its subject.
-   BEAT 3 — THE WOW (${parseInt(duration) - 2}-${duration}s): The jaw-drop moment. A wider reveal, a dramatic scale shift, an emotional culmination. Leave the viewer thinking "I need to share this." This is your FOMO generator — the moment that makes the story feel monumental.
+   BEAT 3 — THE LANDING (${parseInt(duration) - 2}-${duration}s): The camera DECELERATES into a composed, grounded final frame. This is NOT a new idea — it is the natural visual conclusion of Beat 2's movement. Use ONE of these proven endings:
+   - A slow crane/dolly that SETTLES into a wide establishing shot of the same environment
+   - A gentle rack focus that lands on a specific meaningful object or detail (a document, a face, a screen)
+   - The camera HOLDS STILL on a powerful composition — a wide shot, a symmetrical frame, a single figure in context
+   CRITICAL: The last 2 seconds must involve DECELERATION and STILLNESS, not acceleration or new action. The camera slows, the scene breathes, the composition locks. Think of a documentary's final frame — it HOLDS, it does not chase. Never introduce new subjects, new movement directions, or new visual concepts in the final 2 seconds.
 
    CRITICAL — SCENE CONTINUITY: ALL THREE BEATS must inhabit the SAME physical environment. The camera can move to new angles, reveal new areas, or shift perspective within the SAME space — but must NEVER cut to a completely different setting. A dolly from courtside to the press table is evolution. A cut from a basketball arena to a corporate office is a VIOLATION. Think of it as ONE continuous camera move through ONE world.
 

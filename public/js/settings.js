@@ -111,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize platform-specific toggles
     initializeRedditSubredditToggle();
     initializeTwitterPremiumToggle();
+    initializeInstagramContentTypeToggle();
     initializeGeoLanguageToggle();
 });
 
@@ -478,6 +479,38 @@ function initializeTwitterPremiumToggle() {
         // Toggle on change
         twitterCheckbox.addEventListener('change', (e) => {
             premiumConfig.classList.toggle('hidden', !e.target.checked);
+        });
+    }
+}
+
+/**
+ * Initialize Instagram content type toggle
+ * Shows/hides the Post/Reels checkboxes when Instagram checkbox is toggled
+ */
+function initializeInstagramContentTypeToggle() {
+    const igCheckbox = document.querySelector('input[name="platforms"][value="instagram"]');
+    const contentTypeConfig = document.getElementById('instagramContentTypeConfig');
+
+    if (igCheckbox && contentTypeConfig) {
+        // Initial state
+        contentTypeConfig.classList.toggle('hidden', !igCheckbox.checked);
+
+        // Toggle on change
+        igCheckbox.addEventListener('change', (e) => {
+            contentTypeConfig.classList.toggle('hidden', !e.target.checked);
+        });
+
+        // Ensure at least one content type is checked when Instagram is enabled
+        const contentTypeCheckboxes = document.querySelectorAll('input[name="instagramContentType"]');
+        contentTypeCheckboxes.forEach(cb => {
+            cb.addEventListener('change', () => {
+                const anyChecked = Array.from(contentTypeCheckboxes).some(c => c.checked);
+                if (!anyChecked) {
+                    // Default back to 'post' if user unchecks everything
+                    const postCheckbox = document.querySelector('input[name="instagramContentType"][value="post"]');
+                    if (postCheckbox) postCheckbox.checked = true;
+                }
+            });
         });
     }
 }
@@ -1098,6 +1131,20 @@ function populateForm(settings) {
                 premiumConfig.classList.remove('hidden');
             }
         }
+
+        // Instagram Content Types
+        if (settings.platformSettings.instagram?.contentTypes) {
+            const contentTypes = settings.platformSettings.instagram.contentTypes;
+            document.querySelectorAll('input[name="instagramContentType"]').forEach(cb => {
+                cb.checked = contentTypes.includes(cb.value);
+            });
+            // Show the content type config if Instagram is checked
+            const igCheckbox = document.querySelector('input[name="platforms"][value="instagram"]');
+            const igConfig = document.getElementById('instagramContentTypeConfig');
+            if (igCheckbox?.checked && igConfig) {
+                igConfig.classList.remove('hidden');
+            }
+        }
     }
 }
 
@@ -1215,6 +1262,10 @@ async function saveAgentWithSettings() {
             },
             twitter: {
                 isPremium: twitterIsPremium
+            },
+            instagram: {
+                contentTypes: Array.from(document.querySelectorAll('input[name="instagramContentType"]:checked'))
+                    .map(cb => cb.value) || ['post']
             }
         }
     };
@@ -1627,6 +1678,19 @@ function populateFormWithAgentSettings(settings) {
                 premiumConfig.classList.remove('hidden');
             }
         }
+
+        // Instagram Content Types
+        if (settings.platformSettings.instagram?.contentTypes) {
+            const contentTypes = settings.platformSettings.instagram.contentTypes;
+            document.querySelectorAll('input[name="instagramContentType"]').forEach(cb => {
+                cb.checked = contentTypes.includes(cb.value);
+            });
+            // Show the content type config if Instagram is the agent's platform
+            const igConfig = document.getElementById('instagramContentTypeConfig');
+            if (currentAgent?.platform === 'instagram' && igConfig) {
+                igConfig.classList.remove('hidden');
+            }
+        }
     }
 }
 
@@ -1715,6 +1779,10 @@ async function saveAgentSettings() {
             },
             twitter: {
                 isPremium: twitterIsPremium
+            },
+            instagram: {
+                contentTypes: Array.from(document.querySelectorAll('input[name="instagramContentType"]:checked'))
+                    .map(cb => cb.value) || ['post']
             }
         }
     };

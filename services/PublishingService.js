@@ -494,16 +494,16 @@ class PublishingService {
     }
   }
 
-  async publishToInstagram(content, userId, imageUrl = null) {
+  async publishToInstagram(content, userId, mediaUrl = null, options = {}) {
     try {
       const publisher = await this.getPublisherForUser(userId, 'instagram');
-      const mediaUrl = imageUrl || content.imageUrl || null;
+      const resolvedMediaUrl = mediaUrl || content.imageUrl || null;
 
-      if (!mediaUrl) {
+      if (!resolvedMediaUrl) {
         throw new Error('Instagram requires an image or video. Please provide media to publish.');
       }
 
-      const result = await publisher.publishPost(content.text, mediaUrl);
+      const result = await publisher.publishPost(content.text, resolvedMediaUrl, options);
 
       if (result.success) {
         await this.savePostToDatabase(userId, 'instagram', content, result, mediaUrl);
@@ -862,7 +862,7 @@ export const publishToTwitter = (content, userId, imageUrl = null) => publishing
 export const publishToLinkedIn = (content, userId, imageUrl = null) => publishingService.publishToLinkedIn(content, userId, imageUrl);
 export const publishToReddit = (content, subreddit, userId, flairId = null, imageUrl = null) => publishingService.publishToReddit(content, subreddit, userId, flairId, imageUrl);
 export const publishToFacebook = (content, userId, imageUrl = null) => publishingService.publishToFacebook(content, userId, imageUrl);
-export const publishToInstagram = (content, userId, imageUrl = null) => publishingService.publishToInstagram(content, userId, imageUrl);
+export const publishToInstagram = (content, userId, mediaUrl = null, options = {}) => publishingService.publishToInstagram(content, userId, mediaUrl, options);
 export const publishToThreads = (content, userId, imageUrl = null) => publishingService.publishToThreads(content, userId, imageUrl);
 export const publishToTelegram = (content, userId, imageUrl = null) => publishingService.publishToTelegram(content, userId, imageUrl);
 export const publishToWhatsApp = (content, userId, imageUrl = null) => publishingService.publishToWhatsApp(content, userId, imageUrl);
