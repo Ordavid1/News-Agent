@@ -7,6 +7,7 @@
 // Marketing-specific state
 var adAccounts = [];
 var selectedAdAccount = null;
+var isFacebookActive = true;
 var marketingAddonLimits = { maxAdAccounts: 1, pricePerAccount: 19 };
 var boostablePosts = [];
 var campaigns = [];
@@ -239,16 +240,31 @@ async function loadAdAccounts() {
         if (response.success) {
             adAccounts = response.accounts || [];
             selectedAdAccount = adAccounts.find(a => a.is_selected);
+            isFacebookActive = response.facebookActive !== false;
+
+            // Auto-select the first account if none is selected but accounts exist
+            if (!selectedAdAccount && adAccounts.length > 0) {
+                try {
+                    await apiPost(`/api/marketing/ad-accounts/${adAccounts[0].id}/select`);
+                    selectedAdAccount = adAccounts[0];
+                    selectedAdAccount.is_selected = true;
+                } catch (e) {
+                    console.warn('Auto-select ad account failed:', e.message);
+                    // Still use the first account locally so data loads
+                    selectedAdAccount = adAccounts[0];
+                }
+            }
 
             if (response.needsConnection) {
-                // Facebook is not connected — prompt to connect
+                // No Facebook connection AND no existing accounts
                 showAdAccountBanner('Connect your Facebook account with marketing permissions to get started.', true);
+            } else if (selectedAdAccount && !response.facebookActive) {
+                // Has ad accounts and data, but Facebook is disconnected —
+                // show a non-blocking warning while still allowing data access
+                showAdAccountBanner('Facebook connection is inactive. Your saved data is still accessible, but syncing and boosting are unavailable until you reconnect.', true);
             } else if (selectedAdAccount) {
-                // Has a selected ad account — everything is working, hide the banner
+                // Has a selected ad account and Facebook is active — everything is working
                 document.getElementById('adAccountBanner').classList.add('hidden');
-            } else if (adAccounts.length > 0) {
-                // Accounts exist but none selected — prompt to select
-                showAdAccountBanner('Please select an ad account to use for marketing.', false);
             } else if (response.marketingEnabled === false) {
                 // No accounts and marketing scopes not authorized
                 showAdAccountBanner('Facebook is connected but marketing permissions are not authorized. Click to authorize ads management.', true);
@@ -269,17 +285,33 @@ async function loadAdAccounts() {
 }
 
 /**
- * Enable/disable create buttons based on ad account selection.
- * Zero-trust: cannot create marketing data without an ad account.
+ * Enable/disable create buttons based on ad account selection and Facebook connection.
+ * Local data buttons (audiences, rules, brand voice) only need an ad account.
+ * Meta-specific buttons (sync, campaigns) also need an active Facebook connection.
  */
 function updateCreateButtonStates() {
-    const disabled = !selectedAdAccount;
-    const btnIds = ['createAudienceBtn', 'createRuleBtn', 'createBvProfileBtn', 'createCampaignBtn', 'syncCampaignsBtn', 'syncAudiencesBtn', 'syncMetricsBtn'];
-    btnIds.forEach(id => {
+    const noAccount = !selectedAdAccount;
+
+    // Local data creation — only needs an ad account
+    const localBtnIds = ['createAudienceBtn', 'createRuleBtn', 'createBvProfileBtn'];
+    localBtnIds.forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
-            btn.disabled = disabled;
-            btn.title = disabled ? 'Select an ad account first' : '';
+            btn.disabled = noAccount;
+            btn.title = noAccount ? 'Select an ad account first' : '';
+        }
+    });
+
+    // Meta-specific actions — need ad account AND active Facebook connection
+    const metaBtnIds = ['createCampaignBtn', 'syncCampaignsBtn', 'syncAudiencesBtn', 'syncMetricsBtn'];
+    const metaDisabled = noAccount || !isFacebookActive;
+    metaBtnIds.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = metaDisabled;
+            btn.title = metaDisabled
+                ? (noAccount ? 'Select an ad account first' : 'Facebook connection is inactive')
+                : '';
         }
     });
 }
@@ -1260,8 +1292,8 @@ async function loadCampaigns() {
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
-    // Auto-sync from Meta if not recently synced and ad account is connected
-    if (selectedAdAccount && Date.now() - lastCampaignSync > AUTO_SYNC_INTERVAL) {
+    // Auto-sync from Meta if not recently synced and Facebook connection is active
+    if (isFacebookActive && selectedAdAccount && Date.now() - lastCampaignSync > AUTO_SYNC_INTERVAL) {
         try {
             await apiPost('/api/marketing/campaigns/sync');
             lastCampaignSync = Date.now();
@@ -1587,8 +1619,8 @@ async function loadAudiences() {
     if (loading) loading.classList.remove('hidden');
     empty.classList.add('hidden');
 
-    // Auto-sync from Meta if not recently synced and ad account is connected
-    if (Date.now() - lastAudienceSync > AUTO_SYNC_INTERVAL) {
+    // Auto-sync from Meta if not recently synced and Facebook connection is active
+    if (isFacebookActive && Date.now() - lastAudienceSync > AUTO_SYNC_INTERVAL) {
         try {
             await apiPost('/api/marketing/audiences/sync');
             lastAudienceSync = Date.now();
@@ -1692,6 +1724,9 @@ function renderAudienceCard(audience) {
     const interestCount = targeting.interests?.length || 0;
     const platforms = (audience.platforms || []).join(', ');
 
+    const isSynced = audience.source === 'synced';
+    const canPush = audience.source === 'local' && isFacebookActive;
+
     return `
         <div class="card-static p-5">
             <div class="flex items-center justify-between mb-3">
@@ -1701,6 +1736,12 @@ function renderAudienceCard(audience) {
                 </div>
                 <div class="flex items-center gap-2">
                     ${audience.is_default ? '<span class="text-xs px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">Default</span>' : ''}
+                    ${isSynced ? '<span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">Synced to Meta</span>' : ''}
+                    ${canPush ? `<button onclick="pushAudienceToMeta('${audience.id}')" class="text-ink-400 hover:text-blue-600 transition-colors" title="Save to Meta Ads Manager">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </button>` : ''}
                     <button onclick="editAudience('${audience.id}')" class="text-ink-400 hover:text-brand-600 transition-colors" title="Edit">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -1721,6 +1762,19 @@ function renderAudienceCard(audience) {
             </div>
         </div>
     `;
+}
+
+async function pushAudienceToMeta(audienceId) {
+    if (!confirm('Push this audience template to your Meta Ad Account as a Saved Audience?')) return;
+    try {
+        const response = await apiPost(`/api/marketing/audiences/${audienceId}/push-to-meta`);
+        if (response.success) {
+            showToast('Audience saved to Meta successfully', 'success');
+            await loadAudiences();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to push audience to Meta', 'error');
+    }
 }
 
 // Audience Modal
@@ -1931,6 +1985,10 @@ function renderRuleCard(rule) {
             ? 'Pause the ad'
             : 'Custom action';
 
+    const isMetaManaged = rule.meta_rule_id && rule.meta_sync_status === 'synced';
+    const isMetaError = rule.meta_rule_id && rule.meta_sync_status === 'error';
+    const canPush = rule.rule_type !== 'auto_boost' && !rule.meta_rule_id && isFacebookActive;
+
     return `
         <div class="card-static p-5">
             <div class="flex items-center justify-between mb-3">
@@ -1938,10 +1996,22 @@ function renderRuleCard(rule) {
                     <div class="flex items-center gap-2">
                         <p class="font-medium text-ink-800">${escapeHtml(rule.name)}</p>
                         <span class="text-xs px-2 py-0.5 rounded-full ${rule.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-surface-200 text-ink-500'}">${rule.status}</span>
+                        ${isMetaManaged ? '<span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600" title="This rule is evaluated by Meta\'s Ad Rules engine">Meta-Managed</span>' : ''}
+                        ${isMetaError ? '<span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600" title="Meta sync failed — rule is evaluated locally as fallback">Sync Error</span>' : ''}
                     </div>
-                    <p class="text-xs text-ink-400 mt-1">${rule.rule_type === 'auto_boost' ? 'Auto-Boost' : rule.rule_type === 'pause_if' ? 'Auto-Pause' : rule.rule_type}</p>
+                    <p class="text-xs text-ink-400 mt-1">${rule.rule_type === 'auto_boost' ? 'Auto-Boost' : rule.rule_type === 'pause_if' ? 'Auto-Pause' : rule.rule_type}${rule.rule_type === 'auto_boost' ? ' (evaluated locally)' : ''}</p>
                 </div>
                 <div class="flex items-center gap-2">
+                    ${canPush ? `<button onclick="pushRuleToMeta('${rule.id}')" class="text-ink-400 hover:text-blue-600 transition-colors" title="Push to Meta Ad Rules">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </button>` : ''}
+                    ${isMetaError ? `<button onclick="pushRuleToMeta('${rule.id}')" class="text-ink-400 hover:text-amber-600 transition-colors" title="Retry push to Meta">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </button>` : ''}
                     <button onclick="toggleRuleStatus('${rule.id}', '${rule.status === 'active' ? 'paused' : 'active'}')"
                         class="btn-outline btn-sm text-xs">${rule.status === 'active' ? 'Pause' : 'Activate'}</button>
                     <button onclick="editRule('${rule.id}')" class="text-ink-400 hover:text-brand-600 transition-colors" title="Edit">
@@ -1963,6 +2033,19 @@ function renderRuleCard(rule) {
             </div>
         </div>
     `;
+}
+
+async function pushRuleToMeta(ruleId) {
+    if (!confirm('Push this rule to Meta? Meta will evaluate and execute it on its own schedule.')) return;
+    try {
+        const response = await apiPost(`/api/marketing/rules/${ruleId}/push-to-meta`);
+        if (response.success) {
+            showToast('Rule pushed to Meta successfully', 'success');
+            await loadRules();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to push rule to Meta', 'error');
+    }
 }
 
 // Rule Modal

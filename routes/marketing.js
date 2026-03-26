@@ -122,21 +122,30 @@ async function resolveAdAccountId(req) {
  */
 router.get('/ad-accounts', async (req, res) => {
   try {
-    // Verify user has an active Facebook connection before returning ad accounts.
-    // Use getConnectionStatus (no decryption) to avoid triggering markConnectionError
-    // on read-only status checks — decryption side-effects can permanently kill connections.
+    // Always return stored ad accounts from DB so users can access their saved
+    // marketing data (audiences, rules, brand voice, brand assets) even when
+    // the Facebook connection is temporarily inactive (token expired, etc.).
+    const accounts = await getUserAdAccounts(req.user.id);
+
+    // Check Facebook connection status separately — this controls whether
+    // Meta-specific features (boosting, campaign sync, audience sync) are available,
+    // but should NOT block access to locally-stored marketing data.
     const TokenManager = (await import('../services/TokenManager.js')).default;
     const connection = await TokenManager.getConnectionStatus(req.user.id, 'facebook');
+    const facebookActive = connection && connection.status === 'active';
+    const marketingEnabled = connection?.platform_metadata?.marketingEnabled === true;
 
-    if (!connection || connection.status !== 'active') {
+    if (!facebookActive) {
       logger.info(`[ad-accounts] Facebook connection status for user ${req.user.id}: ${connection?.status || 'null'}`);
-      return res.json({ success: true, accounts: [], needsConnection: true });
     }
 
-    // Check if marketing permissions are enabled on this connection
-    const marketingEnabled = connection.platform_metadata?.marketingEnabled === true;
-    const accounts = await getUserAdAccounts(req.user.id);
-    res.json({ success: true, accounts, marketingEnabled });
+    res.json({
+      success: true,
+      accounts,
+      marketingEnabled,
+      needsConnection: !facebookActive && accounts.length === 0,
+      facebookActive
+    });
   } catch (error) {
     logger.error('Error getting ad accounts:', error);
     res.status(500).json({ error: 'Failed to get ad accounts' });
@@ -732,6 +741,16 @@ router.put('/audiences/:id', async (req, res) => {
     }
 
     const updated = await updateAudienceTemplate(req.params.id, req.body);
+
+    // Propagate edits to Meta if this audience is synced
+    if (template.source === 'synced' && template.fb_audience_id) {
+      try {
+        await marketingService.updateAudienceOnMeta(req.user.id, req.params.id);
+      } catch (metaErr) {
+        logger.warn(`Failed to propagate audience update to Meta: ${metaErr.message}`);
+      }
+    }
+
     res.json({ success: true, audience: updated });
   } catch (error) {
     logger.error('Error updating audience:', error);
@@ -749,11 +768,40 @@ router.delete('/audiences/:id', async (req, res) => {
       return res.status(404).json({ error: 'Audience template not found' });
     }
 
+    // Clean up from Meta if synced
+    if (template.source === 'synced' && template.fb_audience_id) {
+      try {
+        await marketingService.deleteAudienceFromMeta(req.user.id, req.params.id);
+      } catch (metaErr) {
+        logger.warn(`Failed to delete audience from Meta (proceeding with local delete): ${metaErr.message}`);
+      }
+    }
+
     await deleteAudienceTemplate(req.params.id);
     res.json({ success: true, message: 'Audience template deleted' });
   } catch (error) {
     logger.error('Error deleting audience:', error);
     res.status(500).json({ error: 'Failed to delete audience template' });
+  }
+});
+
+/**
+ * POST /api/marketing/audiences/:id/push-to-meta
+ * Push a local audience template to Meta as a Saved Audience
+ */
+router.post('/audiences/:id/push-to-meta', async (req, res) => {
+  try {
+    const template = await getAudienceTemplateById(req.params.id);
+    if (!template || template.user_id !== req.user.id) {
+      return res.status(404).json({ error: 'Audience template not found' });
+    }
+
+    const updated = await marketingService.pushAudienceToMeta(req.user.id, req.params.id);
+    res.json({ success: true, audience: updated });
+  } catch (error) {
+    logger.error('Error pushing audience to Meta:', error);
+    res.status(error.message?.includes('Only locally') ? 400 : 500)
+      .json({ error: error.message || 'Failed to push audience to Meta' });
   }
 });
 
@@ -881,6 +929,18 @@ router.put('/rules/:id', async (req, res) => {
     }
 
     const updated = await updateMarketingRule(req.params.id, req.body);
+
+    // Propagate edits to Meta if this rule is synced
+    if (rule.meta_rule_id && rule.meta_sync_status === 'synced') {
+      try {
+        await marketingService.updateRuleOnMeta(req.user.id, req.params.id);
+      } catch (metaErr) {
+        logger.warn(`Failed to propagate rule update to Meta: ${metaErr.message}`);
+        // Mark sync as errored but don't fail the local update
+        await updateMarketingRule(req.params.id, { meta_sync_status: 'error' });
+      }
+    }
+
     res.json({ success: true, rule: updated });
   } catch (error) {
     logger.error('Error updating rule:', error);
@@ -898,11 +958,41 @@ router.delete('/rules/:id', async (req, res) => {
       return res.status(404).json({ error: 'Rule not found' });
     }
 
+    // Clean up from Meta if synced
+    if (rule.meta_rule_id) {
+      try {
+        await marketingService.deleteRuleFromMeta(req.user.id, req.params.id);
+      } catch (metaErr) {
+        logger.warn(`Failed to delete rule from Meta (proceeding with local delete): ${metaErr.message}`);
+      }
+    }
+
     await deleteMarketingRule(req.params.id);
     res.json({ success: true, message: 'Rule deleted' });
   } catch (error) {
     logger.error('Error deleting rule:', error);
     res.status(500).json({ error: 'Failed to delete marketing rule' });
+  }
+});
+
+/**
+ * POST /api/marketing/rules/:id/push-to-meta
+ * Push a pause_if or budget_adjust rule to Meta's Ad Rules API.
+ * Auto-boost rules cannot be pushed (they evaluate organic metrics).
+ */
+router.post('/rules/:id/push-to-meta', async (req, res) => {
+  try {
+    const rule = await getMarketingRuleById(req.params.id);
+    if (!rule || rule.user_id !== req.user.id) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    const updated = await marketingService.pushRuleToMeta(req.user.id, req.params.id);
+    res.json({ success: true, rule: updated });
+  } catch (error) {
+    logger.error('Error pushing rule to Meta:', error);
+    const status = error.message?.includes('Auto-boost') || error.message?.includes('already synced') ? 400 : 500;
+    res.status(status).json({ error: error.message || 'Failed to push rule to Meta' });
   }
 });
 

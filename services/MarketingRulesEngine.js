@@ -84,6 +84,13 @@ class MarketingRulesEngine {
    * @returns {boolean} Whether the rule was triggered
    */
   async evaluateRule(userId, rule) {
+    // Skip rules that are managed by Meta Ad Rules (synced successfully).
+    // If meta_sync_status is 'error', the local worker acts as fallback.
+    if (rule.meta_rule_id && rule.meta_sync_status === 'synced') {
+      logger.debug(`Skipping rule ${rule.id} — managed by Meta (rule ID: ${rule.meta_rule_id})`);
+      return false;
+    }
+
     // Check cooldown
     if (rule.last_triggered_at) {
       const cooldownMs = (rule.cooldown_hours || 24) * 60 * 60 * 1000;

@@ -32,9 +32,12 @@ import {
   getBoostablePublishedPosts,
   getMarketingOverview,
   getMarketingMetricsHistory,
+  getAudienceTemplateById,
   getAudienceTemplateByFbId,
   createAudienceTemplate,
-  updateAudienceTemplate
+  updateAudienceTemplate,
+  getMarketingRuleById,
+  updateMarketingRule
 } from './database-wrapper.js';
 
 const logger = winston.createLogger({
@@ -245,13 +248,20 @@ class MarketingService {
 
     logger.info(`Boosting post ${platformPostId} for user ${userId} on ${sourcePlatform}`);
 
-    // Resolve audience targeting
+    // Resolve audience targeting — use saved audience ID reference when available
     let targeting = audience.targeting || audience;
     if (audience.templateId) {
-      const { getAudienceTemplateById } = await import('./database-wrapper.js');
       const template = await getAudienceTemplateById(audience.templateId);
       if (!template) throw new Error('Audience template not found');
-      targeting = template.targeting;
+      if (template.fb_audience_id && (template.source === 'meta' || template.source === 'synced')) {
+        // Reference saved/custom audience by ID instead of inline targeting spec
+        targeting = { saved_audiences: [{ id: template.fb_audience_id }] };
+      } else {
+        targeting = template.targeting;
+      }
+    } else if (audience.custom_audiences || audience.saved_audiences) {
+      // Frontend already resolved to an audience reference
+      targeting = audience;
     }
 
     // Determine placements based on source platform
@@ -286,7 +296,8 @@ class MarketingService {
     const adSetParams = {
       campaign_id: fbCampaign.id,
       name: adSetName,
-      optimization_goal: 'ENGAGED_USERS',
+      destination_type: 'ON_POST',
+      optimization_goal: 'POST_ENGAGEMENT',
       promoted_object: JSON.stringify(promotedObject),
       billing_event: 'IMPRESSIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
@@ -1258,6 +1269,274 @@ class MarketingService {
 
     logger.info(`Audience sync complete for user ${userId}: ${created} created, ${updated} updated out of ${audiences.length}`);
     return { synced: created + updated, created, updated, total: audiences.length };
+  }
+
+  // ============================================
+  // PUSH AUDIENCES TO META
+  // ============================================
+
+  /**
+   * Push a local audience template to Meta as a Saved Audience.
+   * Creates the audience on Meta and stores the returned ID locally.
+   * @param {string} userId
+   * @param {string} templateId - DB UUID of the audience template
+   * @returns {object} Updated audience template
+   */
+  async pushAudienceToMeta(userId, templateId) {
+    const template = await getAudienceTemplateById(templateId);
+    if (!template) throw new Error('Audience template not found');
+    if (template.user_id !== userId) throw new Error('Audience template not found');
+
+    if (template.source !== 'local') {
+      throw new Error('Only locally-created audience templates can be pushed to Meta');
+    }
+
+    if (!template.targeting || Object.keys(template.targeting).length === 0) {
+      throw new Error('Audience template has no targeting criteria to push to Meta');
+    }
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Pushing audience "${template.name}" to Meta for user ${userId}`);
+
+    const result = await this._callMarketingApi(creds.accessToken, 'POST',
+      `/${creds.adAccountId}/saved_audiences`, {
+        name: template.name,
+        targeting: template.targeting
+      });
+
+    const updated = await updateAudienceTemplate(templateId, {
+      fb_audience_id: result.id,
+      source: 'synced',
+      metadata: { ...template.metadata, meta_pushed_at: new Date().toISOString() }
+    });
+
+    logger.info(`Audience "${template.name}" pushed to Meta as saved audience ${result.id}`);
+    return updated;
+  }
+
+  /**
+   * Update an already-synced audience on Meta to reflect local edits.
+   * @param {string} userId
+   * @param {string} templateId - DB UUID of the audience template
+   */
+  async updateAudienceOnMeta(userId, templateId) {
+    const template = await getAudienceTemplateById(templateId);
+    if (!template) return;
+    if (template.source !== 'synced' || !template.fb_audience_id) return;
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Updating synced audience ${template.fb_audience_id} on Meta`);
+
+    await this._callMarketingApi(creds.accessToken, 'POST',
+      `/${template.fb_audience_id}`, {
+        name: template.name,
+        targeting: template.targeting
+      });
+
+    await updateAudienceTemplate(templateId, {
+      metadata: { ...template.metadata, meta_updated_at: new Date().toISOString() }
+    });
+  }
+
+  /**
+   * Delete a synced audience from Meta before local deletion.
+   * Fails silently if Meta deletion fails (audience may already be gone).
+   * @param {string} userId
+   * @param {string} templateId - DB UUID of the audience template
+   */
+  async deleteAudienceFromMeta(userId, templateId) {
+    const template = await getAudienceTemplateById(templateId);
+    if (!template || !template.fb_audience_id) return;
+    if (template.source !== 'synced') return;
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Deleting synced audience ${template.fb_audience_id} from Meta`);
+
+    await this._callMarketingApi(creds.accessToken, 'DELETE',
+      `/${template.fb_audience_id}`);
+  }
+
+  // ============================================
+  // PUSH RULES TO META AD RULES API
+  // ============================================
+
+  /**
+   * Map local rule conditions to Meta's evaluation_spec format.
+   * @private
+   */
+  _mapRuleConditionsToMeta(rule) {
+    const conditions = rule.conditions || {};
+
+    const fieldMap = {
+      cpc: 'cost_per_result',
+      cpm: 'cpm',
+      ctr: 'ctr',
+      spend: 'spent',
+      impressions: 'impressions',
+      clicks: 'clicks',
+      reach: 'reach'
+    };
+
+    const operatorMap = {
+      '>': 'GREATER_THAN',
+      '>=': 'GREATER_THAN',
+      '<': 'LESS_THAN',
+      '<=': 'LESS_THAN',
+      '==': 'EQUAL',
+      '!=': 'NOT_EQUAL'
+    };
+
+    const metaField = fieldMap[conditions.metric];
+    if (!metaField) {
+      throw new Error(`Metric "${conditions.metric}" cannot be mapped to Meta Ad Rules`);
+    }
+
+    const metaOperator = operatorMap[conditions.operator];
+    if (!metaOperator) {
+      throw new Error(`Operator "${conditions.operator}" cannot be mapped to Meta Ad Rules`);
+    }
+
+    return {
+      evaluation_type: 'SCHEDULE',
+      filters: [
+        { field: 'entity_type', value: 'AD', operator: 'EQUAL' },
+        { field: metaField, value: conditions.value, operator: metaOperator }
+      ]
+    };
+  }
+
+  /**
+   * Map local rule actions to Meta's execution_spec format.
+   * @private
+   */
+  _mapRuleActionsToMeta(rule) {
+    switch (rule.rule_type) {
+      case 'pause_if':
+        return { execution_type: 'PAUSE' };
+
+      case 'budget_adjust': {
+        const actions = rule.actions || {};
+        return {
+          execution_type: 'CHANGE_BUDGET',
+          execution_options: [{
+            field: 'daily_budget',
+            value: Math.round((actions.new_budget || 0) * 100), // Convert to cents
+            operator: 'SET'
+          }]
+        };
+      }
+
+      default:
+        throw new Error(`Rule type "${rule.rule_type}" cannot be pushed to Meta`);
+    }
+  }
+
+  /**
+   * Push a local marketing rule to Meta's Ad Rules API.
+   * Only pause_if and budget_adjust rules are supported — auto_boost rules
+   * evaluate organic post metrics which Meta Ad Rules cannot monitor.
+   * @param {string} userId
+   * @param {string} ruleId - DB UUID of the marketing rule
+   * @returns {object} Updated rule record
+   */
+  async pushRuleToMeta(userId, ruleId) {
+    const rule = await getMarketingRuleById(ruleId);
+    if (!rule) throw new Error('Rule not found');
+    if (rule.user_id !== userId) throw new Error('Rule not found');
+
+    if (rule.rule_type === 'auto_boost') {
+      throw new Error('Auto-boost rules evaluate organic post metrics which Meta Ad Rules cannot monitor. These rules are evaluated locally by the app.');
+    }
+
+    if (rule.meta_rule_id && rule.meta_sync_status === 'synced') {
+      throw new Error('This rule is already synced to Meta');
+    }
+
+    const creds = await this.getMarketingCredentials(userId);
+    const evaluationSpec = this._mapRuleConditionsToMeta(rule);
+    const executionSpec = this._mapRuleActionsToMeta(rule);
+
+    logger.info(`Pushing rule "${rule.name}" to Meta Ad Rules for user ${userId}`);
+
+    await updateMarketingRule(ruleId, { meta_sync_status: 'pending' });
+
+    try {
+      const result = await this._callMarketingApi(creds.accessToken, 'POST',
+        `/${creds.adAccountId}/adrules_library`, {
+          name: rule.name,
+          evaluation_spec: evaluationSpec,
+          execution_spec: executionSpec,
+          status: rule.status === 'active' ? 'ENABLED' : 'DISABLED'
+        });
+
+      const updated = await updateMarketingRule(ruleId, {
+        meta_rule_id: result.id,
+        meta_sync_status: 'synced',
+        metadata: { ...rule.metadata, meta_pushed_at: new Date().toISOString() }
+      });
+
+      logger.info(`Rule "${rule.name}" pushed to Meta as ad rule ${result.id}`);
+      return updated;
+    } catch (error) {
+      await updateMarketingRule(ruleId, { meta_sync_status: 'error' });
+      throw error;
+    }
+  }
+
+  /**
+   * Update an already-synced rule on Meta to reflect local edits.
+   * @param {string} userId
+   * @param {string} ruleId - DB UUID of the marketing rule
+   */
+  async updateRuleOnMeta(userId, ruleId) {
+    const rule = await getMarketingRuleById(ruleId);
+    if (!rule || !rule.meta_rule_id) return;
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    try {
+      const evaluationSpec = this._mapRuleConditionsToMeta(rule);
+      const executionSpec = this._mapRuleActionsToMeta(rule);
+
+      logger.info(`Updating synced rule ${rule.meta_rule_id} on Meta`);
+
+      await this._callMarketingApi(creds.accessToken, 'POST',
+        `/${rule.meta_rule_id}`, {
+          name: rule.name,
+          evaluation_spec: evaluationSpec,
+          execution_spec: executionSpec,
+          status: rule.status === 'active' ? 'ENABLED' : 'DISABLED'
+        });
+
+      await updateMarketingRule(ruleId, {
+        meta_sync_status: 'synced',
+        metadata: { ...rule.metadata, meta_updated_at: new Date().toISOString() }
+      });
+    } catch (error) {
+      logger.warn(`Failed to update rule ${rule.meta_rule_id} on Meta: ${error.message}`);
+      await updateMarketingRule(ruleId, { meta_sync_status: 'error' });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a synced rule from Meta before local deletion.
+   * @param {string} userId
+   * @param {string} ruleId - DB UUID of the marketing rule
+   */
+  async deleteRuleFromMeta(userId, ruleId) {
+    const rule = await getMarketingRuleById(ruleId);
+    if (!rule || !rule.meta_rule_id) return;
+
+    const creds = await this.getMarketingCredentials(userId);
+
+    logger.info(`Deleting synced rule ${rule.meta_rule_id} from Meta`);
+
+    await this._callMarketingApi(creds.accessToken, 'DELETE',
+      `/${rule.meta_rule_id}`);
   }
 
   // ============================================
