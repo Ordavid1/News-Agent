@@ -977,7 +977,7 @@ class AutomationManager {
               logger.warn(`Skipping Instagram Reels for agent ${agent.id}: no video available`);
               return { success: false, platform, error: 'Instagram Reels requires a video. Video generation must complete before publishing.' };
             }
-            result = await publishToInstagram(content, userId, content.videoUrl, { contentType: 'reels' });
+            result = await publishToInstagram(content, userId, content.videoUrl, { contentType: 'reels', videoBuffer: content.videoBuffer });
           } else {
             if (!imageUrl) {
               logger.warn(`Skipping Instagram for agent ${agent.id}: no image available (Instagram requires media)`);

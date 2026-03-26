@@ -17,6 +17,7 @@ const logger = winston.createLogger({
 
 const GRAPH_API_VERSION = 'v24.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const RUPLOAD_BASE = `https://rupload.facebook.com/ig-api-upload/${GRAPH_API_VERSION}`;
 
 // Container processing polling configuration
 // Instagram requires ALL containers (images AND videos) to reach FINISHED status before publishing
@@ -79,6 +80,7 @@ class InstagramPublisher {
     }
 
     const contentType = options.contentType || 'post'; // 'post' or 'reels'
+    const videoBuffer = options.videoBuffer || null;
 
     try {
       logger.debug(`Instagram publish attempt - Account: ${this.igUserId}, contentType: ${contentType}`);
@@ -86,8 +88,21 @@ class InstagramPublisher {
       const caption = this.formatForInstagram(content);
       const isVideo = contentType === 'reels' || this.isVideoUrl(mediaUrl);
 
-      // Step 1: Create media container
-      const containerId = await this.createMediaContainer(mediaUrl, caption, { contentType, isVideo });
+      let containerId;
+
+      if (contentType === 'reels') {
+        // Reels require video upload — use resumable upload with buffer
+        let buffer = videoBuffer;
+        if (!buffer) {
+          // No pre-downloaded buffer (e.g., Runway returns public URLs) — download it
+          logger.info('No video buffer provided for Reels — downloading video from URL...');
+          buffer = await this.downloadVideo(mediaUrl);
+        }
+        containerId = await this.createReelsContainerWithUpload(caption, buffer);
+      } else {
+        // URL-based: Instagram fetches the media from a public URL
+        containerId = await this.createMediaContainer(mediaUrl, caption, { contentType, isVideo });
+      }
       logger.debug(`Created media container: ${containerId} (${contentType})`);
 
       // Step 2: Wait for container processing to complete
@@ -235,6 +250,72 @@ class InstagramPublisher {
     }
 
     return response.data;
+  }
+
+  /**
+   * Create a Reels container via resumable upload (binary upload).
+   * Used when the video URL is not publicly accessible (e.g., Veo requires auth headers).
+   * Flow: create container with upload_type=resumable → upload binary to rupload.facebook.com → return container ID
+   * @param {string} caption - Post caption
+   * @param {Buffer} videoBuffer - Video file binary data
+   * @returns {string} Container ID
+   */
+  async createReelsContainerWithUpload(caption, videoBuffer) {
+    const videoSize = videoBuffer.length;
+    logger.info(`Reels resumable upload — size: ${(videoSize / (1024 * 1024)).toFixed(1)} MB`);
+
+    // Step 1: Create container with upload_type=resumable
+    const createResponse = await axios.post(
+      `${GRAPH_API_BASE}/${this.igUserId}/media`,
+      {
+        media_type: 'REELS',
+        upload_type: 'resumable',
+        caption,
+        access_token: this.accessToken
+      }
+    );
+
+    const containerId = createResponse.data?.id;
+    if (!containerId) {
+      throw new Error('Failed to create Instagram Reels resumable container: no ID returned');
+    }
+
+    logger.debug(`Resumable container created: ${containerId}`);
+
+    // Step 2: Upload video binary to rupload.facebook.com
+    const uploadUrl = `${RUPLOAD_BASE}/${containerId}`;
+    logger.debug(`Uploading video to ${uploadUrl}...`);
+
+    await axios.post(uploadUrl, videoBuffer, {
+      headers: {
+        'Authorization': `OAuth ${this.accessToken}`,
+        'Content-Type': 'video/mp4',
+        'offset': '0',
+        'file_size': videoSize.toString()
+      },
+      timeout: 120000, // 2 minutes for upload
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    });
+
+    logger.info('Reels video data uploaded successfully');
+    return containerId;
+  }
+
+  /**
+   * Download video from URL to buffer (for URLs that require auth or are not publicly accessible)
+   * @param {string} videoUrl - Video URL to download
+   * @returns {Buffer} Video file buffer
+   */
+  async downloadVideo(videoUrl) {
+    logger.debug(`Downloading video from: ${videoUrl}`);
+    const response = await axios.get(videoUrl, {
+      responseType: 'arraybuffer',
+      timeout: 60000
+    });
+    const buffer = Buffer.from(response.data);
+    logger.info(`Video downloaded — ${(buffer.length / (1024 * 1024)).toFixed(1)} MB`);
+    return buffer;
   }
 
   /**

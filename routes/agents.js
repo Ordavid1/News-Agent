@@ -1092,7 +1092,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
               });
             }
             content.videoUrl = generatedContent.videoUrl;
-            publishResult = await publishToInstagram(content, userId, generatedContent.videoUrl, { contentType: 'reels' });
+            publishResult = await publishToInstagram(content, userId, generatedContent.videoUrl, { contentType: 'reels', videoBuffer: generatedContent.videoBuffer });
           } else {
             if (!imageUrl) {
               testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image — none found');
