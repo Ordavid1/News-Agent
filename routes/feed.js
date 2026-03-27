@@ -95,14 +95,6 @@ router.get('/', feedLimiter, async (req, res) => {
       return enriched;
     });
 
-    // Sort: video posts float to top, then by published_at desc
-    enrichedPosts.sort((a, b) => {
-      const aIsVideo = VIDEO_PLATFORMS.includes(a.platform) ? 1 : 0;
-      const bIsVideo = VIDEO_PLATFORMS.includes(b.platform) ? 1 : 0;
-      if (aIsVideo !== bIsVideo) return bIsVideo - aIsVideo;
-      return new Date(b.published_at) - new Date(a.published_at);
-    });
-
     res.json({
       posts: enrichedPosts,
       pagination: {
