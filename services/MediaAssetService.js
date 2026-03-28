@@ -738,7 +738,10 @@ class MediaAssetService {
     const basePrompt = brandContext
       ? `Using the provided reference images as brand style guides, ${brandContext}generate: ${prompt}`
       : `Using the provided reference images as brand style guides, generate: ${prompt}`;
-    const enhancedPrompt = basePrompt + '. Do not include any written text, words, letters, numbers, or typography in the image.';
+    const hasQuotedText = /["'][^"']{1,50}["']/.test(prompt);
+    const enhancedPrompt = hasQuotedText
+      ? basePrompt + '. Render any quoted text exactly as written, in clean legible typography.'
+      : basePrompt + '. Avoid including written text or words unless specifically requested.';
 
     // Base seed for multi-output coherence (related but distinct variations)
     const baseSeed = Math.floor(Math.random() * 2147483647);
@@ -919,8 +922,14 @@ class MediaAssetService {
       finalPrompt = `in the style of ${job.trigger_word}, ${prompt}`;
     }
 
-    // Append anti-text instruction — Flux generates poor text/typography
-    finalPrompt += '. Do not include any written text, words, letters, numbers, or typography in the image.';
+    // Smart text handling — detect quoted text in user prompt
+    const hasQuotedText = /["'][^"']{1,50}["']/.test(prompt);
+    if (hasQuotedText) {
+      finalPrompt += '. Render any quoted text exactly as written, in clean legible typography.';
+      logger.info('Quoted text detected in prompt — text rendering mode enabled');
+    } else {
+      finalPrompt += '. Avoid including written text or words unless specifically requested.';
+    }
 
     if (brandContext) {
       logger.info(`Brand context injected (${brandContext.length} chars) into generation prompt`);
@@ -934,12 +943,24 @@ class MediaAssetService {
       : `${modelName}:${job.replicate_model_version}`;
 
     // Resolve generation parameters with clamped defaults
-    const loraScale = typeof options.loraScale === 'number'
+    let loraScale = typeof options.loraScale === 'number'
       ? Math.max(0.5, Math.min(1.5, options.loraScale))
       : DEFAULT_LORA_SCALE;
-    const guidanceScale = typeof options.guidanceScale === 'number'
+    let guidanceScale = typeof options.guidanceScale === 'number'
       ? Math.max(1.0, Math.min(5.0, options.guidanceScale))
       : DEFAULT_GUIDANCE_SCALE;
+
+    // Auto-adjust parameters for text rendering
+    if (hasQuotedText) {
+      if (guidanceScale < 3.5) {
+        guidanceScale = 3.5;
+        logger.info('Guidance scale auto-boosted to 3.5 for text rendering');
+      }
+      if (loraScale > 0.85) {
+        loraScale = 0.85;
+        logger.info('LoRA scale reduced to 0.85 to allow base model text rendering');
+      }
+    }
     const numOutputs = typeof options.numOutputs === 'number'
       ? Math.max(1, Math.min(4, Math.floor(options.numOutputs)))
       : 1;

@@ -1141,7 +1141,7 @@ router.post('/brand-voice/profiles', async (req, res) => {
       return res.status(400).json({ error: 'No ad account selected. Please select an ad account first.' });
     }
 
-    const { name, days, platforms } = req.body;
+    const { name, days, platforms, purchaseId } = req.body;
     logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, adAccount=${adAccountId}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -1156,6 +1156,24 @@ router.post('/brand-voice/profiles', async (req, res) => {
       if (selectedPlatforms.length === 0) {
         return res.status(400).json({ error: 'At least one valid platform must be selected' });
       }
+    }
+
+    // Verify per-use purchase ($9.90 charge for voice training)
+    if (!purchaseId) {
+      return res.status(402).json({ error: 'Brand voice profile creation requires a per-use purchase', code: 'PURCHASE_REQUIRED' });
+    }
+    const purchase = await getPerUsePurchase(purchaseId, req.user.id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    if (purchase.purchase_type !== 'voice_training') {
+      return res.status(400).json({ error: 'Invalid purchase type for voice profile creation' });
+    }
+    if (purchase.status !== 'completed') {
+      return res.status(402).json({ error: 'Purchase payment not completed', code: 'PURCHASE_PENDING' });
+    }
+    if (purchase.reference_id) {
+      return res.status(409).json({ error: 'This purchase has already been used' });
     }
 
     // Check limits (scoped to ad account)
@@ -1178,6 +1196,12 @@ router.post('/brand-voice/profiles', async (req, res) => {
       await updateBrandVoiceProfile(profile.id, req.user.id, { selected_platforms: selectedPlatforms });
     }
 
+    // Mark purchase as consumed
+    await updatePerUsePurchase(purchaseId, {
+      reference_id: profile.id,
+      reference_type: 'brand_voice_profile'
+    });
+
     // Start the learning pipeline asynchronously with platform filter
     // The client will poll for status updates
     brandVoiceService.buildProfile(req.user.id, profile.id, days || 180, selectedPlatforms)
@@ -1185,7 +1209,7 @@ router.post('/brand-voice/profiles', async (req, res) => {
         logger.error(`[BrandVoice] Background profile build failed for ${profile.id}: ${err.message}`);
       });
 
-    logger.info(`[BrandVoice] Profile created: id=${profile.id}, pipeline started`);
+    logger.info(`[BrandVoice] Profile created: id=${profile.id}, pipeline started, purchase ${purchaseId} consumed`);
 
     res.status(201).json({
       profile: { ...profile, selected_platforms: selectedPlatforms },
@@ -1317,31 +1341,22 @@ router.get('/brand-voice/profiles/:id/posts', async (req, res) => {
  */
 router.post('/brand-voice/generate', async (req, res) => {
   try {
-    const { profileId, platform, topic, count, generateWithImage, purchaseId, loraScale, guidanceScale, aspectRatio } = req.body;
+    const { profileId, platform, topic, count, generateWithImage, loraScale, guidanceScale, aspectRatio } = req.body;
     logger.info(`[BrandVoice] POST /generate - user=${req.user.id}, profileId=${profileId}, platform=${platform || 'auto'}, topic=${topic || 'auto'}, withImage=${!!generateWithImage}`);
 
     if (!profileId) {
       return res.status(400).json({ error: 'profileId is required' });
     }
 
-    // If generating with image, verify the per-use purchase ($0.75)
+    // If generating with image, verify asset image generation credits (shared pool with Brand Media)
     if (generateWithImage) {
-      if (!purchaseId) {
-        return res.status(402).json({ error: 'Image generation requires a $0.75 per-use purchase', code: 'PURCHASE_REQUIRED' });
-      }
-
-      const purchase = await getPerUsePurchase(purchaseId, req.user.id);
-      if (!purchase) {
-        return res.status(404).json({ error: 'Purchase not found' });
-      }
-      if (purchase.purchase_type !== 'image_generation') {
-        return res.status(400).json({ error: 'Invalid purchase type for image generation' });
-      }
-      if (purchase.status !== 'completed') {
-        return res.status(402).json({ error: 'Purchase payment not completed', code: 'PURCHASE_PENDING' });
-      }
-      if (purchase.reference_id) {
-        return res.status(409).json({ error: 'This purchase has already been used' });
+      const { totalRemaining } = await getAssetImageGenCredits(req.user.id);
+      if (totalRemaining <= 0) {
+        return res.status(402).json({
+          error: 'No image credits remaining. Purchase a credit pack to continue.',
+          code: 'CREDITS_EXHAUSTED',
+          credits: 0
+        });
       }
 
       // Pre-flight: verify ad account and trained model exist before generating text
@@ -1388,15 +1403,9 @@ router.post('/brand-voice/generate', async (req, res) => {
       }
     }));
 
-    // If image generation was purchased, generate a brand-consistent image using the default LoRA model
-    if (generateWithImage && purchaseId && postsWithIds[0]?.id) {
+    // If generating with image, use asset image gen credits (shared pool with Brand Media)
+    if (generateWithImage && postsWithIds[0]?.id) {
       try {
-        // Mark purchase as consumed first
-        await updatePerUsePurchase(purchaseId, {
-          reference_id: postsWithIds[0].id,
-          reference_type: 'brand_voice_generated_post'
-        });
-
         // Get the user's selected ad account
         const adAccount = await getSelectedAdAccount(req.user.id);
         if (!adAccount) {
@@ -1432,8 +1441,15 @@ router.post('/brand-voice/generate', async (req, res) => {
               }
             );
 
+            // Consume 1 image generation credit
+            await consumeAssetImageGenCredit(req.user.id);
+
             // Attach image URL to the post response
             postsWithIds[0].imageUrl = generatedMedia.public_url;
+
+            // Get updated credit count for response
+            const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
+            postsWithIds[0].creditsRemaining = creditsAfter;
 
             // Update the DB record with the image
             await updateBrandVoiceGeneratedPost(postsWithIds[0].id, req.user.id, {
@@ -1441,7 +1457,7 @@ router.post('/brand-voice/generate', async (req, res) => {
               generated_media_id: generatedMedia.id
             });
 
-            logger.info(`[BrandVoice] Image generated successfully: ${generatedMedia.public_url}`);
+            logger.info(`[BrandVoice] Image generated successfully: ${generatedMedia.public_url}, credits remaining: ${creditsAfter}`);
           }
         }
       } catch (imageErr) {

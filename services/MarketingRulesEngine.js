@@ -15,7 +15,6 @@ import winston from 'winston';
 import marketingService from './MarketingService.js';
 import {
   getActiveMarketingRules,
-  getMarketingAddon,
   getAudienceTemplateById,
   logRuleTrigger,
   updateMarketingRule
@@ -60,10 +59,6 @@ class MarketingRulesEngine {
     }
 
     for (const [userId, userRules] of Object.entries(rulesByUser)) {
-      // Verify user still has active marketing addon
-      const addon = await getMarketingAddon(userId);
-      if (!addon || addon.status !== 'active') continue;
-
       for (const rule of userRules) {
         try {
           const wasTriggered = await this.evaluateRule(userId, rule);

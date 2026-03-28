@@ -272,30 +272,15 @@ export const MARKETING_LIMITS = {
 };
 
 /**
- * Middleware to require an active marketing add-on subscription.
- * Also requires the user to be on at least a paid (starter) tier.
- * Attaches the add-on record and limits to req.marketingAddon and req.marketingLimits.
+ * DEPRECATED: Marketing addon paywall removed.
+ * All marketing routes are now open to authenticated users.
+ * Per-use payments (Brand Voice, Brand Assets) remain enforced separately.
+ * Kept as a no-op for backward compatibility.
  */
 export function requireMarketingAddon() {
-  return async (req, res, next) => {
-    try {
-      const addon = await getMarketingAddon(req.user.id);
-
-      if (!addon || addon.status !== 'active') {
-        return res.status(403).json({
-          error: 'Marketing add-on required',
-          hasAddon: !!addon,
-          addonStatus: addon?.status || null
-        });
-      }
-
-      req.marketingAddon = addon;
-      req.marketingLimits = MARKETING_LIMITS[addon.plan] || MARKETING_LIMITS.standard;
-      next();
-    } catch (error) {
-      console.error('Marketing addon check error:', error);
-      res.status(500).json({ error: 'Failed to verify marketing access' });
-    }
+  return (req, res, next) => {
+    req.marketingLimits = MARKETING_LIMITS.standard;
+    next();
   };
 }
 

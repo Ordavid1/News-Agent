@@ -728,9 +728,10 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
         const purchaseType = customData?.purchase_type;
         if (purchaseType && customData?.user_id) {
           const PER_USE_CONFIG = {
-            model_training: { amountCents: 500, description: 'Brand Asset Model Training', creditsPerPurchase: 1 },
+            model_training: { amountCents: 990, description: 'Brand Asset Model Training', creditsPerPurchase: 1 },
             image_generation: { amountCents: 75, description: 'Brand Image Generation', creditsPerPurchase: 1 },
-            asset_image_gen_pack: { amountCents: 450, description: 'Brand Asset Image Generation Pack (8 images)', creditsPerPurchase: 8 }
+            asset_image_gen_pack: { amountCents: 450, description: 'Brand Asset Image Generation Pack (8 images)', creditsPerPurchase: 8 },
+            voice_training: { amountCents: 990, description: 'Brand Voice Profile Training', creditsPerPurchase: 1 }
           };
           const config = PER_USE_CONFIG[purchaseType];
           if (config) {

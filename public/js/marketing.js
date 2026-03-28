@@ -30,6 +30,7 @@ var mediaTrainingPollingTimer = null;
 var latestGeneratedImageUrl = null;
 var mediaViewMode = 'new';           // 'new' (fresh upload) or 'view' (past model context)
 var mediaGenCredits = 0;             // Remaining Brand Asset generation credits
+var bvImageGenCredits = 0;           // Remaining Brand Voice image gen credits (shared pool with Brand Media)
 var brandPromptStyle = 'concise';    // 'concise' or 'elaborated' — brand kit prompt injection style
 
 // Current modal state
@@ -89,45 +90,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 
 async function checkMarketingAddon() {
-    const token = localStorage.getItem('token');
-    try {
-        const response = await fetch('/api/subscriptions/marketing-addon', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.addon && data.addon.status === 'active') {
-                // Store addon limits for use in UI enforcement
-                marketingAddonLimits = {
-                    maxAdAccounts: data.addon.max_ad_accounts || 1,
-                    pricePerAccount: data.pricePerAccount || 19
-                };
-
-                // Hide the purchase banner
-                document.getElementById('addonRequiredBanner').classList.add('hidden');
-
-                // Show the active banner with green theme
-                const activeBanner = document.getElementById('addonActiveBanner');
-                if (activeBanner) {
-                    activeBanner.classList.remove('hidden');
-                    populateAdAccountDropdown();
-                }
-
-                return true;
-            }
-        }
-    } catch (error) {
-        console.error('Error checking marketing addon:', error);
-    }
-
-    // Show addon required banner, hide active banner
-    document.getElementById('addonRequiredBanner').classList.remove('hidden');
+    // DEPRECATED: Marketing tab is now free — no addon check needed.
+    // Hide both legacy addon banners.
+    const requiredBanner = document.getElementById('addonRequiredBanner');
+    if (requiredBanner) requiredBanner.classList.add('hidden');
     const activeBanner = document.getElementById('addonActiveBanner');
     if (activeBanner) activeBanner.classList.add('hidden');
-    return false;
+    return true;
 }
 
+// DEPRECATED: Marketing addon paywall removed. Kept for existing subscribers.
 async function purchaseAddon() {
     const btn = document.querySelector('#addonRequiredBanner button');
     const originalHtml = btn ? btn.innerHTML : '';
@@ -2410,9 +2382,6 @@ async function apiGet(url) {
     });
     const data = await response.json();
     if (!response.ok) {
-        if (response.status === 403 && data.error?.includes('Marketing add-on required')) {
-            document.getElementById('addonRequiredBanner').classList.remove('hidden');
-        }
         throw new Error(data.error || 'Request failed');
     }
     return data;
@@ -2726,11 +2695,50 @@ async function submitCreateBvProfile() {
     const platforms = Array.from(checkboxes).map(cb => cb.value);
 
     const btn = document.getElementById('submitCreateBvProfileBtn');
+    const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.textContent = 'Creating...';
+    btn.textContent = 'Preparing checkout...';
 
     try {
-        const body = { name, adAccountId: selectedAdAccount?.id };
+        // 1. Create LS checkout via backend
+        const { checkoutUrl } = await apiPost('/api/subscriptions/voice-training-checkout');
+
+        // 2. Show compact checkout popup
+        btn.textContent = 'Pay $9.90...';
+        const paid = await showCompactCheckout(checkoutUrl, btn);
+
+        if (!paid) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
+
+        // 3. Poll for webhook confirmation
+        btn.textContent = 'Confirming payment...';
+        let purchase = null;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const result = await apiGet('/api/subscriptions/voice-training-purchase-status');
+                if (result.hasPurchase) {
+                    purchase = result.purchase;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (!purchase) {
+            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            return;
+        }
+
+        // 4. Create profile with confirmed purchase
+        showToast('Payment confirmed! Creating profile...', 'success');
+        btn.textContent = 'Creating profile...';
+
+        const body = { name, adAccountId: selectedAdAccount?.id, purchaseId: purchase.id };
         if (platforms.length > 0) body.platforms = platforms;
 
         const response = await apiPost('/api/marketing/brand-voice/profiles', body);
@@ -2742,7 +2750,7 @@ async function submitCreateBvProfile() {
         showToast(error.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Create & Start Analysis';
+        btn.innerHTML = originalHtml;
     }
 }
 
@@ -2787,6 +2795,9 @@ async function openBrandVoiceDetail(profileId) {
     try {
         const response = await apiGet(`/api/marketing/brand-voice/profiles/${profileId}`);
         currentBrandVoiceProfile = response.profile;
+
+        // Load image generation credits for the BV tab
+        loadBvImageGenCredits();
 
         // Hide list, show detail
         document.getElementById('brandVoiceProfilesList').classList.add('hidden');
@@ -3137,33 +3148,67 @@ async function deleteCurrentProfile() {
 }
 
 // ============================================
-// BRAND IMAGE — PER-USE PAYMENT (Lemon Squeezy Compact Checkout)
+// BRAND VOICE — IMAGE GENERATION CREDITS
 // ============================================
 
-/**
- * Purchase image generation via compact LS embedded checkout ($0.75).
- * Shows a small popup near the button with an embedded LS checkout iframe.
- * All fields are pre-filled for fastest possible checkout experience.
- * LS supports Link, Apple Pay, Google Pay — returning users pay with one tap.
- */
-async function purchaseImageGeneration() {
-    if (!currentBrandVoiceProfile) {
-        showToast('Select a Brand Voice profile first', 'error');
-        return;
+async function loadBvImageGenCredits() {
+    try {
+        const result = await apiGet('/api/marketing/media-assets/generation-credits');
+        bvImageGenCredits = result.credits || 0;
+        updateBvImageGenCreditsUI();
+    } catch (error) {
+        console.error('Failed to load BV image gen credits:', error);
+        bvImageGenCredits = 0;
+        updateBvImageGenCreditsUI();
+    }
+}
+
+function updateBvImageGenCreditsUI() {
+    const countEl = document.getElementById('bvImageGenCreditsCount');
+    const bar = document.getElementById('bvImageGenCreditsBar');
+    const buyBtn = document.getElementById('bvImageGenBuyCreditsBtn');
+    const imageBtn = document.getElementById('bvImageGenBtn');
+
+    if (countEl) countEl.textContent = bvImageGenCredits;
+
+    if (bar) {
+        bar.classList.remove('hidden');
+        bar.classList.add('flex');
     }
 
-    const btn = document.getElementById('bvImageGenBtn');
+    if (buyBtn) {
+        if (bvImageGenCredits <= 1) {
+            buyBtn.classList.remove('hidden');
+            buyBtn.classList.add('flex');
+        } else {
+            buyBtn.classList.add('hidden');
+            buyBtn.classList.remove('flex');
+        }
+    }
+
+    if (imageBtn) {
+        if (bvImageGenCredits <= 0) {
+            imageBtn.disabled = true;
+            imageBtn.title = 'No image generation credits remaining';
+        } else {
+            imageBtn.disabled = false;
+            imageBtn.title = '';
+        }
+    }
+}
+
+async function purchaseBvImageGenPack() {
+    const btn = document.getElementById('bvImageGenBuyCreditsBtn') || document.getElementById('bvImageGenBtn');
+    if (!btn) return;
     const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
+    btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Preparing...';
 
     try {
-        // 1. Create LS checkout via backend (pre-filled, embed mode)
-        const { checkoutUrl } = await apiPost('/api/subscriptions/image-gen-checkout');
+        const { checkoutUrl } = await apiPost('/api/subscriptions/asset-image-gen-pack-checkout');
 
-        // 2. Show compact checkout popup with iframe
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $0.75...';
-        const paid = await showCompactCheckout(checkoutUrl, btn);
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.50...';
+        const paid = await showCompactCheckout(checkoutUrl, btn, { direction: 'up' });
 
         if (!paid) {
             btn.disabled = false;
@@ -3171,37 +3216,54 @@ async function purchaseImageGeneration() {
             return;
         }
 
-        // 3. Poll for webhook confirmation (order_created may take a few seconds)
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Confirming...';
-        let purchase = null;
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Confirming...';
+        const previousCredits = bvImageGenCredits;
+        let confirmed = false;
         for (let attempt = 0; attempt < 15; attempt++) {
             await new Promise(r => setTimeout(r, 2000));
             try {
-                const result = await apiGet('/api/subscriptions/image-gen-purchase-status');
-                if (result.hasPurchase) {
-                    purchase = result.purchase;
+                const result = await apiGet('/api/marketing/media-assets/generation-credits');
+                if (result.credits > previousCredits) {
+                    bvImageGenCredits = result.credits;
+                    mediaGenCredits = result.credits; // Keep in sync
+                    confirmed = true;
                     break;
                 }
             } catch (e) { /* continue polling */ }
         }
 
-        if (!purchase) {
-            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-            return;
+        if (confirmed) {
+            showToast(`${bvImageGenCredits} generation credits available!`, 'success');
+            updateBvImageGenCreditsUI();
+            updateMediaGenCreditsUI();
+        } else {
+            showToast('Payment received but confirmation pending. Credits will appear shortly.', 'warning');
+            setTimeout(loadBvImageGenCredits, 5000);
         }
-
-        // 4. Trigger generation with purchaseId
-        showToast('Payment confirmed! Generating content with image...', 'success');
-        await generateBrandVoiceContentWithImage(purchase.id);
-
     } catch (error) {
         showToast(error.message || 'Payment failed. Please try again.', 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
     }
+}
+
+/**
+ * Generate post with image using asset image generation credits (shared pool with Brand Media).
+ */
+async function purchaseImageGeneration() {
+    if (!currentBrandVoiceProfile) {
+        showToast('Select a Brand Voice profile first', 'error');
+        return;
+    }
+
+    if (bvImageGenCredits <= 0) {
+        showToast('No image credits remaining. Purchase a credit pack to continue.', 'warning');
+        await purchaseBvImageGenPack();
+        return;
+    }
+
+    await generateBrandVoiceContentWithImage();
 }
 
 /**
@@ -3350,10 +3412,10 @@ function showCompactCheckout(checkoutUrl, anchorEl, options = {}) {
 }
 
 /**
- * Generate brand voice content with image flag (called after payment).
+ * Generate brand voice content with image using asset image gen credits.
  * Separated so the main generateBrandVoiceContent() stays clean for text-only.
  */
-async function generateBrandVoiceContentWithImage(purchaseId) {
+async function generateBrandVoiceContentWithImage() {
     const topic = document.getElementById('bvGenerateTopic').value.trim();
     const generateBtn = document.getElementById('bvGenerateBtn');
     const imageBtn = document.getElementById('bvImageGenBtn');
@@ -3375,7 +3437,6 @@ async function generateBrandVoiceContentWithImage(purchaseId) {
             topic: topic || undefined,
             count: 1,
             generateWithImage: true,
-            purchaseId,
             loraScale: loraScaleEl ? parseFloat(loraScaleEl.value) : undefined,
             guidanceScale: guidanceScaleEl ? parseFloat(guidanceScaleEl.value) : undefined,
             aspectRatio: typeof getSelectedAspectRatio === 'function' ? getSelectedAspectRatio() : undefined
@@ -3398,6 +3459,16 @@ async function generateBrandVoiceContentWithImage(purchaseId) {
                 imageDiv.classList.add('hidden');
             }
 
+            // Update credit count from response
+            if (posts[0].creditsRemaining !== undefined) {
+                bvImageGenCredits = posts[0].creditsRemaining;
+                mediaGenCredits = posts[0].creditsRemaining; // Keep in sync
+                updateBvImageGenCreditsUI();
+                updateMediaGenCreditsUI();
+            } else {
+                await loadBvImageGenCredits();
+            }
+
             // Warn if image generation failed but text was still returned
             if (posts[0].imageError) {
                 showToast(posts[0].imageErrorMessage || 'Image generation failed, but your post was created.', 'warning');
@@ -3410,8 +3481,8 @@ async function generateBrandVoiceContentWithImage(purchaseId) {
         showToast(error.message || 'Failed to generate content', 'error');
     } finally {
         generateBtn.disabled = false;
-        imageBtn.disabled = false;
-        imageBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> Generate Post +Image — $0.75';
+        imageBtn.disabled = bvImageGenCredits <= 0;
+        imageBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> Generate Post +Image';
     }
 }
 
@@ -4163,7 +4234,7 @@ function onGenerationModelChange() {
         loraOptions.classList.toggle('hidden', !isLora);
     }
     if (btnText) {
-        btnText.textContent = isLora ? 'Train New Model ($5)' : 'Create Model ($5)';
+        btnText.textContent = isLora ? 'Train New Model ($9.90)' : 'Create Model ($9.90)';
     }
 }
 
@@ -4189,7 +4260,7 @@ async function startMediaTraining() {
         });
 
         // 2. Show compact checkout popup with iframe
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $5...';
+        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $9.90...';
         const paid = await showCompactCheckout(checkoutUrl, btn);
 
         if (!paid) {

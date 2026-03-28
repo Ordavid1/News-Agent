@@ -1641,7 +1641,7 @@ router.post('/affiliate-cancel', async (req, res) => {
 
 const PER_USE_PRICING = {
   model_training: {
-    amountCents: 500, // $5
+    amountCents: 990, // $9.90
     variantId: process.env.LEMON_SQUEEZY_TRAINING_VARIANT_ID,
     description: 'Brand Asset Model Training',
     creditsPerPurchase: 1
@@ -1657,6 +1657,12 @@ const PER_USE_PRICING = {
     variantId: process.env.LEMON_SQUEEZY_IMAGE_GEN_PACK_VARIANT_ID,
     description: 'Brand Asset Image Generation Pack (8 images)',
     creditsPerPurchase: 8
+  },
+  voice_training: {
+    amountCents: 990, // $9.90
+    variantId: process.env.LEMON_SQUEEZY_VOICE_TRAINING_VARIANT_ID,
+    description: 'Brand Voice Profile Training',
+    creditsPerPurchase: 1
   }
 };
 
@@ -1664,12 +1670,6 @@ const PER_USE_PRICING = {
 router.post('/training-checkout', async (req, res) => {
   console.log('[TRAINING-CHECKOUT] POST /training-checkout - User:', req.user?.id);
   try {
-    // Verify user has marketing addon active
-    const addon = await getMarketingAddon(req.user.id);
-    if (!addon || addon.status !== 'active') {
-      return res.status(403).json({ error: 'Active marketing add-on required for model training' });
-    }
-
     const { adAccountId } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
@@ -1760,16 +1760,99 @@ router.get('/training-purchase-status', async (req, res) => {
   }
 });
 
+// Create voice training checkout (one-time LS purchase for brand voice profile creation)
+router.post('/voice-training-checkout', async (req, res) => {
+  console.log('[VOICE-TRAINING-CHECKOUT] POST /voice-training-checkout - User:', req.user?.id);
+  try {
+    const pricing = PER_USE_PRICING.voice_training;
+    if (!pricing.variantId) {
+      console.error('[VOICE-TRAINING-CHECKOUT] Missing voice training variant ID');
+      return res.status(500).json({ error: 'Voice training checkout configuration error' });
+    }
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: { user_id: req.user.id, purchase_type: 'voice_training' }
+    };
+
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: false, media: true, desc: false },
+            product_options: {
+              enabled_variants: [Number(pricing.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+            }
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(pricing.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[VOICE-TRAINING-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[VOICE-TRAINING-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[VOICE-TRAINING-CHECKOUT] Checkout created for user ${req.user.id}`);
+    res.json({ checkoutUrl });
+  } catch (error) {
+    console.error('[VOICE-TRAINING-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create voice training checkout session' });
+  }
+});
+
+// Check voice training purchase status (polled after checkout)
+router.get('/voice-training-purchase-status', async (req, res) => {
+  try {
+    const purchase = await getLatestUnusedPurchase(req.user.id, 'voice_training');
+    res.json({
+      hasPurchase: !!purchase,
+      purchase: purchase || null
+    });
+  } catch (error) {
+    console.error('[VOICE-TRAINING-PURCHASE] Error checking status:', error);
+    res.status(500).json({ error: 'Failed to check voice training purchase status' });
+  }
+});
+
 // Create image generation checkout (one-time LS purchase, overlay mode)
 router.post('/image-gen-checkout', async (req, res) => {
   console.log('[IMAGE-GEN-CHECKOUT] POST /image-gen-checkout - User:', req.user?.id);
   try {
-    // Verify user has marketing addon active
-    const addon = await getMarketingAddon(req.user.id);
-    if (!addon || addon.status !== 'active') {
-      return res.status(403).json({ error: 'Active marketing add-on required for image generation' });
-    }
-
     const pricing = PER_USE_PRICING.image_generation;
     if (!pricing.variantId) {
       console.error('[IMAGE-GEN-CHECKOUT] Missing image gen variant ID');
@@ -1859,11 +1942,6 @@ router.get('/image-gen-purchase-status', async (req, res) => {
 router.post('/asset-image-gen-pack-checkout', async (req, res) => {
   console.log('[ASSET-IMGGEN-PACK-CHECKOUT] POST - User:', req.user?.id);
   try {
-    const addon = await getMarketingAddon(req.user.id);
-    if (!addon || addon.status !== 'active') {
-      return res.status(403).json({ error: 'Active marketing add-on required for image generation' });
-    }
-
     const pricing = PER_USE_PRICING.asset_image_gen_pack;
     if (!pricing.variantId) {
       console.error('[ASSET-IMGGEN-PACK-CHECKOUT] Missing image gen pack variant ID');
