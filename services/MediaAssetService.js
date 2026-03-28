@@ -735,9 +735,10 @@ class MediaAssetService {
     // Enhance prompt with brand context + reference image guidance
     const promptStyle = options.brandPromptStyle || 'concise';
     const brandContext = this._buildBrandContextPrompt(job.brand_kit, null, promptStyle);
-    const enhancedPrompt = brandContext
+    const basePrompt = brandContext
       ? `Using the provided reference images as brand style guides, ${brandContext}generate: ${prompt}`
       : `Using the provided reference images as brand style guides, generate: ${prompt}`;
+    const enhancedPrompt = basePrompt + '. Do not include any written text, words, letters, numbers, or typography in the image.';
 
     // Base seed for multi-output coherence (related but distinct variations)
     const baseSeed = Math.floor(Math.random() * 2147483647);
@@ -831,7 +832,7 @@ class MediaAssetService {
       parts.push(`in the style of ${triggerWord}`);
     }
 
-    if (!brandKit) {
+    if (!brandKit || style === 'none') {
       return parts.length > 0 ? parts.join(', ') + ', ' : '';
     }
 
@@ -917,6 +918,9 @@ class MediaAssetService {
     if (job.trigger_word && !finalPrompt.toLowerCase().includes(job.trigger_word.toLowerCase())) {
       finalPrompt = `in the style of ${job.trigger_word}, ${prompt}`;
     }
+
+    // Append anti-text instruction — Flux generates poor text/typography
+    finalPrompt += '. Do not include any written text, words, letters, numbers, or typography in the image.';
 
     if (brandContext) {
       logger.info(`Brand context injected (${brandContext.length} chars) into generation prompt`);
@@ -1832,9 +1836,22 @@ Rules:
         return [];
       }
 
+      // Strip markdown fences and extract JSON robustly
       let jsonStr = rawText;
+      // Try fence extraction first
       const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+      if (fenceMatch) {
+        jsonStr = fenceMatch[1].trim();
+      } else if (jsonStr.startsWith('```')) {
+        // Fence opened but not closed (truncated) — strip opening fence
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/```\s*$/, '').trim();
+      }
+      // Find first { to last } as fallback
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      }
 
       const parsed = JSON.parse(jsonStr);
       let detections = parsed.detections || [];

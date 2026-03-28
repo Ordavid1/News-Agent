@@ -1916,19 +1916,23 @@
                             <!-- Brand Kit Prompt Style (below input, outside advanced settings) -->
                             <div id="mediaBrandPromptStyleContainer" class="mb-4">
                                 <div class="flex items-center gap-3">
-                                    <span class="text-xs font-medium text-ink-500">Brand context:</span>
-                                    <div class="relative flex bg-surface-200 rounded-lg p-0.5 w-56">
-                                        <div id="brandPromptSlider" class="absolute top-0.5 left-0.5 h-[calc(100%-4px)] w-[calc(50%-2px)] rounded-md shadow-sm transition-transform duration-200 ease-out" style="background: var(--color-brand-100, #dbeafe)"></div>
+                                    <span class="text-sm font-medium text-ink-500">Brand context:</span>
+                                    <div class="relative flex rounded-lg p-0.5 w-72" style="background: #dbeafe">
+                                        <div id="brandPromptSlider" class="absolute top-0.5 left-0.5 h-[calc(100%-4px)] rounded-md shadow-sm transition-all duration-200 ease-out" style="background: #93c5fd; width: calc(33.333% - 3px); transform: translateX(100%)"></div>
+                                        <button type="button" onclick="setBrandPromptStyle('none')" id="brandPromptNoneBtn"
+                                            class="relative z-10 flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-colors text-blue-400">
+                                            None
+                                        </button>
                                         <button type="button" onclick="setBrandPromptStyle('concise')" id="brandPromptConciseBtn"
-                                            class="relative z-10 flex-1 text-xs font-semibold py-1.5 px-3 rounded-md transition-colors text-brand-700 bg-brand-50">
+                                            class="relative z-10 flex-1 text-xs font-semibold py-1.5 px-3 rounded-md transition-colors text-blue-900">
                                             Concise
                                         </button>
                                         <button type="button" onclick="setBrandPromptStyle('elaborated')" id="brandPromptElaboratedBtn"
-                                            class="relative z-10 flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-colors text-ink-400">
+                                            class="relative z-10 flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-colors text-blue-400">
                                             Elaborated
                                         </button>
                                     </div>
-                                    <span class="text-[11px] text-ink-300" id="brandPromptStyleHint">Short color codes + mood keywords</span>
+                                    <span class="text-[11px] text-ink-600" id="brandPromptStyleHint">Short color codes + mood keywords</span>
                                 </div>
                             </div>
 

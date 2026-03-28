@@ -4810,24 +4810,30 @@ function toggleAdvancedGenSettings() {
 function setBrandPromptStyle(style) {
     brandPromptStyle = style;
     const slider = document.getElementById('brandPromptSlider');
+    const noneBtn = document.getElementById('brandPromptNoneBtn');
     const conciseBtn = document.getElementById('brandPromptConciseBtn');
     const elaboratedBtn = document.getElementById('brandPromptElaboratedBtn');
     const hint = document.getElementById('brandPromptStyleHint');
 
-    // Reset both buttons
-    const inactiveClasses = ['text-ink-400', 'bg-transparent'];
-    const activeClasses = ['text-brand-700', 'bg-brand-50', 'font-semibold'];
+    const inactive = 'relative z-10 flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-colors text-blue-400';
+    const active = 'relative z-10 flex-1 text-xs font-semibold py-1.5 px-3 rounded-md transition-colors text-blue-900';
 
-    if (conciseBtn) { conciseBtn.classList.remove(...activeClasses); conciseBtn.classList.add(...inactiveClasses); }
-    if (elaboratedBtn) { elaboratedBtn.classList.remove(...activeClasses); elaboratedBtn.classList.add(...inactiveClasses); }
+    // Reset all to inactive
+    if (noneBtn) noneBtn.className = inactive;
+    if (conciseBtn) conciseBtn.className = inactive;
+    if (elaboratedBtn) elaboratedBtn.className = inactive;
 
-    if (style === 'elaborated') {
-        if (slider) { slider.style.transform = 'translateX(100%)'; slider.style.background = 'var(--color-brand-100, #dbeafe)'; }
-        if (elaboratedBtn) { elaboratedBtn.classList.remove(...inactiveClasses); elaboratedBtn.classList.add(...activeClasses); }
+    if (style === 'none') {
+        if (slider) slider.style.transform = '';
+        if (noneBtn) noneBtn.className = active;
+        if (hint) hint.textContent = 'Trigger word only — LoRA handles the style';
+    } else if (style === 'elaborated') {
+        if (slider) slider.style.transform = 'translateX(200%)';
+        if (elaboratedBtn) elaboratedBtn.className = active;
         if (hint) hint.textContent = 'Full brand aesthetic, photography style, mood, and identity context';
     } else {
-        if (slider) { slider.style.transform = ''; slider.style.background = 'var(--color-brand-100, #dbeafe)'; }
-        if (conciseBtn) { conciseBtn.classList.remove(...inactiveClasses); conciseBtn.classList.add(...activeClasses); }
+        if (slider) slider.style.transform = 'translateX(100%)';
+        if (conciseBtn) conciseBtn.className = active;
         if (hint) hint.textContent = 'Short color codes + mood keywords';
     }
 }
