@@ -1450,7 +1450,11 @@
 
                             <div class="mb-4">
                                 <label class="block text-base font-medium text-ink-600 mb-1">What should the post be about?</label>
-                                <input type="text" id="bvGenerateTopic" class="input-field" placeholder="Leave blank for auto-selected theme from your brand">
+                                <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                    <input type="text" id="mediaGeneratePrompt"
+                                        class="w-full rounded-[10px] bg-white px-4 py-3 text-base text-ink-700 placeholder-ink-300 border-0 focus:outline-none focus:ring-0"
+                                        placeholder="Leave blank for auto-selected theme from your brand">
+                                </div>
                             </div>
 
                             <!-- Image generation credits bar -->
