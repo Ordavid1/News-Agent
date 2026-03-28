@@ -130,6 +130,7 @@ export {
   createMediaTrainingJob,
   updateMediaTrainingJob,
   setDefaultTrainingJob,
+  deleteMediaTrainingJob,
   getDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,

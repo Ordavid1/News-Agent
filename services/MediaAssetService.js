@@ -15,6 +15,9 @@
 import Replicate from 'replicate';
 import axios from 'axios';
 import winston from 'winston';
+import sharp from 'sharp';
+import crypto from 'crypto';
+import { Vibrant } from 'node-vibrant/node';
 import { supabaseAdmin } from './supabase.js';
 import {
   getUserMediaAssets,
@@ -27,6 +30,7 @@ import {
   createMediaTrainingJob,
   updateMediaTrainingJob,
   setDefaultTrainingJob,
+  deleteMediaTrainingJob as dbDeleteMediaTrainingJob,
   getDefaultTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
@@ -53,32 +57,29 @@ const STORAGE_BUCKET = 'media-assets';
 // Minimum images required for training
 const MIN_TRAINING_IMAGES = 10;
 
+// Brand Kit visual asset extraction limits
+const MAX_BRAND_KIT_ASSETS = 15;
+const ASSET_CONFIDENCE_THRESHOLD = 0.75;
+const REMBG_MODEL = 'bria/remove-background:5ecc270b34e9d8e1f007d9dbd3c724f0badf638f05ffaa0c5e0634ed64d3d378';
+
 // Replicate trainer model
 const TRAINER_OWNER = 'ostris';
 const TRAINER_NAME = 'flux-dev-lora-trainer';
 
-// Selective layer training — for subject LoRAs only (proven across 50+ A/B tests)
-// Style LoRAs train ALL layers to capture complex brand identity (colors, layout, illustration style)
-const SUBJECT_LAYERS_TO_OPTIMIZE = 'transformer.single_transformer_blocks.(7|12|16|20).proj_out';
-
-// Training type presets — optimized per research (2025-2026 best practices)
+// Unified brand training preset — captures BOTH style (colors, layout, aesthetic) AND subject (products, logos, people)
+// All layers trained for full brand identity; moderate caption dropout balances trigger-word association with content fidelity
 const TRAINING_PRESETS = {
-  style: {
-    lora_rank: 32,               // Brand identity needs full capacity (colors, illustration, layout, characters)
-    steps_per_image: 35,         // ~35 steps per training image for deeper style learning
+  brand: {
+    lora_rank: 32,               // Full capacity for comprehensive brand identity
+    steps_per_image: 38,         // Balanced between style (35) and subject (40)
     min_steps: 1000,
-    max_steps: 2500,
-    caption_dropout_rate: 0.15,  // Higher dropout forces trigger→style association over content memorization
-    layers_to_optimize_regex: null  // null = train ALL layers — essential for complex brand styles
+    max_steps: 2500,             // Higher ceiling for thorough brand learning
+    caption_dropout_rate: 0.10,  // Moderate — preserves trigger word association without over-memorizing captions
+    layers_to_optimize_regex: null  // null = train ALL layers — essential for capturing both style AND subject
   },
-  subject: {
-    lora_rank: 32,               // Subjects/products need higher capacity
-    steps_per_image: 40,         // ~40 steps per training image
-    min_steps: 1000,
-    max_steps: 2000,
-    caption_dropout_rate: 0.05,  // Lower dropout — captions help subject identity
-    layers_to_optimize_regex: SUBJECT_LAYERS_TO_OPTIMIZE  // Selective training works well for subjects
-  }
+  // Backward-compat aliases for existing DB records with training_type='style' or 'subject'
+  get style() { return this.brand; },
+  get subject() { return this.brand; }
 };
 
 // FLUX.2 Pro — reference-image generation (no LoRA training needed)
@@ -252,10 +253,10 @@ class MediaAssetService {
    * @param {string} userId
    * @param {string} adAccountId
    * @param {string} name - User-provided session name
-   * @param {string} trainingType - 'style' or 'subject' (determines preset params)
+   * @param {string} trainingType - 'brand' (unified), or legacy 'style'/'subject' (mapped to brand)
    * @returns {object} Training job record
    */
-  async startTraining(userId, adAccountId, name, trainingType = 'subject') {
+  async startTraining(userId, adAccountId, name, trainingType = 'brand') {
     if (!this.replicate) {
       throw new Error('Replicate not configured. Set REPLICATE_API_TOKEN environment variable.');
     }
@@ -302,8 +303,8 @@ class MediaAssetService {
     // Generate a trigger word from the account ID
     const triggerWord = `BRAND${adAccountId.replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 
-    // Resolve training preset (style vs subject)
-    const validType = TRAINING_PRESETS[trainingType] ? trainingType : 'subject';
+    // Resolve training preset — all types map to unified 'brand' preset
+    const validType = TRAINING_PRESETS[trainingType] ? trainingType : 'brand';
     const preset = TRAINING_PRESETS[validType];
 
     // Dynamic step calculation based on image count and preset
@@ -463,6 +464,13 @@ class MediaAssetService {
           logger.error(`Failed to auto-grant generation credits for training ${jobId}: ${creditErr.message}`);
         }
       }
+
+      // Non-blocking brand kit analysis from training images
+      if (job.training_image_urls && job.training_image_urls.length > 0 && !updatedJob.brand_kit) {
+        this.analyzeBrandKit(jobId, userId, job.training_image_urls, job.ad_account_id).catch(err => {
+          logger.warn(`Brand kit analysis failed (non-blocking): ${err.message}`);
+        });
+      }
     }
 
     return {
@@ -483,6 +491,53 @@ class MediaAssetService {
    */
   async getTrainingJobById(jobId, userId) {
     return getMediaTrainingJobById(jobId, userId);
+  }
+
+  /**
+   * Delete a training job along with all associated storage files and generated media.
+   * Removes: training images from storage, generated images from storage, DB records.
+   */
+  async deleteTrainingJob(jobId, userId) {
+    const result = await dbDeleteMediaTrainingJob(jobId, userId);
+    if (!result) return null;
+
+    const { job, generatedMedia } = result;
+    const storagePaths = [];
+
+    // Collect training image storage paths from their public URLs
+    if (job.training_image_urls && job.training_image_urls.length > 0) {
+      for (const url of job.training_image_urls) {
+        // Extract storage path from public URL: .../object/public/media-assets/{path}
+        const marker = `/object/public/${STORAGE_BUCKET}/`;
+        const idx = url.indexOf(marker);
+        if (idx !== -1) {
+          storagePaths.push(decodeURIComponent(url.substring(idx + marker.length)));
+        }
+      }
+    }
+
+    // Collect generated media storage paths
+    for (const item of generatedMedia) {
+      if (item.storage_path) {
+        storagePaths.push(item.storage_path);
+      }
+    }
+
+    // Batch-remove all files from storage
+    if (storagePaths.length > 0) {
+      const { error } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .remove(storagePaths);
+
+      if (error) {
+        logger.warn(`Failed to remove some storage files for training job ${jobId}: ${error.message}`);
+      } else {
+        logger.info(`Removed ${storagePaths.length} storage files for deleted training job ${jobId}`);
+      }
+    }
+
+    logger.info(`Deleted training job ${jobId} (${job.name || 'Untitled'})`);
+    return job;
   }
 
   /**
@@ -604,6 +659,13 @@ class MediaAssetService {
       }
     }
 
+    // Non-blocking brand kit analysis from reference images
+    if (imageUrls.length > 0) {
+      this.analyzeBrandKit(job.id, userId, imageUrls, adAccountId).catch(err => {
+        logger.warn(`Brand kit analysis failed for FLUX.2 Pro model (non-blocking): ${err.message}`);
+      });
+    }
+
     return job;
   }
 
@@ -670,8 +732,12 @@ class MediaAssetService {
 
     logger.info(`Generating ${numOutputs} image(s) via FLUX.2 Pro with ${refUrls.length} reference images, aspect=${aspectRatio}, prompt: "${prompt.slice(0, 80)}..."`);
 
-    // Enhance prompt with reference context for better brand consistency
-    const enhancedPrompt = `Using the provided reference images as brand style guides, generate: ${prompt}`;
+    // Enhance prompt with brand context + reference image guidance
+    const promptStyle = options.brandPromptStyle || 'concise';
+    const brandContext = this._buildBrandContextPrompt(job.brand_kit, null, promptStyle);
+    const enhancedPrompt = brandContext
+      ? `Using the provided reference images as brand style guides, ${brandContext}generate: ${prompt}`
+      : `Using the provided reference images as brand style guides, generate: ${prompt}`;
 
     // Base seed for multi-output coherence (related but distinct variations)
     const baseSeed = Math.floor(Math.random() * 2147483647);
@@ -748,6 +814,93 @@ class MediaAssetService {
   }
 
   /**
+   * Build a brand-context base prompt from the training job's brand_kit data.
+   * Injects color palette, style characteristics, mood, and brand summary as contextual guidance.
+   * Falls back to just the trigger word if no brand kit data is available.
+   *
+   * @param {object|null} brandKit - The brand_kit JSONB from the training job
+   * @param {string|null} triggerWord - The LoRA trigger word
+   * @param {string} style - 'concise' or 'elaborated'
+   * @returns {string} Brand context prefix to prepend to user prompt
+   */
+  _buildBrandContextPrompt(brandKit, triggerWord, style = 'concise') {
+    const parts = [];
+
+    // Trigger word anchor
+    if (triggerWord) {
+      parts.push(`in the style of ${triggerWord}`);
+    }
+
+    if (!brandKit) {
+      return parts.length > 0 ? parts.join(', ') + ', ' : '';
+    }
+
+    if (style === 'elaborated') {
+      return this._buildElaboratedPrompt(parts, brandKit);
+    }
+    return this._buildConcisePrompt(parts, brandKit);
+  }
+
+  /**
+   * Concise prompt: hex codes + short mood keywords.
+   */
+  _buildConcisePrompt(parts, brandKit) {
+    if (brandKit.color_palette && brandKit.color_palette.length > 0) {
+      const topColors = brandKit.color_palette.slice(0, 4).map(c => c.hex);
+      parts.push(`brand palette ${topColors.join(' ')}`);
+    }
+
+    const sc = brandKit.style_characteristics;
+    if (sc) {
+      const keywords = [];
+      if (sc.mood) keywords.push(sc.mood.split(',')[0].trim().toLowerCase());
+      if (sc.overall_aesthetic) {
+        const shortAesthetic = sc.overall_aesthetic.split(',')[0].trim().toLowerCase();
+        if (shortAesthetic.length <= 60) keywords.push(shortAesthetic);
+      }
+      if (keywords.length > 0) {
+        parts.push(keywords.join(', '));
+      }
+    }
+
+    return parts.length > 0 ? parts.join(', ') + '. ' : '';
+  }
+
+  /**
+   * Elaborated prompt: full color names, detailed style, photography, illustration, and brand summary.
+   */
+  _buildElaboratedPrompt(parts, brandKit) {
+    if (brandKit.color_palette && brandKit.color_palette.length > 0) {
+      const topColors = brandKit.color_palette.slice(0, 4);
+      const colorStr = topColors
+        .map(c => c.name ? `${c.name.toLowerCase()} (${c.hex})` : c.hex)
+        .join(', ');
+      parts.push(`using brand colors ${colorStr}`);
+    }
+
+    const sc = brandKit.style_characteristics;
+    if (sc) {
+      const styleParts = [];
+      if (sc.mood) styleParts.push(`${sc.mood} mood`);
+      if (sc.overall_aesthetic) styleParts.push(`${sc.overall_aesthetic} aesthetic`);
+      if (sc.photography_style) styleParts.push(`${sc.photography_style} photography`);
+      if (sc.illustration_style) styleParts.push(`${sc.illustration_style} illustration`);
+      if (styleParts.length > 0) {
+        parts.push(`with ${styleParts.join(', ')}`);
+      }
+    }
+
+    if (brandKit.brand_summary) {
+      const firstSentence = brandKit.brand_summary.split(/[.!?]/)[0].trim();
+      if (firstSentence.length > 0) {
+        parts.push(`reflecting a brand identity of: ${firstSentence}`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join(', ') + '. ' : '';
+  }
+
+  /**
    * FLUX.1 LoRA generation path — uses trained model with trigger word.
    */
   async _generateLoRA(userId, adAccountId, prompt, job, options) {
@@ -755,11 +908,18 @@ class MediaAssetService {
       throw new Error('Training completed but no model version was recorded.');
     }
 
-    // Auto-inject trigger word if not already present in the prompt
-    let finalPrompt = prompt;
-    if (job.trigger_word && !prompt.toLowerCase().includes(job.trigger_word.toLowerCase())) {
+    // Build brand-context enriched prompt with trigger word and brand kit data
+    const promptStyle = options.brandPromptStyle || 'concise';
+    const brandContext = this._buildBrandContextPrompt(job.brand_kit, job.trigger_word, promptStyle);
+    let finalPrompt = brandContext + prompt;
+
+    // Ensure trigger word is present (fallback for models without brand_kit)
+    if (job.trigger_word && !finalPrompt.toLowerCase().includes(job.trigger_word.toLowerCase())) {
       finalPrompt = `in the style of ${job.trigger_word}, ${prompt}`;
-      logger.info(`Trigger word "${job.trigger_word}" auto-injected into prompt`);
+    }
+
+    if (brandContext) {
+      logger.info(`Brand context injected (${brandContext.length} chars) into generation prompt`);
     }
 
     // Build the model reference
@@ -1194,8 +1354,8 @@ class MediaAssetService {
         if (pctParts) {
           const pct = parseInt(pctParts[1], 10) / 100;
           return {
-            current: Math.round(pct * TRAINING_PRESETS.subject.min_steps),
-            total: TRAINING_PRESETS.subject.min_steps,
+            current: Math.round(pct * TRAINING_PRESETS.brand.min_steps),
+            total: TRAINING_PRESETS.brand.min_steps,
             percentage: pct
           };
         }
@@ -1204,6 +1364,738 @@ class MediaAssetService {
       // Ignore parse errors
     }
     return null;
+  }
+
+  // ============================================
+  // BRAND KIT ANALYSIS
+  // ============================================
+
+  /**
+   * Analyze training images to extract a Brand Kit: color palette, people, logos, style, summary.
+   * Uses node-vibrant for pixel-accurate color extraction and Gemini 3 Flash for semantic analysis.
+   *
+   * @param {string} jobId - Training job ID
+   * @param {string} userId - User ID (for DB updates)
+   * @param {string[]} imageUrls - Training image URLs to analyze
+   * @param {string|null} adAccountId - Ad account ID (needed for visual asset storage paths)
+   * @returns {object} Brand kit data
+   */
+  async analyzeBrandKit(jobId, userId, imageUrls, adAccountId = null) {
+    if (!imageUrls || imageUrls.length === 0) {
+      logger.warn(`Brand kit analysis skipped for job ${jobId}: no image URLs`);
+      return null;
+    }
+
+    logger.info(`Starting brand kit analysis for job ${jobId} (${imageUrls.length} images)`);
+
+    // Load existing brand kit (if any) to preserve data on partial failure
+    const existingJob = await getMediaTrainingJobById(jobId, userId);
+    const existingKit = existingJob?.brand_kit || {};
+
+    // Run color extraction and semantic analysis in parallel
+    const [colorPalette, semanticAnalysis] = await Promise.all([
+      this._extractColorPalette(imageUrls),
+      this._analyzeSemantics(imageUrls)
+    ]);
+
+    // Merge results — if semantic analysis failed (null), preserve existing text data
+    const semanticFailed = !semanticAnalysis;
+    const brandKit = {
+      color_palette: colorPalette.length > 0 ? colorPalette : (existingKit.color_palette || []),
+      people: semanticFailed ? (existingKit.people || []) : (semanticAnalysis.people || []),
+      logos: semanticFailed ? (existingKit.logos || []) : (semanticAnalysis.logos || []),
+      style_characteristics: semanticFailed ? (existingKit.style_characteristics || {}) : (semanticAnalysis.style_characteristics || {}),
+      brand_summary: semanticFailed ? (existingKit.brand_summary || '') : (semanticAnalysis.brand_summary || ''),
+      extracted_assets: [],
+      asset_extraction_status: adAccountId ? 'pending' : 'skipped',
+      analyzed_at: new Date().toISOString()
+    };
+
+    if (semanticFailed) {
+      logger.warn(`Semantic analysis failed for job ${jobId} — preserving existing text data`);
+    }
+
+    // Persist text-based brand kit immediately (don't wait for visual asset extraction)
+    await updateMediaTrainingJob(jobId, userId, { brand_kit: brandKit });
+    logger.info(`Brand kit analysis completed for job ${jobId}: ${brandKit.color_palette.length} colors, ${brandKit.people.length} people, ${brandKit.logos.length} logos${semanticFailed ? ' (preserved from previous)' : ''}`);
+
+    // Fire visual asset extraction non-blocking (crop + rembg pipeline)
+    if (adAccountId && this.replicate) {
+      this._extractVisualAssets(jobId, userId, adAccountId, imageUrls).catch(err => {
+        logger.warn(`Visual asset extraction failed (non-blocking): ${err.message}`);
+        this._updateBrandKitField(jobId, userId, { asset_extraction_status: 'failed' }).catch(() => {});
+      });
+    }
+
+    return brandKit;
+  }
+
+  /**
+   * Extract dominant brand colors from training images using node-vibrant.
+   * Aggregates swatches across all images, deduplicates similar colors, and ranks by frequency.
+   *
+   * @param {string[]} imageUrls - Image URLs to analyze
+   * @returns {Array<{hex: string, name: string, usage: string, population: number}>}
+   */
+  async _extractColorPalette(imageUrls) {
+    const allSwatches = [];
+
+    // Process all images (node-vibrant can work from URLs directly)
+    const results = await Promise.allSettled(
+      imageUrls.map(async (url) => {
+        try {
+          const palette = await Vibrant.from(url).getPalette();
+          return palette;
+        } catch (err) {
+          logger.warn(`Vibrant failed for ${url}: ${err.message}`);
+          return null;
+        }
+      })
+    );
+
+    // Collect all swatch entries across images
+    const swatchNames = ['Vibrant', 'DarkVibrant', 'LightVibrant', 'Muted', 'DarkMuted', 'LightMuted'];
+    for (const result of results) {
+      if (result.status !== 'fulfilled' || !result.value) continue;
+      const palette = result.value;
+      for (const name of swatchNames) {
+        const swatch = palette[name];
+        if (swatch) {
+          allSwatches.push({
+            hex: swatch.hex,
+            population: swatch.population,
+            swatchType: name
+          });
+        }
+      }
+    }
+
+    if (allSwatches.length === 0) {
+      logger.warn('No color swatches extracted from any images');
+      return [];
+    }
+
+    // Deduplicate similar colors (ΔE < 25 in simple RGB distance)
+    const deduped = this._deduplicateColors(allSwatches);
+
+    // Sort by population (frequency) and take top 8
+    deduped.sort((a, b) => b.population - a.population);
+    const topColors = deduped.slice(0, 8);
+
+    // Assign usage roles based on swatch type dominance
+    return topColors.map((color, idx) => ({
+      hex: color.hex,
+      name: this._colorName(color.hex),
+      usage: this._assignColorRole(color, idx),
+      population: color.population
+    }));
+  }
+
+  /**
+   * Deduplicate similar colors by grouping those within a simple RGB distance threshold.
+   * Keeps the variant with the highest population.
+   */
+  _deduplicateColors(swatches) {
+    const groups = [];
+    const threshold = 50; // RGB distance threshold for "similar enough"
+
+    for (const swatch of swatches) {
+      const rgb = this._hexToRgb(swatch.hex);
+      let merged = false;
+
+      for (const group of groups) {
+        const gRgb = this._hexToRgb(group.hex);
+        const dist = Math.sqrt(
+          Math.pow(rgb.r - gRgb.r, 2) +
+          Math.pow(rgb.g - gRgb.g, 2) +
+          Math.pow(rgb.b - gRgb.b, 2)
+        );
+        if (dist < threshold) {
+          group.population += swatch.population;
+          // Keep the hex with higher individual population
+          if (swatch.population > group.maxPopulation) {
+            group.hex = swatch.hex;
+            group.maxPopulation = swatch.population;
+          }
+          // Track dominant swatch type
+          group.swatchTypes.push(swatch.swatchType);
+          merged = true;
+          break;
+        }
+      }
+
+      if (!merged) {
+        groups.push({
+          hex: swatch.hex,
+          population: swatch.population,
+          maxPopulation: swatch.population,
+          swatchTypes: [swatch.swatchType]
+        });
+      }
+    }
+
+    return groups;
+  }
+
+  _hexToRgb(hex) {
+    const c = hex.replace('#', '');
+    return {
+      r: parseInt(c.substr(0, 2), 16),
+      g: parseInt(c.substr(2, 2), 16),
+      b: parseInt(c.substr(4, 2), 16)
+    };
+  }
+
+  /**
+   * Assign a usage role (primary, secondary, accent, background) based on swatch type and rank.
+   */
+  _assignColorRole(color, index) {
+    const types = color.swatchTypes || [];
+    const hasVibrant = types.some(t => t === 'Vibrant');
+    const hasDark = types.some(t => t.startsWith('Dark'));
+    const hasMuted = types.some(t => t.includes('Muted'));
+    const hasLight = types.some(t => t.startsWith('Light'));
+
+    if (index === 0) return 'primary';
+    if (index === 1) return 'secondary';
+    if (hasVibrant || hasLight) return 'accent';
+    if (hasMuted || hasDark) return 'background';
+    return index < 4 ? 'accent' : 'neutral';
+  }
+
+  /**
+   * Simple color naming based on HSL hue ranges.
+   */
+  _colorName(hex) {
+    const rgb = this._hexToRgb(hex);
+    const r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const d = max - min;
+
+    if (d < 0.05) {
+      if (l > 0.9) return 'White';
+      if (l < 0.15) return 'Black';
+      return 'Gray';
+    }
+
+    let h = 0;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+    else if (max === g) h = ((b - r) / d + 2) * 60;
+    else h = ((r - g) / d + 4) * 60;
+
+    const s = d / (1 - Math.abs(2 * l - 1));
+
+    if (s < 0.15) {
+      if (l > 0.8) return 'Off White';
+      if (l < 0.2) return 'Charcoal';
+      return 'Gray';
+    }
+
+    const prefix = l < 0.3 ? 'Dark ' : l > 0.7 ? 'Light ' : '';
+
+    if (h < 15 || h >= 345) return `${prefix}Red`;
+    if (h < 40) return `${prefix}Orange`;
+    if (h < 65) return `${prefix}Yellow`;
+    if (h < 160) return `${prefix}Green`;
+    if (h < 195) return `${prefix}Teal`;
+    if (h < 255) return `${prefix}Blue`;
+    if (h < 290) return `${prefix}Purple`;
+    if (h < 345) return `${prefix}Pink`;
+    return `${prefix}Red`;
+  }
+
+  /**
+   * Semantic analysis of training images using Gemini 3 Flash vision.
+   * Extracts people/personas, logos, style characteristics, and brand summary.
+   *
+   * @param {string[]} imageUrls - All training image URLs
+   * @returns {object|null} Parsed semantic analysis
+   */
+  async _analyzeSemantics(imageUrls) {
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    if (!googleApiKey) {
+      logger.warn('Brand kit semantic analysis skipped — GOOGLE_AI_STUDIO_API_KEY not set');
+      return null;
+    }
+
+    // Download ALL training images as base64 — no sampling, so nothing is missed
+    const imageParts = [];
+    for (const url of imageUrls) {
+      try {
+        const resp = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: 15000,
+          headers: { 'User-Agent': 'NewsAgentSaaS/1.0' }
+        });
+        const contentType = resp.headers['content-type'] || '';
+        let mimeType = 'image/jpeg';
+        if (contentType.includes('png')) mimeType = 'image/png';
+        else if (contentType.includes('webp')) mimeType = 'image/webp';
+
+        imageParts.push({
+          inlineData: {
+            mimeType,
+            data: Buffer.from(resp.data).toString('base64')
+          }
+        });
+      } catch (err) {
+        logger.warn(`Failed to download image for brand kit analysis: ${url} — ${err.message}`);
+      }
+    }
+
+    if (imageParts.length === 0) {
+      logger.warn('No images could be downloaded for semantic analysis');
+      return null;
+    }
+
+    // Build Gemini request with all images + structured prompt
+    const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+
+    const prompt = `You are a brand identity analyst. Analyze these ${imageParts.length} brand reference images and extract brand identity elements.
+
+Do NOT analyze colors — that is handled separately. Focus ONLY on:
+
+1. **People/Personas**: If any people appear across the images, describe each distinct person briefly (appearance, apparent role like founder/model/mascot). Note how many images each person appears in.
+2. **Logos & Brand Marks**: If any logos, wordmarks, icons, or brand symbols are visible, describe each one (what it looks like, its style — wordmark/icon/combination/emblem, any associated colors as hex codes).
+3. **Style Characteristics**: Describe the overall visual style:
+   - overall_aesthetic: General look and feel
+   - photography_style: If photos, describe the photography approach
+   - illustration_style: If illustrations, describe the illustration approach
+   - typography_hints: Any visible text styles (serif, sans-serif, handwritten, etc.)
+   - mood: The emotional tone (professional, playful, luxurious, minimal, bold, etc.)
+   - visual_motifs: Recurring patterns, textures, shapes, or compositional elements
+4. **Brand Summary**: 2-3 sentence summary of the brand identity based on what you see.
+
+Return ONLY valid JSON (no markdown fences, no explanation) in this exact structure:
+{
+  "people": [{"description": "...", "role": "founder|model|mascot|employee|other", "appears_in": 1}],
+  "logos": [{"description": "...", "style": "wordmark|icon|combination|emblem", "colors": ["#hex"]}],
+  "style_characteristics": {
+    "overall_aesthetic": "...",
+    "photography_style": "...",
+    "illustration_style": "...",
+    "typography_hints": "...",
+    "mood": "...",
+    "visual_motifs": "..."
+  },
+  "brand_summary": "..."
+}
+
+If no people are found, return empty array for "people". Same for "logos". Never omit a field — use empty string or empty array.`;
+
+    const parts = [...imageParts, { text: prompt }];
+
+    try {
+      const response = await axios.post(endpoint, {
+        contents: [{ parts }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8192 // Needs headroom for detailed analysis across all training images
+        }
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000 // 60s — multi-image analysis can be slower
+      });
+
+      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!rawText) {
+        logger.warn('Gemini returned empty response for brand kit semantic analysis');
+        return null;
+      }
+
+      // Parse JSON — handle potential markdown fences
+      let jsonStr = rawText;
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+
+      const parsed = JSON.parse(jsonStr);
+      logger.info(`Semantic analysis: ${(parsed.people || []).length} people, ${(parsed.logos || []).length} logos`);
+      return parsed;
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        logger.error(`Brand kit semantic analysis: JSON parse error — ${err.message}`);
+      } else {
+        logger.error(`Brand kit semantic analysis failed: ${err.message}`);
+      }
+      return null;
+    }
+  }
+
+  // ============================================
+  // VISUAL ASSET EXTRACTION (Cutout PNGs)
+  // ============================================
+
+  /**
+   * Detect bounding boxes for people, logos, and recurring graphics in training images.
+   * Uses Gemini 3 Flash vision with a structured prompt requesting normalized coordinates.
+   *
+   * @param {string[]} imageUrls - All training image URLs
+   * @returns {Array<{image_index, type, description, confidence, bounding_box}>}
+   */
+  async _detectAssetBoundingBoxes(imageUrls) {
+    const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    if (!googleApiKey) {
+      logger.warn('Asset bounding box detection skipped — GOOGLE_AI_STUDIO_API_KEY not set');
+      return [];
+    }
+
+    // Download all images as base64
+    const imageParts = [];
+    for (const url of imageUrls) {
+      try {
+        const resp = await axios.get(url, {
+          responseType: 'arraybuffer',
+          timeout: 15000,
+          headers: { 'User-Agent': 'NewsAgentSaaS/1.0' }
+        });
+        const contentType = resp.headers['content-type'] || '';
+        let mimeType = 'image/jpeg';
+        if (contentType.includes('png')) mimeType = 'image/png';
+        else if (contentType.includes('webp')) mimeType = 'image/webp';
+
+        imageParts.push({
+          inlineData: { mimeType, data: Buffer.from(resp.data).toString('base64') }
+        });
+      } catch (err) {
+        logger.warn(`Failed to download image for bbox detection: ${url} — ${err.message}`);
+        imageParts.push(null); // Placeholder to preserve indexing
+      }
+    }
+
+    const validParts = imageParts.filter(p => p !== null);
+    if (validParts.length === 0) {
+      logger.warn('No images could be downloaded for bounding box detection');
+      return [];
+    }
+
+    const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+
+    // Build image index mapping (skipping failed downloads)
+    const indexMap = [];
+    imageParts.forEach((p, i) => { if (p) indexMap.push(i); });
+
+    const prompt = `You are a brand asset detection system. Analyze these ${validParts.length} brand reference images and detect visual elements that can be extracted as individual assets.
+
+For EACH detected element, return its bounding box as [y_min, x_min, y_max, x_max] where each value is 0-1000 (normalized to image dimensions).
+
+Detect these element types:
+1. **person** — Any person (face and body). Include head-to-waist minimum. Be generous with the bounding box.
+2. **logo** — Any logo, wordmark, icon, or brand symbol. Crop tightly around the logo.
+3. **graphic** — Distinctive recurring graphic elements, illustrations, icons, or visual motifs that appear recognizable and extractable.
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "detections": [
+    {
+      "image_index": 0,
+      "type": "person",
+      "description": "brief description",
+      "confidence": 0.95,
+      "bounding_box": [100, 200, 800, 600]
+    }
+  ]
+}
+
+Rules:
+- image_index is 0-based position in the image sequence provided
+- Only include detections with confidence >= 0.7
+- Maximum 3 detections per image
+- Bounding boxes must have some padding around the element (5-10%)
+- If the same person or logo appears in multiple images, detect it in EACH image but add a "group_id" field (e.g., "person_A", "logo_main") so duplicates can be identified
+- For people, always include full head and at least to waist
+- For logos, be as tight as possible around the logo boundary`;
+
+    const parts = [...validParts, { text: prompt }];
+
+    try {
+      const response = await axios.post(endpoint, {
+        contents: [{ parts }],
+        generationConfig: {
+          temperature: 0.1, // Low temp for precise coordinate detection
+          maxOutputTokens: 8192 // Needs headroom for bboxes across all training images
+        }
+      }, {
+        headers: {
+          'x-goog-api-key': googleApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: 90000 // 90s for multi-image bbox detection
+      });
+
+      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!rawText) {
+        logger.warn('Gemini returned empty response for bbox detection');
+        return [];
+      }
+
+      let jsonStr = rawText;
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+
+      const parsed = JSON.parse(jsonStr);
+      let detections = parsed.detections || [];
+
+      // Remap image_index from sequential Gemini index to original image array index
+      detections = detections.map(d => ({
+        ...d,
+        image_index: indexMap[d.image_index] !== undefined ? indexMap[d.image_index] : d.image_index
+      }));
+
+      // Filter by confidence
+      detections = detections.filter(d => d.confidence >= ASSET_CONFIDENCE_THRESHOLD);
+
+      // Deduplicate: for each group_id, keep only the highest confidence detection
+      const groupBest = new Map();
+      const ungrouped = [];
+      for (const d of detections) {
+        if (d.group_id) {
+          const existing = groupBest.get(d.group_id);
+          if (!existing || d.confidence > existing.confidence) {
+            groupBest.set(d.group_id, d);
+          }
+        } else {
+          ungrouped.push(d);
+        }
+      }
+      detections = [...groupBest.values(), ...ungrouped];
+
+      // Cap total
+      detections = detections.slice(0, MAX_BRAND_KIT_ASSETS);
+
+      logger.info(`Bounding box detection: ${detections.length} assets detected (${detections.filter(d => d.type === 'person').length} people, ${detections.filter(d => d.type === 'logo').length} logos, ${detections.filter(d => d.type === 'graphic').length} graphics)`);
+      return detections;
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        logger.error(`Bbox detection: JSON parse error — ${err.message}`);
+      } else {
+        logger.error(`Bbox detection failed: ${err.message}`);
+      }
+      return [];
+    }
+  }
+
+  /**
+   * Full visual asset extraction pipeline:
+   * 1. Detect bounding boxes via Gemini
+   * 2. Crop each detection using Sharp
+   * 3. Remove background via Replicate rembg
+   * 4. Upload transparent PNGs to Supabase Storage
+   * 5. Persist asset URLs in brand_kit JSONB
+   *
+   * @param {string} jobId
+   * @param {string} userId
+   * @param {string} adAccountId
+   * @param {string[]} imageUrls
+   */
+  async _extractVisualAssets(jobId, userId, adAccountId, imageUrls) {
+    logger.info(`Starting visual asset extraction for job ${jobId}`);
+
+    // Update status to processing
+    await this._updateBrandKitField(jobId, userId, { asset_extraction_status: 'processing' });
+
+    // Step 1: Detect bounding boxes
+    const detections = await this._detectAssetBoundingBoxes(imageUrls);
+    if (detections.length === 0) {
+      logger.info(`No visual assets detected for job ${jobId}`);
+      await this._updateBrandKitField(jobId, userId, {
+        asset_extraction_status: 'completed',
+        extracted_assets: []
+      });
+      return;
+    }
+
+    // Download source images into a cache (avoid re-downloading for multiple detections in same image)
+    const imageCache = new Map();
+    const uniqueImageIndices = [...new Set(detections.map(d => d.image_index))];
+    await Promise.allSettled(uniqueImageIndices.map(async (idx) => {
+      try {
+        const resp = await axios.get(imageUrls[idx], {
+          responseType: 'arraybuffer',
+          timeout: 20000,
+          headers: { 'User-Agent': 'NewsAgentSaaS/1.0' }
+        });
+        imageCache.set(idx, Buffer.from(resp.data));
+      } catch (err) {
+        logger.warn(`Failed to download source image ${idx} for cropping: ${err.message}`);
+      }
+    }));
+
+    // Step 2-4: Process detections in batches of 3
+    const extractedAssets = [];
+    const batches = [];
+    for (let i = 0; i < detections.length; i += 3) {
+      batches.push(detections.slice(i, i + 3));
+    }
+
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (detection, batchIdx) => {
+          const globalIdx = extractedAssets.length + batchIdx;
+          return this._processOneDetection(detection, globalIdx, jobId, userId, adAccountId, imageCache);
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) {
+          extractedAssets.push(result.value);
+        }
+      }
+    }
+
+    // Step 5: Persist results
+    const status = extractedAssets.length > 0 ? 'completed' : 'failed';
+    await this._updateBrandKitField(jobId, userId, {
+      extracted_assets: extractedAssets,
+      asset_extraction_status: status
+    });
+
+    logger.info(`Visual asset extraction completed for job ${jobId}: ${extractedAssets.length} assets extracted`);
+  }
+
+  /**
+   * Process a single detection: crop → rembg → upload → return asset record.
+   */
+  async _processOneDetection(detection, index, jobId, userId, adAccountId, imageCache) {
+    const sourceBuffer = imageCache.get(detection.image_index);
+    if (!sourceBuffer) {
+      logger.warn(`Source image ${detection.image_index} not available for detection ${index}`);
+      return null;
+    }
+
+    try {
+      // Get source image dimensions
+      const metadata = await sharp(sourceBuffer).metadata();
+      const imgWidth = metadata.width;
+      const imgHeight = metadata.height;
+
+      // Convert normalized bbox [y_min, x_min, y_max, x_max] (0-1000) to pixel coordinates
+      const [yMinNorm, xMinNorm, yMaxNorm, xMaxNorm] = detection.bounding_box;
+      let left = Math.round((xMinNorm / 1000) * imgWidth);
+      let top = Math.round((yMinNorm / 1000) * imgHeight);
+      let right = Math.round((xMaxNorm / 1000) * imgWidth);
+      let bottom = Math.round((yMaxNorm / 1000) * imgHeight);
+
+      // Add 5% padding
+      const padX = Math.round((right - left) * 0.05);
+      const padY = Math.round((bottom - top) * 0.05);
+      left = Math.max(0, left - padX);
+      top = Math.max(0, top - padY);
+      right = Math.min(imgWidth, right + padX);
+      bottom = Math.min(imgHeight, bottom + padY);
+
+      const cropWidth = right - left;
+      const cropHeight = bottom - top;
+
+      if (cropWidth < 20 || cropHeight < 20) {
+        logger.warn(`Detection ${index} crop too small (${cropWidth}x${cropHeight}), skipping`);
+        return null;
+      }
+
+      // Crop the detection region
+      const croppedBuffer = await sharp(sourceBuffer)
+        .extract({ left, top, width: cropWidth, height: cropHeight })
+        .png()
+        .toBuffer();
+
+      // Upload crop to temporary path for rembg
+      const tmpPath = `${userId}/${adAccountId}/brand-kit/${jobId}/tmp-${crypto.randomUUID()}.png`;
+      await this.ensureBucket();
+      const { error: tmpUploadErr } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .upload(tmpPath, croppedBuffer, { contentType: 'image/png', upsert: false });
+
+      if (tmpUploadErr) {
+        logger.warn(`Failed to upload temp crop for detection ${index}: ${tmpUploadErr.message}`);
+        return null;
+      }
+
+      const { data: tmpUrlData } = supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(tmpPath);
+      const tmpUrl = tmpUrlData.publicUrl;
+
+      // Run background removal via Replicate
+      let finalBuffer;
+      try {
+        const rembgOutput = await this.replicate.run(REMBG_MODEL, {
+          input: { image: tmpUrl }
+        });
+
+        // rembg output is a ReadableStream or URL — download the result
+        if (typeof rembgOutput === 'string') {
+          const rembgResp = await axios.get(rembgOutput, { responseType: 'arraybuffer', timeout: 30000 });
+          finalBuffer = Buffer.from(rembgResp.data);
+        } else if (rembgOutput && typeof rembgOutput[Symbol.asyncIterator] === 'function') {
+          // ReadableStream from Replicate
+          const chunks = [];
+          for await (const chunk of rembgOutput) {
+            chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'base64') : chunk);
+          }
+          finalBuffer = Buffer.concat(chunks);
+        } else if (Buffer.isBuffer(rembgOutput)) {
+          finalBuffer = rembgOutput;
+        } else {
+          logger.warn(`Unexpected rembg output type for detection ${index}, using cropped version`);
+          finalBuffer = croppedBuffer;
+        }
+      } catch (rembgErr) {
+        logger.warn(`Rembg failed for detection ${index}: ${rembgErr.message}. Using cropped image instead.`);
+        finalBuffer = croppedBuffer; // Fallback: use crop without background removal
+      }
+
+      // Clean up temp file
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([tmpPath]).catch(() => {});
+
+      // Upload final transparent PNG
+      const finalPath = `${userId}/${adAccountId}/brand-kit/${jobId}/${detection.type}-${index}.png`;
+      const { error: uploadErr } = await supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .upload(finalPath, finalBuffer, { contentType: 'image/png', upsert: true });
+
+      if (uploadErr) {
+        logger.error(`Failed to upload final asset ${index}: ${uploadErr.message}`);
+        return null;
+      }
+
+      const { data: finalUrlData } = supabaseAdmin.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(finalPath);
+
+      return {
+        type: detection.type,
+        description: detection.description || '',
+        url: finalUrlData.publicUrl,
+        storage_path: finalPath,
+        source_image_index: detection.image_index,
+        confidence: detection.confidence,
+        bounding_box: detection.bounding_box
+      };
+    } catch (err) {
+      logger.error(`Failed to process detection ${index}: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Update specific fields in the brand_kit JSONB without overwriting the entire object.
+   * Performs a read-modify-write on the brand_kit column.
+   */
+  async _updateBrandKitField(jobId, userId, updates) {
+    try {
+      const job = await getMediaTrainingJobById(jobId, userId);
+      if (!job) return;
+
+      const currentKit = job.brand_kit || {};
+      const updatedKit = { ...currentKit, ...updates };
+
+      await updateMediaTrainingJob(jobId, userId, { brand_kit: updatedKit });
+    } catch (err) {
+      logger.error(`Failed to update brand_kit field for job ${jobId}: ${err.message}`);
+    }
   }
 }
 

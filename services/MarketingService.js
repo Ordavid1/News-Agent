@@ -109,13 +109,22 @@ class MarketingService {
       };
     } catch (error) {
       if (error instanceof TokenDecryptionError) {
-        if (error.connectionId) {
-          await TokenManager.markConnectionError(
-            error.connectionId,
-            'Token decryption failed during marketing operations. Please reconnect your account.'
-          );
-        }
-        throw new Error('Facebook connection credentials are invalid. Please disconnect and reconnect your Facebook account.');
+        // Do NOT call markConnectionError() here — this method is invoked by both
+        // user-facing API routes and the background marketingMetricsWorker.
+        // TokenDecryptionError indicates an encryption key mismatch (e.g., local vs
+        // production using different TOKEN_ENCRYPTION_KEY against the same database),
+        // NOT a revoked or expired Facebook token.  Marking the connection as 'error'
+        // causes the user to see Facebook as "logged out" and triggers a reconnect
+        // cycle that never resolves because the OTHER environment's background worker
+        // immediately marks the freshly-stored token as error again.
+        // The connection stays 'active' so it works once the correct key is available
+        // (i.e., when the user reconnects from the environment that will also read it).
+        logger.error(
+          `[MarketingService] Token decryption failed for user ${userId} — ` +
+          `likely TOKEN_ENCRYPTION_KEY mismatch between environments. ` +
+          `Connection left active (not marked as error).`
+        );
+        throw new Error('Facebook connection credentials could not be decrypted. This may be a temporary issue — please try again or reconnect your Facebook account.');
       }
       throw error;
     }

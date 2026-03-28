@@ -66,7 +66,8 @@ import {
   getPerUsePurchase,
   updatePerUsePurchase,
   getAssetImageGenCredits,
-  consumeAssetImageGenCredit
+  consumeAssetImageGenCredit,
+  getMediaTrainingJobById
 } from '../services/database-wrapper.js';
 import winston from 'winston';
 
@@ -1595,7 +1596,7 @@ router.delete('/media-assets/:id', async (req, res) => {
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId, name, purchaseId, trainingType, generationModel } = req.body;
+    const { adAccountId, name, purchaseId, generationModel } = req.body;
     if (!adAccountId) {
       return res.status(400).json({ error: 'adAccountId is required' });
     }
@@ -1612,8 +1613,8 @@ router.post('/media-assets/training/start', async (req, res) => {
     // Determine model creation path
     const isFlux2Pro = generationModel === 'flux-2-pro';
 
-    // Validate training type (only relevant for LoRA path)
-    const validTrainingType = ['style', 'subject'].includes(trainingType) ? trainingType : 'subject';
+    // Unified brand training — accept legacy 'style'/'subject' for backward compat, always use 'brand'
+    const validTrainingType = 'brand';
 
     // Verify per-use purchase ($5 charge)
     if (!purchaseId) {
@@ -1743,13 +1744,77 @@ router.put('/media-assets/training/:id/set-default', async (req, res) => {
 });
 
 /**
+ * POST /api/marketing/media-assets/training/:id/analyze-brand-kit
+ * Trigger (or re-trigger) brand kit analysis for a completed training job.
+ */
+router.post('/media-assets/training/:id/analyze-brand-kit', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adAccountId } = req.body;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId is required' });
+    }
+
+    // Fetch the job to get training image URLs
+    const job = await getMediaTrainingJobById(id, req.user.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Training job not found' });
+    }
+    if (job.status !== 'completed') {
+      return res.status(400).json({ error: 'Can only analyze completed training jobs' });
+    }
+    if (!job.training_image_urls || job.training_image_urls.length === 0) {
+      return res.status(400).json({ error: 'No training images available for analysis' });
+    }
+
+    logger.info(`[MediaAssets] POST /training/${id}/analyze-brand-kit - user=${req.user.id}`);
+
+    // Fire-and-forget analysis (non-blocking for the user)
+    mediaAssetService.analyzeBrandKit(id, req.user.id, job.training_image_urls, job.ad_account_id).catch(err => {
+      logger.error(`[MediaAssets] Brand kit re-analysis failed for job ${id}: ${err.message}`);
+    });
+
+    res.json({ success: true, message: 'Brand kit analysis started' });
+  } catch (error) {
+    logger.error(`[MediaAssets] POST /training/:id/analyze-brand-kit failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to start brand kit analysis' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/media-assets/training/:id
+ * Delete a training job and all associated storage files + generated media.
+ */
+router.delete('/media-assets/training/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const adAccountId = req.query.adAccountId;
+    if (!adAccountId) {
+      return res.status(400).json({ error: 'adAccountId query parameter is required' });
+    }
+
+    logger.info(`[MediaAssets] DELETE /training/${id} - user=${req.user.id}`);
+
+    const deleted = await mediaAssetService.deleteTrainingJob(id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Training job not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`[MediaAssets] DELETE /training/:id failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete training job' });
+  }
+});
+
+/**
  * POST /api/marketing/media-assets/generate
  * Generate an image using a specific trained LoRA model.
  * Requires { adAccountId, prompt, trainingJobId }.
  */
 router.post('/media-assets/generate', async (req, res) => {
   try {
-    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale, numOutputs, aspectRatio } = req.body;
+    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale, numOutputs, aspectRatio, brandPromptStyle } = req.body;
     if (!adAccountId || !prompt) {
       return res.status(400).json({ error: 'adAccountId and prompt are required' });
     }
@@ -1781,7 +1846,8 @@ router.post('/media-assets/generate', async (req, res) => {
       loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
       guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
       numOutputs: requestedImages,
-      aspectRatio: aspectRatio || undefined
+      aspectRatio: aspectRatio || undefined,
+      brandPromptStyle: brandPromptStyle || 'concise'
     });
 
     // Normalize response: always return array

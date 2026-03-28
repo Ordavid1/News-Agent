@@ -94,29 +94,51 @@ async function processRefreshJob(job) {
   } catch (error) {
     logger.error(`Token refresh failed for job ${id}:`, error.message);
 
-    // Detect irrecoverable connections: TokenDecryptionError or NULL access_token.
-    // A connection with no valid access token is NOT a "working connection" — the
-    // non-interference principle only protects connections that could still be used.
+    // Detect irrecoverable connections: NULL access_token means the row exists
+    // but has no token at all — reconnection is genuinely required.
+    //
+    // TokenDecryptionError is NOT treated as irrecoverable here.  Decryption
+    // failures typically indicate a TOKEN_ENCRYPTION_KEY mismatch between
+    // environments (e.g., local dev vs production sharing the same database).
+    // Marking the connection as 'error' would make the user see it as
+    // "logged out" and trigger a reconnect cycle that never resolves.
+    // Instead, we fail the job without touching the connection status.
     const isTokenDecryptionError = error instanceof TokenDecryptionError || error.name === 'TokenDecryptionError';
-    let connectionIrrecoverable = isTokenDecryptionError;
 
-    if (!connectionIrrecoverable) {
-      try {
-        const { data: connCheck } = await supabaseAdmin
-          .from('social_connections')
-          .select('access_token')
-          .eq('id', connection_id)
-          .single();
-        if (connCheck && !connCheck.access_token) {
-          connectionIrrecoverable = true;
-        }
-      } catch (checkErr) {
-        // Non-fatal — proceed with normal retry logic
+    if (isTokenDecryptionError) {
+      logger.warn(
+        `Connection ${connection_id}: token decryption failed — likely TOKEN_ENCRYPTION_KEY mismatch. ` +
+        `Connection left active (not marked as error). Job marked as failed.`
+      );
+      await supabaseAdmin
+        .from('token_refresh_queue')
+        .update({
+          status: 'failed',
+          attempts: attempts + 1,
+          last_error: `DECRYPTION_MISMATCH: ${error.message}`,
+          processed_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      return { success: false, connectionId: connection_id, error: error.message };
+    }
+
+    // Check for NULL access_token — genuinely irrecoverable, requires reconnection
+    let connectionIrrecoverable = false;
+    try {
+      const { data: connCheck } = await supabaseAdmin
+        .from('social_connections')
+        .select('access_token')
+        .eq('id', connection_id)
+        .single();
+      if (connCheck && !connCheck.access_token) {
+        connectionIrrecoverable = true;
       }
+    } catch (checkErr) {
+      // Non-fatal — proceed with normal retry logic
     }
 
     if (connectionIrrecoverable) {
-      logger.warn(`Connection ${connection_id} is irrecoverable (${isTokenDecryptionError ? 'TokenDecryptionError' : 'NULL access_token'}) — marking as error`);
+      logger.warn(`Connection ${connection_id} is irrecoverable (NULL access_token) — marking as error`);
 
       try {
         await TokenManager.markConnectionError(

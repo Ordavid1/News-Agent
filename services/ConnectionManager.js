@@ -445,16 +445,18 @@ export async function exchangeCodeForTokens(platform, code, state) {
   // Fetch user info (uses long-lived token for facebook/instagram)
   const userInfo = await fetchUserInfo(platform, accessToken);
 
-  // Preserve existing platform-specific flags (e.g. marketingEnabled) when reconnecting
+  // Preserve existing platform-specific flags (e.g. marketingEnabled) when reconnecting.
+  // Use getConnectionStatus() instead of getTokens() — it reads metadata WITHOUT
+  // decrypting tokens, so it works even when TOKEN_ENCRYPTION_KEY has changed.
   let metadata = userInfo.metadata || {};
   if (platform === 'facebook') {
     try {
-      const existing = await TokenManager.getTokens(stateData.userId, 'facebook');
+      const existing = await TokenManager.getConnectionStatus(stateData.userId, 'facebook');
       if (existing?.platform_metadata?.marketingEnabled) {
         metadata.marketingEnabled = true;
       }
     } catch (e) {
-      // Existing connection may not exist or may have decryption errors — safe to ignore
+      // Existing connection may not exist — safe to ignore
     }
   }
 

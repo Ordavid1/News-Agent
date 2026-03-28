@@ -3622,6 +3622,66 @@ export async function setDefaultTrainingJob(jobId, userId, adAccountId) {
 }
 
 /**
+ * Delete a training job and return its data + associated generated media for storage cleanup.
+ * Returns { job, generatedMedia } where generatedMedia contains storage_path for each item.
+ */
+export async function deleteMediaTrainingJob(jobId, userId) {
+  // Fetch the job first (for training_image_urls — needed for storage cleanup)
+  const { data: job, error: fetchError } = await supabaseAdmin
+    .from('media_training_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('user_id', userId)
+    .single();
+
+  if (fetchError) {
+    if (fetchError.code === 'PGRST116') return null;
+    logger.error('Error fetching training job for delete:', fetchError);
+    throw fetchError;
+  }
+
+  // Fetch associated generated media (for storage cleanup)
+  const { data: generatedItems, error: genFetchError } = await supabaseAdmin
+    .from('generated_media')
+    .select('id, storage_path')
+    .eq('training_job_id', jobId)
+    .eq('user_id', userId);
+
+  if (genFetchError) {
+    logger.error('Error fetching generated media for training job delete:', genFetchError);
+    throw genFetchError;
+  }
+
+  // Delete generated media records
+  if (generatedItems && generatedItems.length > 0) {
+    const { error: genDelError } = await supabaseAdmin
+      .from('generated_media')
+      .delete()
+      .eq('training_job_id', jobId)
+      .eq('user_id', userId);
+
+    if (genDelError) {
+      logger.error('Error deleting generated media for training job:', genDelError);
+      throw genDelError;
+    }
+  }
+
+  // Delete the training job itself
+  const { error: delError } = await supabaseAdmin
+    .from('media_training_jobs')
+    .delete()
+    .eq('id', jobId)
+    .eq('user_id', userId);
+
+  if (delError) {
+    logger.error('Error deleting training job:', delError);
+    throw delError;
+  }
+
+  return { job, generatedMedia: generatedItems || [] };
+}
+
+/**
  * Get the default training job for an ad account (is_default=true, status='completed')
  */
 export async function getDefaultTrainingJob(userId, adAccountId) {
@@ -4095,6 +4155,7 @@ export default {
   createMediaTrainingJob,
   updateMediaTrainingJob,
   setDefaultTrainingJob,
+  deleteMediaTrainingJob,
   getGeneratedMedia,
   getGeneratedMediaByJobId,
   createGeneratedMedia,

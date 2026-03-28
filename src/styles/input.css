@@ -226,7 +226,8 @@
     transform: translateY(-3px);
   }
   .card-gradient {
-    @apply rounded-card border border-surface-300 shadow-card;
+    @apply rounded-card shadow-card;
+    border: 2px solid rgba(100, 210, 220, 0.45);
     background: linear-gradient(135deg, rgb(var(--color-brand-50)) 0%, rgb(var(--color-accent-50)) 40%, rgba(6, 182, 212, 0.08) 100%);
   }
 

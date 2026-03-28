@@ -30,6 +30,7 @@ var mediaTrainingPollingTimer = null;
 var latestGeneratedImageUrl = null;
 var mediaViewMode = 'new';           // 'new' (fresh upload) or 'view' (past model context)
 var mediaGenCredits = 0;             // Remaining Brand Asset generation credits
+var brandPromptStyle = 'concise';    // 'concise' or 'elaborated' — brand kit prompt injection style
 
 // Current modal state
 var currentBoostPost = null;
@@ -3809,9 +3810,7 @@ function switchToNewModelMode() {
     generatedMedia = [];
     latestGeneratedImageUrl = null;
 
-    // Clear reference images pool for a fresh start.
-    // Training snapshots are already preserved in training_image_urls on each completed model.
-    const assetsToDelete = [...mediaAssets];
+    // Clear local UI state only — uploaded images stay in storage for training job references
     mediaAssets = [];
 
     // Re-render all sections in new-model context
@@ -3820,19 +3819,13 @@ function switchToNewModelMode() {
     renderTrainingHistory();
     renderGenerationSection();
     renderGeneratedMedia();
+    renderBrandKit(null); // Hide brand kit in new model mode
 
     // Clear any previous generation preview
     const result = document.getElementById('mediaGenerateResult');
     if (result) result.classList.add('hidden');
     const promptInput = document.getElementById('mediaGeneratePrompt');
     if (promptInput) promptInput.value = '';
-
-    // Delete old pool assets from DB in background so clean state persists across refreshes
-    if (assetsToDelete.length > 0) {
-        Promise.allSettled(
-            assetsToDelete.map(a => apiDelete(`/api/marketing/media-assets/${a.id}`))
-        ).catch(() => { /* silent — snapshots already preserved */ });
-    }
 }
 
 /**
@@ -3853,6 +3846,7 @@ function switchToViewModelMode(jobId) {
     renderMediaAssetGrid();
     renderTrainingHistory();
     renderGenerationSection();
+    renderBrandKit(job);
 
     // Clear previous generation preview
     const result = document.getElementById('mediaGenerateResult');
@@ -4233,15 +4227,10 @@ async function startMediaTraining() {
         showToast(`Payment confirmed! ${isFlux2Pro ? 'Creating model...' : 'Starting model training...'}`, 'success');
         renderActiveTrainingStatus();
 
-        // Get selected training type (only used for LoRA)
-        const trainingTypeRadio = document.querySelector('input[name="mediaTrainingType"]:checked');
-        const trainingType = trainingTypeRadio ? trainingTypeRadio.value : 'subject';
-
         const data = await apiPost('/api/marketing/media-assets/training/start', {
             adAccountId: selectedAdAccount.id,
             name: name.trim(),
             purchaseId: purchase.id,
-            trainingType,
             generationModel
         });
 
@@ -4401,6 +4390,13 @@ function renderTrainingHistory() {
         // Right-side default badge
         let rightAction = '';
 
+        // Delete button (available for all job statuses)
+        const deleteBtn = `<button onclick="event.stopPropagation(); deleteTrainingJob('${job.id}')" class="p-1 rounded-md text-ink-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="Delete model">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+            </svg>
+        </button>`;
+
         if (job.status === 'completed') {
             const defaultBadge = isDefault
                 ? `<span class="inline-flex items-center gap-1 text-[10px] font-medium text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">Default</span>`
@@ -4428,7 +4424,7 @@ function renderTrainingHistory() {
 
         const imageCount = job.image_count || (job.training_image_urls ? job.training_image_urls.length : '?');
         const triggerWord = job.trigger_word ? `<span class="text-[10px] text-ink-400 font-mono">${escapeHtml(job.trigger_word)}</span>` : '';
-        const typeLabel = job.training_type === 'style' ? 'Style' : 'Subject';
+        const typeLabel = job.training_type === 'brand' ? 'Brand' : job.training_type === 'style' ? 'Style' : job.training_type === 'subject' ? 'Subject' : 'Brand';
 
         return `
             <div class="p-4 rounded-xl border ${isSelected ? 'border-brand-300 bg-brand-50/30' : 'border-surface-200 bg-surface-50'} transition-colors">
@@ -4446,8 +4442,9 @@ function renderTrainingHistory() {
                         </div>
                         ${job.status === 'failed' && job.error_message ? `<p class="text-xs text-red-500 mt-1 truncate" title="${escapeHtml(job.error_message)}">${escapeHtml(job.error_message)}</p>` : ''}
                     </div>
-                    <div class="flex-shrink-0">
+                    <div class="flex items-center gap-2 flex-shrink-0">
                         ${rightAction}
+                        ${deleteBtn}
                     </div>
                 </div>
                 ${centerBtn}
@@ -4501,6 +4498,36 @@ async function setTrainingAsDefault(jobId) {
     }
 }
 
+/**
+ * Delete a training job and all its associated storage files / generated media.
+ */
+async function deleteTrainingJob(jobId) {
+    if (!selectedAdAccount) return;
+    const job = mediaTrainingJobs.find(j => j.id === jobId);
+    if (!job) return;
+
+    const name = job.name || 'Untitled';
+    if (!confirm(`Delete model "${name}"? This will permanently remove the model, its training images, and all generated images.`)) return;
+
+    try {
+        await apiDelete(`/api/marketing/media-assets/training/${jobId}?adAccountId=${selectedAdAccount.id}`);
+
+        // Remove from local state
+        mediaTrainingJobs = mediaTrainingJobs.filter(j => j.id !== jobId);
+
+        // If the deleted model was selected, switch to new model mode
+        if (selectedTrainingJob && selectedTrainingJob.id === jobId) {
+            switchToNewModelMode();
+        } else {
+            renderTrainingHistory();
+        }
+
+        showToast(`Model "${name}" deleted`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to delete model', 'error');
+    }
+}
+
 // ============================================
 // MEDIA ASSETS - GENERATION
 // ============================================
@@ -4516,8 +4543,7 @@ function renderGenerationSection() {
     if (mediaViewMode === 'view' && selectedTrainingJob && selectedTrainingJob.status === 'completed') {
         const isFlux2Pro = selectedTrainingJob.replicate_model_name === 'flux-2-pro';
         if (selectedLabel) {
-            const typeLabel = isFlux2Pro ? 'FLUX.2 Pro'
-                : selectedTrainingJob.training_type === 'style' ? 'Style LoRA' : 'Subject LoRA';
+            const typeLabel = isFlux2Pro ? 'FLUX.2 Pro' : 'Brand LoRA';
             const triggerInfo = selectedTrainingJob.trigger_word
                 ? ` | Trigger: ${selectedTrainingJob.trigger_word}`
                 : '';
@@ -4616,7 +4642,8 @@ async function generateMediaImage() {
             loraScale,
             guidanceScale,
             numOutputs,
-            aspectRatio
+            aspectRatio,
+            brandPromptStyle
         });
 
         // Update credits from response
@@ -4628,11 +4655,6 @@ async function generateMediaImage() {
         // Response is always an array now
         const mediaArray = Array.isArray(data.media) ? data.media : [data.media];
         latestGeneratedImageUrl = mediaArray[0].public_url;
-
-        // Show preview of first image
-        const preview = document.getElementById('mediaGeneratedPreview');
-        if (preview) preview.src = mediaArray[0].public_url;
-        if (result) result.classList.remove('hidden');
 
         // Add all generated images to gallery
         generatedMedia = [...mediaArray, ...generatedMedia];
@@ -4682,8 +4704,10 @@ function updateMediaGenCreditsUI() {
     // Show credits bar only when a training job is selected
     if (selectedTrainingJob && selectedTrainingJob.status === 'completed') {
         bar.classList.remove('hidden');
+        bar.classList.add('flex');
     } else {
         bar.classList.add('hidden');
+        bar.classList.remove('flex');
         return;
     }
 
@@ -4693,8 +4717,10 @@ function updateMediaGenCreditsUI() {
     if (buyBtn) {
         if (mediaGenCredits <= 1) {
             buyBtn.classList.remove('hidden');
+            buyBtn.classList.add('flex');
         } else {
             buyBtn.classList.add('hidden');
+            buyBtn.classList.remove('flex');
         }
     }
 
@@ -4779,6 +4805,34 @@ function toggleAdvancedGenSettings() {
 }
 
 /**
+ * Set the brand prompt style (concise vs elaborated) for image generation.
+ */
+function setBrandPromptStyle(style) {
+    brandPromptStyle = style;
+    const slider = document.getElementById('brandPromptSlider');
+    const conciseBtn = document.getElementById('brandPromptConciseBtn');
+    const elaboratedBtn = document.getElementById('brandPromptElaboratedBtn');
+    const hint = document.getElementById('brandPromptStyleHint');
+
+    // Reset both buttons
+    const inactiveClasses = ['text-ink-400', 'bg-transparent'];
+    const activeClasses = ['text-brand-700', 'bg-brand-50', 'font-semibold'];
+
+    if (conciseBtn) { conciseBtn.classList.remove(...activeClasses); conciseBtn.classList.add(...inactiveClasses); }
+    if (elaboratedBtn) { elaboratedBtn.classList.remove(...activeClasses); elaboratedBtn.classList.add(...inactiveClasses); }
+
+    if (style === 'elaborated') {
+        if (slider) { slider.style.transform = 'translateX(100%)'; slider.style.background = 'var(--color-brand-100, #dbeafe)'; }
+        if (elaboratedBtn) { elaboratedBtn.classList.remove(...inactiveClasses); elaboratedBtn.classList.add(...activeClasses); }
+        if (hint) hint.textContent = 'Full brand aesthetic, photography style, mood, and identity context';
+    } else {
+        if (slider) { slider.style.transform = ''; slider.style.background = 'var(--color-brand-100, #dbeafe)'; }
+        if (conciseBtn) { conciseBtn.classList.remove(...inactiveClasses); conciseBtn.classList.add(...activeClasses); }
+        if (hint) hint.textContent = 'Short color codes + mood keywords';
+    }
+}
+
+/**
  * Download the latest generated image.
  */
 function downloadLatestGeneratedImage() {
@@ -4790,6 +4844,35 @@ function downloadLatestGeneratedImage() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+}
+
+/**
+ * Open lightbox to view a generated image full-size with download option.
+ */
+function openImageLightbox(imageUrl, prompt) {
+    const lightbox = document.getElementById('mediaImageLightbox');
+    const img = document.getElementById('lightboxImage');
+    const downloadBtn = document.getElementById('lightboxDownload');
+    const promptEl = document.getElementById('lightboxPrompt');
+    if (!lightbox || !img) return;
+
+    img.src = imageUrl;
+    if (downloadBtn) {
+        downloadBtn.href = imageUrl;
+        downloadBtn.download = `generated-${Date.now()}.webp`;
+    }
+    if (promptEl) promptEl.textContent = prompt || '';
+    lightbox.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+/**
+ * Close the image lightbox.
+ */
+function closeImageLightbox(event) {
+    const lightbox = document.getElementById('mediaImageLightbox');
+    if (lightbox) lightbox.classList.add('hidden');
+    document.body.style.overflow = '';
 }
 
 /**
@@ -4813,7 +4896,7 @@ function renderGeneratedMedia() {
     if (grid) {
         grid.innerHTML = generatedMedia.map(media => `
             <div class="group relative rounded-xl overflow-hidden border border-surface-200 bg-surface-50">
-                <div class="aspect-square">
+                <div class="aspect-square cursor-pointer" onclick="openImageLightbox('${escapeHtml(media.public_url)}', '${escapeHtml(media.prompt)}')">
                     <img src="${escapeHtml(media.public_url)}" alt="Generated image"
                         class="w-full h-full object-cover">
                 </div>
@@ -4822,14 +4905,20 @@ function renderGeneratedMedia() {
                     <p class="text-[10px] text-ink-300 mt-1">${new Date(media.created_at).toLocaleDateString()}</p>
                 </div>
                 <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <a href="${escapeHtml(media.public_url)}" download="generated-${media.id}.png" target="_blank"
-                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-white shadow-sm">
+                    <button onclick="openImageLightbox('${escapeHtml(media.public_url)}', '${escapeHtml(media.prompt)}')"
+                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-white shadow-sm" title="View full size">
+                        <svg class="w-3.5 h-3.5 text-ink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path>
+                        </svg>
+                    </button>
+                    <a href="${escapeHtml(media.public_url)}" download="generated-${media.id}.webp"
+                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-white shadow-sm" title="Download">
                         <svg class="w-3.5 h-3.5 text-ink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                         </svg>
                     </a>
                     <button onclick="deleteGeneratedMedia('${media.id}')"
-                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-red-50 shadow-sm">
+                        class="bg-white/90 backdrop-blur rounded-full p-1.5 hover:bg-red-50 shadow-sm" title="Delete">
                         <svg class="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                         </svg>
@@ -4853,5 +4942,404 @@ async function deleteGeneratedMedia(mediaId) {
         showToast('Image deleted', 'success');
     } catch (error) {
         showToast(error.message, 'error');
+    }
+}
+
+// ============================================
+// BRAND KIT
+// ============================================
+
+/**
+ * Render the Brand Kit section for a completed training job.
+ * Shows color palette, people, logos, style profile, and brand summary.
+ */
+function renderBrandKit(job) {
+    const container = document.getElementById('mediaBrandKit');
+    const loading = document.getElementById('brandKitLoading');
+    const content = document.getElementById('brandKitContent');
+    if (!container || !loading || !content) return;
+
+    // Hide if no job or not completed
+    if (!job || job.status !== 'completed') {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+
+    // If brand_kit data not yet available, show loading and poll
+    if (!job.brand_kit) {
+        loading.classList.remove('hidden');
+        content.classList.add('hidden');
+        // Poll for brand kit data
+        startBrandKitPolling(job.id);
+        return;
+    }
+
+    // Stop polling if running
+    stopBrandKitPolling();
+
+    loading.classList.add('hidden');
+    content.classList.remove('hidden');
+
+    const kit = job.brand_kit;
+
+    // Render Color Palette
+    const swatchesEl = document.getElementById('brandKitColorSwatches');
+    if (swatchesEl && kit.color_palette && kit.color_palette.length > 0) {
+        document.getElementById('brandKitColorsSection').classList.remove('hidden');
+        swatchesEl.innerHTML = kit.color_palette.map(color => {
+            const roleLabel = color.usage || color.role || '';
+            const textColor = isLightColor(color.hex) ? 'text-ink-700' : 'text-white';
+            return `
+                <div class="flex flex-col items-center gap-1.5">
+                    <div class="w-14 h-14 rounded-xl shadow-sm border border-surface-200 flex items-center justify-center cursor-pointer transition-transform hover:scale-110"
+                         style="background-color: ${escapeHtml(color.hex)}"
+                         title="${escapeHtml(color.name || color.hex)}"
+                         onclick="navigator.clipboard.writeText('${escapeHtml(color.hex)}'); showToast('Copied ${escapeHtml(color.hex)}', 'success')">
+                        <span class="text-[9px] font-mono ${textColor} opacity-80">${escapeHtml(color.hex)}</span>
+                    </div>
+                    <span class="text-[10px] text-ink-400 max-w-[60px] text-center truncate">${escapeHtml(color.name || '')}</span>
+                    ${roleLabel ? `<span class="text-[9px] font-medium text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded-full">${escapeHtml(roleLabel)}</span>` : ''}
+                </div>`;
+        }).join('');
+    } else {
+        document.getElementById('brandKitColorsSection').classList.add('hidden');
+    }
+
+    // Render People / Personas
+    const peopleSection = document.getElementById('brandKitPeopleSection');
+    const peopleList = document.getElementById('brandKitPeopleList');
+    const hasPeopleCutouts = (kit.extracted_assets || []).some(a => a.type === 'person');
+    if (peopleSection && peopleList && ((kit.people && kit.people.length > 0) || hasPeopleCutouts)) {
+        peopleSection.classList.remove('hidden');
+        peopleList.innerHTML = kit.people.map(person => `
+            <div class="bg-surface-50 border border-surface-200 rounded-xl p-3">
+                <div class="flex items-start gap-2">
+                    <div class="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                        <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm text-ink-700">${escapeHtml(person.description)}</p>
+                        <div class="flex items-center gap-2 mt-1">
+                            ${person.role ? `<span class="text-[10px] font-medium text-ink-400 bg-surface-100 px-1.5 py-0.5 rounded">${escapeHtml(person.role)}</span>` : ''}
+                            ${person.appears_in ? `<span class="text-[10px] text-ink-400">Appears in ${person.appears_in} image${person.appears_in > 1 ? 's' : ''}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } else if (peopleSection) {
+        peopleSection.classList.add('hidden');
+    }
+
+    // Render Logos & Brand Marks
+    const logosSection = document.getElementById('brandKitLogosSection');
+    const logosList = document.getElementById('brandKitLogosList');
+    const hasLogoCutouts = (kit.extracted_assets || []).some(a => a.type === 'logo');
+    if (logosSection && logosList && ((kit.logos && kit.logos.length > 0) || hasLogoCutouts)) {
+        logosSection.classList.remove('hidden');
+        logosList.innerHTML = kit.logos.map(logo => `
+            <div class="bg-surface-50 border border-surface-200 rounded-xl p-3">
+                <div class="flex items-start gap-2">
+                    <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                        <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm text-ink-700">${escapeHtml(logo.description)}</p>
+                        <div class="flex items-center gap-2 mt-1">
+                            ${logo.style ? `<span class="text-[10px] font-medium text-ink-400 bg-surface-100 px-1.5 py-0.5 rounded">${escapeHtml(logo.style)}</span>` : ''}
+                            ${logo.colors && logo.colors.length ? `<div class="flex gap-1">${logo.colors.map(c => `<div class="w-3 h-3 rounded-full border border-surface-300" style="background-color:${escapeHtml(c)}" title="${escapeHtml(c)}"></div>`).join('')}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } else if (logosSection) {
+        logosSection.classList.add('hidden');
+    }
+
+    // Render extracted visual assets — distributed into People, Logos, and Graphics sections
+    const assetsLoading = document.getElementById('brandKitAssetsLoading');
+    const assets = kit.extracted_assets || [];
+    const assetStatus = kit.asset_extraction_status;
+
+    if (assetStatus === 'pending' || assetStatus === 'processing') {
+        if (assetsLoading) assetsLoading.classList.remove('hidden');
+        startAssetExtractionPolling(job.id);
+    } else {
+        if (assetsLoading) assetsLoading.classList.add('hidden');
+    }
+
+    // Distribute cutouts into their respective sections
+    const peopleCutouts = assets.filter(a => a.type === 'person');
+    const logoCutouts = assets.filter(a => a.type === 'logo');
+    const graphicCutouts = assets.filter(a => a.type === 'graphic');
+
+    // Person cutouts → inside People section (collapsed by default)
+    const peopleCutoutsEl = document.getElementById('brandKitPeopleCutouts');
+    const peopleCutoutsToggle = document.getElementById('brandKitPeopleCutoutsToggle');
+    if (peopleCutoutsEl) {
+        if (peopleCutouts.length > 0) {
+            peopleCutoutsEl.innerHTML = renderCutoutGrid(peopleCutouts, 'person');
+            peopleCutoutsEl.classList.add('hidden'); // Start collapsed
+            if (peopleCutoutsToggle) {
+                peopleCutoutsToggle.classList.remove('hidden');
+                document.getElementById('brandKitPeopleCutoutsLabel').textContent = `Show extracted assets (${peopleCutouts.length})`;
+                document.getElementById('brandKitPeopleCutoutsArrow').style.transform = '';
+            }
+        } else {
+            peopleCutoutsEl.classList.add('hidden');
+            if (peopleCutoutsToggle) peopleCutoutsToggle.classList.add('hidden');
+        }
+    }
+
+    // Logo cutouts → inside Logos section (collapsed by default)
+    const logoCutoutsEl = document.getElementById('brandKitLogoCutouts');
+    const logoCutoutsToggle = document.getElementById('brandKitLogoCutoutsToggle');
+    if (logoCutoutsEl) {
+        if (logoCutouts.length > 0) {
+            logoCutoutsEl.innerHTML = renderCutoutGrid(logoCutouts, 'logo');
+            logoCutoutsEl.classList.add('hidden'); // Start collapsed
+            if (logoCutoutsToggle) {
+                logoCutoutsToggle.classList.remove('hidden');
+                document.getElementById('brandKitLogoCutoutsLabel').textContent = `Show extracted assets (${logoCutouts.length})`;
+                document.getElementById('brandKitLogoCutoutsArrow').style.transform = '';
+            }
+        } else {
+            logoCutoutsEl.classList.add('hidden');
+            if (logoCutoutsToggle) logoCutoutsToggle.classList.add('hidden');
+        }
+    }
+
+    // Graphics/backgrounds → own section (collapsed by default)
+    const graphicsSection = document.getElementById('brandKitGraphicsSection');
+    const graphicsCutoutsEl = document.getElementById('brandKitGraphicsCutouts');
+    const graphicsCutoutsToggle = document.getElementById('brandKitGraphicsCutoutsToggle');
+    if (graphicsSection && graphicsCutoutsEl) {
+        if (graphicCutouts.length > 0) {
+            graphicsSection.classList.remove('hidden');
+            graphicsCutoutsEl.innerHTML = renderCutoutGrid(graphicCutouts, 'graphic');
+            graphicsCutoutsEl.classList.add('hidden'); // Start collapsed
+            if (graphicsCutoutsToggle) {
+                graphicsCutoutsToggle.classList.remove('hidden');
+                document.getElementById('brandKitGraphicsCutoutsLabel').textContent = `Show extracted assets (${graphicCutouts.length})`;
+                document.getElementById('brandKitGraphicsCutoutsArrow').style.transform = '';
+            }
+        } else {
+            graphicsSection.classList.add('hidden');
+        }
+    }
+
+    // Render Style Profile
+    const styleDetails = document.getElementById('brandKitStyleDetails');
+    if (styleDetails && kit.style_characteristics) {
+        const sc = kit.style_characteristics;
+        const items = [];
+        if (sc.overall_aesthetic) items.push({ label: 'Aesthetic', value: sc.overall_aesthetic });
+        if (sc.photography_style) items.push({ label: 'Photography', value: sc.photography_style });
+        if (sc.illustration_style) items.push({ label: 'Illustration', value: sc.illustration_style });
+        if (sc.typography_hints) items.push({ label: 'Typography', value: sc.typography_hints });
+        if (sc.mood) items.push({ label: 'Mood', value: sc.mood });
+        if (sc.visual_motifs) items.push({ label: 'Visual Motifs', value: sc.visual_motifs });
+
+        if (items.length > 0) {
+            document.getElementById('brandKitStyleSection').classList.remove('hidden');
+            styleDetails.innerHTML = items.map(item => `
+                <div class="flex items-start gap-2">
+                    <span class="text-xs font-medium text-ink-500 min-w-[90px] shrink-0">${escapeHtml(item.label)}</span>
+                    <span class="text-xs text-ink-600">${escapeHtml(item.value)}</span>
+                </div>
+            `).join('');
+        } else {
+            document.getElementById('brandKitStyleSection').classList.add('hidden');
+        }
+    }
+
+    // Render Brand Summary
+    const summaryEl = document.getElementById('brandKitSummary');
+    if (summaryEl && kit.brand_summary) {
+        document.getElementById('brandKitSummarySection').classList.remove('hidden');
+        summaryEl.textContent = kit.brand_summary;
+    } else if (summaryEl) {
+        document.getElementById('brandKitSummarySection').classList.add('hidden');
+    }
+}
+
+/**
+ * Render a grid of cutout asset thumbnails with transparency background, download overlay, and description.
+ */
+function renderCutoutGrid(assets, type) {
+    return assets.map((asset, i) => `
+        <div class="group relative">
+            <div class="aspect-square rounded-xl border border-surface-200 overflow-hidden cursor-pointer"
+                 style="background: repeating-conic-gradient(#e5e7eb 0% 25%, #fff 0% 50%) 50% / 16px 16px"
+                 onclick="window.open('${escapeHtml(asset.url)}', '_blank')"
+                 title="${escapeHtml(asset.description)}">
+                <img src="${escapeHtml(asset.url)}" alt="${escapeHtml(asset.description)}"
+                     class="w-full h-full object-contain p-1" loading="lazy">
+            </div>
+            <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
+                <a href="${escapeHtml(asset.url)}" download="${escapeHtml(type)}-${i}.png"
+                   class="bg-white/90 text-ink-700 text-xs px-3 py-1.5 rounded-lg font-medium hover:bg-white transition-colors flex items-center gap-1"
+                   onclick="event.stopPropagation()">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    PNG
+                </a>
+            </div>
+            <div class="mt-1.5 flex items-center gap-1">
+                <span class="text-[9px] font-medium px-1.5 py-0.5 rounded ${asset.type === 'person' ? 'bg-blue-50 text-blue-600' : asset.type === 'logo' ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}">#${escapeHtml(asset.type)}</span>
+            </div>
+            <p class="text-[10px] text-ink-400 truncate mt-0.5" title="${escapeHtml(asset.description)}">${escapeHtml(asset.description)}</p>
+        </div>`).join('');
+}
+
+/**
+ * Toggle a cutout section open/closed.
+ */
+function toggleCutoutSection(name) {
+    const grid = document.getElementById(`brandKit${name}Cutouts`);
+    const arrow = document.getElementById(`brandKit${name}CutoutsArrow`);
+    const label = document.getElementById(`brandKit${name}CutoutsLabel`);
+    if (!grid) return;
+
+    const isHidden = grid.classList.contains('hidden');
+    grid.classList.toggle('hidden');
+    if (arrow) arrow.style.transform = isHidden ? 'rotate(90deg)' : '';
+    if (label) {
+        const count = grid.children.length;
+        label.textContent = isHidden ? `Hide extracted assets (${count})` : `Show extracted assets (${count})`;
+    }
+}
+
+/**
+ * Check if a hex color is light (for text contrast).
+ */
+function isLightColor(hex) {
+    const c = hex.replace('#', '');
+    const r = parseInt(c.substr(0, 2), 16);
+    const g = parseInt(c.substr(2, 2), 16);
+    const b = parseInt(c.substr(4, 2), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
+var brandKitPollingTimer = null;
+
+function startBrandKitPolling(jobId) {
+    stopBrandKitPolling();
+    let attempts = 0;
+    const maxAttempts = 12; // ~2 minutes (10s intervals)
+
+    brandKitPollingTimer = setInterval(async () => {
+        attempts++;
+        if (attempts > maxAttempts) {
+            stopBrandKitPolling();
+            const loading = document.getElementById('brandKitLoading');
+            if (loading) loading.innerHTML = '<p class="text-sm text-ink-400 text-center py-4">Brand analysis is taking longer than expected. Use the re-analyze button to try again.</p>';
+            return;
+        }
+
+        try {
+            if (!selectedAdAccount) return;
+            const data = await apiGet(`/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}&jobId=${jobId}`);
+            if (data.job && data.job.brand_kit) {
+                // Update the job in our local state
+                const idx = mediaTrainingJobs.findIndex(j => j.id === jobId);
+                if (idx !== -1) mediaTrainingJobs[idx].brand_kit = data.job.brand_kit;
+                if (selectedTrainingJob && selectedTrainingJob.id === jobId) {
+                    selectedTrainingJob.brand_kit = data.job.brand_kit;
+                }
+                renderBrandKit(selectedTrainingJob);
+            }
+        } catch (e) {
+            // Silent — keep polling
+        }
+    }, 10000);
+}
+
+function stopBrandKitPolling() {
+    if (brandKitPollingTimer) {
+        clearInterval(brandKitPollingTimer);
+        brandKitPollingTimer = null;
+    }
+}
+
+var assetExtractionPollingTimer = null;
+
+/**
+ * Poll for visual asset extraction completion.
+ * Reuses the same pattern as brand kit polling but checks asset_extraction_status specifically.
+ */
+function startAssetExtractionPolling(jobId) {
+    if (assetExtractionPollingTimer) clearInterval(assetExtractionPollingTimer);
+    let attempts = 0;
+    const maxAttempts = 30; // ~5 minutes (10s intervals)
+
+    assetExtractionPollingTimer = setInterval(async () => {
+        attempts++;
+        if (attempts > maxAttempts) {
+            clearInterval(assetExtractionPollingTimer);
+            assetExtractionPollingTimer = null;
+            const loading = document.getElementById('brandKitAssetsLoading');
+            if (loading) loading.innerHTML = '<p class="text-xs text-ink-400 text-center py-4">Asset extraction is taking longer than expected. Use the re-analyze button to try again.</p>';
+            return;
+        }
+
+        try {
+            if (!selectedAdAccount) return;
+            const data = await apiGet(`/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}&jobId=${jobId}`);
+            if (data.job && data.job.brand_kit) {
+                const status = data.job.brand_kit.asset_extraction_status;
+                if (status && status !== 'pending' && status !== 'processing') {
+                    clearInterval(assetExtractionPollingTimer);
+                    assetExtractionPollingTimer = null;
+                    // Update local state and re-render
+                    const idx = mediaTrainingJobs.findIndex(j => j.id === jobId);
+                    if (idx !== -1) mediaTrainingJobs[idx].brand_kit = data.job.brand_kit;
+                    if (selectedTrainingJob && selectedTrainingJob.id === jobId) {
+                        selectedTrainingJob.brand_kit = data.job.brand_kit;
+                    }
+                    renderBrandKit(selectedTrainingJob);
+                }
+            }
+        } catch (e) {
+            // Silent — keep polling
+        }
+    }, 10000);
+}
+
+/**
+ * Re-analyze brand kit for the currently selected training job.
+ */
+async function reanalyzeBrandKit() {
+    if (!selectedTrainingJob || !selectedAdAccount) return;
+
+    const btn = document.getElementById('brandKitReanalyzeBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+        showToast('Re-analyzing brand assets...', 'info');
+        await apiPost(`/api/marketing/media-assets/training/${selectedTrainingJob.id}/analyze-brand-kit`, {
+            adAccountId: selectedAdAccount.id
+        });
+
+        // Mark asset extraction as pending (keeps existing text data visible while re-analyzing)
+        if (selectedTrainingJob.brand_kit) {
+            selectedTrainingJob.brand_kit.asset_extraction_status = 'pending';
+            selectedTrainingJob.brand_kit.extracted_assets = [];
+        }
+        renderBrandKit(selectedTrainingJob);
+        // Start polling for updated results
+        startBrandKitPolling(selectedTrainingJob.id);
+    } catch (error) {
+        showToast(error.message || 'Failed to start brand analysis', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
