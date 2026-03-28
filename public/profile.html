@@ -1026,40 +1026,10 @@
                 <div id="addonRequiredBanner" class="hidden"></div>
                 <div id="addonActiveBanner" class="hidden"></div>
 
-                <!-- Ad Account Selector -->
-                <div class="mb-6 flex justify-end">
-                    <div class="relative" id="adAccountDropdownWrapper">
-                        <button onclick="toggleAdAccountDropdown()" id="adAccountDropdownBtn" class="text-base text-brand-600 hover:text-brand-700 border border-brand-300 hover:border-brand-500 bg-white rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex items-center gap-1.5">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                            </svg>
-                            Ad Accounts
-                            <svg class="w-3.5 h-3.5 transition-transform" id="adAccountChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
-                        <div id="adAccountDropdown" class="hidden absolute right-0 top-full mt-1 w-72 bg-white border border-surface-200 rounded-xl shadow-lg z-50 overflow-hidden">
-                            <div class="px-3 py-2 border-b border-surface-100 bg-surface-50">
-                                <p class="text-sm font-medium text-ink-400 uppercase tracking-wider" id="adAccountDropdownHeader">Ad Accounts</p>
-                            </div>
-                            <div id="adAccountDropdownList" class="max-h-48 overflow-y-auto">
-                                <!-- Populated dynamically -->
-                            </div>
-                            <div class="border-t border-surface-100">
-                                <button onclick="addAdAccount()" id="addAdAccountBtn" class="w-full text-left px-3 py-2.5 text-base text-brand-600 hover:bg-brand-50 transition-colors flex items-center gap-2 font-medium">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                    </svg>
-                                    Add Account
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Marketing Sub-Tab Navigation -->
-                <div class="mb-8 relative">
-                    <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto">
+                <!-- Marketing Sub-Tab Navigation + Ad Account Selector -->
+                <div class="mb-6 relative">
+                    <div class="flex items-end justify-between gap-4">
+                        <div class="scrollbar-hide flex gap-1 border-b border-surface-200 pb-0 overflow-x-auto flex-1 min-w-0">
                         <button onclick="showMarketingTab('overview')" id="mkt-tab-overview" class="mkt-tab-btn tab-btn tab-active whitespace-nowrap">
                             <span class="flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1118,6 +1088,35 @@
                                 Brand Asset Generator
                             </span>
                         </button>
+                    </div>
+                    <!-- Ad Account Selector (aligned with sub-tabs) -->
+                    <div class="relative flex-shrink-0 pb-px" id="adAccountDropdownWrapper">
+                        <button onclick="toggleAdAccountDropdown()" id="adAccountDropdownBtn" class="text-base text-brand-600 hover:text-brand-700 border border-brand-300 hover:border-brand-500 bg-white rounded-lg px-4 py-2 transition-colors whitespace-nowrap flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                            </svg>
+                            Ad Accounts
+                            <svg class="w-3.5 h-3.5 transition-transform" id="adAccountChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        <div id="adAccountDropdown" class="hidden absolute right-0 top-full mt-1 w-72 bg-white border border-surface-200 rounded-xl shadow-lg z-50 overflow-hidden">
+                            <div class="px-3 py-2 border-b border-surface-100 bg-surface-50">
+                                <p class="text-sm font-medium text-ink-400 uppercase tracking-wider" id="adAccountDropdownHeader">Ad Accounts</p>
+                            </div>
+                            <div id="adAccountDropdownList" class="max-h-48 overflow-y-auto">
+                                <!-- Populated dynamically -->
+                            </div>
+                            <div class="border-t border-surface-100">
+                                <button onclick="addAdAccount()" id="addAdAccountBtn" class="w-full text-left px-3 py-2.5 text-base text-brand-600 hover:bg-brand-50 transition-colors flex items-center gap-2 font-medium">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    Add Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     </div>
                 </div>
 
@@ -1878,7 +1877,7 @@
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                                 </svg>
-                                Buy 8 More ($4.50)
+                                Buy 8 More ($4.90)
                             </button>
                         </div>
 

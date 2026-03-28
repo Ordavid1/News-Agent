@@ -1653,7 +1653,7 @@ const PER_USE_PRICING = {
     creditsPerPurchase: 1
   },
   asset_image_gen_pack: {
-    amountCents: 450, // $4.50
+    amountCents: 490, // $4.90
     variantId: process.env.LEMON_SQUEEZY_IMAGE_GEN_PACK_VARIANT_ID,
     description: 'Brand Asset Image Generation Pack (8 images)',
     creditsPerPurchase: 8
@@ -1938,7 +1938,7 @@ router.get('/image-gen-purchase-status', async (req, res) => {
   }
 });
 
-// Create image generation pack checkout (6 credits for $4.50, LS one-time purchase)
+// Create image generation pack checkout (8 credits for $4.90, LS one-time purchase)
 router.post('/asset-image-gen-pack-checkout', async (req, res) => {
   console.log('[ASSET-IMGGEN-PACK-CHECKOUT] POST - User:', req.user?.id);
   try {

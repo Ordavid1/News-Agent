@@ -397,38 +397,24 @@ function populateAdAccountDropdown() {
     const list = document.getElementById('adAccountDropdownList');
     if (!list) return;
 
-    const maxAccounts = marketingAddonLimits.maxAdAccounts;
-    const atLimit = adAccounts.length >= maxAccounts;
-
     // Update the header with count
     const header = document.getElementById('adAccountDropdownHeader');
     if (header) {
-        header.textContent = `Ad Accounts (${adAccounts.length}/${maxAccounts})`;
+        header.textContent = `Ad Accounts (${adAccounts.length})`;
     }
 
-    // Toggle the Add Account button based on limit
+    // Add Account button — always enabled, no payment required
     const addBtn = document.getElementById('addAdAccountBtn');
     if (addBtn) {
-        // Button is always enabled — at limit it triggers the add-seat flow
         addBtn.disabled = false;
         addBtn.classList.remove('opacity-50', 'cursor-not-allowed');
         addBtn.classList.add('hover:bg-brand-50');
-        if (atLimit) {
-            const price = marketingAddonLimits.pricePerAccount || 19;
-            addBtn.innerHTML = `
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                </svg>
-                Add Account (+$${price}/mo)
-            `;
-        } else {
-            addBtn.innerHTML = `
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                </svg>
-                Add Account
-            `;
-        }
+        addBtn.innerHTML = `
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            Add Account
+        `;
     }
 
     if (adAccounts.length === 0) {
@@ -491,13 +477,7 @@ function addAdAccount() {
     document.getElementById('adAccountDropdown').classList.add('hidden');
     document.getElementById('adAccountChevron').style.transform = '';
 
-    if (adAccounts.length >= marketingAddonLimits.maxAdAccounts) {
-        // At limit — show payment confirmation modal
-        openAddAdAccountModal();
-        return;
-    }
-
-    // Under limit — go straight to Facebook OAuth to pick an account
+    // Go straight to Facebook OAuth to pick an account (no payment required)
     initiateAdAccountOAuth();
 }
 
@@ -3207,7 +3187,7 @@ async function purchaseBvImageGenPack() {
     try {
         const { checkoutUrl } = await apiPost('/api/subscriptions/asset-image-gen-pack-checkout');
 
-        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.50...';
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.90...';
         const paid = await showCompactCheckout(checkoutUrl, btn, { direction: 'up' });
 
         if (!paid) {
@@ -4808,7 +4788,7 @@ function updateMediaGenCreditsUI() {
 }
 
 /**
- * Purchase a 6-credit generation pack via compact LS checkout ($4.50).
+ * Purchase an 8-credit generation pack via compact LS checkout ($4.90).
  */
 async function purchaseAssetImageGenPack() {
     const btn = document.getElementById('mediaGenBuyCreditsBtn');
@@ -4820,7 +4800,7 @@ async function purchaseAssetImageGenPack() {
     try {
         const { checkoutUrl } = await apiPost('/api/subscriptions/asset-image-gen-pack-checkout');
 
-        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.50...';
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Pay $4.90...';
         const paid = await showCompactCheckout(checkoutUrl, btn, { direction: 'up' });
 
         if (!paid) {
