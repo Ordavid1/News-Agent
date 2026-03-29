@@ -2796,6 +2796,18 @@ async function openBrandVoiceDetail(profileId) {
         // Load generated posts history
         loadBvHistory(profileId);
 
+        // Show/hide Build Voice Agent button based on profile readiness
+        const buildAgentBtn = document.getElementById('bvBuildAgentBtn');
+        if (buildAgentBtn) {
+            if (currentBrandVoiceProfile.status === 'ready') {
+                buildAgentBtn.classList.remove('hidden');
+                buildAgentBtn.classList.add('flex');
+            } else {
+                buildAgentBtn.classList.add('hidden');
+                buildAgentBtn.classList.remove('flex');
+            }
+        }
+
         // If still processing, start polling
         if (['pending', 'collecting', 'analyzing'].includes(currentBrandVoiceProfile.status)) {
             startBrandVoicePolling(profileId);
@@ -3644,6 +3656,312 @@ function copyGeneratedContent() {
     copyToClipboard(text).then(() => {
         showToast('Copied to clipboard!', 'success');
     });
+}
+
+// ============================================
+// BRAND VOICE — VOICE AGENT MODAL
+// ============================================
+
+const VA_PLATFORM_INFO = {
+    twitter:   { name: 'Twitter/X',  color: '#1DA1F2', icon: '\uD835\uDD4F' },
+    linkedin:  { name: 'LinkedIn',   color: '#0077B5', icon: 'in' },
+    reddit:    { name: 'Reddit',     color: '#FF4500', icon: 'r/' },
+    facebook:  { name: 'Facebook',   color: '#1877F2', icon: 'f' },
+    telegram:  { name: 'Telegram',   color: '#0088cc', icon: 'tg' },
+    whatsapp:  { name: 'WhatsApp',   color: '#25D366', icon: 'wa' },
+    instagram: { name: 'Instagram',  color: '#E4405F', icon: 'ig' },
+    threads:   { name: 'Threads',    color: '#000000', icon: '@' },
+    tiktok:    { name: 'TikTok',     color: '#010101', icon: 'tk' },
+    youtube:   { name: 'YouTube',    color: '#FF0000', icon: 'yt' }
+};
+
+// Only show platforms that agents table supports
+const VA_ALLOWED_PLATFORMS = ['twitter', 'linkedin', 'reddit', 'facebook', 'instagram', 'tiktok', 'youtube', 'telegram', 'whatsapp', 'threads'];
+
+const VA_VIDEO_PLATFORMS = ['tiktok', 'youtube'];
+
+// Cached connections data for submit
+let _vaConnections = [];
+
+async function showVoiceAgentModal() {
+    const modal = document.getElementById('voiceAgentModal');
+    if (!modal) return;
+
+    // Reset fields
+    document.getElementById('vaName').value = '';
+    document.getElementById('vaContentType').value = 'text_only';
+    document.getElementById('vaContentType').disabled = false;
+    document.getElementById('vaDirection').value = '';
+    document.getElementById('vaLanguage').value = 'en';
+    document.getElementById('vaPostsPerDay').value = '3';
+    document.getElementById('vaStartTime').value = '09:00';
+    document.getElementById('vaEndTime').value = '21:00';
+    document.getElementById('vaSubmitBtn').textContent = 'Create';
+    document.getElementById('vaSubmitBtn').disabled = false;
+
+    const errorEl = document.getElementById('vaError');
+    errorEl.classList.add('hidden');
+    errorEl.textContent = '';
+
+    const platformError = document.getElementById('vaPlatformError');
+    if (platformError) { platformError.textContent = ''; platformError.classList.add('hidden'); }
+
+    const lockEl = document.getElementById('vaContentTypeLock');
+    const hintEl = document.getElementById('vaContentTypeHint');
+    if (lockEl) lockEl.classList.add('hidden');
+    if (hintEl) hintEl.classList.remove('hidden');
+
+    // Load connections and render platform grid
+    const grid = document.getElementById('vaPlatformGrid');
+    grid.innerHTML = '<div class="col-span-2 text-center py-3 text-sm text-ink-400">Loading platforms...</div>';
+
+    try {
+        const token = localStorage.getItem('token');
+        const [connResp, agentsResp] = await Promise.all([
+            fetch('/api/connections', { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' }),
+            fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' })
+        ]);
+
+        const connData = connResp.ok ? await connResp.json() : { connections: [] };
+        const agentsData = agentsResp.ok ? await agentsResp.json() : { agents: [] };
+
+        const connections = (connData.connections || []).filter(c => c.status === 'active' && VA_ALLOWED_PLATFORMS.includes(c.platform));
+        const existingAgentConnectionIds = (agentsData.agents || []).map(a => a.connection_id);
+        _vaConnections = connections;
+
+        grid.innerHTML = '';
+
+        if (connections.length === 0) {
+            grid.innerHTML = '<div class="col-span-2 text-center py-3 text-sm text-ink-400">No platforms connected. Connect platforms in Settings first.</div>';
+        } else {
+            for (const conn of connections) {
+                const info = VA_PLATFORM_INFO[conn.platform] || { name: conn.platform, color: '#6B7280', icon: '?' };
+                const hasAgent = existingAgentConnectionIds.includes(conn.id);
+                const isVideo = VA_VIDEO_PLATFORMS.includes(conn.platform);
+                const username = conn.platform_username ? `@${conn.platform_username}` : '';
+
+                // Instagram gets two checkboxes: Image (post) and Video (reels)
+                if (conn.platform === 'instagram') {
+                    // Instagram Image (post)
+                    const cardImg = document.createElement('label');
+                    cardImg.className = `flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all duration-150 ${hasAgent ? 'border-surface-200 opacity-50 cursor-not-allowed' : 'border-surface-200 hover:border-brand-300 hover:bg-brand-50/30'}`;
+                    cardImg.innerHTML = `
+                        <input type="checkbox" name="vaPlatforms" value="${conn.id}" data-platform="instagram" data-ig-type="post" class="checkbox flex-shrink-0" ${hasAgent ? 'disabled' : ''}>
+                        <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style="background: ${info.color}15;">
+                            <span class="font-bold text-[10px]" style="color: ${info.color};">${info.icon}</span>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-ink-800 leading-tight">Instagram <span class="text-[10px] text-ink-400">(image)</span></p>
+                            ${username ? `<p class="text-[11px] text-ink-400 truncate">${escapeHtml(username)}</p>` : ''}
+                            ${hasAgent ? '<p class="text-[10px] text-amber-600">Agent exists</p>' : ''}
+                        </div>
+                    `;
+                    grid.appendChild(cardImg);
+                    const cbImg = cardImg.querySelector('input[type="checkbox"]');
+                    cbImg.addEventListener('change', () => {
+                        cardImg.classList.toggle('border-brand-400', cbImg.checked);
+                        cardImg.classList.toggle('bg-brand-50/40', cbImg.checked);
+                        vaUpdateVideoLock();
+                    });
+
+                    // Instagram Video (reels)
+                    const cardVid = document.createElement('label');
+                    cardVid.className = `flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all duration-150 ${hasAgent ? 'border-surface-200 opacity-50 cursor-not-allowed' : 'border-surface-200 hover:border-brand-300 hover:bg-brand-50/30'}`;
+                    cardVid.innerHTML = `
+                        <input type="checkbox" name="vaPlatforms" value="${conn.id}" data-platform="instagram" data-ig-type="reels" class="checkbox flex-shrink-0" ${hasAgent ? 'disabled' : ''}>
+                        <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style="background: ${info.color}15;">
+                            <span class="font-bold text-[10px]" style="color: ${info.color};">${info.icon}</span>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-ink-800 leading-tight">Instagram <span class="text-[10px] text-ink-400">(video)</span></p>
+                            ${username ? `<p class="text-[11px] text-ink-400 truncate">${escapeHtml(username)}</p>` : ''}
+                            ${hasAgent ? '<p class="text-[10px] text-amber-600">Agent exists</p>' : ''}
+                        </div>
+                    `;
+                    grid.appendChild(cardVid);
+                    const cbVid = cardVid.querySelector('input[type="checkbox"]');
+                    cbVid.addEventListener('change', () => {
+                        cardVid.classList.toggle('border-brand-400', cbVid.checked);
+                        cardVid.classList.toggle('bg-brand-50/40', cbVid.checked);
+                        vaUpdateVideoLock();
+                    });
+                    continue;
+                }
+
+                const card = document.createElement('label');
+                card.className = `flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all duration-150 ${hasAgent ? 'border-surface-200 opacity-50 cursor-not-allowed' : 'border-surface-200 hover:border-brand-300 hover:bg-brand-50/30'}`;
+                card.innerHTML = `
+                    <input type="checkbox" name="vaPlatforms" value="${conn.id}" data-platform="${conn.platform}" class="checkbox flex-shrink-0" ${hasAgent ? 'disabled' : ''}>
+                    <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style="background: ${info.color}15;">
+                        <span class="font-bold text-[10px]" style="color: ${info.color};">${info.icon}</span>
+                    </div>
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-ink-800 leading-tight">${info.name}${isVideo ? ' <span class="text-[10px] text-ink-400">(video)</span>' : ''}</p>
+                        ${username ? `<p class="text-[11px] text-ink-400 truncate">${escapeHtml(username)}</p>` : ''}
+                        ${hasAgent ? '<p class="text-[10px] text-amber-600">Agent exists</p>' : ''}
+                    </div>
+                `;
+                grid.appendChild(card);
+
+                // Highlight on check and trigger video lock logic
+                const cb = card.querySelector('input[type="checkbox"]');
+                cb.addEventListener('change', () => {
+                    card.classList.toggle('border-brand-400', cb.checked);
+                    card.classList.toggle('bg-brand-50/40', cb.checked);
+                    vaUpdateVideoLock();
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error loading connections for voice agent modal:', error);
+        grid.innerHTML = '<div class="col-span-2 text-center py-3 text-sm text-red-500">Failed to load platforms</div>';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+/** Lock content type to Post+Image when a video platform or Instagram (video) is selected */
+function vaUpdateVideoLock() {
+    const checked = document.querySelectorAll('input[name="vaPlatforms"]:checked');
+    const hasVideo = Array.from(checked).some(cb => VA_VIDEO_PLATFORMS.includes(cb.dataset.platform));
+    const hasInstagramVideo = Array.from(checked).some(cb => cb.dataset.platform === 'instagram' && cb.dataset.igType === 'reels');
+
+    const contentSelect = document.getElementById('vaContentType');
+    const lockEl = document.getElementById('vaContentTypeLock');
+    const hintEl = document.getElementById('vaContentTypeHint');
+
+    if (hasVideo || hasInstagramVideo) {
+        contentSelect.value = 'text_and_image';
+        contentSelect.disabled = true;
+        const reasons = [];
+        if (hasVideo) reasons.push('TikTok/YouTube');
+        if (hasInstagramVideo) reasons.push('Instagram Video');
+        if (lockEl) { lockEl.classList.remove('hidden'); lockEl.textContent = `Locked: ${reasons.join(', ')} require Post + Image.`; }
+        if (hintEl) hintEl.classList.add('hidden');
+    } else {
+        contentSelect.disabled = false;
+        if (lockEl) lockEl.classList.add('hidden');
+        if (hintEl) hintEl.classList.remove('hidden');
+    }
+}
+
+function closeVoiceAgentModal() {
+    const modal = document.getElementById('voiceAgentModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+async function submitVoiceAgent() {
+    const btn = document.getElementById('vaSubmitBtn');
+    const errorEl = document.getElementById('vaError');
+    errorEl.classList.add('hidden');
+    errorEl.textContent = '';
+
+    const name = document.getElementById('vaName').value.trim();
+    const contentType = document.getElementById('vaContentType').value;
+    const direction = document.getElementById('vaDirection').value.trim();
+    const language = document.getElementById('vaLanguage').value;
+    const postsPerDay = document.getElementById('vaPostsPerDay').value;
+    const startTime = document.getElementById('vaStartTime').value;
+    const endTime = document.getElementById('vaEndTime').value;
+
+    // Get selected platforms — consolidate Instagram image/video into one agent
+    const checkedPlatforms = document.querySelectorAll('input[name="vaPlatforms"]:checked');
+    const agentMap = new Map(); // connectionId → { connectionId, platform, igContentTypes[] }
+    for (const cb of checkedPlatforms) {
+        const connId = cb.value;
+        const platform = cb.dataset.platform;
+        const igType = cb.dataset.igType || null;
+
+        if (!agentMap.has(connId)) {
+            agentMap.set(connId, { connectionId: connId, platform, igContentTypes: [] });
+        }
+        if (platform === 'instagram' && igType) {
+            agentMap.get(connId).igContentTypes.push(igType);
+        }
+    }
+    const agentsToCreate = Array.from(agentMap.values());
+
+    // Validation
+    if (!name) {
+        errorEl.textContent = 'Agent name is required.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    if (agentsToCreate.length === 0) {
+        errorEl.textContent = 'Please select at least one platform.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    if (!currentBrandVoiceProfile?.id) {
+        errorEl.textContent = 'No brand voice profile selected.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    btn.textContent = `Creating ${agentsToCreate.length} agent${agentsToCreate.length > 1 ? 's' : ''}...`;
+    btn.disabled = true;
+
+    const results = { success: [], failed: [] };
+
+    for (const { connectionId, platform, igContentTypes } of agentsToCreate) {
+        const info = VA_PLATFORM_INFO[platform] || { name: platform };
+        const agentName = agentsToCreate.length > 1 ? `${name} (${info.name})` : name;
+
+        const settings = {
+            contentSource: 'brand_voice',
+            brandVoiceSettings: {
+                profileId: currentBrandVoiceProfile.id,
+                generateWithImage: contentType === 'text_and_image',
+                direction: direction || null
+            },
+            topics: [],
+            keywords: [],
+            geoFilter: {
+                contentLanguage: language || 'en'
+            },
+            schedule: {
+                postsPerDay: parseInt(postsPerDay) || 3,
+                startTime: startTime || '09:00',
+                endTime: endTime || '21:00'
+            },
+            contentStyle: {
+                tone: 'brand_voice',
+                includeHashtags: true
+            }
+        };
+
+        // Set Instagram content types if applicable
+        if (platform === 'instagram' && igContentTypes.length > 0) {
+            settings.platformSettings = {
+                instagram: { contentTypes: igContentTypes }
+            };
+        }
+
+        try {
+            await apiPost('/api/agents', { connectionId, name: agentName, settings });
+            results.success.push(info.name);
+        } catch (error) {
+            results.failed.push(`${info.name}: ${error.message}`);
+        }
+    }
+
+    btn.textContent = 'Create';
+    btn.disabled = false;
+
+    if (results.success.length > 0) {
+        showToast(`Voice agent${results.success.length > 1 ? 's' : ''} created for ${results.success.join(', ')}! Check the Autonomous Agents tab.`, 'success');
+    }
+    if (results.failed.length > 0) {
+        errorEl.textContent = `Failed: ${results.failed.join('; ')}`;
+        errorEl.classList.remove('hidden');
+    }
+    if (results.failed.length === 0) {
+        closeVoiceAgentModal();
+    }
 }
 
 // ============================================

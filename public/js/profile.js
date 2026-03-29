@@ -1723,6 +1723,8 @@ function renderAgentsGrid() {
                                 <p class="text-sm text-ink-500 capitalize">${agent.platform}</p>
                                 ${(agent.settings?.contentSource === 'affiliate_products')
                                     ? '<span class="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded font-medium">AE Affiliate</span>'
+                                    : (agent.settings?.contentSource === 'brand_voice')
+                                    ? '<span class="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-medium">Brand Voice</span>'
                                     : '<span class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">News</span>'
                                 }
                             </div>

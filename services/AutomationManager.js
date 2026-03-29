@@ -273,10 +273,13 @@ class AutomationManager {
       return { success: false, error: 'rate_limited' };
     }
 
-    // 1.5. Check if this is an affiliate product agent — use separate flow
+    // 1.5. Route to content-source-specific flows
     const contentSource = settings.contentSource || 'news';
     if (contentSource === 'affiliate_products') {
       return await this.processAffiliateAgent(agent, agentLog);
+    }
+    if (contentSource === 'brand_voice') {
+      return await this.processVoiceAgent(agent, agentLog);
     }
 
     // 2. Get trending content based on agent's topics/keywords
@@ -626,6 +629,206 @@ class AutomationManager {
     }
 
     agentLog('error', `Failed to publish affiliate product: ${publishResult.error}`);
+    return { success: false, error: publishResult.error };
+  }
+
+  /**
+   * Process a brand voice agent — generates original content using the linked voice profile
+   * and publishes to the configured platform.
+   * @param {Object} agent - Agent record from DB
+   * @param {Function} agentLog - Logging function
+   */
+  async processVoiceAgent(agent, agentLog) {
+    const userId = agent.user_id;
+    const platform = agent.platform;
+    const settings = agent.settings || {};
+    const bvSettings = settings.brandVoiceSettings || {};
+    const profileId = bvSettings.profileId;
+
+    if (!profileId) {
+      agentLog('warn', 'No brand voice profile configured — pausing agent');
+      await updateAgentInDb(agent.id, { status: 'paused' });
+      return { success: false, error: 'no_profile' };
+    }
+
+    // 1. Verify profile exists and is ready
+    const { getBrandVoiceProfileById, insertBrandVoiceGeneratedPost, getSelectedAdAccount, getAssetImageGenCredits, consumeAssetImageGenCredit } = await import('./database-wrapper.js');
+    const profile = await getBrandVoiceProfileById(profileId, userId);
+    if (!profile || profile.status !== 'ready') {
+      agentLog('warn', `Brand voice profile ${profileId} not ready (${profile?.status || 'missing'}) — pausing agent`);
+      await updateAgentInDb(agent.id, { status: 'paused' });
+      return { success: false, error: 'profile_not_ready' };
+    }
+
+    // 2. Check subscription post quota
+    const quotaCheck = await checkAndDecrementPostQuota(userId);
+    if (!quotaCheck.allowed) {
+      agentLog('warn', `Post quota exceeded: ${quotaCheck.error}`);
+      return { success: false, error: quotaCheck.error };
+    }
+
+    // 3. Generate content using BrandVoiceService
+    agentLog('info', `Generating brand voice content (profile: "${profile.name}", direction: "${(bvSettings.direction || 'auto').slice(0, 40)}")`);
+    let generatedPost;
+    try {
+      const BrandVoiceService = (await import('./BrandVoiceService.js')).default;
+      const brandVoiceService = new BrandVoiceService();
+      const results = await brandVoiceService.generateOriginalPost(userId, profileId, {
+        platform,
+        topic: bvSettings.direction || null,
+        count: 1
+      });
+      generatedPost = results?.[0];
+    } catch (genError) {
+      agentLog('error', `Brand voice content generation failed: ${genError.message}`);
+      return { success: false, error: 'content_generation_failed' };
+    }
+
+    if (!generatedPost || !generatedPost.text) {
+      agentLog('warn', 'Content generation returned empty result');
+      return { success: false, error: 'content_generation_empty' };
+    }
+
+    agentLog('info', `Generated content (${generatedPost.text.length} chars)`);
+
+    // 4. Image generation if configured
+    let imageUrl = null;
+    if (bvSettings.generateWithImage) {
+      try {
+        const adAccount = await getSelectedAdAccount(userId);
+        if (!adAccount) {
+          agentLog('warn', 'No ad account — skipping image generation');
+        } else {
+          const { totalRemaining } = await getAssetImageGenCredits(userId);
+          if (totalRemaining <= 0) {
+            agentLog('warn', 'No image credits remaining — publishing text-only');
+          } else {
+            const MediaAssetService = (await import('./MediaAssetService.js')).default;
+            const mediaService = new MediaAssetService();
+            const defaultJob = await mediaService.getDefaultTrainingJob(userId, adAccount.id);
+
+            if (!defaultJob) {
+              agentLog('warn', 'No trained model available — skipping image generation');
+            } else {
+              const BrandVoiceService = (await import('./BrandVoiceService.js')).default;
+              const bvService = new BrandVoiceService();
+              const imagePrompt = await bvService.generateImagePrompt(
+                generatedPost.text,
+                defaultJob.trigger_word,
+                profile.profile_data || {}
+              );
+
+              const generatedMedia = await mediaService.generateImage(userId, adAccount.id, imagePrompt, defaultJob.id);
+              await consumeAssetImageGenCredit(userId);
+              imageUrl = generatedMedia.public_url;
+              agentLog('info', `Image generated: ${imageUrl}`);
+            }
+          }
+        }
+      } catch (imgError) {
+        agentLog('error', `Image generation failed (continuing text-only): ${imgError.message}`);
+      }
+    }
+
+    // 4.5 Platforms requiring media — block if no image
+    if (platform === 'instagram' && !imageUrl) {
+      agentLog('warn', 'Instagram requires media but no image available — post blocked');
+      return { success: false, error: 'instagram_requires_media' };
+    }
+
+    // 5. Build content object for publishing
+    const content = {
+      text: generatedPost.text,
+      imageUrl,
+      topic: 'brand_voice',
+      trend: profile.name,
+      source: { title: profile.name, url: null },
+      generatedAt: new Date().toISOString()
+    };
+
+    // 5.5 Video generation for video platforms
+    const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
+    const effectiveIgContentType = platform === 'instagram'
+      ? this.getNextContentType(agent, settings.platformSettings?.instagram?.contentTypes || ['post'])
+      : null;
+    const isVideoMode = VIDEO_PLATFORMS.includes(platform) || effectiveIgContentType === 'reels';
+
+    if (isVideoMode && imageUrl) {
+      try {
+        const user = await getUserById(userId);
+        if (user?.subscription) {
+          const videoQuota = await checkVideoQuota(userId, user.subscription);
+          if (!videoQuota.allowed) {
+            agentLog('warn', 'Video quota exhausted — skipping');
+            return { success: false, error: 'video_limit_reached' };
+          }
+        }
+
+        const videoPrompt = await this.contentGenerator.generateVideoPrompt(
+          { title: bvSettings.direction || profile.name, topic: bvSettings.direction || 'brand voice content' },
+          content.text, settings, imageUrl
+        );
+        const VideoGenerationService = (await import('./VideoGenerationService.js')).default;
+        const videoResult = await VideoGenerationService.generateVideo({
+          imageUrl, prompt: videoPrompt
+        });
+        content.videoUrl = videoResult.videoUrl;
+        content.videoBuffer = videoResult.videoBuffer || null;
+
+        const { supabaseAdmin } = await import('./supabase.js');
+        await supabaseAdmin.rpc('decrement_videos_remaining', { p_user_id: userId });
+        agentLog('info', 'Video generated successfully');
+      } catch (videoError) {
+        agentLog('error', `Video generation failed: ${videoError.message}`);
+        if (VIDEO_PLATFORMS.includes(platform)) {
+          return { success: false, error: `video_generation_failed` };
+        }
+      }
+    } else if (isVideoMode && !imageUrl) {
+      agentLog('warn', `Video platform ${platform} needs image for video generation — skipping`);
+      if (VIDEO_PLATFORMS.includes(platform)) {
+        return { success: false, error: `${platform}_no_image_for_video` };
+      }
+    }
+
+    if (platform === 'instagram') {
+      content._igContentType = effectiveIgContentType;
+    }
+
+    // 6. Publish via existing infrastructure
+    const publishResult = await this.publishForAgent(agent, content, {
+      title: profile.name,
+      url: null,
+      urlToImage: imageUrl
+    });
+
+    if (publishResult.success) {
+      // 7. Record generated post + update stats
+      try {
+        await insertBrandVoiceGeneratedPost(userId, profileId, {
+          platform,
+          topic: bvSettings.direction || null,
+          content: generatedPost.text,
+          image_url: imageUrl
+        });
+      } catch (recordError) {
+        agentLog('warn', `Failed to record generated post: ${recordError.message}`);
+      }
+
+      await incrementAgentPost(agent.id);
+      await logAgentAutomation(agent.id, userId, platform, {
+        contentType: 'brand_voice',
+        profileId,
+        profileName: profile.name,
+        direction: bvSettings.direction || null,
+        withImage: !!imageUrl
+      });
+
+      agentLog('info', `Successfully published brand voice post to ${platform}`);
+      return { success: true };
+    }
+
+    agentLog('error', `Failed to publish brand voice post: ${publishResult.error}`);
     return { success: false, error: publishResult.error };
   }
 

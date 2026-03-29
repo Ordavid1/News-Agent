@@ -1441,10 +1441,18 @@
                                     <h4 class="text-xl font-semibold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Generate Original Content</h4>
                                     <p class="text-base text-ink-400 mt-0.5">Create posts that match your brand voice</p>
                                 </div>
-                                <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                                    </svg>
+                                <div class="flex items-center gap-3">
+                                    <button id="bvBuildAgentBtn" onclick="showVoiceAgentModal()" class="hidden items-center gap-1.5 text-sm font-semibold text-white px-4 py-2 rounded-xl shadow-button transition-all duration-200 hover:shadow-button-hover hover:-translate-y-0.5" style="background: var(--gradient-primary);">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                        </svg>
+                                        Build Voice Agent
+                                    </button>
+                                    <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+                                        <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                        </svg>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1481,14 +1489,14 @@
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                                     </svg>
-                                    Generate Post
+                                    Generate One Post
                                 </button>
                                 <button onclick="purchaseImageGeneration()" id="bvImageGenBtn"
                                     class="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-base font-semibold bg-yellow-400 hover:bg-yellow-500 text-yellow-900 border border-yellow-500 transition-all duration-200 shadow-sm">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                                     </svg>
-                                    Generate Post +Image
+                                    Generate One Post + Image
                                 </button>
                             </div>
 
@@ -1531,6 +1539,129 @@
                                 <div class="mt-4">
                                     <p class="text-sm text-ink-400 mb-3">Share this post on:</p>
                                     <div id="bvPlatformButtons" class="flex flex-wrap gap-2"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Voice Agent Modal -->
+                        <div id="voiceAgentModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm items-center justify-center z-50 hidden" style="overflow: hidden;">
+                            <div class="bg-surface-0 rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 my-6">
+                                <div class="flex justify-between items-center mb-5">
+                                    <h3 class="text-2xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Build Voice Agent</h3>
+                                    <button onclick="closeVoiceAgentModal()" class="text-ink-400 hover:text-ink-700 transition-colors">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <!-- Row 1: Agent Name -->
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-ink-600 mb-1">Agent Name <span class="text-red-500">*</span></label>
+                                    <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                        <input type="text" id="vaName"
+                                            class="w-full rounded-[10px] bg-white px-4 py-2.5 text-sm text-ink-700 placeholder-ink-300 border-0 focus:outline-none focus:ring-0"
+                                            placeholder="e.g., Daily Brand Posts">
+                                    </div>
+                                </div>
+
+                                <!-- Row 2: Platform multi-select -->
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-ink-600 mb-1.5">Platforms <span class="text-red-500">*</span></label>
+                                    <div id="vaPlatformGrid" class="grid grid-cols-2 gap-2">
+                                        <!-- Populated dynamically by JS -->
+                                    </div>
+                                    <p id="vaPlatformError" class="text-xs text-red-500 mt-1.5 hidden"></p>
+                                </div>
+
+                                <!-- Row 3: Content Type + Language -->
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-600 mb-1">Content Type</label>
+                                        <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                            <select id="vaContentType"
+                                                class="w-full rounded-[10px] bg-white px-4 py-2.5 text-sm text-ink-700 border-0 focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+                                                style="background-image: url('data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236B7280%22 stroke-width=%222%22%3E%3Cpath d=%22M6 9l6 6 6-6%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 12px center;">
+                                                <option value="text_only">Post only</option>
+                                                <option value="text_and_image">Post + Image</option>
+                                            </select>
+                                        </div>
+                                        <p id="vaContentTypeLock" class="text-xs text-amber-600 mt-1 hidden">Locked: video platforms require Post + Image.</p>
+                                        <p id="vaContentTypeHint" class="text-xs text-ink-400 mt-1">Image requires a trained model + credits.</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-600 mb-1">Post Language</label>
+                                        <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                            <select id="vaLanguage"
+                                                class="w-full rounded-[10px] bg-white px-4 py-2.5 text-sm text-ink-700 border-0 focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+                                                style="background-image: url('data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236B7280%22 stroke-width=%222%22%3E%3Cpath d=%22M6 9l6 6 6-6%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 12px center;">
+                                                <option value="en">English</option>
+                                                <option value="he">Hebrew</option>
+                                                <option value="ar">Arabic</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Row 3: Direction -->
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-ink-600 mb-1">Direction (optional)</label>
+                                    <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                        <textarea id="vaDirection" rows="2" maxlength="500"
+                                            class="w-full rounded-[10px] bg-white px-4 py-2.5 text-sm text-ink-700 placeholder-ink-300 border-0 focus:outline-none focus:ring-0 resize-none"
+                                            placeholder="e.g., 'Focus on our new product launch' or 'Share industry insights about AI trends'"></textarea>
+                                    </div>
+                                    <p class="text-xs text-ink-400 mt-1">Leave blank for automatic topic selection from your brand themes.</p>
+                                </div>
+
+                                <!-- Row 4: Schedule — Posts/Day + Start + End -->
+                                <div class="mb-4">
+                                    <label class="block text-sm font-semibold text-ink-700 mb-2 flex items-center gap-1.5">
+                                        <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        Schedule
+                                    </label>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-ink-500 mb-1">Posts / Day</label>
+                                            <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                                <select id="vaPostsPerDay"
+                                                    class="w-full rounded-[10px] bg-white px-3 py-2.5 text-sm text-ink-700 border-0 focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+                                                    style="background-image: url('data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236B7280%22 stroke-width=%222%22%3E%3Cpath d=%22M6 9l6 6 6-6%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 10px center;">
+                                                    <option value="1">1</option>
+                                                    <option value="2">2</option>
+                                                    <option value="3" selected>3</option>
+                                                    <option value="5">5</option>
+                                                    <option value="7">7</option>
+                                                    <option value="10">10</option>
+                                                    <option value="15">15</option>
+                                                    <option value="20">20</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-ink-500 mb-1">Start Time</label>
+                                            <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                                <input type="time" id="vaStartTime" value="09:00"
+                                                    class="w-full rounded-[10px] bg-white px-3 py-2.5 text-sm text-ink-700 border-0 focus:outline-none focus:ring-0">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-ink-500 mb-1">End Time</label>
+                                            <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                                <input type="time" id="vaEndTime" value="21:00"
+                                                    class="w-full rounded-[10px] bg-white px-3 py-2.5 text-sm text-ink-700 border-0 focus:outline-none focus:ring-0">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="vaError" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700"></div>
+
+                                <div class="flex gap-3 pt-4 border-t border-surface-200">
+                                    <button onclick="closeVoiceAgentModal()" class="btn-secondary flex-1 py-2.5">Cancel</button>
+                                    <button onclick="submitVoiceAgent()" id="vaSubmitBtn" class="btn-primary flex-1 py-2.5">Create</button>
                                 </div>
                             </div>
                         </div>

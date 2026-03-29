@@ -266,6 +266,54 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
         }
       }
 
+      // Validate brand voice agents
+      if (contentSource === 'brand_voice') {
+        const bvSettings = settings.brandVoiceSettings;
+        if (!bvSettings || !bvSettings.profileId) {
+          return res.status(400).json({
+            success: false,
+            error: 'Brand voice profile ID is required for voice agents'
+          });
+        }
+
+        // Verify profile exists, belongs to user, and is ready
+        const { getBrandVoiceProfileById } = await import('../services/database-wrapper.js');
+        const profile = await getBrandVoiceProfileById(bvSettings.profileId, req.user.id);
+        if (!profile) {
+          return res.status(404).json({
+            success: false,
+            error: 'Brand voice profile not found'
+          });
+        }
+        if (profile.status !== 'ready') {
+          return res.status(400).json({
+            success: false,
+            error: `Brand voice profile is not ready (status: ${profile.status}). Complete the voice analysis first.`
+          });
+        }
+
+        // If generating with images, verify trained model exists
+        if (bvSettings.generateWithImage) {
+          const { getSelectedAdAccount } = await import('../services/database-wrapper.js');
+          const adAccount = await getSelectedAdAccount(req.user.id);
+          if (!adAccount) {
+            return res.status(400).json({
+              success: false,
+              error: 'No ad account selected. Please set up Brand Media first to use image generation.'
+            });
+          }
+          const MediaAssetService = (await import('../services/MediaAssetService.js')).default;
+          const mediaService = new MediaAssetService();
+          const defaultJob = await mediaService.getDefaultTrainingJob(req.user.id, adAccount.id);
+          if (!defaultJob) {
+            return res.status(400).json({
+              success: false,
+              error: 'No trained model available. Train a model in Brand Media first to use image generation.'
+            });
+          }
+        }
+      }
+
       const topics = Array.isArray(settings.topics) ? settings.topics : [];
       const keywords = Array.isArray(settings.keywords) ? settings.keywords.slice(0, 10) : [];
 
@@ -284,6 +332,15 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
             keywordSetIds: settings.affiliateSettings?.keywordSetIds || [],
             includeHotProducts: settings.affiliateSettings?.includeHotProducts ?? true,
             includeSmartMatch: settings.affiliateSettings?.includeSmartMatch ?? true
+          }
+        }),
+        ...(contentSource === 'brand_voice' && {
+          brandVoiceSettings: {
+            profileId: settings.brandVoiceSettings?.profileId,
+            generateWithImage: settings.brandVoiceSettings?.generateWithImage ?? false,
+            direction: typeof settings.brandVoiceSettings?.direction === 'string'
+              ? settings.brandVoiceSettings.direction.slice(0, 500)
+              : null
           }
         }),
         topics,
@@ -483,16 +540,27 @@ router.put('/:id/status', authenticateToken, agentStatusValidation, async (req, 
       });
     }
 
-    // When activating, verify agent has topics or keywords configured
+    // When activating, verify agent has required configuration for its content source
     if (status === 'active') {
-      const topics = agent.settings?.topics || [];
-      const keywords = agent.settings?.keywords || [];
-      if (topics.length === 0 && keywords.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Cannot activate agent without at least one topic or keyword configured'
-        });
+      const agentContentSource = agent.settings?.contentSource || 'news';
+      if (agentContentSource === 'news') {
+        const topics = agent.settings?.topics || [];
+        const keywords = agent.settings?.keywords || [];
+        if (topics.length === 0 && keywords.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Cannot activate agent without at least one topic or keyword configured'
+          });
+        }
+      } else if (agentContentSource === 'brand_voice') {
+        if (!agent.settings?.brandVoiceSettings?.profileId) {
+          return res.status(400).json({
+            success: false,
+            error: 'Cannot activate voice agent without a brand voice profile configured'
+          });
+        }
       }
+      // affiliate_products agents have their own runtime checks
     }
 
     const updatedAgent = await updateAgent(req.params.id, { status });
@@ -708,10 +776,13 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const platform = agent.platform;
     const platformSettings = settings.platformSettings || {};
 
-    // ── Affiliate agent test flow ──
+    // ── Route to content-source-specific test flows ──
     const contentSource = settings.contentSource || 'news';
     if (contentSource === 'affiliate_products') {
       return await testAffiliateAgent(req, res, agent, settings, userId, agentId, platform);
+    }
+    if (contentSource === 'brand_voice') {
+      return await testVoiceAgent(req, res, agent, settings, userId, agentId, platform);
     }
 
     // Validate agent has topics or keywords (news agents only)
@@ -1461,6 +1532,253 @@ async function testAffiliateAgent(req, res, agent, settings, userId, agentId, pl
 
   } catch (error) {
     console.error('[Agent Test/Affiliate] Error:', error);
+    testProgressEmitter.emitProgress(userId, agentId, 'error', error.message || 'Test post failed');
+    return res.status(500).json({ success: false, error: 'Test post failed', message: error.message, step: 'unknown' });
+  }
+}
+
+/**
+ * Test a brand voice agent — generates and publishes one post using the linked voice profile.
+ */
+async function testVoiceAgent(req, res, agent, settings, userId, agentId, platform) {
+  const platformDisplayName = platform.charAt(0).toUpperCase() + platform.slice(1);
+  const bvSettings = settings.brandVoiceSettings || {};
+
+  try {
+    // 1. Verify brand voice profile exists and is ready
+    testProgressEmitter.emitProgress(userId, agentId, 'validating', 'Checking brand voice profile...');
+    const { getBrandVoiceProfileById, insertBrandVoiceGeneratedPost, getSelectedAdAccount, getAssetImageGenCredits, consumeAssetImageGenCredit } = await import('../services/database-wrapper.js');
+    const profile = await getBrandVoiceProfileById(bvSettings.profileId, userId);
+    if (!profile || profile.status !== 'ready') {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Brand voice profile not ready');
+      return res.status(400).json({
+        success: false,
+        error: `Brand voice profile is not ready (status: ${profile?.status || 'not found'}). Complete the voice analysis first.`,
+        step: 'settings'
+      });
+    }
+
+    // 2. Connection health check
+    testProgressEmitter.emitProgress(userId, agentId, 'connection_check', 'Verifying platform connection...');
+    try {
+      const connection = await TokenManager.getTokens(userId, platform);
+      if (!connection || connection.status !== 'active') {
+        testProgressEmitter.emitProgress(userId, agentId, 'error', `No active ${platform} connection`);
+        return res.status(400).json({ success: false, error: `No active ${platform} connection found. Please connect your account in Settings.`, step: 'connection' });
+      }
+      if (TokenManager.needsRefresh(connection)) {
+        try { await ConnectionManager.refreshTokens(connection.id); }
+        catch {
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} token expired`);
+          return res.status(400).json({ success: false, error: `Your ${platform} token has expired and could not be refreshed.`, step: 'connection' });
+        }
+      }
+    } catch (connError) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', `${platform} connection credentials are invalid`);
+      return res.status(400).json({ success: false, error: `Your ${platform} connection credentials are invalid. Please reconnect.`, step: 'connection' });
+    }
+
+    // 3. Generate brand voice content
+    testProgressEmitter.emitProgress(userId, agentId, 'generating', 'Generating brand voice post...');
+    const BrandVoiceService = (await import('../services/BrandVoiceService.js')).default;
+    const brandVoiceService = new BrandVoiceService();
+
+    let generatedPosts;
+    try {
+      generatedPosts = await brandVoiceService.generateOriginalPost(userId, bvSettings.profileId, {
+        platform,
+        topic: bvSettings.direction || null,
+        count: 1
+      });
+    } catch (genError) {
+      console.error('[Agent Test/Voice] Content generation error:', genError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Content generation failed');
+      return res.status(500).json({ success: false, error: `Brand voice content generation failed: ${genError.message}`, step: 'generation' });
+    }
+
+    const generatedPost = generatedPosts?.[0];
+    if (!generatedPost?.text) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Content generation returned empty');
+      return res.status(500).json({ success: false, error: 'Failed to generate brand voice content', step: 'generation' });
+    }
+
+    // 4. Handle image generation if configured
+    let imageUrl = null;
+    const userTier = req.user.subscription?.tier || 'free';
+
+    if (bvSettings.generateWithImage && TIERS_WITH_IMAGES.includes(userTier)) {
+      testProgressEmitter.emitProgress(userId, agentId, 'generating', 'Generating brand image...');
+      try {
+        const adAccount = await getSelectedAdAccount(userId);
+        if (adAccount) {
+          const { totalRemaining } = await getAssetImageGenCredits(userId);
+          if (totalRemaining > 0) {
+            const MediaAssetService = (await import('../services/MediaAssetService.js')).default;
+            const mediaService = new MediaAssetService();
+            const defaultJob = await mediaService.getDefaultTrainingJob(userId, adAccount.id);
+            if (defaultJob) {
+              const imagePrompt = await brandVoiceService.generateImagePrompt(
+                generatedPost.text,
+                defaultJob.trigger_word,
+                profile.profile_data || {}
+              );
+              const generatedMedia = await mediaService.generateImage(userId, adAccount.id, imagePrompt, defaultJob.id);
+              await consumeAssetImageGenCredit(userId);
+              imageUrl = generatedMedia.public_url;
+            } else {
+              console.warn('[Agent Test/Voice] No trained model available — skipping image');
+            }
+          } else {
+            console.warn('[Agent Test/Voice] No image credits — skipping image');
+          }
+        }
+      } catch (imgError) {
+        console.warn('[Agent Test/Voice] Image generation failed (continuing text-only):', imgError.message);
+      }
+    }
+
+    // Instagram requires media
+    if (platform === 'instagram' && !imageUrl) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', 'Instagram requires an image');
+      return res.status(400).json({ success: false, error: 'Instagram requires an image. Enable "Post + Image" and ensure you have a trained model and credits.', step: 'publishing' });
+    }
+
+    // 5. Handle video generation for video platforms
+    let videoUrl = null;
+    let videoBuffer = null;
+    const VIDEO_PLATFORMS = ['tiktok', 'youtube'];
+    const igContentTypes = settings.platformSettings?.instagram?.contentTypes || ['post'];
+    const isVideoMode = VIDEO_PLATFORMS.includes(platform) || (platform === 'instagram' && igContentTypes.includes('reels'));
+
+    if (isVideoMode && imageUrl) {
+      testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Generating video...');
+      try {
+        const videoQuota = await checkVideoQuota(userId, req.user.subscription);
+        if (videoQuota.allowed) {
+          const videoPrompt = await contentGenerator.generateVideoPrompt(
+            { title: bvSettings.direction || profile.name, topic: bvSettings.direction || 'brand voice content' },
+            generatedPost.text, settings, imageUrl
+          );
+          const VideoGenerationService = (await import('../services/VideoGenerationService.js')).default;
+          const videoResult = await VideoGenerationService.generateVideo({ imageUrl, prompt: videoPrompt });
+          videoUrl = videoResult.videoUrl;
+          videoBuffer = videoResult.videoBuffer || null;
+
+          const { supabaseAdmin } = await import('../services/supabase.js');
+          await supabaseAdmin.rpc('decrement_videos_remaining', { p_user_id: userId });
+        } else {
+          console.warn('[Agent Test/Voice] Video quota exhausted');
+        }
+      } catch (videoError) {
+        console.warn('[Agent Test/Voice] Video generation failed:', videoError.message);
+      }
+    }
+
+    if (isVideoMode && !videoUrl && VIDEO_PLATFORMS.includes(platform)) {
+      testProgressEmitter.emitProgress(userId, agentId, 'error', `${platformDisplayName} requires a video`);
+      return res.status(400).json({ success: false, error: `${platformDisplayName} requires a video. Ensure "Post + Image" is enabled and video quota is available.`, step: 'publishing' });
+    }
+
+    // 6. Publish
+    testProgressEmitter.emitProgress(userId, agentId, 'publishing', `Publishing to ${platformDisplayName}...`);
+    const content = {
+      text: generatedPost.text,
+      trend: profile.name,
+      topic: 'brand_voice',
+      source: { url: null, title: profile.name },
+      imageUrl,
+      videoUrl,
+      videoBuffer,
+      generatedAt: new Date().toISOString()
+    };
+    if (platform === 'instagram') {
+      content._igContentType = (isVideoMode && videoUrl) ? 'reels' : 'post';
+    }
+
+    let publishResult;
+    try {
+      switch (platform) {
+        case 'twitter':    publishResult = await publishToTwitter(content, userId, imageUrl); break;
+        case 'linkedin':   publishResult = await publishToLinkedIn(content, userId, imageUrl); break;
+        case 'reddit':     publishResult = await publishToReddit(content, settings.platformSettings?.reddit?.subreddit || null, userId, settings.platformSettings?.reddit?.flairId || null, imageUrl); break;
+        case 'facebook':   publishResult = await publishToFacebook(content, userId, imageUrl); break;
+        case 'telegram':   publishResult = await publishToTelegram(content, userId, imageUrl); break;
+        case 'whatsapp':   publishResult = await publishToWhatsApp(content, userId, imageUrl); break;
+        case 'instagram':  publishResult = await publishToInstagram(content, userId, content._igContentType === 'reels' ? videoUrl : imageUrl, { contentType: content._igContentType, videoBuffer }); break;
+        case 'threads':    publishResult = await publishToThreads(content, userId, imageUrl); break;
+        case 'tiktok':     publishResult = await publishToTikTok(content, userId, videoUrl); break;
+        case 'youtube':    publishResult = await publishToYouTube(content, userId, videoUrl); break;
+        default:
+          testProgressEmitter.emitProgress(userId, agentId, 'error', `Platform ${platform} not supported`);
+          return res.status(400).json({ success: false, error: `Platform ${platform} not supported`, step: 'publishing' });
+      }
+    } catch (publishError) {
+      console.error('[Agent Test/Voice] Publishing error:', publishError);
+      testProgressEmitter.emitProgress(userId, agentId, 'error', publishError.message || 'Publishing failed');
+      return res.status(500).json({ success: false, error: publishError.message || 'Publishing failed', step: 'publishing' });
+    }
+
+    // 7. Record post and update stats
+    testProgressEmitter.emitProgress(userId, agentId, 'saving', 'Saving results...');
+    const post = await createPost(userId, {
+      topic: 'brand_voice',
+      content: generatedPost.text,
+      platforms: [platform],
+      status: publishResult?.success ? 'published' : 'failed',
+      metadata: {
+        tone: 'brand_voice',
+        agentId: agent.id,
+        agentName: agent.name,
+        testPost: true,
+        contentType: 'brand_voice',
+        profileId: bvSettings.profileId,
+        profileName: profile.name,
+        withImage: !!imageUrl
+      }
+    });
+
+    if (publishResult?.success) {
+      try { await incrementAgentPost(agentId); } catch (e) { console.warn('[Agent Test/Voice] Failed to increment post count:', e); }
+      try {
+        await insertBrandVoiceGeneratedPost(userId, bvSettings.profileId, {
+          platform,
+          topic: bvSettings.direction || null,
+          content: generatedPost.text,
+          image_url: imageUrl
+        });
+      } catch (e) { console.warn('[Agent Test/Voice] Failed to record generated post:', e); }
+    }
+
+    try { await markAgentTestUsed(agentId); } catch (e) { console.warn('[Agent Test/Voice] Failed to mark test used:', e); }
+    await logUsage(userId, 'agent_test_post', { agentId, platform, topic: 'brand_voice', success: publishResult?.success || false });
+
+    testProgressEmitter.emitProgress(userId, agentId, 'complete',
+      publishResult?.success ? `Published to ${platformDisplayName}!` : `Publishing to ${platformDisplayName} failed`
+    );
+
+    return res.json({
+      success: publishResult?.success || false,
+      message: publishResult?.success ? `Successfully posted brand voice content to ${platform}!` : `Failed to post to ${platform}`,
+      agent: { id: agent.id, name: agent.name, platform },
+      post: {
+        id: post.id,
+        topic: 'brand_voice',
+        content: generatedPost.text,
+        tone: 'brand_voice',
+        trend: profile.name,
+        imageUrl: imageUrl || null
+      },
+      result: publishResult,
+      debug: {
+        profileName: profile.name,
+        direction: bvSettings.direction || 'auto',
+        withImage: !!imageUrl,
+        userTier
+      }
+    });
+
+  } catch (error) {
+    console.error('[Agent Test/Voice] Error:', error);
     testProgressEmitter.emitProgress(userId, agentId, 'error', error.message || 'Test post failed');
     return res.status(500).json({ success: false, error: 'Test post failed', message: error.message, step: 'unknown' });
   }
