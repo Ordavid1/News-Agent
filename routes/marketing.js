@@ -15,6 +15,7 @@ import multer from 'multer';
 import { authenticateToken } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
 import { requireMarketingAddon } from '../middleware/subscription.js';
+import { supabaseAdmin } from '../services/supabase.js';
 import marketingService from '../services/MarketingService.js';
 import brandVoiceService from '../services/BrandVoiceService.js';
 import mediaAssetService from '../services/MediaAssetService.js';
@@ -1883,6 +1884,53 @@ router.post('/media-assets/generate', async (req, res) => {
     logger.error(`[MediaAssets] POST /generate failed: ${error.message}`);
     const status = error.message.includes('not completed') || error.message.includes('not found') ? 400 : 500;
     res.status(status).json({ error: error.message || 'Failed to generate image' });
+  }
+});
+
+/**
+ * POST /api/marketing/media-assets/edit
+ * Edit a generated image using Flux Kontext Pro.
+ * Accepts { adAccountId, mediaId, editPrompt }. Costs 1 generation credit.
+ */
+router.post('/media-assets/edit', async (req, res) => {
+  try {
+    const { adAccountId, mediaId, editPrompt } = req.body;
+    if (!adAccountId || !mediaId || !editPrompt) {
+      return res.status(400).json({ error: 'adAccountId, mediaId, and editPrompt are required' });
+    }
+
+    // Credit gate
+    const { totalRemaining } = await getAssetImageGenCredits(req.user.id);
+    if (totalRemaining <= 0) {
+      return res.status(402).json({ error: 'No image credits remaining.', code: 'CREDITS_EXHAUSTED', credits: 0 });
+    }
+
+    // Fetch source media to get its URL and training job
+    const { data: sourceMedia, error: fetchErr } = await supabaseAdmin
+      .from('generated_media')
+      .select('public_url, training_job_id')
+      .eq('id', mediaId)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (fetchErr || !sourceMedia) {
+      return res.status(404).json({ error: 'Source image not found' });
+    }
+
+    logger.info(`[MediaAssets] POST /edit - user=${req.user.id}, media=${mediaId}, prompt="${editPrompt.slice(0, 60)}..."`);
+
+    const newMedia = await mediaAssetService.editImageWithKontext(
+      req.user.id, adAccountId, sourceMedia.public_url, editPrompt, sourceMedia.training_job_id
+    );
+
+    // Consume 1 credit
+    await consumeAssetImageGenCredit(req.user.id);
+    const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
+
+    res.json({ media: newMedia, credits: creditsAfter });
+  } catch (error) {
+    logger.error(`[MediaAssets] POST /edit failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to edit image' });
   }
 });
 

@@ -17,6 +17,9 @@ import axios from 'axios';
 import winston from 'winston';
 import sharp from 'sharp';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Vibrant } from 'node-vibrant/node';
 import { supabaseAdmin } from './supabase.js';
 import {
@@ -62,6 +65,7 @@ const MIN_TRAINING_IMAGES = 10;
 const MAX_BRAND_KIT_ASSETS = 15;
 const ASSET_CONFIDENCE_THRESHOLD = 0.75;
 const REMBG_MODEL = 'bria/remove-background:5ecc270b34e9d8e1f007d9dbd3c724f0badf638f05ffaa0c5e0634ed64d3d378';
+const EDIT_MODEL = 'ideogram-ai/ideogram-v3-quality';
 
 // Replicate trainer model
 const TRAINER_OWNER = 'ostris';
@@ -1516,6 +1520,283 @@ class MediaAssetService {
       // Ignore parse errors
     }
     return null;
+  }
+
+  // ============================================
+  // KONTEXT IMAGE EDITING
+  // ============================================
+
+  /**
+   * Edit a generated image. Smart routing:
+   * - Quoted text in prompt → programmatic text overlay (Sharp SVG, pixel-perfect, any language)
+   * - No quoted text → Ideogram V3 inpainting (visual edits like background changes, element removal)
+   *
+   * @param {string} userId
+   * @param {string} adAccountId
+   * @param {string} sourceImageUrl - Public URL of the image to edit
+   * @param {string} editPrompt - Text instruction (may include 'quoted text' for overlay)
+   * @param {string} trainingJobId - Training job to link the edited image to
+   * @param {object} options - Optional params
+   * @returns {object} New generated_media record
+   */
+  async editImageWithKontext(userId, adAccountId, sourceImageUrl, editPrompt, trainingJobId, options = {}) {
+    logger.info(`Image edit: "${editPrompt.slice(0, 80)}..."`);
+
+    // Download source image
+    const sourceResp = await axios.get(sourceImageUrl, { responseType: 'arraybuffer', timeout: 20000 });
+    const sourceBuffer = Buffer.from(sourceResp.data);
+
+    // Detect quoted text → route to programmatic overlay vs AI inpainting
+    const quotedMatch = editPrompt.match(/[""'']([^""'']{1,100})[""'']/);
+    let resultBuffer;
+    let editLabel;
+
+    if (quotedMatch) {
+      // TEXT OVERLAY PATH — programmatic rendering with real fonts
+      const textToRender = quotedMatch[1];
+      const position = this._parsePositionFromPrompt(editPrompt);
+      resultBuffer = await this._overlayText(sourceBuffer, textToRender, position);
+      editLabel = '[Text Overlay]';
+      logger.info(`Text overlay: "${textToRender}" at ${position.label}`);
+    } else {
+      // VISUAL EDIT PATH — Ideogram V3
+      if (!this.replicate) {
+        throw new Error('Replicate not configured.');
+      }
+
+      const metadata = await sharp(sourceBuffer).metadata();
+      const region = this._parsePositionFromPrompt(editPrompt);
+
+      // If no position detected, default to center region (frontend should enforce position but fallback here)
+      if (region.label === 'full image') {
+        region.x = 0.2; region.y = 0.2; region.w = 0.6; region.h = 0.6;
+        region.label = 'center (fallback)';
+      }
+
+      const maskBuffer = await this._generateMask(metadata.width, metadata.height, region);
+
+      await this.ensureBucket();
+      const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
+      const tmpMaskPath = `${userId}/${adAccountId}/brand-kit/tmp-edit-mask-${crypto.randomUUID().slice(0, 8)}.png`;
+      const sourcePng = await sharp(sourceBuffer).png().toBuffer();
+
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpMaskPath, maskBuffer, { contentType: 'image/png', upsert: false });
+
+      const { data: srcUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpSourcePath);
+      const { data: maskUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpMaskPath);
+
+      logger.info(`Inpainting region: ${region.label} (${Math.round(region.x * 100)}%,${Math.round(region.y * 100)}% ${Math.round(region.w * 100)}%x${Math.round(region.h * 100)}%)`);
+
+      const output = await this.replicate.run(EDIT_MODEL, {
+        input: {
+          prompt: editPrompt,
+          image: srcUrlData.publicUrl,
+          mask: maskUrlData.publicUrl,
+          magic_prompt_option: 'Auto'
+        }
+      });
+
+      // Clean up temp files
+      supabaseAdmin.storage.from(STORAGE_BUCKET).remove([tmpSourcePath, tmpMaskPath]).catch(() => {});
+
+      const imageSource = Array.isArray(output) ? output[0] : output;
+      if (typeof imageSource === 'string') {
+        const resp = await axios.get(imageSource, { responseType: 'arraybuffer', timeout: 30000 });
+        resultBuffer = Buffer.from(resp.data);
+      } else if (imageSource && typeof imageSource.blob === 'function') {
+        const blob = await imageSource.blob();
+        resultBuffer = Buffer.from(await blob.arrayBuffer());
+      } else {
+        throw new Error('Unexpected output format from edit model');
+      }
+      editLabel = '[Inpaint Edit]';
+    }
+
+    // Upload final result
+    await this.ensureBucket();
+    const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, resultBuffer, { contentType: 'image/png', upsert: false });
+
+    if (uploadError) {
+      logger.error('Error uploading edited image:', uploadError);
+      throw uploadError;
+    }
+
+    const { data: urlData } = supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+    const record = await createGeneratedMedia(userId, adAccountId, {
+      training_job_id: trainingJobId,
+      prompt: `${editLabel} ${editPrompt}`,
+      storage_path: storagePath,
+      public_url: urlData.publicUrl,
+      replicate_prediction_id: null,
+      lora_scale: null,
+      guidance_scale: null
+    });
+
+    logger.info(`Image edit saved: ${record.id}`);
+    return record;
+  }
+
+  /**
+   * Overlay text on an image using Sharp SVG composite.
+   * Uses Heebo font for Hebrew/RTL text, Inter for Latin.
+   * Auto-detects text direction and adjusts color based on background brightness.
+   *
+   * @param {Buffer} sourceBuffer - Source image buffer
+   * @param {string} text - Text to render
+   * @param {object} position - { x, y, w, h, label } from _parsePositionFromPrompt
+   * @returns {Buffer} PNG buffer with text overlaid
+   */
+  async _overlayText(sourceBuffer, text, position) {
+    const metadata = await sharp(sourceBuffer).metadata();
+    const imgWidth = metadata.width;
+    const imgHeight = metadata.height;
+
+    // Detect if text contains RTL characters (Hebrew, Arabic)
+    const isRTL = /[\u0590-\u05FF\u0600-\u06FF]/.test(text);
+
+    // Load font as base64 for SVG embedding
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const fontPath = isRTL
+      ? path.join(__dirname, '..', 'public', 'fonts', 'Heebo-Variable.ttf')
+      : path.join(__dirname, '..', 'public', 'fonts', 'Inter-Variable.ttf');
+    const fontBase64 = fs.readFileSync(fontPath).toString('base64');
+    const fontFamily = isRTL ? 'Heebo' : 'Inter';
+
+    // Calculate text position in pixels
+    const textX = Math.round((position.x + position.w / 2) * imgWidth);
+    const textY = Math.round((position.y + position.h / 2) * imgHeight);
+
+    // Scale font size relative to image size (~5% of shortest dimension)
+    const fontSize = Math.round(Math.min(imgWidth, imgHeight) * 0.06);
+
+    // Sample background color at text position to determine text color
+    const sampleRegion = {
+      left: Math.max(0, Math.round(position.x * imgWidth)),
+      top: Math.max(0, Math.round(position.y * imgHeight)),
+      width: Math.min(Math.round(position.w * imgWidth), imgWidth),
+      height: Math.min(Math.round(position.h * imgHeight), imgHeight)
+    };
+    // Ensure valid dimensions
+    sampleRegion.width = Math.max(1, Math.min(sampleRegion.width, imgWidth - sampleRegion.left));
+    sampleRegion.height = Math.max(1, Math.min(sampleRegion.height, imgHeight - sampleRegion.top));
+
+    const { dominant } = await sharp(sourceBuffer).extract(sampleRegion).stats();
+    const bgBrightness = (dominant.r * 299 + dominant.g * 587 + dominant.b * 114) / 1000;
+    const textColor = bgBrightness > 128 ? '#1a1a1a' : '#ffffff';
+    const shadowColor = bgBrightness > 128 ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)';
+
+    // Build SVG with embedded font
+    const textDirection = isRTL ? 'rtl' : 'ltr';
+    const textAnchor = 'middle';
+
+    const svg = `<svg width="${imgWidth}" height="${imgHeight}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <style>
+          @font-face {
+            font-family: '${fontFamily}';
+            src: url('data:font/ttf;base64,${fontBase64}');
+            font-weight: 700;
+          }
+        </style>
+      </defs>
+      <text x="${textX}" y="${textY}"
+        font-family="${fontFamily}, sans-serif"
+        font-size="${fontSize}"
+        font-weight="700"
+        fill="${textColor}"
+        text-anchor="${textAnchor}"
+        dominant-baseline="central"
+        direction="${textDirection}"
+        filter="drop-shadow(2px 2px 4px ${shadowColor})">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
+    </svg>`;
+
+    // Composite text SVG onto source image
+    return sharp(sourceBuffer)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .png()
+      .toBuffer();
+  }
+
+  /**
+   * Parse position keywords from a prompt to determine which region of the image to mask.
+   * Returns normalized coordinates (0-1) for the mask region.
+   *
+   * Keywords: top, bottom, left, right, center, corner, middle
+   * Examples:
+   *   "Write 'Hello' at the top right corner" → top-right quadrant
+   *   "Add text at the bottom" → bottom strip
+   *   "Change the background" → full image
+   */
+  _parsePositionFromPrompt(prompt) {
+    const p = prompt.toLowerCase();
+
+    const hasTop = /\btop\b/.test(p);
+    const hasBottom = /\bbottom\b/.test(p);
+    const hasLeft = /\bleft\b/.test(p);
+    const hasRight = /\bright\b/.test(p);
+    const hasCenter = /\bcenter\b|\bmiddle\b|\bcentre\b/.test(p);
+
+    // Determine vertical position (tighter regions to avoid over-editing)
+    let y = 0, h = 1; // default: full height
+    if (hasTop && !hasBottom) { y = 0; h = 0.25; }
+    else if (hasBottom && !hasTop) { y = 0.75; h = 0.25; }
+    else if (hasCenter && !hasTop && !hasBottom) { y = 0.3; h = 0.4; }
+
+    // Determine horizontal position
+    let x = 0, w = 1; // default: full width
+    if (hasLeft && !hasRight) { x = 0; w = 0.3; }
+    else if (hasRight && !hasLeft) { x = 0.7; w = 0.3; }
+    else if (hasCenter && !hasLeft && !hasRight) { x = 0.3; w = 0.4; }
+
+    // Build label for logging
+    const vLabel = hasTop ? 'top' : hasBottom ? 'bottom' : hasCenter ? 'center' : 'full';
+    const hLabel = hasLeft ? 'left' : hasRight ? 'right' : hasCenter ? 'center' : 'full';
+    const label = vLabel === 'full' && hLabel === 'full' ? 'full image' : `${vLabel}-${hLabel}`;
+
+    return { x, y, w, h, label };
+  }
+
+  /**
+   * Generate a black-and-white mask image using Sharp.
+   * Black pixels = area to inpaint, white pixels = area to preserve.
+   *
+   * @param {number} width - Image width in pixels
+   * @param {number} height - Image height in pixels
+   * @param {object} region - { x, y, w, h } normalized 0-1 coordinates
+   * @returns {Buffer} PNG mask buffer
+   */
+  async _generateMask(width, height, region) {
+    const rectX = Math.round(region.x * width);
+    const rectY = Math.round(region.y * height);
+    const rectW = Math.round(region.w * width);
+    const rectH = Math.round(region.h * height);
+
+    // Build mask with raw pixel buffers — guarantees pure black/white, no anti-aliasing
+    // Start with all white (0xFF = preserve)
+    const pixels = Buffer.alloc(width * height * 3, 0xFF);
+
+    // Paint the inpaint region black (0x00 = repaint)
+    for (let row = rectY; row < Math.min(rectY + rectH, height); row++) {
+      for (let col = rectX; col < Math.min(rectX + rectW, width); col++) {
+        const offset = (row * width + col) * 3;
+        pixels[offset] = 0;     // R
+        pixels[offset + 1] = 0; // G
+        pixels[offset + 2] = 0; // B
+      }
+    }
+
+    return sharp(pixels, { raw: { width, height, channels: 3 } })
+      .png()
+      .toBuffer();
   }
 
   // ============================================

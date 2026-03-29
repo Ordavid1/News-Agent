@@ -2035,6 +2035,63 @@
                                     <p id="lightboxPrompt" class="text-white/70 text-sm mt-3 text-center truncate px-4"></p>
                                 </div>
                             </div>
+
+                            <!-- Kontext Edit Modal -->
+                            <div id="kontextEditModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onclick="closeEditModal(event)">
+                                <div class="relative bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onclick="event.stopPropagation()">
+                                    <div class="p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h3 class="text-lg font-semibold text-ink-800">Edit Image</h3>
+                                                <p class="text-sm text-ink-400 mt-0.5">Powered by Flux Kontext Pro</p>
+                                            </div>
+                                            <button onclick="closeEditModal()" class="text-ink-400 hover:text-ink-600 p-1">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        <!-- Source image preview -->
+                                        <div class="rounded-xl border border-surface-200 overflow-hidden mb-4">
+                                            <img id="kontextSourceImage" class="w-full max-h-80 object-contain bg-surface-50" alt="Source image">
+                                        </div>
+
+                                        <!-- Edit prompt input -->
+                                        <div class="mb-4">
+                                            <label class="block text-sm font-medium text-ink-600 mb-1">Describe what to change</label>
+                                            <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
+                                                <input type="text" id="kontextEditPrompt"
+                                                    class="w-full rounded-[10px] bg-white px-4 py-3 text-sm text-ink-700 placeholder-ink-300 border-0 focus:outline-none focus:ring-0"
+                                                    placeholder="Specify WHERE: e.g., Add a wine glass at the top left, Write 'שלום' at the bottom center">
+                                            </div>
+                                        </div>
+
+                                        <!-- Edit result preview (shown after edit completes) -->
+                                        <div id="kontextResultPreview" class="hidden mb-4">
+                                            <label class="block text-sm font-medium text-ink-600 mb-1">Result</label>
+                                            <div class="rounded-xl border border-brand-200 overflow-hidden">
+                                                <img id="kontextResultImage" class="w-full max-h-80 object-contain bg-surface-50" alt="Edited image">
+                                            </div>
+                                        </div>
+
+                                        <!-- Actions -->
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-xs text-ink-400">Uses 1 generation credit</span>
+                                            <div class="flex items-center gap-2">
+                                                <button onclick="closeEditModal()" class="btn-outline px-4 py-2 text-sm">Cancel</button>
+                                                <button onclick="applyKontextEdit()" id="kontextApplyBtn"
+                                                    class="btn-primary px-5 py-2 text-sm flex items-center gap-2">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                                                    </svg>
+                                                    <span id="kontextApplyBtnText">Apply Edit</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
