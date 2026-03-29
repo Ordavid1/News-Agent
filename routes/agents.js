@@ -844,21 +844,30 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       });
     }
 
-    // Step 1: Fetch trends using agent's settings
-    // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
-    const searchTopics = topics.length > 0 ? [topics[Math.floor(Math.random() * topics.length)]] : ['general'];
-
+    // Step 1: Fetch trends using agent's configured topics
+    const searchTopics = [topics[Math.floor(Math.random() * topics.length)]];
     const selectedTopic = searchTopics[0];
 
-    console.log(`[Agent Test] Fetching trends for ${topics.length > 0 ? 'topic: ' + selectedTopic : 'keywords only'}`);
+    console.log(`[Agent Test] Fetching trends for topic: ${selectedTopic}`);
     testProgressEmitter.emitProgress(userId, agentId, 'trends', 'Searching for trending news...');
 
     let trendData;
     try {
-      const allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
-        keywords,
-        geoFilter
-      });
+      // Try with default lookback, then broaden +24h per retry up to 168h (7 days)
+      let allTrends = [];
+      const lookbackSteps = [72, 96, 120, 144, 168];
+      for (const lookback of lookbackSteps) {
+        if (lookback > 72) {
+          console.log(`[Agent Test] No results at ${lookback - 24}h, broadening search to ${lookback}h`);
+          testProgressEmitter.emitProgress(userId, agentId, 'trends', `Broadening search window to ${Math.round(lookback / 24)} days...`);
+        }
+        allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
+          keywords,
+          geoFilter,
+          lookbackHours: lookback
+        });
+        if (allTrends && allTrends.length > 0) break;
+      }
 
       if (allTrends && allTrends.length > 0) {
         // Score and select the best trend
@@ -903,13 +912,11 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
         console.log(`[Agent Test] Selected article: "${trendData.title}" (from ${scored.length} candidates, top 5 scores: ${topCandidates.map(t => t.calculatedScore).join(', ')})`);
       } else {
-        const searchDescription = topics.length > 0
-          ? `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`
-          : `keywords "${keywords.join(', ')}"`;
+        const searchDescription = `topic "${selectedTopic}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
         testProgressEmitter.emitProgress(userId, agentId, 'error', 'No trending news found');
         return res.status(400).json({
           success: false,
-          error: `No news found for ${searchDescription}. Try different topics or keywords in agent settings.`,
+          error: `No news found for ${searchDescription} within the last 7 days. Try different topics or keywords in agent settings.`,
           step: 'trends'
         });
       }

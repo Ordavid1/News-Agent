@@ -108,12 +108,87 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize keyword input handlers
     initializeKeywordHandlers();
 
+    // Initialize topic category dropdown
+    initializeTopicDropdown();
+
     // Initialize platform-specific toggles
     initializeRedditSubredditToggle();
     initializeTwitterPremiumToggle();
     initializeInstagramContentTypeToggle();
     initializeGeoLanguageToggle();
 });
+
+/**
+ * Initialize the topic categories multi-select dropdown
+ */
+function initializeTopicDropdown() {
+    const toggle = document.getElementById('topicDropdownToggle');
+    const menu = document.getElementById('topicDropdownMenu');
+    const arrow = document.getElementById('topicDropdownArrow');
+    if (!toggle || !menu) return;
+
+    // Toggle dropdown open/close
+    toggle.addEventListener('click', () => {
+        // Don't close if clicking inside the menu area
+        const isOpen = !menu.classList.contains('hidden');
+        menu.classList.toggle('hidden');
+        arrow.classList.toggle('rotate-180', !isOpen);
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!toggle.contains(e.target) && !menu.contains(e.target)) {
+            menu.classList.add('hidden');
+            arrow.classList.remove('rotate-180');
+        }
+    });
+
+    // Prevent dropdown from closing when clicking checkboxes inside it
+    menu.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    // Update display when checkboxes change
+    menu.querySelectorAll('input[name="topics"]').forEach(cb => {
+        cb.addEventListener('change', () => updateTopicDisplay());
+    });
+}
+
+/**
+ * Update the topic dropdown display with selected tags
+ */
+function updateTopicDisplay() {
+    const display = document.getElementById('topicSelectedDisplay');
+    if (!display) return;
+
+    const checked = Array.from(document.querySelectorAll('#topicDropdownMenu input[name="topics"]:checked'));
+
+    if (checked.length === 0) {
+        display.innerHTML = '<span class="text-ink-400 text-sm">Select categories...</span>';
+        return;
+    }
+
+    display.innerHTML = checked.map(cb => {
+        const label = cb.closest('label').querySelector('span').textContent;
+        return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-100 text-brand-700 text-xs font-medium">
+            ${label}
+            <button type="button" class="hover:text-brand-900 ml-0.5" data-topic-remove="${cb.value}" aria-label="Remove ${label}">&times;</button>
+        </span>`;
+    }).join('');
+
+    // Attach remove handlers
+    display.querySelectorAll('[data-topic-remove]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const value = btn.dataset.topicRemove;
+            const checkbox = document.querySelector(`#topicDropdownMenu input[name="topics"][value="${value}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateTopicDisplay();
+            }
+        });
+    });
+}
 
 /**
  * Initialize Reddit subreddit configuration toggle
@@ -948,6 +1023,7 @@ function updatePlatformCheckboxes() {
 function resetFormToDefaults() {
     // Clear topics
     document.querySelectorAll('input[name="topics"]').forEach(cb => cb.checked = false);
+    updateTopicDisplay();
 
     // Clear keywords
     keywords = [];
@@ -1013,6 +1089,7 @@ function populateForm(settings) {
             const checkbox = document.querySelector(`input[name="topics"][value="${topic}"]`);
             if (checkbox) checkbox.checked = true;
         });
+        updateTopicDisplay();
     }
 
     // Keywords
@@ -1208,11 +1285,11 @@ async function saveAgentWithSettings() {
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))
         .map(cb => cb.value);
 
-    // Validate: require at least one topic OR one keyword
-    if (topics.length === 0 && keywords.length === 0) {
-        showAgentIdentityError('Please select at least one topic or add at least one keyword for the agent to find content.');
+    // Validate: require at least one topic category
+    if (topics.length === 0) {
+        showAgentIdentityError('Please select at least one topic category for the agent to find content.');
         // Scroll to topics section
-        const topicsSection = document.querySelector('input[name="topics"]');
+        const topicsSection = document.getElementById('topicDropdownToggle');
         if (topicsSection) {
             topicsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -1544,6 +1621,7 @@ function populateFormWithAgentSettings(settings) {
             const checkbox = document.querySelector(`input[name="topics"][value="${topic}"]`);
             if (checkbox) checkbox.checked = true;
         });
+        updateTopicDisplay();
     }
 
     // Keywords
@@ -1724,11 +1802,11 @@ async function saveAgentSettings() {
     const topics = Array.from(document.querySelectorAll('input[name="topics"]:checked'))
         .map(cb => cb.value);
 
-    // Validate: require at least one topic OR one keyword
-    if (topics.length === 0 && keywords.length === 0) {
-        alert('Please select at least one topic or add at least one keyword for the agent to find content.');
+    // Validate: require at least one topic category
+    if (topics.length === 0) {
+        alert('Please select at least one topic category for the agent to find content.');
         // Scroll to topics section
-        const topicsSection = document.querySelector('input[name="topics"]');
+        const topicsSection = document.getElementById('topicDropdownToggle');
         if (topicsSection) {
             topicsSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }

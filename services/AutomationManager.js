@@ -843,14 +843,26 @@ class AutomationManager {
     const geoFilter = settings.geoFilter || { region: '', includeGlobal: true };
 
     try {
-      // If agent has specific topics configured, use them to find trends
-      if (topics.length > 0) {
-        logger.debug(`Agent ${agent.id}: Searching trends for topics: ${topics.join(', ')}`);
+      if (topics.length === 0) {
+        logger.warn(`Agent ${agent.id}: No topics configured, cannot fetch trends`);
+        return null;
+      }
+
+      // Search for trends using configured topics, broadening time window if no results found
+      // Steps: 72h → 96h → 120h → 144h → 168h (7 days max)
+      const lookbackSteps = [72, 96, 120, 144, 168];
+      for (const lookback of lookbackSteps) {
+        if (lookback > 72) {
+          logger.debug(`Agent ${agent.id}: No results at ${lookback - 24}h, broadening search to ${lookback}h`);
+        } else {
+          logger.debug(`Agent ${agent.id}: Searching trends for topics: ${topics.join(', ')}`);
+        }
 
         const trendsForTopics = await trendAnalyzer.getTrendsForTopics(topics, {
           keywords,
           geoFilter,
-          limit: 10
+          limit: 10,
+          lookbackHours: lookback
         });
 
         if (trendsForTopics && trendsForTopics.length > 0) {
@@ -862,46 +874,8 @@ class AutomationManager {
         }
       }
 
-      // Fallback: get general trends and filter by platform preference
-      logger.debug(`Agent ${agent.id}: Using general trends fallback`);
-
-      const generalTrend = await this.postingStrategy.getOptimalTrend({
-        preferredCategory: this.mapPlatformToCategory(agent.platform),
-        returnMultiple: false,
-        userId: agent.user_id
-      });
-
-      if (!generalTrend) return null;
-
-      // For platforms that require media (Instagram, TikTok), enrich keyword-only
-      // trends with article data so image extraction has a URL to work with
-      if (ImageExtractor.PLATFORMS_REQUIRING_MEDIA.includes(agent.platform) && !generalTrend.url) {
-        logger.debug(`Agent ${agent.id}: Trend "${generalTrend.topic}" lacks article URL — enriching for ${agent.platform}`);
-
-        try {
-          const enrichedTrends = await trendAnalyzer.getTrendsForTopics(
-            [generalTrend.topic],
-            { limit: 5 }
-          );
-
-          if (enrichedTrends && enrichedTrends.length > 0) {
-            const article = enrichedTrends[0];
-            generalTrend.url = article.url;
-            generalTrend.title = article.title || generalTrend.topic;
-            generalTrend.description = article.description || generalTrend.description;
-            generalTrend.imageUrl = article.imageUrl || null;
-            generalTrend.publishedAt = article.publishedAt || null;
-            generalTrend.source = article.source || generalTrend.source;
-            logger.debug(`Agent ${agent.id}: Enriched trend with article: "${article.title}" (${article.url})`);
-          } else {
-            logger.warn(`Agent ${agent.id}: No articles found for trend "${generalTrend.topic}" — media platforms may fail`);
-          }
-        } catch (enrichError) {
-          logger.warn(`Agent ${agent.id}: Trend enrichment failed: ${enrichError.message}`);
-        }
-      }
-
-      return generalTrend;
+      logger.warn(`Agent ${agent.id}: No trends found for topics "${topics.join(', ')}" within 7 days`);
+      return null;
 
     } catch (error) {
       logger.error(`Error getting trend for agent ${agent.id}:`, error.message);

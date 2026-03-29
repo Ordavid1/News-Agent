@@ -30,20 +30,21 @@ class EnhancedNewsService extends NewsService {
       sources = ['newsapi', 'gnews'],
       userId = 'anonymous',
       keywords = [],
-      geoFilter = {}
+      geoFilter = {},
+      lookbackHours = 168
     } = options;
 
     const { region = '', includeGlobal = true } = geoFilter;
 
-    logger.info(`Enhanced: Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}`);
+    logger.info(`Enhanced: Fetching news for topics: ${topics.join(', ')}, keywords: ${keywords.length > 0 ? keywords.join(', ') : 'none'}, region: ${region || 'global'}, lookback: ${lookbackHours}h`);
 
-    // Date setup - similar to main app
+    // Date setup — driven by lookbackHours for broadened retry support
     const now = new Date();
     const toDate = new Date(now);
     toDate.setUTCHours(23, 59, 59, 999);
 
     const fromDate = new Date(now);
-    fromDate.setUTCDate(fromDate.getUTCDate() - 7);
+    fromDate.setHours(fromDate.getHours() - lookbackHours);
     fromDate.setUTCHours(0, 0, 0, 0);
 
     const allNews = [];

@@ -81,7 +81,8 @@ class NewsService {
       sortBy = 'relevance',
       sources = ['newsapi', 'gnews'],
       keywords = [],
-      geoFilter = {}
+      geoFilter = {},
+      lookbackHours = 72
     } = options;
 
     const { region = '', includeGlobal = true, contentLanguage = null } = geoFilter;
@@ -119,7 +120,7 @@ class NewsService {
       if (useHebrewSearch) {
         try {
           logger.info(`Using Hebrew search for topic: ${topic}`);
-          const hebrewResults = await this.fetchFromHebrewSources(topic, { keywords, region });
+          const hebrewResults = await this.fetchFromHebrewSources(topic, { keywords, region, lookbackHours });
           topicNews.push(...hebrewResults);
         } catch (error) {
           logger.error(`Hebrew search error for topic ${topic}:`, error.message);
@@ -134,7 +135,7 @@ class NewsService {
         // PRIMARY: Try GNews first
         if (topicNews.length < minArticles && sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
           try {
-            const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region });
+            const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region, lookbackHours });
             topicNews.push(...gnewsResults);
             logger.info(`GNews returned ${gnewsResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
@@ -146,7 +147,7 @@ class NewsService {
         if (topicNews.length < minArticles && sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
           try {
             logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI for topic: ${topic}`);
-            const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region });
+            const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region, lookbackHours });
             topicNews.push(...newsApiResults);
             logger.info(`NewsAPI returned ${newsApiResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
@@ -158,7 +159,7 @@ class NewsService {
         if (topicNews.length < minArticles && this.newsAiKey && this.newsAiKey !== 'mock-key') {
           try {
             logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI.ai for topic: ${topic}`);
-            const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region });
+            const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region, lookbackHours });
             topicNews.push(...newsAiResults);
             logger.info(`NewsAPI.ai returned ${newsAiResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
@@ -171,7 +172,7 @@ class NewsService {
         if (topicNews.length < minArticles && isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
           try {
             logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from Google CSE for topic: ${topic}`);
-            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region });
+            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region, lookbackHours });
             topicNews.push(...googleResults);
             logger.info(`Google CSE returned ${googleResults.length} articles (total: ${topicNews.length})`);
           } catch (error) {
@@ -336,14 +337,14 @@ class NewsService {
   }
 
   async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { region = '' } = filters;
+    const { region = '', lookbackHours = 72 } = filters;
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
     const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
-    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
+    fromDate.setHours(fromDate.getHours() - lookbackHours);
 
     const params = {
       q: query,
@@ -387,14 +388,14 @@ class NewsService {
   }
 
   async fetchFromGNews(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { region = '' } = filters;
+    const { region = '', lookbackHours = 72 } = filters;
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
     const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
-    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
+    fromDate.setHours(fromDate.getHours() - lookbackHours);
     const toDate = new Date();
 
     const params = {
@@ -445,11 +446,15 @@ class NewsService {
   }
 
   async fetchFromGoogleCSE(topic, language = 'en', filters = {}) {
-    const { region = '' } = filters;
+    const { region = '', lookbackHours = 168 } = filters;
 
     // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
     const searchQueries = getTopicSearchQueries(topic);
     const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
+
+    // Convert lookback hours to Google CSE dateRestrict format (d=days, w=weeks)
+    const lookbackDays = Math.ceil(lookbackHours / 24);
+    const dateRestrict = lookbackDays <= 7 ? `d${lookbackDays}` : `d${lookbackDays}`;
 
     const params = {
       key: this.googleApiKey,
@@ -457,7 +462,7 @@ class NewsService {
       q: `${query} news`,
       lr: `lang_${language}`,
       num: 10,
-      dateRestrict: 'w1', // Last week
+      dateRestrict,
       sort: 'date'
     };
 
@@ -517,7 +522,7 @@ class NewsService {
    * Free tier: 2,000 searches/month.
    */
   async fetchFromNewsApiAi(topic, language = 'en', filters = {}) {
-    const { region = '' } = filters;
+    const { region = '', lookbackHours = 72 } = filters;
 
     // Event Registry uses 3-letter language codes
     const langMap = {
@@ -531,7 +536,7 @@ class NewsService {
     const keywords = searchQueries.length > 0 ? searchQueries : [topic];
 
     const fromDate = new Date();
-    fromDate.setHours(fromDate.getHours() - 72); // Last 72 hours
+    fromDate.setHours(fromDate.getHours() - lookbackHours);
 
     const requestBody = {
       action: 'getArticles',

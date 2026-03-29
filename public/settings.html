@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings - News Agent</title>
-    <meta name="description" content="Configure your News Agent settings and automation preferences.">
+    <title>Settings - Configure News</title>
+    <meta name="description" content="Configure your News Agents settings and automation preferences.">
     <meta name="robots" content="noindex, nofollow">
     <meta name="googlebot" content="noindex, nofollow">
     <link rel="icon" type="image/png" href="/images/favicon.png">
@@ -26,7 +26,7 @@
     <header class="sticky top-0 z-40 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
-                <a href="/" class="text-lg sm:text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">News Agent</a>
+                <a href="/" class="text-lg sm:text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">Configure News</a>
                 <div class="flex items-center gap-2 sm:gap-3">
                     <div class="theme-toggle" aria-label="Theme switcher">
                         <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
@@ -89,33 +89,79 @@
 
                 <!-- Topic Categories -->
                 <div class="card-static p-6">
-                    <h3 class="text-lg font-semibold mb-1 text-ink-800">General Topic Categories</h3>
-                    <p class="text-ink-400 text-sm mb-5">Select the topics your agent will track</p>
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="technology" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Technology</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="business" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Business</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="entertainment" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Entertainment</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="sports" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Sports</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="health" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Health</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 rounded-lg border border-surface-200 hover:border-brand-300 hover:bg-brand-50/50 cursor-pointer transition-all">
-                            <input type="checkbox" name="topics" value="science" class="checkbox">
-                            <span class="text-sm font-medium text-ink-700">Science</span>
-                        </label>
+                    <h3 class="text-lg font-semibold mb-1 text-ink-800">Topic Categories</h3>
+                    <p class="text-ink-400 text-sm mb-5">Select at least one topic your agent will track</p>
+                    <div class="relative">
+                        <div id="topicDropdownToggle" class="input w-full cursor-pointer flex items-center justify-between min-h-[42px]" tabindex="0">
+                            <div id="topicSelectedDisplay" class="flex flex-wrap gap-1.5 flex-1">
+                                <span class="text-ink-400 text-sm">Select categories...</span>
+                            </div>
+                            <svg class="w-4 h-4 text-ink-400 flex-shrink-0 ml-2 transition-transform" id="topicDropdownArrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </div>
+                        <div id="topicDropdownMenu" class="hidden absolute z-20 w-full mt-1 bg-surface-0 border border-surface-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="technology" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Technology</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="business" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Business & Finance</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="science" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Science</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="health" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Health & Wellness</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="entertainment" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Entertainment</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="sports" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Sports</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="politics" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Politics & Government</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="education" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Education</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="environment" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Environment & Climate</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="travel" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Travel & Tourism</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="food" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Food & Dining</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="automotive" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Automotive</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="realestate" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Real Estate</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors">
+                                <input type="checkbox" name="topics" value="fashion" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Fashion & Lifestyle</span>
+                            </label>
+                            <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50/50 cursor-pointer transition-colors border-t border-surface-100">
+                                <input type="checkbox" name="topics" value="crypto" class="checkbox">
+                                <span class="text-sm font-medium text-ink-700">Crypto & Web3</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -125,7 +171,7 @@
                         <h3 class="text-lg font-semibold text-ink-800">(Optional) Keyword Filter</h3>
                         <span id="keywordCounter" class="text-ink-400 text-sm">0/10</span>
                     </div>
-                    <p class="gradient-text text-sm font-medium mb-5">Add keywords to filter news articles. Separate multiple keywords with commas. These work alongside topic categories for more precise content discovery.</p>
+                    <p class="gradient-text text-sm font-medium mb-5">Add keywords to refine content discovery. These work alongside topic categories for more precise results.</p>
                     <div class="space-y-3">
                         <div class="flex gap-2">
                             <input type="gradient-text" id="keywordInput" placeholder="e.g., AI, crypto, startup, innovation"

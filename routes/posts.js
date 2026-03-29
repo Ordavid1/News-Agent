@@ -312,22 +312,29 @@ router.post('/test', async (req, res) => {
     // Step 3: Use FULL PIPELINE - fetch trends with scoring and filtering
     let trendData;
     let postContent;
-    // If topics exist, pick one randomly; otherwise use keywords-only search with 'general' topic
-    const searchTopics = topics.length > 0 ? [topics[Math.floor(Math.random() * topics.length)]] : ['general'];
-    const isKeywordsOnly = topics.length === 0;
+    const searchTopics = [topics[Math.floor(Math.random() * topics.length)]];
 
-    console.log(`[Test Post] Using FULL PIPELINE for ${isKeywordsOnly ? 'keywords only' : 'topic: ' + searchTopics[0]}`);
+    console.log(`[Test Post] Using FULL PIPELINE for topic: ${searchTopics[0]}`);
     console.log(`[Test Post] Step 3a: Fetching and scoring articles...`);
 
     try {
-      // Use TrendAnalyzer to get multiple articles - pass user's keywords and geoFilter
-      const allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
-        keywords,
-        geoFilter
-      });
+      // Try with default lookback, then broaden +24h per retry up to 168h (7 days)
+      let allTrends = [];
+      const lookbackSteps = [72, 96, 120, 144, 168];
+      for (const lookback of lookbackSteps) {
+        if (lookback > 72) {
+          console.log(`[Test Post] No results at ${lookback - 24}h, broadening search to ${lookback}h`);
+        }
+        allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
+          keywords,
+          geoFilter,
+          lookbackHours: lookback
+        });
+        if (allTrends && allTrends.length > 0) break;
+      }
 
       if (allTrends && allTrends.length > 0) {
-        console.log(`[Test Post] Found ${allTrends.length} articles for ${isKeywordsOnly ? 'keywords' : 'topic "' + searchTopics[0] + '"'}`);
+        console.log(`[Test Post] Found ${allTrends.length} articles for topic "${searchTopics[0]}"`);
 
         // Use AutomationManager's scoring system to select the BEST article
         console.log(`[Test Post] Step 3b: Scoring articles with full pipeline...`);
@@ -349,13 +356,11 @@ router.post('/test', async (req, res) => {
           console.log(`[Test Post] Using first article (scoring returned null): ${trendData.title}`);
         }
       } else {
-        const searchDescription = isKeywordsOnly
-          ? `keywords "${keywords.join(', ')}"`
-          : `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
+        const searchDescription = `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
         console.log(`[Test Post] ⚠️ No articles found for ${searchDescription}`);
         return res.status(400).json({
           error: 'No news found',
-          message: `No trending news found for ${searchDescription}. Try different topics or keywords.`,
+          message: `No trending news found for ${searchDescription} within the last 7 days. Try different topics or keywords.`,
           step: 'trends'
         });
       }
