@@ -1732,12 +1732,39 @@ If no people are found, return empty array for "people". Same for "logos". Never
         return null;
       }
 
-      // Parse JSON — handle potential markdown fences
+      // Parse JSON — robustly handle markdown fences and truncated responses
       let jsonStr = rawText;
       const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+      if (fenceMatch) {
+        jsonStr = fenceMatch[1].trim();
+      } else if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/```\s*$/, '').trim();
+      }
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      }
 
-      const parsed = JSON.parse(jsonStr);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        // Attempt to repair truncated JSON — close any open arrays/objects
+        logger.warn(`Semantic JSON parse failed, attempting truncation repair: ${parseErr.message}`);
+        const lastCompleteObj = jsonStr.lastIndexOf('}');
+        if (lastCompleteObj > 0) {
+          const repaired = jsonStr.slice(0, lastCompleteObj + 1) + '}';
+          try {
+            parsed = JSON.parse(repaired);
+            logger.info('Semantic JSON repaired successfully — recovered partial data');
+          } catch {
+            throw parseErr;
+          }
+        } else {
+          throw parseErr;
+        }
+      }
       logger.info(`Semantic analysis: ${(parsed.people || []).length} people, ${(parsed.logos || []).length} logos`);
       return parsed;
     } catch (err) {
@@ -1874,7 +1901,25 @@ Rules:
         jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
       }
 
-      const parsed = JSON.parse(jsonStr);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        // Attempt to repair truncated JSON — find last complete object in the detections array
+        logger.warn(`Bbox JSON parse failed, attempting truncation repair: ${parseErr.message}`);
+        const lastCompleteObj = jsonStr.lastIndexOf('}');
+        if (lastCompleteObj > 0) {
+          const repaired = jsonStr.slice(0, lastCompleteObj + 1) + ']}';
+          try {
+            parsed = JSON.parse(repaired);
+            logger.info(`Bbox JSON repaired successfully — recovered partial detections`);
+          } catch {
+            throw parseErr; // Re-throw original error if repair also fails
+          }
+        } else {
+          throw parseErr;
+        }
+      }
       let detections = parsed.detections || [];
 
       // Remap image_index from sequential Gemini index to original image array index
@@ -1962,25 +2007,21 @@ Rules:
       }
     }));
 
-    // Step 2-4: Process detections in batches of 3
+    // Step 2-4: Process detections sequentially to preserve detection→image pairing
+    // Pace at ~5 per minute to stay under Replicate rate limits (6/min with <$5 credit)
     const extractedAssets = [];
-    const batches = [];
-    for (let i = 0; i < detections.length; i += 3) {
-      batches.push(detections.slice(i, i + 3));
-    }
-
-    for (const batch of batches) {
-      const results = await Promise.allSettled(
-        batch.map(async (detection, batchIdx) => {
-          const globalIdx = extractedAssets.length + batchIdx;
-          return this._processOneDetection(detection, globalIdx, jobId, userId, adAccountId, imageCache);
-        })
-      );
-
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value) {
-          extractedAssets.push(result.value);
+    for (let i = 0; i < detections.length; i++) {
+      try {
+        const asset = await this._processOneDetection(detections[i], i, jobId, userId, adAccountId, imageCache);
+        if (asset) {
+          extractedAssets.push(asset);
         }
+      } catch (err) {
+        logger.warn(`Detection ${i} failed: ${err.message}`);
+      }
+      // Pace requests: wait 4s between rembg calls (~15/min, safe for $5+ credit tier)
+      if (i < detections.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
       }
     }
 
@@ -2056,33 +2097,47 @@ Rules:
         .getPublicUrl(tmpPath);
       const tmpUrl = tmpUrlData.publicUrl;
 
-      // Run background removal via Replicate
+      // Run background removal via Replicate (with retry for rate limits)
       let finalBuffer;
-      try {
-        const rembgOutput = await this.replicate.run(REMBG_MODEL, {
-          input: { image: tmpUrl }
-        });
+      const maxRetries = 3;
+      let rembgSuccess = false;
 
-        // rembg output is a ReadableStream or URL — download the result
-        if (typeof rembgOutput === 'string') {
-          const rembgResp = await axios.get(rembgOutput, { responseType: 'arraybuffer', timeout: 30000 });
-          finalBuffer = Buffer.from(rembgResp.data);
-        } else if (rembgOutput && typeof rembgOutput[Symbol.asyncIterator] === 'function') {
-          // ReadableStream from Replicate
-          const chunks = [];
-          for await (const chunk of rembgOutput) {
-            chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'base64') : chunk);
+      for (let attempt = 0; attempt < maxRetries && !rembgSuccess; attempt++) {
+        try {
+          const rembgOutput = await this.replicate.run(REMBG_MODEL, {
+            input: { image: tmpUrl }
+          });
+
+          // rembg output is a ReadableStream or URL — download the result
+          if (typeof rembgOutput === 'string') {
+            const rembgResp = await axios.get(rembgOutput, { responseType: 'arraybuffer', timeout: 30000 });
+            finalBuffer = Buffer.from(rembgResp.data);
+          } else if (rembgOutput && typeof rembgOutput[Symbol.asyncIterator] === 'function') {
+            const chunks = [];
+            for await (const chunk of rembgOutput) {
+              chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'base64') : chunk);
+            }
+            finalBuffer = Buffer.concat(chunks);
+          } else if (Buffer.isBuffer(rembgOutput)) {
+            finalBuffer = rembgOutput;
+          } else {
+            logger.warn(`Unexpected rembg output type for detection ${index}, using cropped version`);
+            finalBuffer = croppedBuffer;
           }
-          finalBuffer = Buffer.concat(chunks);
-        } else if (Buffer.isBuffer(rembgOutput)) {
-          finalBuffer = rembgOutput;
-        } else {
-          logger.warn(`Unexpected rembg output type for detection ${index}, using cropped version`);
-          finalBuffer = croppedBuffer;
+          rembgSuccess = true;
+        } catch (rembgErr) {
+          const is429 = rembgErr.message && rembgErr.message.includes('429');
+          if (is429 && attempt < maxRetries - 1) {
+            // Parse retry_after from error or default to 10s
+            const retryMatch = rembgErr.message.match(/retry_after[":]*\s*(\d+)/i);
+            const waitSec = retryMatch ? parseInt(retryMatch[1], 10) + 1 : 10;
+            logger.info(`Rate limited on detection ${index}, waiting ${waitSec}s before retry (attempt ${attempt + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, waitSec * 1000));
+          } else {
+            logger.warn(`Rembg failed for detection ${index}: ${rembgErr.message}. Using cropped image instead.`);
+            finalBuffer = croppedBuffer;
+          }
         }
-      } catch (rembgErr) {
-        logger.warn(`Rembg failed for detection ${index}: ${rembgErr.message}. Using cropped image instead.`);
-        finalBuffer = croppedBuffer; // Fallback: use crop without background removal
       }
 
       // Clean up temp file

@@ -1451,7 +1451,7 @@
                             <div class="mb-4">
                                 <label class="block text-base font-medium text-ink-600 mb-1">What should the post be about?</label>
                                 <div class="relative rounded-xl p-[1.5px]" style="background: var(--gradient-primary);">
-                                    <input type="text" id="mediaGeneratePrompt"
+                                    <input type="text" id="bvGenerateTopic"
                                         class="w-full rounded-[10px] bg-white px-4 py-3 text-base text-ink-700 placeholder-ink-300 border-0 focus:outline-none focus:ring-0"
                                         placeholder="Leave blank for auto-selected theme from your brand">
                                 </div>
@@ -1766,6 +1766,16 @@
 
                         <!-- Brand Kit Content -->
                         <div id="brandKitContent" class="hidden space-y-5">
+                            <!-- Brand Kit Status Bar (visible during analysis/extraction) -->
+                            <div id="brandKitStatusBar" class="hidden">
+                                <div class="flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
+                                    <div class="loader w-4 h-4 border-blue-500"></div>
+                                    <span id="brandKitStatusText" class="text-sm text-blue-700 font-medium">Extracting visual assets...</span>
+                                    <div class="flex-1 h-1 bg-blue-100 rounded-full overflow-hidden ml-2">
+                                        <div class="h-full bg-blue-400 rounded-full animate-pulse" style="width: 60%"></div>
+                                    </div>
+                                </div>
+                            </div>
                             <!-- Color Palette -->
                             <div id="brandKitColorsSection">
                                 <h5 class="text-base font-medium text-ink-600 mb-3 flex items-center gap-2">

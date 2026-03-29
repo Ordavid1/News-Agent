@@ -5033,13 +5033,27 @@ function renderBrandKit(job) {
         return;
     }
 
-    // Stop polling if running
+    // Stop brand kit text polling (content is available)
     stopBrandKitPolling();
 
     loading.classList.add('hidden');
     content.classList.remove('hidden');
 
     const kit = job.brand_kit;
+
+    // Show status bar if visual extraction is still running
+    const statusBar = document.getElementById('brandKitStatusBar');
+    const statusText = document.getElementById('brandKitStatusText');
+    if (statusBar) {
+        const assetStatus = kit.asset_extraction_status;
+        if (assetStatus === 'pending' || assetStatus === 'processing') {
+            statusBar.classList.remove('hidden');
+            if (statusText) statusText.textContent = 'Extracting visual assets...';
+            startAssetExtractionPolling(job.id);
+        } else {
+            statusBar.classList.add('hidden');
+        }
+    }
 
     // Render Color Palette
     const swatchesEl = document.getElementById('brandKitColorSwatches');
@@ -5291,7 +5305,7 @@ var brandKitPollingTimer = null;
 function startBrandKitPolling(jobId) {
     stopBrandKitPolling();
     let attempts = 0;
-    const maxAttempts = 12; // ~2 minutes (10s intervals)
+    const maxAttempts = 24; // ~4 minutes (10s intervals) — covers text analysis + visual extraction
 
     brandKitPollingTimer = setInterval(async () => {
         attempts++;
@@ -5345,6 +5359,8 @@ function startAssetExtractionPolling(jobId) {
             assetExtractionPollingTimer = null;
             const loading = document.getElementById('brandKitAssetsLoading');
             if (loading) loading.innerHTML = '<p class="text-xs text-ink-400 text-center py-4">Asset extraction is taking longer than expected. Use the re-analyze button to try again.</p>';
+            const statusBar = document.getElementById('brandKitStatusBar');
+            if (statusBar) statusBar.classList.add('hidden');
             return;
         }
 
