@@ -1977,6 +1977,21 @@ Rules:
   async _extractVisualAssets(jobId, userId, adAccountId, imageUrls) {
     logger.info(`Starting visual asset extraction for job ${jobId}`);
 
+    // Clean up previous cutout files from storage (if re-analyzing)
+    try {
+      const existingJob = await getMediaTrainingJobById(jobId, userId);
+      const oldAssets = existingJob?.brand_kit?.extracted_assets || [];
+      if (oldAssets.length > 0) {
+        const oldPaths = oldAssets.map(a => a.storage_path).filter(Boolean);
+        if (oldPaths.length > 0) {
+          await supabaseAdmin.storage.from(STORAGE_BUCKET).remove(oldPaths);
+          logger.info(`Cleaned up ${oldPaths.length} old cutout files before re-extraction`);
+        }
+      }
+    } catch (cleanupErr) {
+      logger.warn(`Failed to clean up old cutouts (non-blocking): ${cleanupErr.message}`);
+    }
+
     // Update status to processing
     await this._updateBrandKitField(jobId, userId, { asset_extraction_status: 'processing' });
 
@@ -2143,11 +2158,12 @@ Rules:
       // Clean up temp file
       await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([tmpPath]).catch(() => {});
 
-      // Upload final transparent PNG
-      const finalPath = `${userId}/${adAccountId}/brand-kit/${jobId}/${detection.type}-${index}.png`;
+      // Upload final transparent PNG with unique name to avoid cache/overwrite issues
+      const uniqueId = crypto.randomUUID().slice(0, 8);
+      const finalPath = `${userId}/${adAccountId}/brand-kit/${jobId}/${detection.type}-${index}-${uniqueId}.png`;
       const { error: uploadErr } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
-        .upload(finalPath, finalBuffer, { contentType: 'image/png', upsert: true });
+        .upload(finalPath, finalBuffer, { contentType: 'image/png', upsert: false });
 
       if (uploadErr) {
         logger.error(`Failed to upload final asset ${index}: ${uploadErr.message}`);

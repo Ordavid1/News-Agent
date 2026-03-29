@@ -5033,9 +5033,6 @@ function renderBrandKit(job) {
         return;
     }
 
-    // Stop brand kit text polling (content is available)
-    stopBrandKitPolling();
-
     loading.classList.add('hidden');
     content.classList.remove('hidden');
 
@@ -5305,7 +5302,7 @@ var brandKitPollingTimer = null;
 function startBrandKitPolling(jobId) {
     stopBrandKitPolling();
     let attempts = 0;
-    const maxAttempts = 24; // ~4 minutes (10s intervals) — covers text analysis + visual extraction
+    const maxAttempts = 24; // ~4 minutes (10s intervals)
 
     brandKitPollingTimer = setInterval(async () => {
         attempts++;
@@ -5320,13 +5317,24 @@ function startBrandKitPolling(jobId) {
             if (!selectedAdAccount) return;
             const data = await apiGet(`/api/marketing/media-assets/training/status?adAccountId=${selectedAdAccount.id}&jobId=${jobId}`);
             if (data.job && data.job.brand_kit) {
-                // Update the job in our local state
+                // Update local state
                 const idx = mediaTrainingJobs.findIndex(j => j.id === jobId);
                 if (idx !== -1) mediaTrainingJobs[idx].brand_kit = data.job.brand_kit;
                 if (selectedTrainingJob && selectedTrainingJob.id === jobId) {
                     selectedTrainingJob.brand_kit = data.job.brand_kit;
                 }
+
+                // Check if visual extraction is still running
+                const assetStatus = data.job.brand_kit.asset_extraction_status;
+                const extractionDone = assetStatus === 'completed' || assetStatus === 'failed' || assetStatus === 'skipped';
+
+                // Render the brand kit content
                 renderBrandKit(selectedTrainingJob);
+
+                // Only stop polling when EVERYTHING is done (text + extraction)
+                if (extractionDone) {
+                    stopBrandKitPolling();
+                }
             }
         } catch (e) {
             // Silent — keep polling
