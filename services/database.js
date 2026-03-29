@@ -2917,67 +2917,14 @@ export async function getMarketingMetricsHistory(entityId, startDate, endDate) {
  * Optionally filtered by ad account (resolves entity hierarchy: campaigns → ad_sets → ads)
  */
 export async function getMarketingOverview(userId, startDate, endDate, adAccountId = null) {
-  const emptyOverview = { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0, avgCtr: 0, avgCpc: 0, avgCpm: 0 };
+  // Step 1: Try granular daily metrics from marketing_metrics_history
+  let overview = await _getOverviewFromMetricsHistory(userId, startDate, endDate, adAccountId);
 
-  let query = supabaseAdmin
-    .from('marketing_metrics_history')
-    .select('spend, impressions, reach, clicks')
-    .eq('user_id', userId)
-    .gte('date', startDate)
-    .lte('date', endDate);
-
-  // If filtering by ad account, resolve entity IDs through the campaign hierarchy
-  if (adAccountId) {
-    const { data: campaigns } = await supabaseAdmin
-      .from('marketing_campaigns')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('ad_account_id', adAccountId);
-
-    const campaignIds = (campaigns || []).map(c => c.id);
-    if (campaignIds.length === 0) return emptyOverview;
-
-    const { data: adSets } = await supabaseAdmin
-      .from('marketing_ad_sets')
-      .select('id')
-      .in('campaign_id', campaignIds);
-
-    const adSetIds = (adSets || []).map(s => s.id);
-
-    let adIds = [];
-    if (adSetIds.length > 0) {
-      const { data: ads } = await supabaseAdmin
-        .from('marketing_ads')
-        .select('id')
-        .in('ad_set_id', adSetIds);
-      adIds = (ads || []).map(a => a.id);
-    }
-
-    const allEntityIds = [...campaignIds, ...adSetIds, ...adIds];
-    if (allEntityIds.length === 0) return emptyOverview;
-
-    query = query.in('entity_id', allEntityIds);
+  // Step 2: If metrics history is empty (sync hasn't populated it yet),
+  // fall back to aggregating from campaign-level totals which are always up-to-date
+  if (overview.totalSpend === 0 && overview.totalImpressions === 0 && overview.totalReach === 0 && overview.totalClicks === 0) {
+    overview = await _getOverviewFromCampaigns(userId, adAccountId);
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    // Truncate error message if it contains HTML (e.g. Cloudflare error pages)
-    const errorMsg = typeof error.message === 'string' && error.message.includes('<!DOCTYPE')
-      ? 'Supabase returned an HTML error page (possible infrastructure issue or missing table)'
-      : error.message;
-    logger.error(`Error getting marketing overview: ${errorMsg}`, { code: error.code, details: error.details });
-    throw error;
-  }
-
-  // Aggregate the metrics
-  const overview = (data || []).reduce((acc, row) => {
-    acc.totalSpend += parseFloat(row.spend) || 0;
-    acc.totalImpressions += parseInt(row.impressions) || 0;
-    acc.totalReach += parseInt(row.reach) || 0;
-    acc.totalClicks += parseInt(row.clicks) || 0;
-    return acc;
-  }, { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0 });
 
   overview.avgCtr = overview.totalImpressions > 0
     ? (overview.totalClicks / overview.totalImpressions * 100).toFixed(2)
@@ -2990,6 +2937,111 @@ export async function getMarketingOverview(userId, startDate, endDate, adAccount
     : 0;
 
   return overview;
+}
+
+/**
+ * Aggregate overview from marketing_metrics_history (daily granular data).
+ * This is the primary source when the sync worker has populated it.
+ */
+async function _getOverviewFromMetricsHistory(userId, startDate, endDate, adAccountId) {
+  const empty = { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0 };
+
+  let query = supabaseAdmin
+    .from('marketing_metrics_history')
+    .select('spend, impressions, reach, clicks')
+    .eq('user_id', userId)
+    .gte('date', startDate)
+    .lte('date', endDate);
+
+  if (adAccountId) {
+    const entityIds = await _resolveEntityIdsForAdAccount(userId, adAccountId);
+    if (entityIds.length === 0) return empty;
+    query = query.in('entity_id', entityIds);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    const errorMsg = typeof error.message === 'string' && error.message.includes('<!DOCTYPE')
+      ? 'Supabase returned an HTML error page (possible infrastructure issue or missing table)'
+      : error.message;
+    logger.error(`Error getting marketing metrics history: ${errorMsg}`, { code: error.code, details: error.details });
+    return empty;
+  }
+
+  return (data || []).reduce((acc, row) => {
+    acc.totalSpend += parseFloat(row.spend) || 0;
+    acc.totalImpressions += parseInt(row.impressions) || 0;
+    acc.totalReach += parseInt(row.reach) || 0;
+    acc.totalClicks += parseInt(row.clicks) || 0;
+    return acc;
+  }, { ...empty });
+}
+
+/**
+ * Aggregate overview from marketing_campaigns table (campaign-level totals).
+ * Fallback when marketing_metrics_history has no rows — these totals are updated
+ * by the sync worker directly on the campaign record.
+ */
+async function _getOverviewFromCampaigns(userId, adAccountId) {
+  const empty = { totalSpend: 0, totalImpressions: 0, totalReach: 0, totalClicks: 0 };
+
+  let query = supabaseAdmin
+    .from('marketing_campaigns')
+    .select('total_spend, total_impressions, total_reach, total_clicks')
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error(`Error getting campaign totals for overview: ${error.message}`);
+    return empty;
+  }
+
+  return (data || []).reduce((acc, row) => {
+    acc.totalSpend += parseFloat(row.total_spend) || 0;
+    acc.totalImpressions += parseInt(row.total_impressions) || 0;
+    acc.totalReach += parseInt(row.total_reach) || 0;
+    acc.totalClicks += parseInt(row.total_clicks) || 0;
+    return acc;
+  }, { ...empty });
+}
+
+/**
+ * Resolve all entity IDs (campaigns + ad sets + ads) for a given ad account.
+ * Used to filter marketing_metrics_history rows by ad account scope.
+ */
+async function _resolveEntityIdsForAdAccount(userId, adAccountId) {
+  const { data: campaigns } = await supabaseAdmin
+    .from('marketing_campaigns')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId);
+
+  const campaignIds = (campaigns || []).map(c => c.id);
+  if (campaignIds.length === 0) return [];
+
+  const { data: adSets } = await supabaseAdmin
+    .from('marketing_ad_sets')
+    .select('id')
+    .in('campaign_id', campaignIds);
+
+  const adSetIds = (adSets || []).map(s => s.id);
+
+  let adIds = [];
+  if (adSetIds.length > 0) {
+    const { data: ads } = await supabaseAdmin
+      .from('marketing_ads')
+      .select('id')
+      .in('ad_set_id', adSetIds);
+    adIds = (ads || []).map(a => a.id);
+  }
+
+  return [...campaignIds, ...adSetIds, ...adIds];
 }
 
 /**

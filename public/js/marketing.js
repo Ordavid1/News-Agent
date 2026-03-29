@@ -726,26 +726,26 @@ async function loadOverview() {
 }
 
 function renderOverview(data, days) {
-    document.getElementById('overviewSpend').textContent = formatCurrency(data.total_spend || 0);
+    document.getElementById('overviewSpend').textContent = formatCurrency(data.totalSpend || 0);
     document.getElementById('overviewSpendPeriod').textContent = `Last ${days} days`;
-    document.getElementById('overviewReach').textContent = formatNumber(data.total_reach || 0);
-    document.getElementById('overviewClicks').textContent = formatNumber(data.total_clicks || 0);
-    document.getElementById('overviewImpressions').textContent = formatNumber(data.total_impressions || 0);
+    document.getElementById('overviewReach').textContent = formatNumber(data.totalReach || 0);
+    document.getElementById('overviewClicks').textContent = formatNumber(data.totalClicks || 0);
+    document.getElementById('overviewImpressions').textContent = formatNumber(data.totalImpressions || 0);
 
-    const ctr = data.total_impressions > 0
-        ? ((data.total_clicks / data.total_impressions) * 100).toFixed(2)
+    const ctr = data.totalImpressions > 0
+        ? ((data.totalClicks / data.totalImpressions) * 100).toFixed(2)
         : '0.00';
     document.getElementById('overviewCTR').textContent = `${ctr}% CTR`;
 
-    const cpc = data.total_clicks > 0
-        ? (data.total_spend / data.total_clicks).toFixed(2)
-        : '0.00';
-    document.getElementById('overviewCPC').textContent = `$${cpc}`;
+    const cpc = data.totalClicks > 0
+        ? (data.totalSpend / data.totalClicks)
+        : 0;
+    document.getElementById('overviewCPC').textContent = formatCurrency(cpc);
 
-    const cpm = data.total_impressions > 0
-        ? ((data.total_spend / data.total_impressions) * 1000).toFixed(2)
-        : '0.00';
-    document.getElementById('overviewCPM').textContent = `$${cpm}`;
+    const cpm = data.totalImpressions > 0
+        ? (data.totalSpend / data.totalImpressions * 1000)
+        : 0;
+    document.getElementById('overviewCPM').textContent = formatCurrency(cpm);
 
     document.getElementById('overviewActiveCampaigns').textContent = data.activeCampaigns || 0;
     document.getElementById('overviewTotalCampaigns').textContent = `${data.totalCampaigns || 0} total`;
@@ -4528,7 +4528,7 @@ function updateTrainButtonState() {
 // ============================================
 
 /**
- * Handle generation model type radio change (FLUX.2 Pro vs LoRA).
+ * Handle generation model type radio change (Instant Brand Model vs Custom AI Training).
  * Shows/hides LoRA-specific options and updates button text.
  */
 function onGenerationModelChange() {
@@ -4613,12 +4613,12 @@ async function startMediaTraining() {
         });
 
         if (isFlux2Pro && data.job && data.job.status === 'completed') {
-            // FLUX.2 Pro: model is ready instantly
+            // Instant Brand Model: model is ready instantly
             mediaTrainingJobs = [data.job, ...mediaTrainingJobs];
             activeTrainingJob = null;
             renderTrainingHistory();
             renderActiveTrainingStatus();
-            showToast('FLUX.2 Pro model created! You can now generate images.', 'success');
+            showToast('Brand model created! You can now generate images.', 'success');
             switchToViewModelMode(data.job.id);
             loadMediaGenCredits();
         } else {
@@ -4921,7 +4921,7 @@ function renderGenerationSection() {
     if (mediaViewMode === 'view' && selectedTrainingJob && selectedTrainingJob.status === 'completed') {
         const isFlux2Pro = selectedTrainingJob.replicate_model_name === 'flux-2-pro';
         if (selectedLabel) {
-            const typeLabel = isFlux2Pro ? 'FLUX.2 Pro' : 'Brand LoRA';
+            const typeLabel = isFlux2Pro ? 'Instant Brand Model' : 'Custom AI Training';
             const triggerInfo = selectedTrainingJob.trigger_word
                 ? ` | Trigger: ${selectedTrainingJob.trigger_word}`
                 : '';
