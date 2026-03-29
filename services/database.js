@@ -3469,6 +3469,27 @@ export async function countMediaAssets(userId, adAccountId) {
 }
 
 /**
+ * Clear the media assets upload pool for a user's ad account.
+ * DB-only — does NOT remove files from Supabase Storage.
+ * Called after training job creation to prevent cross-model image pollution.
+ */
+export async function clearMediaAssetsPool(userId, adAccountId) {
+  const { data, error } = await supabaseAdmin
+    .from('media_assets')
+    .delete()
+    .eq('user_id', userId)
+    .eq('ad_account_id', adAccountId)
+    .select('id');
+
+  if (error) {
+    logger.error('Error clearing media assets pool:', error);
+    throw error;
+  }
+
+  return data ? data.length : 0;
+}
+
+/**
  * Get a specific training job by ID (scoped to user for security)
  */
 export async function getMediaTrainingJobById(jobId, userId) {

@@ -24,6 +24,7 @@ import {
   createMediaAsset,
   deleteMediaAsset as dbDeleteMediaAsset,
   countMediaAssets,
+  clearMediaAssetsPool,
   getMediaTrainingJobById,
   getMediaTrainingJobs,
   getActiveMediaTrainingJob,
@@ -364,6 +365,15 @@ class MediaAssetService {
       completed_at: null
     });
 
+    // Clear upload pool after snapshot — prevents cross-model image pollution
+    // Storage files remain accessible via training_image_urls snapshot
+    try {
+      const cleared = await clearMediaAssetsPool(userId, adAccountId);
+      logger.info(`Cleared ${cleared} asset(s) from upload pool after training job ${job.id}`);
+    } catch (clearErr) {
+      logger.warn(`Failed to clear upload pool after training job ${job.id}: ${clearErr.message}`);
+    }
+
     return {
       ...job,
       trigger_word: triggerWord,
@@ -481,9 +491,79 @@ class MediaAssetService {
 
   /**
    * Get all training jobs for an ad account.
+   * On first load, remediates any cross-model image pollution in training_image_urls.
    */
   async getTrainingJobs(userId, adAccountId) {
-    return getMediaTrainingJobs(userId, adAccountId);
+    const jobs = await getMediaTrainingJobs(userId, adAccountId);
+
+    // One-time remediation: deduplicate training_image_urls across models
+    // Older models keep their URLs; newer models have duplicates removed
+    await this._remediateTrainingImageUrls(userId, jobs);
+
+    return jobs;
+  }
+
+  /**
+   * Deduplicate training_image_urls across models for an account.
+   * Each URL should appear in exactly one model — the oldest one that trained with it.
+   * Runs idempotently; no-ops if no pollution is found.
+   */
+  async _remediateTrainingImageUrls(userId, jobs) {
+    if (!jobs || jobs.length < 2) return; // nothing to deduplicate with < 2 models
+
+    // Sort oldest-first so the first model retains its full set
+    const sorted = [...jobs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    const seenUrls = new Set();
+    const jobsToUpdate = [];
+
+    for (const job of sorted) {
+      if (!job.training_image_urls || job.training_image_urls.length === 0) continue;
+
+      const cleanedUrls = job.training_image_urls.filter(url => !seenUrls.has(url));
+
+      // Track all URLs from this job (after dedup) as "owned"
+      for (const url of cleanedUrls) {
+        seenUrls.add(url);
+      }
+
+      // If URLs were removed, this job needs updating
+      if (cleanedUrls.length < job.training_image_urls.length) {
+        jobsToUpdate.push({ job, cleanedUrls });
+      }
+    }
+
+    if (jobsToUpdate.length === 0) return; // no pollution found
+
+    logger.info(`[Remediation] Deduplicating training_image_urls for ${jobsToUpdate.length} model(s) (user=${userId})`);
+
+    for (const { job, cleanedUrls } of jobsToUpdate) {
+      try {
+        const removed = job.training_image_urls.length - cleanedUrls.length;
+        await updateMediaTrainingJob(job.id, userId, {
+          training_image_urls: cleanedUrls,
+          image_count: cleanedUrls.length
+        });
+
+        // Update the in-memory job object so the response reflects the fix immediately
+        job.training_image_urls = cleanedUrls;
+        job.image_count = cleanedUrls.length;
+
+        logger.info(`[Remediation] Model "${job.name}" (${job.id}): removed ${removed} duplicate URL(s), now ${cleanedUrls.length} images`);
+
+        // Re-analyze brand kit with the clean image set (non-blocking)
+        if (job.brand_kit && cleanedUrls.length > 0) {
+          await updateMediaTrainingJob(job.id, userId, { brand_kit: null });
+          job.brand_kit = null;
+          logger.info(`[Remediation] Cleared stale brand_kit for model "${job.name}" — triggering re-analysis`);
+          this.analyzeBrandKit(job.id, userId, cleanedUrls, job.ad_account_id).catch(err => {
+            logger.warn(`[Remediation] Brand kit re-analysis failed for ${job.id}: ${err.message}`);
+          });
+        }
+      } catch (err) {
+        logger.warn(`[Remediation] Failed to update model ${job.id}: ${err.message}`);
+      }
+    }
   }
 
   /**
@@ -495,19 +575,37 @@ class MediaAssetService {
 
   /**
    * Delete a training job along with all associated storage files and generated media.
-   * Removes: training images from storage, generated images from storage, DB records.
+   * Removes: training images from storage (only those not used by other models),
+   * generated images from storage, orphan media_assets entries, and DB records.
    */
   async deleteTrainingJob(jobId, userId) {
+    // Fetch job data BEFORE deletion so we can identify its ad_account_id
+    const jobToDelete = await getMediaTrainingJobById(jobId, userId);
+    if (!jobToDelete) return null;
+
+    // Get all sibling models (same account) to protect their storage files
+    const siblingJobs = await getMediaTrainingJobs(userId, jobToDelete.ad_account_id);
+    const siblingUrls = new Set();
+    for (const sibling of siblingJobs) {
+      if (sibling.id === jobId) continue; // skip the one being deleted
+      if (sibling.training_image_urls) {
+        for (const url of sibling.training_image_urls) {
+          siblingUrls.add(url);
+        }
+      }
+    }
+
+    // Now delete the DB records (training job + generated media)
     const result = await dbDeleteMediaTrainingJob(jobId, userId);
     if (!result) return null;
 
     const { job, generatedMedia } = result;
     const storagePaths = [];
 
-    // Collect training image storage paths from their public URLs
+    // Collect training image storage paths — only for URLs NOT referenced by other models
     if (job.training_image_urls && job.training_image_urls.length > 0) {
       for (const url of job.training_image_urls) {
-        // Extract storage path from public URL: .../object/public/media-assets/{path}
+        if (siblingUrls.has(url)) continue; // another model still uses this file
         const marker = `/object/public/${STORAGE_BUCKET}/`;
         const idx = url.indexOf(marker);
         if (idx !== -1) {
@@ -523,7 +621,7 @@ class MediaAssetService {
       }
     }
 
-    // Batch-remove all files from storage
+    // Batch-remove storage files
     if (storagePaths.length > 0) {
       const { error } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
@@ -533,6 +631,27 @@ class MediaAssetService {
         logger.warn(`Failed to remove some storage files for training job ${jobId}: ${error.message}`);
       } else {
         logger.info(`Removed ${storagePaths.length} storage files for deleted training job ${jobId}`);
+      }
+    }
+
+    // Clean up orphaned media_assets entries whose URLs matched this model's training images
+    // (for models created before the pool-cleanup fix)
+    if (job.training_image_urls && job.training_image_urls.length > 0) {
+      try {
+        const urlSet = new Set(job.training_image_urls);
+        const poolAssets = await getUserMediaAssets(userId, job.ad_account_id);
+        const orphanIds = poolAssets
+          .filter(a => urlSet.has(a.public_url))
+          .map(a => a.id);
+
+        if (orphanIds.length > 0) {
+          for (const orphanId of orphanIds) {
+            await dbDeleteMediaAsset(orphanId, userId);
+          }
+          logger.info(`Cleaned up ${orphanIds.length} orphaned media_assets entries for job ${jobId}`);
+        }
+      } catch (orphanErr) {
+        logger.warn(`Failed to clean up orphaned media_assets for job ${jobId}: ${orphanErr.message}`);
       }
     }
 
@@ -619,6 +738,14 @@ class MediaAssetService {
       started_at: new Date().toISOString(),
       completed_at: new Date().toISOString()
     });
+
+    // Clear upload pool after snapshot — prevents cross-model image pollution
+    try {
+      const cleared = await clearMediaAssetsPool(userId, adAccountId);
+      logger.info(`Cleared ${cleared} asset(s) from upload pool after FLUX.2 Pro model ${job.id}`);
+    } catch (clearErr) {
+      logger.warn(`Failed to clear upload pool after FLUX.2 Pro model ${job.id}: ${clearErr.message}`);
+    }
 
     // Auto-set as default model
     try {

@@ -124,6 +124,7 @@ export {
   createMediaAsset,
   deleteMediaAsset,
   countMediaAssets,
+  clearMediaAssetsPool,
   getMediaTrainingJobById,
   getMediaTrainingJobs,
   getActiveMediaTrainingJob,
