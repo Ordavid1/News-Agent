@@ -3828,6 +3828,15 @@ async function loadMediaAssets() {
     selectedTrainingJob = null;
     generatedMedia = [];
 
+    // In new model mode, the upload pool should be fresh (only show images not yet used in any training)
+    // The aggregate pool from the API includes images that may have been used in previous trainings
+    // Clear it — users upload fresh images for each new model
+    if (mediaTrainingJobs.length > 0) {
+        // User has existing models — start with empty pool for new model creation
+        mediaAssets = [];
+    }
+    // If no models exist yet, keep the loaded assets (user may have uploaded but not trained yet)
+
     // Pre-load generation credits so they're ready when a model is selected
     loadMediaGenCredits();
 
