@@ -105,7 +105,7 @@ class NewsService {
 
     // Fetch news for each topic
     for (const topic of topics) {
-      const cacheKey = `${topic}_${effectiveLanguage}_${sortBy}_${region}_${keywords.join(',')}`;
+      const cacheKey = `${topic}_${effectiveLanguage}_${sortBy}_${region}_${lookbackHours}_${keywords.join(',')}`;
       const cached = this.getFromCache(cacheKey);
 
       if (cached) {
@@ -127,13 +127,11 @@ class NewsService {
         }
       }
 
-      // Try news sources, supplementing until we reach the requested article count.
-      // Sources are tried in priority order; each is only called if we still need more articles.
-      const minArticles = limit;
-
-      if (topicNews.length < minArticles || !useHebrewSearch) {
-        // PRIMARY: Try GNews first
-        if (topicNews.length < minArticles && sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
+      // Fetch from all available news sources to maximize the article pool.
+      // Deduplication and scoring happen downstream — cast a wide net here.
+      if (!useHebrewSearch || topicNews.length === 0) {
+        // GNews
+        if (sources.includes('gnews') && this.gnewsApiKey && this.gnewsApiKey !== 'mock-key') {
           try {
             const gnewsResults = await this.fetchFromGNews(topic, effectiveLanguage, sortBy, { keywords, region, lookbackHours });
             topicNews.push(...gnewsResults);
@@ -143,38 +141,35 @@ class NewsService {
           }
         }
 
-        // SUPPLEMENT/FALLBACK: Try NewsAPI if we still need more articles
-        if (topicNews.length < minArticles && sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
+        // NewsAPI
+        if (sources.includes('newsapi') && this.newsApiKey && this.newsApiKey !== 'mock-key') {
           try {
-            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI for topic: ${topic}`);
             const newsApiResults = await this.fetchFromNewsAPI(topic, effectiveLanguage, sortBy, { keywords, region, lookbackHours });
             topicNews.push(...newsApiResults);
-            logger.info(`NewsAPI returned ${newsApiResults.length} articles (total: ${topicNews.length})`);
+            logger.info(`NewsAPI returned ${newsApiResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`NewsAPI error for topic ${topic}:`, error.message);
           }
         }
 
-        // SUPPLEMENT/FALLBACK: Try NewsAPI.ai if we still need more articles
-        if (topicNews.length < minArticles && this.newsAiKey && this.newsAiKey !== 'mock-key') {
+        // NewsAPI.ai
+        if (this.newsAiKey && this.newsAiKey !== 'mock-key') {
           try {
-            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from NewsAPI.ai for topic: ${topic}`);
             const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region, lookbackHours });
             topicNews.push(...newsAiResults);
-            logger.info(`NewsAPI.ai returned ${newsAiResults.length} articles (total: ${topicNews.length})`);
+            logger.info(`NewsAPI.ai returned ${newsAiResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`NewsAPI.ai error for topic ${topic}:`, error.message);
           }
         }
 
-        // Google CSE — only for Israel/Global geo, last resort
+        // Google CSE
         const isIsraelOrGlobal = useHebrewSearch || (region && region.toLowerCase() === 'il') || includeGlobal;
-        if (topicNews.length < minArticles && isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
+        if (isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
           try {
-            logger.info(`Have ${topicNews.length}/${minArticles} articles, supplementing from Google CSE for topic: ${topic}`);
             const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region, lookbackHours });
             topicNews.push(...googleResults);
-            logger.info(`Google CSE returned ${googleResults.length} articles (total: ${topicNews.length})`);
+            logger.info(`Google CSE returned ${googleResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
             logger.error(`Google CSE error for topic ${topic}:`, error.message);
           }
@@ -204,11 +199,13 @@ class NewsService {
       allNews.push(...topicNews);
     }
 
-    // Apply keyword filtering to results if keywords were specified
+    // Rank articles by keyword relevance — keyword-matching articles first, then the rest
+    // Keywords are a ranking signal, not a hard filter (EnhancedNewsService scores them further)
     let filteredNews = allNews;
     if (keywords.length > 0) {
-      filteredNews = this.filterByKeywords(allNews, keywords);
-      logger.info(`Filtered ${allNews.length} articles down to ${filteredNews.length} using keywords`);
+      const { matched, rest } = this.rankByKeywords(allNews, keywords);
+      logger.info(`Ranked ${allNews.length} articles: ${matched.length} match keywords, ${rest.length} topic-only`);
+      filteredNews = [...matched, ...rest];
     }
 
     // Filter out articles in wrong language (e.g. Japanese article when expecting English)
@@ -317,23 +314,36 @@ class NewsService {
    * Multi-word keywords use token-based matching: all tokens must appear in the
    * article text (in any order/position). Single-word keywords use direct substring match.
    */
-  filterByKeywords(articles, keywords) {
-    if (!keywords || keywords.length === 0) return articles;
+  /**
+   * Partition articles into keyword-matched and non-matched groups.
+   * Keyword-matched articles are ranked first; non-matched articles still pass through
+   * so the topic category results are never lost.
+   */
+  rankByKeywords(articles, keywords) {
+    if (!keywords || keywords.length === 0) return { matched: articles, rest: [] };
 
-    // Prepare keyword matchers: each keyword becomes an array of tokens
     const keywordMatchers = keywords.map(k => {
       const clean = k.replace(/^#/, '').toLowerCase().trim();
       const tokens = clean.split(/\s+/).filter(t => t.length > 0);
       return tokens;
     });
 
-    return articles.filter(article => {
+    const matched = [];
+    const rest = [];
+
+    for (const article of articles) {
       const text = `${article.title || ''} ${article.description || ''} ${article.content || ''}`.toLowerCase();
-      // Article passes if ANY keyword matches (all its tokens present in text)
-      return keywordMatchers.some(tokens =>
+      const hasKeyword = keywordMatchers.some(tokens =>
         tokens.every(token => text.includes(token))
       );
-    });
+      if (hasKeyword) {
+        matched.push(article);
+      } else {
+        rest.push(article);
+      }
+    }
+
+    return { matched, rest };
   }
 
   async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance', filters = {}) {
