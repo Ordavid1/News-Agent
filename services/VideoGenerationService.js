@@ -165,7 +165,8 @@ class VideoGenerationService {
       parameters: {
         aspectRatio: '9:16',
         resolution: '1080p',
-        durationSeconds: 8
+        durationSeconds: 8,
+        personGeneration: 'allow_adult'   // Reduce false positives on adult faces
       }
     };
 
@@ -224,9 +225,16 @@ class VideoGenerationService {
         || result?.response?.generateVideoResponse?.raiMediaFilteredCount
         || result?.metadata?.raiMediaFilteredCount;
 
+      // Extract detailed RAI filter reasons (enabled by includeRaiReason: true)
+      const filterReasons = result?.response?.generateVideoResponse?.raiMediaFilteredReasons
+        || result?.metadata?.raiMediaFilteredReasons
+        || [];
+
       if (filterReason) {
+        const reasonDetail = filterReasons.length > 0 ? filterReasons.join('; ') : String(filterReason);
+        logger.warn(`Veo RAI filter reasons: ${reasonDetail}`);
         throw new ContentFilterError(
-          `Veo video was blocked by content filters: ${filterReason}`,
+          `Veo video was blocked by content filters: ${reasonDetail}`,
           { originalPrompt: prompt, model: 'veo' }
         );
       }
@@ -327,9 +335,29 @@ class VideoGenerationService {
     const client = new RunwayML({ apiKey: this.runwayApiKey });
 
     // Submit image-to-video task (or text-only if image is skipped)
+    // Runway Gen-4.5 has a 1000-char prompt limit (vs Veo's 1400).
+    // When used as fallback, the prompt may have been generated for Veo's limit — truncate gracefully.
+    const RUNWAY_PROMPT_LIMIT = 1000;
+    let runwayPrompt = prompt;
+
+    // Strip Veo audio direction paragraph when falling back from Veo → Runway
+    // Veo prompts include "Audio direction:" as the final paragraph; Runway doesn't use audio cues
+    const audioDirectionIndex = runwayPrompt.search(/\n\n\s*Audio direction:/i);
+    if (audioDirectionIndex > 0) {
+      logger.info('Stripping Veo audio direction from prompt for Runway fallback');
+      runwayPrompt = runwayPrompt.slice(0, audioDirectionIndex).trim();
+    }
+
+    if (runwayPrompt.length > RUNWAY_PROMPT_LIMIT) {
+      logger.warn(`Prompt exceeds Runway's ${RUNWAY_PROMPT_LIMIT}-char limit (${runwayPrompt.length} chars) — truncating`);
+      const truncated = runwayPrompt.slice(0, RUNWAY_PROMPT_LIMIT);
+      const lastPeriod = truncated.lastIndexOf('.');
+      runwayPrompt = lastPeriod > RUNWAY_PROMPT_LIMIT * 0.7 ? truncated.slice(0, lastPeriod + 1) : truncated.slice(0, RUNWAY_PROMPT_LIMIT - 3) + '...';
+    }
+
     const taskParams = {
       model: 'gen4.5',
-      promptText: prompt,
+      promptText: runwayPrompt,
       ratio: '720:1280',
       duration: 10
     };

@@ -639,20 +639,33 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
 
   /**
    * Describe an image using Gemini Flash vision model.
-   * Returns a concise 1-2 sentence description of the image contents,
-   * focusing on visible subjects, their appearance, the setting, and any logos/text.
-   *
-   * Used to give the video prompt LLM concrete knowledge of the starting frame
-   * instead of forcing it to guess from article context alone.
+   * Thin wrapper around describeAndScreenImage() — returns just the description string.
    *
    * @param {string} imageUrl - Publicly accessible image URL
    * @returns {Promise<string|null>} Image description, or null on failure
    */
   async describeImage(imageUrl) {
+    const result = await this.describeAndScreenImage(imageUrl);
+    return result?.description || null;
+  }
+
+  /**
+   * Describe and safety-screen an image in a single Gemini Flash vision call.
+   * Returns both a factual description (for video prompt context) and a safety
+   * verdict indicating whether the image is likely to pass Veo's content filters.
+   *
+   * Safety criteria are based on Google Veo's official documented filter categories:
+   * https://docs.cloud.google.com/vertex-ai/generative-ai/docs/video/responsible-ai-and-usage-guidelines
+   *
+   * @param {string} imageUrl - Publicly accessible image URL
+   * @returns {Promise<{description: string|null, videoSafe: boolean, riskFactors: string[]}>}
+   */
+  async describeAndScreenImage(imageUrl) {
+    const safeDefault = { description: null, videoSafe: true, riskFactors: [] };
     const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
     if (!googleApiKey || !imageUrl) {
-      logger.info('Image description skipped — no API key or image URL');
-      return null;
+      logger.info('Image screening skipped — no API key or image URL');
+      return safeDefault;
     }
 
     try {
@@ -671,7 +684,7 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
 
       const base64Image = Buffer.from(imageResponse.data).toString('base64');
 
-      // Call Gemini Flash for vision description
+      // Combined description + safety screening in one Gemini Flash vision call
       const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
       const response = await axios.post(endpoint, {
@@ -684,10 +697,43 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
               }
             },
             {
-              text: 'Describe this image in 1-2 concise sentences. Focus on: who or what is visible, their attire and appearance, the setting or background, and any visible logos or text. Be factual and specific — describe what you see, not what you interpret.'
+              text: `Analyze this image and respond in JSON format only:
+{
+  "description": "<1-2 sentence factual description of what's visible>",
+  "videoSafe": true or false,
+  "riskFactors": ["<list of risk factors found, empty array if safe>"]
+}
+
+DESCRIPTION rules: Focus on who or what is visible, their attire and appearance, the setting or background, and any visible logos or text. Be factual and specific.
+
+VIDEO SAFETY rules — mark videoSafe as false ONLY for clear, unambiguous violations.
+The video generation API uses personGeneration="allow_adult", so adults and teenagers in normal contexts are ALLOWED.
+
+Mark videoSafe=false ONLY if the image clearly contains:
+- Young children (clearly pre-teen, approximately under 12) as the main subject
+- Identifiable real celebrities, politicians, or public figures (by name recognition, not just any person)
+- Weapons, firearms, knives, or ammunition prominently displayed
+- Blood, gore, graphic injury, or death
+- Sexually explicit or clearly suggestive content
+- Drug use or drug paraphernalia
+
+Mark videoSafe=true for:
+- Teenagers or young adults in sports, school, or normal daily contexts
+- Any person whose age is ambiguous — when in doubt, mark SAFE
+- News photography of people, crowds, events
+- Any sports scene regardless of equipment or protective gear
+- Protest or political gatherings without graphic violence
+- Medical or emergency settings without graphic gore
+
+Err on the side of SAFE. Only flag clear, obvious violations.
+
+Respond with ONLY the JSON object, no markdown fences, no explanation.`
             }
           ]
-        }]
+        }],
+        generationConfig: {
+          temperature: 0.1 // Low temperature for consistent safety classification
+        }
       }, {
         headers: {
           'x-goog-api-key': googleApiKey,
@@ -696,19 +742,39 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
         timeout: 15000
       });
 
-      const description = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
-      if (description) {
-        logger.info(`Image described: ${description.slice(0, 100)}...`);
-        return description;
+      if (!rawText) {
+        logger.warn('Gemini Flash returned empty image screening response');
+        return safeDefault;
       }
 
-      logger.warn('Gemini Flash returned empty image description');
-      return null;
+      // Parse JSON response — fail-open on parse errors
+      try {
+        // Strip markdown code fences if present
+        const jsonText = rawText.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim();
+        const parsed = JSON.parse(jsonText);
+
+        const description = parsed.description || null;
+        const videoSafe = parsed.videoSafe !== false; // Default to safe if ambiguous
+        const riskFactors = Array.isArray(parsed.riskFactors) ? parsed.riskFactors : [];
+
+        if (description) {
+          logger.info(`Image described: ${description.slice(0, 100)}...`);
+        }
+        logger.info(`Image video safety: ${videoSafe ? 'SAFE' : 'UNSAFE'}${riskFactors.length > 0 ? ` — risk factors: ${riskFactors.join(', ')}` : ''}`);
+
+        return { description, videoSafe, riskFactors };
+      } catch (parseError) {
+        // JSON parse failed — use raw text as description, fail-open on safety
+        logger.warn(`Image screening JSON parse failed (fail-open): ${parseError.message}`);
+        logger.info(`Image described (raw): ${rawText.slice(0, 100)}...`);
+        return { description: rawText, videoSafe: true, riskFactors: [] };
+      }
     } catch (error) {
-      // Non-critical — fall back to generic image guidance if vision fails
-      logger.warn(`Image description failed (non-blocking): ${error.message}`);
-      return null;
+      // Non-critical — fail-open, don't block video generation on screening failure
+      logger.warn(`Image screening failed (non-blocking): ${error.message}`);
+      return safeDefault;
     }
   }
 
@@ -721,9 +787,11 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
    * @param {string} caption - Generated TikTok caption text
    * @param {Object} agentSettings - Agent settings
    * @param {string|null} imageUrl - Article featured image URL (for vision description)
+   * @param {Object} [options] - Optional parameters
+   * @param {string|null} [options.cachedImageDescription] - Pre-computed image description (from describeAndScreenImage), skips redundant describeImage call
    * @returns {Promise<string>} Video generation prompt
    */
-  async generateVideoPrompt(trend, caption, agentSettings = {}, imageUrl = null) {
+  async generateVideoPrompt(trend, caption, agentSettings = {}, imageUrl = null, { cachedImageDescription = null } = {}) {
     const { default: VideoPromptEngine } = await import('./VideoPromptEngine.js');
 
     const model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
@@ -731,10 +799,11 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
     const googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
 
     // Phase 1: Parallel data enrichment — scrape article + describe image simultaneously
+    // If cachedImageDescription is provided (from pre-screening), skip the redundant describeImage call
     const originalSummary = trend.summary || trend.description || '';
     const [fullContent, imageDescription] = await Promise.all([
       this.scrapeArticleContent(trend.url),
-      this.describeImage(imageUrl)
+      cachedImageDescription ? Promise.resolve(cachedImageDescription) : this.describeImage(imageUrl)
     ]);
 
     // Phase 2: Generate editorial storyline from full article content

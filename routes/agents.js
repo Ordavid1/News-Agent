@@ -705,6 +705,10 @@ router.get('/:id/test/progress', authenticateToken, async (req, res) => {
  * NOTE: Each agent can only use the Test button ONCE. This is persisted server-side.
  */
 router.post('/:id/test', authenticateToken, async (req, res) => {
+  // Extend request timeout for video generation (Runway can take 5-10 min, plus cascade retries)
+  req.setTimeout(720000); // 12 minutes
+  res.setTimeout(720000);
+
   const userId = req.user.id;
   const agentId = req.params.id;
 
@@ -1039,17 +1043,88 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         });
       }
 
+      // Step 2.55: Pre-screen image for Veo content filter safety
+      // Uses Gemini Flash vision to check if the image is likely to trigger Veo's
+      // documented content filters BEFORE burning expensive video generation API calls.
+      const ContentGenerator = (await import('../services/ContentGenerator.js')).default;
+      const contentGen = new ContentGenerator();
+      let cachedImageDescription = null;
+
+      testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Screening image for video safety...');
+      const screenResult = await contentGen.describeAndScreenImage(imageUrl);
+      cachedImageDescription = screenResult.description;
+
+      if (!screenResult.videoSafe) {
+        const originalUnsafeImageUrl = imageUrl;
+        console.log(`[Agent Test] Image flagged as unsafe for video generation: ${screenResult.riskFactors.join(', ')}`);
+        testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Image may trigger video filter (${screenResult.riskFactors[0] || 'content policy'}) — finding alternative...`);
+
+        // Try alternative image from same article
+        const altImageExtractor = new ImageExtractor();
+        const altImageUrl = await altImageExtractor.extractAlternativeImage(
+          trendData.url, trendData.title, trendData.source, imageUrl
+        );
+
+        if (altImageUrl) {
+          console.log(`[Agent Test] Alternative image found: ${altImageUrl} — screening...`);
+          const altScreenResult = await contentGen.describeAndScreenImage(altImageUrl);
+
+          if (altScreenResult.videoSafe) {
+            console.log(`[Agent Test] Alternative image passed safety screening`);
+            imageUrl = altImageUrl;
+            cachedImageDescription = altScreenResult.description;
+          } else {
+            console.log(`[Agent Test] Alternative image also flagged: ${altScreenResult.riskFactors.join(', ')}`);
+          }
+        } else {
+          console.log(`[Agent Test] No alternative image found in same article`);
+        }
+
+        // If no safe replacement found yet, try alternative article
+        if (imageUrl === originalUnsafeImageUrl) {
+          try {
+            const ArticleSearcher = (await import('../services/ArticleSearcher.js')).default;
+            const articleSearcher = new ArticleSearcher();
+            const altArticleUrl = await articleSearcher.searchArticleByTitle(trendData.title, trendData.source);
+
+            if (altArticleUrl && altArticleUrl !== trendData.url) {
+              console.log(`[Agent Test] Found alternative article: ${altArticleUrl}`);
+              const altExtractor = new ImageExtractor();
+              const altArticleImage = await altExtractor.extractImageFromArticle(altArticleUrl, trendData.title, trendData.source);
+
+              if (altArticleImage && altArticleImage !== imageUrl) {
+                const altArticleScreenResult = await contentGen.describeAndScreenImage(altArticleImage);
+                if (altArticleScreenResult.videoSafe) {
+                  console.log(`[Agent Test] Alternative article image passed safety screening: ${altArticleImage}`);
+                  imageUrl = altArticleImage;
+                  cachedImageDescription = altArticleScreenResult.description;
+                } else {
+                  console.log(`[Agent Test] Alternative article image also flagged — proceeding with original (cascade will handle)`);
+                }
+              }
+            }
+          } catch (searchError) {
+            console.warn(`[Agent Test] Alternative article search failed: ${searchError.message}`);
+          }
+        }
+      } else {
+        console.log(`[Agent Test] Image passed video safety screening`);
+      }
+
       testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Generating video from article image...');
       console.log(`[Agent Test] Generating video for ${platformDisplayName}...`);
 
       try {
-        const ContentGenerator = (await import('../services/ContentGenerator.js')).default;
-        const contentGen = new ContentGenerator();
-        const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings, imageUrl);
+        const videoPrompt = await contentGen.generateVideoPrompt(trendData, generatedContent.text, agentSettings, imageUrl, { cachedImageDescription });
 
         const videoGenerationService = (await import('../services/VideoGenerationService.js')).default;
 
         // ── Video generation with multi-level fallback cascade ──
+        // Deadline: cap total video gen time to stay within Render's 300s proxy timeout.
+        // Pre-video steps take ~40-60s, so allow ~4 min for the cascade.
+        const VIDEO_CASCADE_DEADLINE = Date.now() + 240000; // 4 minutes
+        const isCascadeExpired = () => Date.now() > VIDEO_CASCADE_DEADLINE;
+
         // Phase 1: Primary model + image (with rephrase retries)
         // Phase 2: Fallback model + same image (with 1 rephrase)
         // Phase 3: Alternative image from same article → primary model
@@ -1080,12 +1155,19 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
               primaryExhausted = true;
               break;
             } else {
-              throw filterError; // Non-filter errors propagate immediately
+              // Non-filter error (400, 429, timeout) — don't throw, fall through to fallback model
+              console.warn(`[Agent Test] Primary model failed with non-filter error: ${filterError.message}`);
+              primaryExhausted = true;
+              break;
             }
           }
         }
 
-        // Phase 2: Fallback model with same image (if primary model exhausted)
+        // Phase 2: Fallback model with same image (if primary model exhausted or errored)
+        if (isCascadeExpired() && !videoResult) {
+          console.warn(`[Agent Test] Video cascade deadline reached before Phase 2 — skipping remaining phases`);
+          throw new Error('Video generation timed out — cascade deadline exceeded');
+        }
         if (primaryExhausted && !videoResult && videoGenerationService.hasFallback) {
           const fallbackModel = videoGenerationService.fallbackModel;
           console.log(`[Agent Test] Primary model exhausted — trying fallback model (${fallbackModel}) with same image...`);
@@ -1110,8 +1192,11 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
                   useModel: fallbackModel
                 });
               } catch (fallbackRetryError) {
-                if (!fallbackRetryError.isContentFilter) throw fallbackRetryError;
-                console.log(`[Agent Test] Fallback model (${fallbackModel}) rephrase also blocked — image likely triggers filter`);
+                if (fallbackRetryError.isContentFilter) {
+                  console.log(`[Agent Test] Fallback model (${fallbackModel}) rephrase also blocked — image likely triggers filter`);
+                } else {
+                  console.warn(`[Agent Test] Fallback model (${fallbackModel}) rephrase failed with non-filter error: ${fallbackRetryError.message}`);
+                }
               }
             } else {
               // Non-filter error on fallback (e.g. 429, missing key) — log and continue to Phase 3
@@ -1121,7 +1206,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         }
 
         // Phase 3: Alternative image from same article
-        if (!videoResult) {
+        if (!videoResult && isCascadeExpired()) {
+          console.warn(`[Agent Test] Video cascade deadline reached before Phase 3 — skipping remaining phases`);
+        } else if (!videoResult) {
           console.log(`[Agent Test] Both models failed with original image — searching for alternative image from same article...`);
           testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Searching for alternative article image...');
 
@@ -1148,7 +1235,9 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         }
 
         // Phase 4: Search for alternative article covering the same story
-        if (!videoResult) {
+        if (!videoResult && isCascadeExpired()) {
+          console.warn(`[Agent Test] Video cascade deadline reached before Phase 4 — skipping`);
+        } else if (!videoResult) {
           console.log(`[Agent Test] Searching for alternative article about same topic...`);
           testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Searching alternative article source...');
 
@@ -1171,8 +1260,11 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
                     prompt: currentPrompt
                   });
                 } catch (altArticleError) {
-                  if (!altArticleError.isContentFilter) throw altArticleError;
-                  console.log(`[Agent Test] Alternative article image also blocked by content filter`);
+                  if (altArticleError.isContentFilter) {
+                    console.log(`[Agent Test] Alternative article image also blocked by content filter`);
+                  } else {
+                    console.warn(`[Agent Test] Alternative article image failed with non-filter error: ${altArticleError.message}`);
+                  }
                 }
               } else {
                 console.log(`[Agent Test] Alternative article yielded same or no image`);
@@ -1187,7 +1279,8 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
         // All phases exhausted
         if (!videoResult) {
-          throw new Error('Video generation failed — all models and image alternatives exhausted by content filters');
+          const reason = isCascadeExpired() ? 'cascade deadline exceeded' : 'all models and image alternatives exhausted';
+          throw new Error(`Video generation failed — ${reason}`);
         }
 
         imageUrl = null; // TikTok doesn't use image directly — use video instead
@@ -1224,7 +1317,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     const content = {
       text: generatedContent.text,
       trend: trendData.title,
-      topic: selectedTopic,
+      topic: trendData.topic || topics[0] || '',
       source: trendData,
       imageUrl: imageUrl,
       generatedAt: new Date().toISOString()
@@ -1330,7 +1423,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     // Step 4: Record the post and update agent stats
     testProgressEmitter.emitProgress(userId, agentId, 'saving', 'Saving results...');
     const post = await createPost(userId, {
-      topic: selectedTopic,
+      topic: trendData.topic || topics[0] || '',
       content: generatedContent.text,
       platforms: [platform],
       status: publishResult?.success ? 'published' : 'failed',
@@ -1382,7 +1475,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
     await logUsage(userId, 'agent_test_post', {
       agentId,
       platform,
-      topic: selectedTopic,
+      topic: trendData.topic || topics[0] || '',
       success: publishResult?.success || false
     });
 
@@ -1404,7 +1497,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       },
       post: {
         id: post.id,
-        topic: selectedTopic,
+        topic: trendData.topic || topics[0] || '',
         content: generatedContent.text,
         tone,
         trend: trendData.title,

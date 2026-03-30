@@ -18,9 +18,10 @@ import {
   incrementAgentPost,
   logAgentAutomation,
   getUserById,
-  calculatePostingInterval
+  calculatePostingInterval,
+  decrementPostsRemaining
 } from './database-wrapper.js';
-import { checkVideoQuota, checkAndDecrementPostQuota } from '../middleware/subscription.js';
+import { checkVideoQuota, checkPostQuota } from '../middleware/subscription.js';
 import {
   publishToTwitter,
   publishToLinkedIn,
@@ -471,8 +472,8 @@ class AutomationManager {
       }
     }
 
-    // 3.10 Check user's subscription post quota before publishing
-    const quotaResult = await checkAndDecrementPostQuota(userId);
+    // 3.10 Check user's subscription post quota before publishing (decrement only after success)
+    const quotaResult = await checkPostQuota(userId);
     if (!quotaResult.allowed) {
       agentLog('warn', `User post quota exhausted (${quotaResult.error}) — skipping`);
       return { success: false, error: quotaResult.error };
@@ -482,18 +483,25 @@ class AutomationManager {
     const publishResult = await this.publishForAgent(agent, content, trend);
 
     if (publishResult.success) {
-      // 5. Update agent statistics
+      // 5. Decrement post quota now that publish succeeded
+      try {
+        await decrementPostsRemaining(userId);
+      } catch (decrementError) {
+        agentLog('error', `Failed to decrement post quota: ${decrementError.message}`);
+      }
+
+      // 6. Update agent statistics
       await incrementAgentPost(agent.id);
 
-      // 6. Record rate limit usage
+      // 7. Record rate limit usage
       await this.rateLimiter.recordUsage(userId, platform);
 
-      // 7. Mark trend as used (if supported)
+      // 8. Mark trend as used (if supported)
       if (trend.score !== undefined) {
         await this.postingStrategy.markTrendAsUsed(trend);
       }
 
-      // 8. Mark article as used in persistent deduplication (prevents reuse for 24h)
+      // 9. Mark article as used in persistent deduplication (prevents reuse for 24h)
       if (trend.url) {
         await this.articleDedup.markArticleUsed(agent.id, {
           url: trend.url,
@@ -503,7 +511,7 @@ class AutomationManager {
         });
       }
 
-      // 9. Log publication
+      // 10. Log publication
       await this.logAgentPublication(agent, trend, content, publishResult);
 
       agentLog('info', `✅ Successfully posted to ${platform}`);
@@ -573,8 +581,8 @@ class AutomationManager {
 
     agentLog('info', `Selected product: "${product.title.slice(0, 60)}..." (${product.commissionRate}% commission)`);
 
-    // 4. Check subscription quota before expensive content generation
-    const quotaCheck = await checkAndDecrementPostQuota(userId);
+    // 4. Check subscription quota before expensive content generation (decrement only after success)
+    const quotaCheck = await checkPostQuota(userId);
     if (!quotaCheck.allowed) {
       agentLog('warn', `Post quota exceeded: ${quotaCheck.error}`);
       return { success: false, error: quotaCheck.error };
@@ -597,7 +605,14 @@ class AutomationManager {
     });
 
     if (publishResult.success) {
-      // 7. Record published product for deduplication
+      // 7. Decrement post quota now that publish succeeded
+      try {
+        await decrementPostsRemaining(userId);
+      } catch (decrementError) {
+        agentLog('error', `Failed to decrement post quota: ${decrementError.message}`);
+      }
+
+      // 8. Record published product for deduplication
       try {
         await recordAffiliatePublishedProduct({
           userId,
@@ -615,7 +630,7 @@ class AutomationManager {
         agentLog('warn', `Failed to record published product (dedup may not work): ${recordError.message}`);
       }
 
-      // 8. Increment agent post counter + log automation
+      // 9. Increment agent post counter + log automation
       await incrementAgentPost(agent.id);
       await logAgentAutomation(agent.id, userId, platform, {
         contentType: 'affiliate_product',
@@ -660,8 +675,8 @@ class AutomationManager {
       return { success: false, error: 'profile_not_ready' };
     }
 
-    // 2. Check subscription post quota
-    const quotaCheck = await checkAndDecrementPostQuota(userId);
+    // 2. Check subscription post quota (decrement only after success)
+    const quotaCheck = await checkPostQuota(userId);
     if (!quotaCheck.allowed) {
       agentLog('warn', `Post quota exceeded: ${quotaCheck.error}`);
       return { success: false, error: quotaCheck.error };
@@ -803,7 +818,14 @@ class AutomationManager {
     });
 
     if (publishResult.success) {
-      // 7. Record generated post + update stats
+      // 7. Decrement post quota now that publish succeeded
+      try {
+        await decrementPostsRemaining(userId);
+      } catch (decrementError) {
+        agentLog('error', `Failed to decrement post quota: ${decrementError.message}`);
+      }
+
+      // 8. Record generated post + update stats
       try {
         await insertBrandVoiceGeneratedPost(userId, profileId, {
           platform,

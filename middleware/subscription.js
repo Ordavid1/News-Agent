@@ -83,14 +83,14 @@ export const POST_LIMITS = {
 };
 
 /**
- * Check and atomically decrement a user's post quota.
- * Callable from both HTTP middleware and background automation.
+ * Check a user's post quota (without decrementing).
  * Handles reset-date rollover automatically.
+ * Call decrementPostsRemaining() separately after a successful publish.
  *
  * @param {string} userId
  * @returns {Promise<{allowed: boolean, postsRemaining?: number, error?: string}>}
  */
-export async function checkAndDecrementPostQuota(userId) {
+export async function checkPostQuota(userId) {
   const user = await getUserById(userId);
   if (!user || !user.subscription) {
     return { allowed: false, error: 'user_not_found' };
@@ -120,10 +120,20 @@ export async function checkAndDecrementPostQuota(userId) {
     return { allowed: false, error: 'post_limit_reached', postsRemaining: 0 };
   }
 
-  // Atomically decrement
-  await decrementPostsRemaining(userId);
+  return { allowed: true, postsRemaining: sub.postsRemaining };
+}
 
-  return { allowed: true, postsRemaining: (sub.postsRemaining ?? 1) - 1 };
+/**
+ * @deprecated Use checkPostQuota() + decrementPostsRemaining() instead.
+ * This function decrements quota immediately on check, consuming credits even if the post fails.
+ */
+export async function checkAndDecrementPostQuota(userId) {
+  const result = await checkPostQuota(userId);
+  if (result.allowed) {
+    await decrementPostsRemaining(userId);
+    return { allowed: true, postsRemaining: result.postsRemaining - 1 };
+  }
+  return result;
 }
 
 export function getNextResetDate(tier = 'free') {
