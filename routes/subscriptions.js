@@ -2046,7 +2046,7 @@ router.post('/playable-gen-checkout', async (req, res) => {
       custom: {
         user_id: req.user.id,
         purchase_type: 'playable_content_gen',
-        quantity: totalCredits
+        quantity: String(totalCredits)
       }
     };
 
