@@ -269,21 +269,30 @@ class MediaAssetService {
       throw new Error('Replicate model owner not configured. Set REPLICATE_MODEL_OWNER environment variable.');
     }
 
-    // Check minimum images
-    const assetCount = await countMediaAssets(userId, adAccountId);
-    if (assetCount < MIN_TRAINING_IMAGES) {
-      throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required for training. Currently have ${assetCount}.`);
-    }
-
     // Concurrency guard: only one active training per account at a time
     const activeJob = await getActiveMediaTrainingJob(userId, adAccountId);
     if (activeJob) {
       throw new Error('A training is already in progress for this account. Please wait for it to complete.');
     }
 
-    // Gather all image URLs (shared pool, snapshot for audit trail)
+    // Gather NEW image URLs — exclude any already snapshotted by existing models
     const assets = await getUserMediaAssets(userId, adAccountId);
-    const imageUrls = assets.map(a => a.public_url);
+    const existingJobs = await getMediaTrainingJobs(userId, adAccountId);
+    const ownedUrls = new Set();
+    for (const existingJob of existingJobs) {
+      if (existingJob.training_image_urls) {
+        for (const url of existingJob.training_image_urls) {
+          ownedUrls.add(url);
+        }
+      }
+    }
+    const imageUrls = assets.map(a => a.public_url).filter(url => !ownedUrls.has(url));
+    const assetCount = imageUrls.length;
+
+    // Check minimum images (against filtered count, not raw pool)
+    if (assetCount < MIN_TRAINING_IMAGES) {
+      throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required for training. Currently have ${assetCount}.`);
+    }
 
     // Download images and create a zip in memory
     const zipBuffer = await this._createTrainingZip(imageUrls);
@@ -707,24 +716,34 @@ class MediaAssetService {
       throw new Error('Replicate not configured. Set REPLICATE_API_TOKEN environment variable.');
     }
 
-    // Check minimum images
-    const assetCount = await countMediaAssets(userId, adAccountId);
-    if (assetCount < MIN_TRAINING_IMAGES) {
-      throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required. Currently have ${assetCount}.`);
-    }
-
     // Concurrency guard (same as training)
     const activeJob = await getActiveMediaTrainingJob(userId, adAccountId);
     if (activeJob) {
       throw new Error('A training is already in progress for this account. Please wait for it to complete.');
     }
 
-    // Snapshot reference image URLs (up to 8 for FLUX.2 Pro)
+    // Gather NEW image URLs — exclude any already snapshotted by existing models
     const assets = await getUserMediaAssets(userId, adAccountId);
-    const imageUrls = assets.map(a => a.public_url);
+    const existingJobs = await getMediaTrainingJobs(userId, adAccountId);
+    const ownedUrls = new Set();
+    for (const existingJob of existingJobs) {
+      if (existingJob.training_image_urls) {
+        for (const url of existingJob.training_image_urls) {
+          ownedUrls.add(url);
+        }
+      }
+    }
+    const imageUrls = assets.map(a => a.public_url).filter(url => !ownedUrls.has(url));
+    const assetCount = imageUrls.length;
+
+    // Check minimum images (against filtered count, not raw pool)
+    if (assetCount < MIN_TRAINING_IMAGES) {
+      throw new Error(`At least ${MIN_TRAINING_IMAGES} images are required. Currently have ${assetCount}.`);
+    }
+
     const refUrls = imageUrls.slice(0, FLUX2_PRO_MAX_REFS);
 
-    logger.info(`Creating FLUX.2 Pro model with ${refUrls.length} reference images (${imageUrls.length} total uploaded)`);
+    logger.info(`Creating FLUX.2 Pro model with ${refUrls.length} reference images (${assetCount} new uploads, pool had ${assets.length} total)`);
 
     // Create a completed model record immediately (no training)
     const job = await createMediaTrainingJob(userId, adAccountId, {
