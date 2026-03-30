@@ -65,7 +65,8 @@ const MIN_TRAINING_IMAGES = 10;
 const MAX_BRAND_KIT_ASSETS = 15;
 const ASSET_CONFIDENCE_THRESHOLD = 0.75;
 const REMBG_MODEL = 'bria/remove-background:5ecc270b34e9d8e1f007d9dbd3c724f0badf638f05ffaa0c5e0634ed64d3d378';
-const EDIT_MODEL = 'ideogram-ai/ideogram-v3-quality';
+const IDEOGRAM_MODEL = 'ideogram-ai/ideogram-v3-quality';
+const NANO_BANANA_MODEL = 'google/nano-banana-pro';
 
 // Replicate trainer model
 const TRAINER_OWNER = 'ostris';
@@ -1578,46 +1579,77 @@ class MediaAssetService {
       editLabel = '[Text Overlay]';
       logger.info(`Text overlay: "${textToRender}" at ${position.label}`);
     } else {
-      // VISUAL EDIT PATH — Ideogram V3
+      // VISUAL EDIT PATH — Nano Banana Pro or Ideogram V3
       if (!this.replicate) {
         throw new Error('Replicate not configured.');
       }
 
-      const metadata = await sharp(sourceBuffer).metadata();
-      const region = this._parsePositionFromPrompt(editPrompt);
+      const editModel = options.editModel || 'nano-banana';
+      let output;
+      const tmpPaths = [];
 
-      // If no position detected, default to center region (frontend should enforce position but fallback here)
-      if (region.label === 'full image') {
-        region.x = 0.2; region.y = 0.2; region.w = 0.6; region.h = 0.6;
-        region.label = 'center (fallback)';
+      if (editModel === 'ideogram') {
+        // IDEOGRAM — mask-based inpainting for targeted regional edits
+        const metadata = await sharp(sourceBuffer).metadata();
+        const region = this._parsePositionFromPrompt(editPrompt);
+
+        if (region.label === 'full image') {
+          region.x = 0.2; region.y = 0.2; region.w = 0.6; region.h = 0.6;
+          region.label = 'center (fallback)';
+        }
+
+        const maskBuffer = await this._generateMask(metadata.width, metadata.height, region);
+
+        await this.ensureBucket();
+        const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
+        const tmpMaskPath = `${userId}/${adAccountId}/brand-kit/tmp-edit-mask-${crypto.randomUUID().slice(0, 8)}.png`;
+        const sourcePng = await sharp(sourceBuffer).png().toBuffer();
+
+        await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
+        await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpMaskPath, maskBuffer, { contentType: 'image/png', upsert: false });
+        tmpPaths.push(tmpSourcePath, tmpMaskPath);
+
+        const { data: srcUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpSourcePath);
+        const { data: maskUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpMaskPath);
+
+        logger.info(`Ideogram inpainting: ${region.label} (${Math.round(region.x * 100)}%,${Math.round(region.y * 100)}% ${Math.round(region.w * 100)}%x${Math.round(region.h * 100)}%)`);
+
+        output = await this.replicate.run(IDEOGRAM_MODEL, {
+          input: {
+            prompt: editPrompt,
+            image: srcUrlData.publicUrl,
+            mask: maskUrlData.publicUrl,
+            magic_prompt_option: 'Auto'
+          }
+        });
+        editLabel = '[Ideogram Edit]';
+      } else {
+        // NANO BANANA PRO — reference-based editing, no mask needed
+        await this.ensureBucket();
+        const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
+        const sourcePng = await sharp(sourceBuffer).png().toBuffer();
+        await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
+        tmpPaths.push(tmpSourcePath);
+
+        const { data: srcUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpSourcePath);
+
+        logger.info(`Nano Banana Pro edit: "${editPrompt.slice(0, 60)}..."`);
+
+        output = await this.replicate.run(NANO_BANANA_MODEL, {
+          input: {
+            prompt: editPrompt,
+            image_input: [srcUrlData.publicUrl],
+            aspect_ratio: 'match_input_image',
+            output_format: 'png'
+          }
+        });
+        editLabel = '[Nano Banana Edit]';
       }
 
-      const maskBuffer = await this._generateMask(metadata.width, metadata.height, region);
-
-      await this.ensureBucket();
-      const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
-      const tmpMaskPath = `${userId}/${adAccountId}/brand-kit/tmp-edit-mask-${crypto.randomUUID().slice(0, 8)}.png`;
-      const sourcePng = await sharp(sourceBuffer).png().toBuffer();
-
-      await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
-      await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpMaskPath, maskBuffer, { contentType: 'image/png', upsert: false });
-
-      const { data: srcUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpSourcePath);
-      const { data: maskUrlData } = supabaseAdmin.storage.from(STORAGE_BUCKET).getPublicUrl(tmpMaskPath);
-
-      logger.info(`Inpainting region: ${region.label} (${Math.round(region.x * 100)}%,${Math.round(region.y * 100)}% ${Math.round(region.w * 100)}%x${Math.round(region.h * 100)}%)`);
-
-      const output = await this.replicate.run(EDIT_MODEL, {
-        input: {
-          prompt: editPrompt,
-          image: srcUrlData.publicUrl,
-          mask: maskUrlData.publicUrl,
-          magic_prompt_option: 'Auto'
-        }
-      });
-
       // Clean up temp files
-      supabaseAdmin.storage.from(STORAGE_BUCKET).remove([tmpSourcePath, tmpMaskPath]).catch(() => {});
+      if (tmpPaths.length > 0) {
+        supabaseAdmin.storage.from(STORAGE_BUCKET).remove(tmpPaths).catch(() => {});
+      }
 
       const imageSource = Array.isArray(output) ? output[0] : output;
       if (typeof imageSource === 'string') {
@@ -1629,7 +1661,6 @@ class MediaAssetService {
       } else {
         throw new Error('Unexpected output format from edit model');
       }
-      editLabel = '[Inpaint Edit]';
     }
 
     // Upload final result

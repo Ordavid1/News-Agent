@@ -59,9 +59,10 @@ class ImageExtractor {
     this.minHeight = 100;
   }
 
-  async extractImageFromArticle(articleUrl, articleTitle = null, articleSource = null) {
+  async extractImageFromArticle(articleUrl, articleTitle = null, articleSource = null, { excludeUrls = [] } = {}) {
     try {
-      logger.info(`Extracting image from: ${articleUrl}`);
+      const isAltSearch = excludeUrls.length > 0;
+      logger.info(`${isAltSearch ? 'Extracting alternative image' : 'Extracting image'} from: ${articleUrl}${isAltSearch ? ` (excluding ${excludeUrls.length} URL(s))` : ''}`);
 
       let actualUrl = articleUrl;
 
@@ -103,49 +104,76 @@ class ImageExtractor {
       const $ = cheerio.load(response.data);
       const baseUrl = new URL(actualUrl);
 
+      // Helper to check if an image URL should be excluded
+      const isExcluded = (url) => excludeUrls.some(excluded => url === excluded || url.includes(excluded) || excluded.includes(url));
+
       // Try different strategies to find the main article image
-      let imageUrl = null;
+      // When excludeUrls is provided, collect ALL candidates and return the first non-excluded one
+      const candidates = [];
 
       // Strategy 1: Open Graph image (most reliable)
-      imageUrl = this.getOpenGraphImage($, baseUrl);
+      const ogImage = this.getOpenGraphImage($, baseUrl);
+      if (ogImage) candidates.push(ogImage);
 
       // Strategy 2: Twitter Card image
-      if (!imageUrl) {
-        imageUrl = this.getTwitterCardImage($, baseUrl);
-      }
+      const twitterImage = this.getTwitterCardImage($, baseUrl);
+      if (twitterImage) candidates.push(twitterImage);
 
       // Strategy 3: Schema.org structured data
-      if (!imageUrl) {
-        imageUrl = this.getSchemaOrgImage($, baseUrl);
-      }
+      const schemaImage = this.getSchemaOrgImage($, baseUrl);
+      if (schemaImage) candidates.push(schemaImage);
 
       // Strategy 4: First large image in article content
-      if (!imageUrl) {
-        imageUrl = await this.getFirstArticleImage($, baseUrl);
-      }
+      const articleImage = await this.getFirstArticleImage($, baseUrl);
+      if (articleImage) candidates.push(articleImage);
 
       // Strategy 5: Main/article tag images
-      if (!imageUrl) {
-        imageUrl = this.getMainContentImage($, baseUrl);
-      }
+      const mainImage = this.getMainContentImage($, baseUrl);
+      if (mainImage) candidates.push(mainImage);
 
-      if (imageUrl && this.isValidImage(imageUrl)) {
-        // Verify the image URL is actually reachable (catches expired/broken URLs)
-        const isReachable = await this.validateImageUrl(imageUrl);
-        if (isReachable) {
-          logger.info(`Found valid and reachable image: ${imageUrl}`);
-          return imageUrl;
+      // Deduplicate and filter excluded URLs
+      const seen = new Set();
+      for (const candidate of candidates) {
+        if (seen.has(candidate)) continue;
+        seen.add(candidate);
+
+        if (isExcluded(candidate)) {
+          logger.debug(`Skipping excluded image: ${candidate}`);
+          continue;
         }
-        logger.warn(`Image URL passed pattern validation but is unreachable: ${imageUrl}`);
+
+        if (this.isValidImage(candidate)) {
+          const isReachable = await this.validateImageUrl(candidate);
+          if (isReachable) {
+            logger.info(`Found valid and reachable${isAltSearch ? ' alternative' : ''} image: ${candidate}`);
+            return candidate;
+          }
+          logger.warn(`Image URL passed pattern validation but is unreachable: ${candidate}`);
+        }
       }
 
-      logger.debug('No suitable image found in article');
+      logger.debug(`No suitable${isAltSearch ? ' alternative' : ''} image found in article`);
       return null;
 
     } catch (error) {
       logger.error(`Error extracting image from article: ${error.message}`);
       return null;
     }
+  }
+
+  /**
+   * Extract an alternative image from the article, excluding previously tried URLs.
+   * Used as a fallback when video generation content filters reject the original image.
+   * @param {string} articleUrl - Article URL to extract from
+   * @param {string} articleTitle - Article title for Google News resolution
+   * @param {string} articleSource - Article source
+   * @param {string|string[]} excludeUrls - Image URL(s) to exclude (already tried and rejected)
+   * @returns {Promise<string|null>} Alternative image URL or null
+   */
+  async extractAlternativeImage(articleUrl, articleTitle, articleSource, excludeUrls) {
+    const excluded = Array.isArray(excludeUrls) ? excludeUrls : [excludeUrls];
+    logger.info(`Searching for alternative article image (excluding ${excluded.length} previously tried URL(s))...`);
+    return this.extractImageFromArticle(articleUrl, articleTitle, articleSource, { excludeUrls: excluded });
   }
 
   /**

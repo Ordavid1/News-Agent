@@ -5319,6 +5319,7 @@ function closeImageLightbox(event) {
 
 var kontextEditMediaId = null;
 var kontextEditImageUrl = null;
+var editModelChoice = 'nano-banana'; // 'nano-banana' or 'ideogram'
 
 /**
  * Open the Kontext edit modal for a generated image.
@@ -5341,6 +5342,32 @@ function openEditModal(mediaId, imageUrl) {
     if (applyBtnText) applyBtnText.textContent = 'Apply Edit';
     if (modal) modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+}
+
+/**
+ * Set the edit model (nano-banana or ideogram).
+ */
+function setEditModel(model) {
+    editModelChoice = model;
+    const slider = document.getElementById('editModelSlider');
+    const nanoBananaBtn = document.getElementById('editModelNanoBananaBtn');
+    const ideogramBtn = document.getElementById('editModelIdeogramBtn');
+    const hint = document.getElementById('editModelHint');
+
+    const inactive = 'relative z-10 flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-colors text-blue-400';
+    const active = 'relative z-10 flex-1 text-xs font-semibold py-1.5 px-3 rounded-md transition-colors text-blue-900';
+
+    if (model === 'ideogram') {
+        if (slider) slider.style.transform = 'translateX(100%)';
+        if (nanoBananaBtn) nanoBananaBtn.className = inactive;
+        if (ideogramBtn) ideogramBtn.className = active;
+        if (hint) hint.textContent = 'Targeted regional edits — specify position (top, bottom, left, right)';
+    } else {
+        if (slider) slider.style.transform = '';
+        if (nanoBananaBtn) nanoBananaBtn.className = active;
+        if (ideogramBtn) ideogramBtn.className = inactive;
+        if (hint) hint.textContent = 'Best for general edits — no position needed';
+    }
 }
 
 /**
@@ -5367,12 +5394,14 @@ async function applyKontextEdit() {
         return;
     }
 
-    // Check if prompt has quoted text (text overlay) or position keywords (inpainting)
-    const hasQuotes = /["''""][^"''""]{1,100}["''"""]/.test(editPrompt);
-    const hasPosition = /\b(top|bottom|left|right|center|middle|corner)\b/i.test(editPrompt);
-    if (!hasQuotes && !hasPosition) {
-        showToast('Please specify WHERE in the image (e.g., "at the top right", "at the bottom center"). For text, use quotes like \'פסח שמח\'.', 'error');
-        return;
+    // Ideogram requires position keywords for inpainting; Nano Banana does not
+    if (editModelChoice === 'ideogram') {
+        const hasQuotes = /["''""][^"''""]{1,100}["''"""]/.test(editPrompt);
+        const hasPosition = /\b(top|bottom|left|right|center|middle|corner)\b/i.test(editPrompt);
+        if (!hasQuotes && !hasPosition) {
+            showToast('Ideogram requires a position (e.g., "at the top right"). Switch to Nano Banana Pro for general edits.', 'error');
+            return;
+        }
     }
 
     const applyBtn = document.getElementById('kontextApplyBtn');
@@ -5387,7 +5416,8 @@ async function applyKontextEdit() {
         const data = await apiPost('/api/marketing/media-assets/edit', {
             adAccountId: selectedAdAccount.id,
             mediaId: kontextEditMediaId,
-            editPrompt
+            editPrompt,
+            editModel: editModelChoice
         });
 
         // Show result in modal

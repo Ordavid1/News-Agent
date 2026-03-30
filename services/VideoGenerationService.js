@@ -48,33 +48,42 @@ class VideoGenerationService {
   constructor() {
     this.model = (process.env.VIDEO_GENERATION_MODEL || 'veo').toLowerCase();
 
-    if (this.model === 'veo') {
-      this.googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
-      if (!this.googleApiKey) {
-        logger.warn('VIDEO_GENERATION_MODEL=veo but GOOGLE_AI_STUDIO_API_KEY is not set');
-      }
-    } else if (this.model === 'runway') {
-      this.runwayApiKey = process.env.RUNWAY_API_KEY;
-      if (!this.runwayApiKey) {
-        logger.warn('VIDEO_GENERATION_MODEL=runway but RUNWAY_API_KEY is not set');
-      }
-    } else {
+    if (!['veo', 'runway'].includes(this.model)) {
       logger.warn(`Unknown VIDEO_GENERATION_MODEL: ${this.model}, defaulting to veo`);
       this.model = 'veo';
     }
 
-    logger.info(`VideoGenerationService initialized — active model: ${this.model}`);
+    // Load API keys for both models — enables cross-model fallback
+    this.googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    this.runwayApiKey = process.env.RUNWAY_API_KEY;
+
+    // Warn if primary model's key is missing
+    if (this.model === 'veo' && !this.googleApiKey) {
+      logger.warn('VIDEO_GENERATION_MODEL=veo but GOOGLE_AI_STUDIO_API_KEY is not set');
+    } else if (this.model === 'runway' && !this.runwayApiKey) {
+      logger.warn('VIDEO_GENERATION_MODEL=runway but RUNWAY_API_KEY is not set');
+    }
+
+    // Determine fallback model (the other one, if its API key is configured)
+    this.fallbackModel = this.model === 'veo' ? 'runway' : 'veo';
+    const fallbackKeyAvailable = this.fallbackModel === 'veo' ? !!this.googleApiKey : !!this.runwayApiKey;
+    this.hasFallback = fallbackKeyAvailable;
+
+    logger.info(`VideoGenerationService initialized — active model: ${this.model}${this.hasFallback ? `, fallback: ${this.fallbackModel}` : ', no fallback configured'}`);
   }
 
   /**
-   * Generate a video from an image and text prompt.
+   * Generate a video from an image and text prompt using a specific model.
    * @param {Object} params
    * @param {string} params.imageUrl - Publicly accessible image URL
    * @param {string} params.prompt - Video generation prompt (from VideoPromptEngine)
-   * @returns {Promise<Object>} { videoUrl, duration, model }
+   * @param {boolean} [params.skipImage=false] - Skip reference image (text-only generation)
+   * @param {string} [params.useModel] - Override model ('veo' or 'runway'). Defaults to this.model.
+   * @returns {Promise<Object>} { videoUrl, videoBuffer, duration, model }
    */
-  async generateVideo({ imageUrl, prompt, skipImage = false }) {
-    logger.info(`Generating video with ${this.model} — prompt: ${prompt.slice(0, 100)}...`);
+  async generateVideo({ imageUrl, prompt, skipImage = false, useModel = null }) {
+    const activeModel = useModel || this.model;
+    logger.info(`Generating video with ${activeModel} — prompt: ${prompt.slice(0, 100)}...`);
     logger.info(`Source image: ${skipImage ? '(skipped — text-only mode)' : imageUrl}`);
 
     const startTime = Date.now();
@@ -82,27 +91,27 @@ class VideoGenerationService {
     try {
       let result;
 
-      if (this.model === 'runway') {
+      if (activeModel === 'runway') {
         result = await this.generateWithRunway({ imageUrl, prompt, skipImage });
       } else {
         result = await this.generateWithVeo({ imageUrl, prompt, skipImage });
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      logger.info(`Video generated successfully in ${elapsed}s — URL: ${result.videoUrl}`);
+      logger.info(`Video generated successfully in ${elapsed}s (${activeModel}) — URL: ${result.videoUrl}`);
 
       return {
         videoUrl: result.videoUrl,
         videoBuffer: result.videoBuffer || null,
         duration: result.duration,
-        model: this.model
+        model: activeModel
       };
     } catch (error) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       if (error.isContentFilter) {
         logger.warn(`Video blocked by content filter after ${elapsed}s (${error.model}): ${error.message}`);
       } else {
-        logger.error(`Video generation failed after ${elapsed}s: ${error.message}`);
+        logger.error(`Video generation failed after ${elapsed}s (${activeModel}): ${error.message}`);
       }
       // Log the full API error response body for debugging (Google/Runway return details here)
       if (error.response?.data) {
@@ -161,13 +170,30 @@ class VideoGenerationService {
     };
 
     logger.info('Submitting Veo video generation request (Gemini API)...');
-    const submitResponse = await axios.post(endpoint, requestBody, {
-      headers: {
-        'x-goog-api-key': this.googleApiKey,
-        'Content-Type': 'application/json'
-      },
-      timeout: 60000  // 60s — large base64 payloads need more time
-    });
+
+    // Retry with exponential backoff on 429 (quota/rate limit) errors
+    let submitResponse;
+    const maxRetries = 3;
+    for (let retryAttempt = 0; retryAttempt < maxRetries; retryAttempt++) {
+      try {
+        submitResponse = await axios.post(endpoint, requestBody, {
+          headers: {
+            'x-goog-api-key': this.googleApiKey,
+            'Content-Type': 'application/json'
+          },
+          timeout: 60000  // 60s — large base64 payloads need more time
+        });
+        break;
+      } catch (err) {
+        if (err.response?.status === 429 && retryAttempt < maxRetries - 1) {
+          const backoff = (retryAttempt + 1) * 5000; // 5s, 10s
+          logger.warn(`Veo API rate limited (429) — retrying in ${backoff / 1000}s (attempt ${retryAttempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, backoff));
+        } else {
+          throw err;
+        }
+      }
+    }
 
     const operationName = submitResponse.data.name;
     if (!operationName) {

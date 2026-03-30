@@ -786,10 +786,22 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
         timeout: 30000
       });
 
-      videoPrompt = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      const candidate = response.data?.candidates?.[0];
+      videoPrompt = candidate?.content?.parts?.[0]?.text?.trim();
+      const finishReason = candidate?.finishReason;
+      const promptFeedback = response.data?.promptFeedback;
 
+      // Log raw response BEFORE cleanup (matches generateArticleStoryline pattern)
       if (!videoPrompt) {
+        logger.warn(`Video directive returned empty — finishReason: ${finishReason}, candidates: ${response.data?.candidates?.length}, promptFeedback: ${JSON.stringify(promptFeedback)}`);
         throw new Error('Gemini Flash returned empty video prompt');
+      } else {
+        logger.info(`Video directive raw response: ${videoPrompt.length} chars, finishReason: ${finishReason}`);
+      }
+
+      // Reject safety-blocked responses before wasting video generation quota
+      if (promptFeedback?.blockReason) {
+        throw new Error(`Gemini Flash blocked video directive: ${promptFeedback.blockReason}`);
       }
 
       // Strip common LLM meta-framing if present (e.g., "Here's the video prompt:")
@@ -798,6 +810,12 @@ OUTPUT: Write a single flowing paragraph, 500-800 characters. No labels, no bull
         .replace(/^(video\s+prompt[:\s]*)/i, '')
         .replace(/^["'`]+|["'`]+$/g, '')
         .trim();
+
+      // Guard against suspiciously short prompts that would waste video API quota
+      if (videoPrompt.length < 20) {
+        logger.warn(`Video directive suspiciously short after cleanup (${videoPrompt.length} chars): "${videoPrompt}" — finishReason: ${finishReason}`);
+        throw new Error(`Gemini Flash returned unusable video directive (${videoPrompt.length} chars: "${videoPrompt}")`);
+      }
     } else {
       // Mock fallback for testing without API keys
       videoPrompt = `Photorealistic 9:16 cinematic news footage. A modern newsroom, screens glowing with breaking updates about ${article.title}. Camera pushes forward past anchor desks into a wall of monitors. Sharp focus, natural lighting, broadcast-quality documentary footage.`;

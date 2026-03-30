@@ -1897,7 +1897,7 @@ router.post('/media-assets/generate', async (req, res) => {
  */
 router.post('/media-assets/edit', async (req, res) => {
   try {
-    const { adAccountId, mediaId, editPrompt } = req.body;
+    const { adAccountId, mediaId, editPrompt, editModel } = req.body;
     if (!adAccountId || !mediaId || !editPrompt) {
       return res.status(400).json({ error: 'adAccountId, mediaId, and editPrompt are required' });
     }
@@ -1923,7 +1923,8 @@ router.post('/media-assets/edit', async (req, res) => {
     logger.info(`[MediaAssets] POST /edit - user=${req.user.id}, media=${mediaId}, prompt="${editPrompt.slice(0, 60)}..."`);
 
     const newMedia = await mediaAssetService.editImageWithKontext(
-      req.user.id, adAccountId, sourceMedia.public_url, editPrompt, sourceMedia.training_job_id
+      req.user.id, adAccountId, sourceMedia.public_url, editPrompt, sourceMedia.training_job_id,
+      { editModel: editModel || 'nano-banana' }
     );
 
     // Consume 1 credit

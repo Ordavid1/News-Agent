@@ -1049,11 +1049,18 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
         const videoGenerationService = (await import('../services/VideoGenerationService.js')).default;
 
+        // ── Video generation with multi-level fallback cascade ──
+        // Phase 1: Primary model + image (with rephrase retries)
+        // Phase 2: Fallback model + same image (with 1 rephrase)
+        // Phase 3: Alternative image from same article → primary model
+        // Phase 4: Image from alternative article → primary model
+
         const MAX_CONTENT_FILTER_RETRIES = 2;
         let videoResult;
         let currentPrompt = videoPrompt;
-        let contentFilterExhausted = false;
+        let primaryExhausted = false;
 
+        // Phase 1: Primary model with rephrase retries
         for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
           try {
             videoResult = await videoGenerationService.generateVideo({
@@ -1063,7 +1070,6 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
             break; // Success — exit retry loop
           } catch (filterError) {
             if (filterError.isContentFilter && attempt < MAX_CONTENT_FILTER_RETRIES) {
-              // Content filter block — use LLM to rephrase the prompt and retry
               console.log(`[Agent Test] Video blocked by content filter (${filterError.model}) — rephrasing prompt (attempt ${attempt + 1}/${MAX_CONTENT_FILTER_RETRIES})...`);
               testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Video blocked by content filter — rephrasing prompt (attempt ${attempt + 1}/${MAX_CONTENT_FILTER_RETRIES})...`);
 
@@ -1071,7 +1077,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
               console.log(`[Agent Test] Rephrased video prompt generated (${currentPrompt.length} chars)`);
               testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Retrying video generation with rephrased prompt (attempt ${attempt + 2})...`);
             } else if (filterError.isContentFilter) {
-              contentFilterExhausted = true; // All rephrase retries exhausted
+              primaryExhausted = true;
               break;
             } else {
               throw filterError; // Non-filter errors propagate immediately
@@ -1079,17 +1085,109 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           }
         }
 
-        // Final fallback: if all rephrase retries were blocked, the source IMAGE itself
-        // is likely triggering the content filter. Try once more without the reference image.
-        if (contentFilterExhausted && !videoResult) {
-          console.log(`[Agent Test] All rephrase retries exhausted — source image likely triggers filter. Trying text-only video generation...`);
-          testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Source image may trigger filter — retrying without image...');
+        // Phase 2: Fallback model with same image (if primary model exhausted)
+        if (primaryExhausted && !videoResult && videoGenerationService.hasFallback) {
+          const fallbackModel = videoGenerationService.fallbackModel;
+          console.log(`[Agent Test] Primary model exhausted — trying fallback model (${fallbackModel}) with same image...`);
+          testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Trying fallback video model (${fallbackModel})...`);
 
-          videoResult = await videoGenerationService.generateVideo({
-            imageUrl,
-            prompt: currentPrompt,
-            skipImage: true
-          });
+          try {
+            videoResult = await videoGenerationService.generateVideo({
+              imageUrl,
+              prompt: currentPrompt,
+              useModel: fallbackModel
+            });
+          } catch (fallbackError) {
+            if (fallbackError.isContentFilter) {
+              // One rephrase attempt for fallback model
+              console.log(`[Agent Test] Fallback model (${fallbackModel}) also blocked — rephrasing for fallback...`);
+              testProgressEmitter.emitProgress(userId, agentId, 'video_generation', `Fallback model blocked — rephrasing prompt...`);
+              try {
+                const fallbackPrompt = await contentGen.rephraseVideoPrompt(fallbackError.originalPrompt, trendData, { model: fallbackModel, attemptNumber: 1 });
+                videoResult = await videoGenerationService.generateVideo({
+                  imageUrl,
+                  prompt: fallbackPrompt,
+                  useModel: fallbackModel
+                });
+              } catch (fallbackRetryError) {
+                if (!fallbackRetryError.isContentFilter) throw fallbackRetryError;
+                console.log(`[Agent Test] Fallback model (${fallbackModel}) rephrase also blocked — image likely triggers filter`);
+              }
+            } else {
+              // Non-filter error on fallback (e.g. 429, missing key) — log and continue to Phase 3
+              console.warn(`[Agent Test] Fallback model (${fallbackModel}) failed with non-filter error: ${fallbackError.message}`);
+            }
+          }
+        }
+
+        // Phase 3: Alternative image from same article
+        if (!videoResult) {
+          console.log(`[Agent Test] Both models failed with original image — searching for alternative image from same article...`);
+          testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Searching for alternative article image...');
+
+          const altImageExtractor = new ImageExtractor();
+          const altImageUrl = await altImageExtractor.extractAlternativeImage(
+            trendData.url, trendData.title, trendData.source, imageUrl
+          );
+
+          if (altImageUrl) {
+            console.log(`[Agent Test] Alternative image found: ${altImageUrl}`);
+            testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Retrying video with alternative image...');
+            try {
+              videoResult = await videoGenerationService.generateVideo({
+                imageUrl: altImageUrl,
+                prompt: currentPrompt
+              });
+            } catch (altImageError) {
+              if (!altImageError.isContentFilter) throw altImageError;
+              console.log(`[Agent Test] Alternative image also blocked by content filter`);
+            }
+          } else {
+            console.log(`[Agent Test] No alternative image found in same article`);
+          }
+        }
+
+        // Phase 4: Search for alternative article covering the same story
+        if (!videoResult) {
+          console.log(`[Agent Test] Searching for alternative article about same topic...`);
+          testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Searching alternative article source...');
+
+          try {
+            const ArticleSearcher = (await import('../services/ArticleSearcher.js')).default;
+            const articleSearcher = new ArticleSearcher();
+            const altArticleUrl = await articleSearcher.searchArticleByTitle(trendData.title, trendData.source);
+
+            if (altArticleUrl && altArticleUrl !== trendData.url) {
+              console.log(`[Agent Test] Found alternative article: ${altArticleUrl}`);
+              const altExtractor = new ImageExtractor();
+              const altArticleImage = await altExtractor.extractImageFromArticle(altArticleUrl, trendData.title, trendData.source);
+
+              if (altArticleImage && altArticleImage !== imageUrl) {
+                console.log(`[Agent Test] Alternative article image found: ${altArticleImage}`);
+                testProgressEmitter.emitProgress(userId, agentId, 'video_generation', 'Retrying video with alternative article image...');
+                try {
+                  videoResult = await videoGenerationService.generateVideo({
+                    imageUrl: altArticleImage,
+                    prompt: currentPrompt
+                  });
+                } catch (altArticleError) {
+                  if (!altArticleError.isContentFilter) throw altArticleError;
+                  console.log(`[Agent Test] Alternative article image also blocked by content filter`);
+                }
+              } else {
+                console.log(`[Agent Test] Alternative article yielded same or no image`);
+              }
+            } else {
+              console.log(`[Agent Test] No alternative article found`);
+            }
+          } catch (searchError) {
+            console.warn(`[Agent Test] Alternative article search failed: ${searchError.message}`);
+          }
+        }
+
+        // All phases exhausted
+        if (!videoResult) {
+          throw new Error('Video generation failed — all models and image alternatives exhausted by content filters');
         }
 
         imageUrl = null; // TikTok doesn't use image directly — use video instead
