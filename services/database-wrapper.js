@@ -145,6 +145,7 @@ export {
   updatePerUsePurchase,
   getUserPerUsePurchases,
   getLatestUnusedPurchase,
+  countUserPurchasesByType,
   getAssetImageGenCredits,
   consumeAssetImageGenCredit,
   // Playable content functions

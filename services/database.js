@@ -4041,6 +4041,25 @@ export async function getLatestUnusedPurchase(userId, purchaseType) {
 }
 
 /**
+ * Count how many per-use purchases of a given type a user has (any status).
+ * Used to determine eligibility for free first use of a feature.
+ */
+export async function countUserPurchasesByType(userId, purchaseType) {
+  const { count, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('purchase_type', purchaseType);
+
+  if (error) {
+    logger.error(`Error counting purchases by type ${purchaseType}:`, error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+/**
  * Get the total remaining Brand Asset image generation credits for a user.
  * Sums (credits_total - credits_used) across all completed asset_image_gen_pack purchases.
  */
@@ -4423,6 +4442,7 @@ export default {
   updatePerUsePurchase,
   getUserPerUsePurchases,
   getLatestUnusedPurchase,
+  countUserPurchasesByType,
   getAssetImageGenCredits,
   consumeAssetImageGenCredit,
   // Playable content functions

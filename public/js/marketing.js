@@ -32,6 +32,7 @@ var mediaViewMode = 'new';           // 'new' (fresh upload) or 'view' (past mod
 var mediaGenCredits = 0;             // Remaining Brand Asset generation credits
 var bvImageGenCredits = 0;           // Remaining Brand Voice image gen credits (shared pool with Brand Media)
 var brandPromptStyle = 'concise';    // 'concise' or 'elaborated' — brand kit prompt injection style
+var _trainingEligibility = null;     // Cached free-first-use eligibility
 
 // Current modal state
 var currentBoostPost = null;
@@ -54,6 +55,22 @@ var interestSearchTimer = null;
 var lastCampaignSync = 0;
 var lastAudienceSync = 0;
 const AUTO_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
+
+// ============================================
+// FREE FIRST-USE ELIGIBILITY
+// ============================================
+
+async function getTrainingEligibility(forceRefresh = false) {
+    if (!_trainingEligibility || forceRefresh) {
+        try {
+            _trainingEligibility = await apiGet('/api/subscriptions/free-training-eligibility');
+        } catch (e) {
+            // On error, assume not eligible (safe default — user pays)
+            _trainingEligibility = { freeModelTraining: false, freeVoiceTraining: false };
+        }
+    }
+    return _trainingEligibility;
+}
 
 // ============================================
 // INITIALIZATION
@@ -2657,6 +2674,15 @@ function openCreateProfileModal() {
         </label>`;
     }).join('');
 
+    // Update button label based on free eligibility
+    const submitBtn = document.getElementById('submitCreateBvProfileBtn');
+    if (submitBtn) {
+        getTrainingEligibility().then(elig => {
+            const priceLabel = elig.freeVoiceTraining ? 'Free' : '$9.90';
+            submitBtn.innerHTML = `Create & Start Analysis &mdash; ${priceLabel}`;
+        });
+    }
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
@@ -2683,42 +2709,52 @@ async function submitCreateBvProfile() {
     btn.textContent = 'Preparing checkout...';
 
     try {
-        // 1. Create LS checkout via backend
-        const { checkoutUrl } = await apiPost('/api/subscriptions/voice-training-checkout');
-
-        // 2. Show compact checkout popup
-        btn.textContent = 'Pay $9.90...';
-        const paid = await showCompactCheckout(checkoutUrl, btn);
-
-        if (!paid) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-            return;
-        }
-
-        // 3. Poll for webhook confirmation
-        btn.textContent = 'Confirming payment...';
+        // Check free first-use eligibility
+        const eligibility = await getTrainingEligibility();
         let purchase = null;
-        for (let attempt = 0; attempt < 15; attempt++) {
-            await new Promise(r => setTimeout(r, 2000));
-            try {
-                const result = await apiGet('/api/subscriptions/voice-training-purchase-status');
-                if (result.hasPurchase) {
-                    purchase = result.purchase;
-                    break;
-                }
-            } catch (e) { /* continue polling */ }
+
+        if (eligibility.freeVoiceTraining) {
+            // First profile is free — claim system purchase directly
+            btn.textContent = 'Preparing...';
+            const result = await apiPost('/api/subscriptions/claim-free-training', { purchaseType: 'voice_training' });
+            purchase = result.purchase;
+            await getTrainingEligibility(true); // Refresh cached eligibility
+        } else {
+            // Paid flow — LS checkout
+            const { checkoutUrl } = await apiPost('/api/subscriptions/voice-training-checkout');
+
+            btn.textContent = 'Pay $9.90...';
+            const paid = await showCompactCheckout(checkoutUrl, btn);
+
+            if (!paid) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                return;
+            }
+
+            // Poll for webhook confirmation
+            btn.textContent = 'Confirming payment...';
+            for (let attempt = 0; attempt < 15; attempt++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const result = await apiGet('/api/subscriptions/voice-training-purchase-status');
+                    if (result.hasPurchase) {
+                        purchase = result.purchase;
+                        break;
+                    }
+                } catch (e) { /* continue polling */ }
+            }
+
+            if (!purchase) {
+                showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                return;
+            }
         }
 
-        if (!purchase) {
-            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-            return;
-        }
-
-        // 4. Create profile with confirmed purchase
-        showToast('Payment confirmed! Creating profile...', 'success');
+        // Create profile with confirmed purchase
+        showToast(`${eligibility.freeVoiceTraining ? 'Free trial!' : 'Payment confirmed!'} Creating profile...`, 'success');
         btn.textContent = 'Creating profile...';
 
         const body = { name, adAccountId: selectedAdAccount?.id, purchaseId: purchase.id };
@@ -4169,6 +4205,9 @@ async function loadMediaAssets() {
 
     initMediaDropZone();
 
+    // Update training button label with free/paid pricing
+    onGenerationModelChange();
+
     // If training is in progress, start polling
     if (activeTrainingJob && activeTrainingJob.status === 'training') {
         startTrainingPolling();
@@ -4534,7 +4573,7 @@ function updateTrainButtonState() {
  * Handle generation model type radio change (Instant Brand Model vs Custom AI Training).
  * Shows/hides LoRA-specific options and updates button text.
  */
-function onGenerationModelChange() {
+async function onGenerationModelChange() {
     const modelRadio = document.querySelector('input[name="mediaGenerationModel"]:checked');
     const isLora = modelRadio && modelRadio.value === 'lora';
     const loraOptions = document.getElementById('mediaLoraOptions');
@@ -4544,7 +4583,9 @@ function onGenerationModelChange() {
         loraOptions.classList.toggle('hidden', !isLora);
     }
     if (btnText) {
-        btnText.textContent = isLora ? 'Train New Model ($9.90)' : 'Create Model ($9.90)';
+        const eligibility = await getTrainingEligibility();
+        const priceLabel = eligibility.freeModelTraining ? 'First Free!' : '$9.90';
+        btnText.textContent = isLora ? `Train New Model (${priceLabel})` : `Create Model (${priceLabel})`;
     }
 }
 
@@ -4564,48 +4605,58 @@ async function startMediaTraining() {
     btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
 
     try {
-        // 1. Create LS checkout via backend (pre-filled, embed mode)
-        const { checkoutUrl } = await apiPost('/api/subscriptions/training-checkout', {
-            adAccountId: selectedAdAccount.id
-        });
-
-        // 2. Show compact checkout popup with iframe
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $9.90...';
-        const paid = await showCompactCheckout(checkoutUrl, btn);
-
-        if (!paid) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-            return;
-        }
-
-        // 3. Poll for webhook confirmation (order_created may take a few seconds)
-        btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Confirming...';
+        // Check free first-use eligibility
+        const eligibility = await getTrainingEligibility();
         let purchase = null;
-        for (let attempt = 0; attempt < 15; attempt++) {
-            await new Promise(r => setTimeout(r, 2000));
-            try {
-                const result = await apiGet('/api/subscriptions/training-purchase-status');
-                if (result.hasPurchase) {
-                    purchase = result.purchase;
-                    break;
-                }
-            } catch (e) { /* continue polling */ }
+
+        if (eligibility.freeModelTraining) {
+            // First model is free — claim system purchase directly
+            btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Preparing...';
+            const result = await apiPost('/api/subscriptions/claim-free-training', { purchaseType: 'model_training' });
+            purchase = result.purchase;
+            await getTrainingEligibility(true); // Refresh cached eligibility
+        } else {
+            // Paid flow — LS checkout
+            const { checkoutUrl } = await apiPost('/api/subscriptions/training-checkout', {
+                adAccountId: selectedAdAccount.id
+            });
+
+            btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Pay $9.90...';
+            const paid = await showCompactCheckout(checkoutUrl, btn);
+
+            if (!paid) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                return;
+            }
+
+            // Poll for webhook confirmation
+            btn.innerHTML = '<div class="loader" style="width:16px;height:16px;"></div> Confirming...';
+            for (let attempt = 0; attempt < 15; attempt++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const result = await apiGet('/api/subscriptions/training-purchase-status');
+                    if (result.hasPurchase) {
+                        purchase = result.purchase;
+                        break;
+                    }
+                } catch (e) { /* continue polling */ }
+            }
+
+            if (!purchase) {
+                showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                return;
+            }
         }
 
-        if (!purchase) {
-            showToast('Payment received but confirmation pending. Please try again in a moment.', 'warning');
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-            return;
-        }
-
-        // 4. Start model creation with confirmed purchase
+        // Start model creation with confirmed purchase
         const modelRadio = document.querySelector('input[name="mediaGenerationModel"]:checked');
         const generationModel = modelRadio ? modelRadio.value : 'flux-2-pro';
         const isFlux2Pro = generationModel === 'flux-2-pro';
 
-        showToast(`Payment confirmed! ${isFlux2Pro ? 'Creating model...' : 'Starting model training...'}`, 'success');
+        showToast(`${eligibility.freeModelTraining ? 'Free trial!' : 'Payment confirmed!'} ${isFlux2Pro ? 'Creating model...' : 'Starting model training...'}`, 'success');
         renderActiveTrainingStatus();
 
         const data = await apiPost('/api/marketing/media-assets/training/start', {

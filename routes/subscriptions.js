@@ -1,7 +1,7 @@
 // routes/subscriptions.js - Lemon Squeezy Integration
 import express from 'express';
 import crypto from 'crypto';
-import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon, getAffiliateAddon, getAffiliateAddonByLsId, upsertAffiliateAddon, updateAffiliateAddon, createPerUsePurchase, getLatestUnusedPurchase, getUserPerUsePurchases } from '../services/database-wrapper.js';
+import { createSubscription, getSubscription, updateUser, getSubscriptionByLsId, updateSubscriptionRecord, getMarketingAddon, getMarketingAddonByLsId, upsertMarketingAddon, updateMarketingAddon, getAffiliateAddon, getAffiliateAddonByLsId, upsertAffiliateAddon, updateAffiliateAddon, createPerUsePurchase, getLatestUnusedPurchase, getUserPerUsePurchases, countUserPurchasesByType } from '../services/database-wrapper.js';
 // SECURITY: Input validation
 import { checkoutValidation, changePlanValidation } from '../utils/validators.js';
 import { getVideoLimit } from '../middleware/subscription.js';
@@ -1671,6 +1671,66 @@ const PER_USE_PRICING = {
     creditsPerPurchase: 3
   }
 };
+
+// Check if user is eligible for free first training (Brand Asset or Brand Voice)
+router.get('/free-training-eligibility', async (req, res) => {
+  try {
+    const [modelCount, voiceCount] = await Promise.all([
+      countUserPurchasesByType(req.user.id, 'model_training'),
+      countUserPurchasesByType(req.user.id, 'voice_training')
+    ]);
+    res.json({
+      freeModelTraining: modelCount === 0,
+      freeVoiceTraining: voiceCount === 0
+    });
+  } catch (error) {
+    console.error('[FREE-ELIGIBILITY] Error:', error);
+    res.status(500).json({ error: 'Failed to check free training eligibility' });
+  }
+});
+
+// Claim a free first-use training purchase (system-granted, $0)
+router.post('/claim-free-training', async (req, res) => {
+  try {
+    const { purchaseType } = req.body;
+    const allowedTypes = ['model_training', 'voice_training'];
+    if (!purchaseType || !allowedTypes.includes(purchaseType)) {
+      return res.status(400).json({ error: 'Invalid purchaseType. Must be model_training or voice_training.' });
+    }
+
+    // Re-verify eligibility
+    const existingCount = await countUserPurchasesByType(req.user.id, purchaseType);
+    if (existingCount > 0) {
+      return res.status(409).json({ error: 'Free training already claimed. Subsequent uses require payment.' });
+    }
+
+    const description = purchaseType === 'model_training'
+      ? 'Free first model training'
+      : 'Free first brand voice profile';
+
+    const purchase = await createPerUsePurchase(req.user.id, {
+      purchaseType,
+      amountCents: 0,
+      status: 'completed',
+      paymentProvider: 'system',
+      idempotencyKey: `free_first_${purchaseType}_${req.user.id}`,
+      description,
+      creditsTotal: 1,
+      creditsUsed: 0,
+      metadata: { auto_granted: true, free_first_use: true }
+    });
+
+    console.log(`[FREE-TRAINING] Granted free ${purchaseType} to user ${req.user.id}, purchase=${purchase.id}`);
+    res.json({ purchase });
+  } catch (error) {
+    // Idempotency key collision = already claimed
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Free training already claimed. Subsequent uses require payment.' });
+    }
+    console.error('[FREE-TRAINING] Error:', error);
+    res.status(500).json({ error: 'Failed to claim free training' });
+  }
+});
 
 // Create training checkout (one-time LS purchase)
 router.post('/training-checkout', async (req, res) => {
