@@ -559,7 +559,7 @@ VISUAL POLISH REQUIREMENTS (critical — these make the difference between amate
      * On successful action: scale punch (1.0 → 1.3 → 1.0, 150ms), spawn 5-8 small circle particles in accent color that burst outward and fade
      * On score change: score text scale punch + color flash to accent
      * On miss/wrong: brief camera shake (intensity 0.01, duration 100ms) + red flash overlay
-   - Particle effects: Use this.add.particles() with circle/square emitters for celebrations, trails, and ambient effects
+   - Particle effects: Use this.add.particles(x, y, 'particle', config) for celebrations, trails, and ambient effects (Phaser 3.80 API)
    - Progressive difficulty: speed/frequency increases every 10 seconds
    - Countdown timer: circular progress ring (drawn with Phaser.GameObjects.Graphics arc), not just text
    - Score display: large bold text with drop shadow, positioned top-center
@@ -587,9 +587,11 @@ TECHNICAL REQUIREMENTS:
 2. Game canvas: 320x480 pixels (portrait/mobile). Use scale config: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 320, height: 480 }.
 3. Create these scenes: ${template.phaserScenes.join(' -> ')}.
 4. In BootScene.preload(): Load each asset using this.load.image(key, window.ASSET_DATA_URIS[key]). ASSET_DATA_URIS is already defined on window — do NOT redeclare it with const/let/var.
-5. Touch/pointer input ONLY (no keyboard). All interactions via this.input.on('pointer*') or gameObject.setInteractive().
-6. Use brand colors throughout: background (${assetManifest.colors.background}), UI elements (${assetManifest.colors.primary}), text (${assetManifest.colors.secondary}), highlights (${assetManifest.colors.accent}).
-7. At the end, assign the full Phaser.Game configuration object to window.GAME_CONFIG (do NOT instantiate the game, just assign the config).
+5. In BootScene.create(): Generate a particle texture: var g = this.make.graphics({x:0,y:0,add:false}); g.fillStyle(0xffffff); g.fillCircle(4,4,4); g.generateTexture('particle',8,8); g.destroy();
+6. CRITICAL — Phaser 3.80 Particle API: Do NOT use this.add.particles(key).createEmitter() — that is the OLD deprecated API. Use the NEW API: this.add.particles(x, y, 'particle', { ...config }). The config object includes: speed, scale, alpha, lifespan, quantity, frequency, emitZone, etc. To stop emitting call emitter.stop(). To explode once call emitter.explode(count, x, y).
+7. Touch/pointer input ONLY (no keyboard). All interactions via this.input.on('pointer*') or gameObject.setInteractive().
+8. Use brand colors throughout: background (${assetManifest.colors.background}), UI elements (${assetManifest.colors.primary}), text (${assetManifest.colors.secondary}), highlights (${assetManifest.colors.accent}).
+9. At the end, assign the full Phaser.Game configuration object to window.GAME_CONFIG (do NOT instantiate the game, just assign the config).
 
 FORBIDDEN (DO NOT USE):
 - fetch(), XMLHttpRequest, WebSocket — no network access
@@ -688,7 +690,7 @@ ANIMATION MASTERY GUIDELINES:
 
 **Background & Atmosphere**:
 - Every scene has a unique background color/gradient (drawn with Graphics)
-- Floating ambient particles in EVERY scene: use this.add.particles() with a circle texture (generate via Graphics → generateTexture)
+- Floating ambient particles in EVERY scene: use this.add.particles(x, y, 'particle', config) — Phaser 3.80 API (NOT the old createEmitter pattern)
 - Particle config: speed 10-30, alpha 0.1-0.4, scale 0.2-0.6, lifespan 4000-8000, quantity 1 per 200ms
 - Subtle parallax: 2-3 layers of slow-moving geometric shapes at different speeds
 
@@ -714,11 +716,12 @@ TECHNICAL REQUIREMENTS:
 2. Canvas: 320x480 portrait. Scale config: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 320, height: 480 }.
 3. Each story beat is a separate Phaser.Scene class (BootScene, then Scene1, Scene2... EndScene).
 4. Load assets in BootScene preload(): this.load.image(key, window.ASSET_DATA_URIS[key]). ASSET_DATA_URIS is already on window — do NOT redeclare.
-5. Generate a small circle texture in BootScene for particles: use Graphics to draw a filled circle, then graphics.generateTexture('particle', 8, 8), then graphics.destroy().
-6. Touch/pointer input ONLY. Tap to advance, tap to choose.
-7. EndScene: CTA button calling window.mraidAction().
-8. Assign game config to window.GAME_CONFIG (do NOT instantiate).
-9. Use brand colors throughout: ${assetManifest.colors.primary} (primary), ${assetManifest.colors.secondary} (secondary), ${assetManifest.colors.accent} (accent), ${assetManifest.colors.background} (background).
+5. Generate a small circle texture in BootScene create(): use Graphics to draw a filled circle, then graphics.generateTexture('particle', 8, 8), then graphics.destroy().
+6. CRITICAL — Phaser 3.80 Particle API: Do NOT use this.add.particles(key).createEmitter() — that is the OLD deprecated API. Use the NEW API: this.add.particles(x, y, 'particle', { ...config }). The config object includes: speed, scale, alpha, lifespan, quantity, frequency, emitZone, etc. To stop emitting, call emitter.stop(). To explode once, call emitter.explode(count, x, y).
+7. Touch/pointer input ONLY. Tap to advance, tap to choose.
+8. EndScene: CTA button calling window.mraidAction().
+9. Assign game config to window.GAME_CONFIG (do NOT instantiate).
+10. Use brand colors throughout: ${assetManifest.colors.primary} (primary), ${assetManifest.colors.secondary} (secondary), ${assetManifest.colors.accent} (accent), ${assetManifest.colors.background} (background).
 
 FORBIDDEN (DO NOT USE):
 - fetch(), XMLHttpRequest, WebSocket — no network access
