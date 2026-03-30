@@ -312,9 +312,7 @@ router.post('/test', async (req, res) => {
     // Step 3: Use FULL PIPELINE - fetch trends with scoring and filtering
     let trendData;
     let postContent;
-    const searchTopics = [topics[Math.floor(Math.random() * topics.length)]];
-
-    console.log(`[Test Post] Using FULL PIPELINE for topic: ${searchTopics[0]}`);
+    console.log(`[Test Post] Using FULL PIPELINE for topics: ${topics.join(', ')}`);
     console.log(`[Test Post] Step 3a: Fetching and scoring articles...`);
 
     try {
@@ -325,7 +323,7 @@ router.post('/test', async (req, res) => {
         if (lookback > 72) {
           console.log(`[Test Post] No results at ${lookback - 24}h, broadening search to ${lookback}h`);
         }
-        allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
+        allTrends = await trendAnalyzer.getTrendsForTopics(topics, {
           keywords,
           geoFilter,
           lookbackHours: lookback
@@ -334,7 +332,7 @@ router.post('/test', async (req, res) => {
       }
 
       if (allTrends && allTrends.length > 0) {
-        console.log(`[Test Post] Found ${allTrends.length} articles for topic "${searchTopics[0]}"`);
+        console.log(`[Test Post] Found ${allTrends.length} articles for topics "${topics.join(', ')}"`);
 
         // Use AutomationManager's scoring system to select the BEST article
         console.log(`[Test Post] Step 3b: Scoring articles with full pipeline...`);
@@ -356,7 +354,7 @@ router.post('/test', async (req, res) => {
           console.log(`[Test Post] Using first article (scoring returned null): ${trendData.title}`);
         }
       } else {
-        const searchDescription = `topic "${searchTopics[0]}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
+        const searchDescription = `topics "${topics.join(', ')}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
         console.log(`[Test Post] ⚠️ No articles found for ${searchDescription}`);
         return res.status(400).json({
           error: 'No news found',

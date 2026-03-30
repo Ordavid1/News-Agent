@@ -430,6 +430,27 @@
                         </span>
                     </button>
 
+                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap" data-color="emerald">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                            </svg>
+                            Social Connections
+                            <span id="connectionCount" class="text-[11px] sm:text-sm bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/7</span>
+                        </span>
+                    </button>
+
+                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap" data-color="cyan">
+                        <span class="flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                            Analytics
+                        </span>
+                    </button>
+
+                    <div class="shrink-0 h-8" style="width:2px;background:#9ca3af;border-radius:9999px;margin-top:auto;margin-bottom:auto;"></div>
+
                     <button onclick="showTab('agents')" id="tab-agents" class="tab-btn tab-active whitespace-nowrap" data-color="brand">
                         <span class="flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -455,25 +476,6 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
                             </svg>
                             AE Affiliate
-                        </span>
-                    </button>
-
-                    <button onclick="showTab('connections')" id="tab-connections" class="tab-btn whitespace-nowrap" data-color="emerald">
-                        <span class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                            </svg>
-                            Social Connections
-                            <span id="connectionCount" class="text-[11px] sm:text-sm bg-gray-700 text-white px-1.5 py-0.5 rounded-full">0/7</span>
-                        </span>
-                    </button>
-
-                    <button onclick="showTab('analytics')" id="tab-analytics" class="tab-btn whitespace-nowrap" data-color="cyan">
-                        <span class="flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                            </svg>
-                            Analytics
                         </span>
                     </button>
 
@@ -1069,9 +1071,12 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                                     <circle cx="12" cy="12" r="3"></circle>
                                 </svg>
-                                Auto-Boost Rules
+                                Boost Agents
                             </span>
                         </button>
+
+                        <div class="shrink-0 h-8" style="width:2px;background:#9ca3af;border-radius:9999px;margin-top:auto;margin-bottom:auto;"></div>
+
                         <button onclick="showMarketingTab('brandvoice')" id="mkt-tab-brandvoice" class="mkt-tab-btn tab-btn whitespace-nowrap">
                             <span class="flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1085,7 +1090,16 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                                 </svg>
-                                Brand Asset Generator
+                                Brand Asset Gen.
+                            </span>
+                        </button>
+                        <button onclick="showMarketingTab('playables')" id="mkt-tab-playables" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                            <span class="flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Playables
                             </span>
                         </button>
                     </div>
@@ -2248,6 +2262,202 @@
                             <p class="text-base text-ink-400">No images generated yet. Select a model and create your first image above.</p>
                         </div>
                         <div id="mediaGalleryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                    </div>
+                </div>
+
+                <!-- Playable Ads Tab Content -->
+                <div id="mkt-content-playables" class="mkt-tab-content hidden">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                        <div>
+                            <h3 class="text-2xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Playable Ads</h3>
+                            <p class="text-ink-500 text-base">Create interactive playable ads and brand stories from your Brand Kit assets</p>
+                        </div>
+                        <div class="flex items-center gap-3"></div>
+                    </div>
+
+                    <!-- Training Job Selector -->
+                    <div id="playableJobSelector" class="mb-6">
+                        <label class="block text-sm font-medium text-ink-700 mb-2">Select Brand Kit Model</label>
+                        <select id="playableJobSelect" class="w-full sm:w-80 rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                            <option value="">Loading models...</option>
+                        </select>
+                        <p id="playableJobHint" class="text-sm text-ink-400 mt-1 hidden">Choose a training job with a completed Brand Kit analysis.</p>
+                    </div>
+
+                    <!-- No Brand Kit Warning -->
+                    <div id="playableNoBrandKit" class="hidden card-gradient p-6 text-center">
+                        <svg class="w-12 h-12 text-ink-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                        </svg>
+                        <p class="text-ink-500 text-base mb-2">No Brand Kit available</p>
+                        <p class="text-ink-400 text-sm">Train a model and complete Brand Kit analysis in the Brand Asset Generator tab first.</p>
+                    </div>
+
+                    <!-- Content Type Toggle + Credits Bar -->
+                    <div id="playableContentTypeToggle" class="hidden mb-6">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <!-- Toggle -->
+                            <div class="inline-flex rounded-lg border border-surface-300 overflow-hidden">
+                                <button onclick="setPlayableContentType('mini_game')" id="playableTypeGameBtn" class="px-5 py-2.5 text-sm font-medium transition-colors bg-brand-600 text-white">Mini-Games</button>
+                                <button onclick="setPlayableContentType('interactive_story')" id="playableTypeStoryBtn" class="px-5 py-2.5 text-sm font-medium transition-colors bg-white text-ink-600 hover:bg-surface-50">Interactive Stories</button>
+                            </div>
+                            <!-- Credits + Purchase -->
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                    <span class="text-sm text-ink-600">
+                                        <span id="playableCreditsCount" class="font-semibold text-brand-600">0</span>
+                                        <span class="text-ink-400">credits</span>
+                                    </span>
+                                </div>
+                                <div id="playablePurchaseControls" class="hidden flex items-center gap-2">
+                                    <select id="playableCreditQty" onchange="updatePlayableCreditTotal()" class="rounded-lg border border-surface-300 bg-white text-ink-700 text-sm py-1.5 px-2 focus:ring-2 focus:ring-brand-500">
+                                        <option value="1" selected>3 credits</option>
+                                        <option value="2">6 credits</option>
+                                        <option value="3">9 credits</option>
+                                        <option value="5">15 credits</option>
+                                    </select>
+                                    <button id="playableBuyCreditsBtn" onclick="purchasePlayableCredits()" class="btn-outline btn-sm text-sm flex items-center gap-1">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                        </svg>
+                                        Buy <span id="playableCreditTotal">3 for $9.90</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Template Grid (with lockable wrapper) -->
+                    <div id="playableTemplateWrapper" class="relative">
+                        <div id="playableTemplateGrid" class="hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8"></div>
+                        <!-- Locked Overlay -->
+                        <div id="playableLockedOverlay" class="hidden absolute inset-0 z-10 bg-white/80 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center p-8">
+                            <svg class="w-12 h-12 text-ink-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                            </svg>
+                            <p class="text-ink-600 font-medium text-base mb-1">No credits remaining</p>
+                            <p class="text-ink-400 text-sm mb-4">Purchase credits to create playable ads</p>
+                            <div class="flex items-center gap-2">
+                                <select id="playableCreditQtyOverlay" onchange="updatePlayableCreditTotal()" class="rounded-lg border border-surface-300 bg-white text-ink-700 text-sm py-2 px-3 focus:ring-2 focus:ring-brand-500">
+                                    <option value="1" selected>3 credits</option>
+                                    <option value="2">6 credits</option>
+                                    <option value="3">9 credits</option>
+                                    <option value="5">15 credits</option>
+                                </select>
+                                <button onclick="purchasePlayableCredits()" class="btn-primary px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                    </svg>
+                                    Buy <span id="playableCreditTotalOverlay">3 for $9.90</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Panel (shown after template selection) -->
+                    <div id="playableConfigPanel" class="hidden card-gradient p-6 mb-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-semibold text-ink-800">Configure Playable</h4>
+                            <button onclick="cancelPlayableConfig()" class="text-sm text-ink-500 hover:text-ink-700">Back to templates</button>
+                        </div>
+
+                        <div id="playableSelectedTemplate" class="mb-4 p-3 bg-surface-50 rounded-lg">
+                            <!-- Filled by JS -->
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-ink-700 mb-1">Title</label>
+                                <input type="text" id="playableTitleInput" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500 focus:border-brand-500" placeholder="My Brand Game">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-ink-700 mb-1">CTA URL <span class="text-ink-400 font-normal">(click-through destination)</span></label>
+                                <input type="url" id="playableCtaInput" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500 focus:border-brand-500" placeholder="https://yoursite.com">
+                            </div>
+
+                            <!-- Story options (shown only for interactive stories) -->
+                            <div id="playableStoryOptions" class="hidden">
+                                <label class="block text-sm font-medium text-ink-700 mb-1">Story Direction <span class="text-ink-400 font-normal">(optional)</span></label>
+                                <textarea id="playableStoryDirection" rows="3" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500 focus:border-brand-500" placeholder="Describe the narrative you'd like (e.g., 'Focus on sustainability journey')"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-ink-700 mb-2">Ad Network Formats</label>
+                                <div class="flex flex-wrap gap-3">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="playableFmtGoogle" checked class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                        <span class="text-sm text-ink-700">Google Ads</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="playableFmtMeta" class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                        <span class="text-sm text-ink-700">Meta Ads</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="playableFmtUnity" class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                        <span class="text-sm text-ink-700">Unity Ads</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button onclick="startPlayableGeneration()" id="playableGenerateBtn" class="btn-primary w-full py-3 text-base font-medium rounded-lg flex items-center justify-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                                Generate Playable (1 credit)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Generation Progress -->
+                    <div id="playableProgressPanel" class="hidden card-gradient p-6 mb-6">
+                        <h4 class="text-lg font-semibold text-ink-800 mb-4">Generating...</h4>
+                        <div class="w-full bg-surface-200 rounded-full h-2.5 mb-3">
+                            <div id="playableProgressBar" class="bg-brand-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                        <p id="playableProgressText" class="text-sm text-ink-500">Preparing...</p>
+                    </div>
+
+                    <!-- Preview & Export Panel -->
+                    <div id="playablePreviewPanel" class="hidden card-gradient p-6 mb-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-semibold text-ink-800">Preview</h4>
+                            <div class="flex gap-2">
+                                <button onclick="regeneratePlayable()" id="playableRegenBtn" class="btn-secondary btn-sm px-3 py-1.5 text-sm flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                    </svg>
+                                    Regenerate
+                                </button>
+                                <button onclick="downloadPlayable()" id="playableDownloadBtn" class="btn-primary btn-sm px-3 py-1.5 text-sm flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    Download .zip
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Phone frame mockup -->
+                        <div class="flex justify-center">
+                            <div class="relative bg-ink-900 rounded-[2rem] p-2 shadow-xl" style="width: 340px;">
+                                <div class="bg-ink-800 rounded-t-[1.5rem] h-6 flex items-center justify-center">
+                                    <div class="w-16 h-1 bg-ink-600 rounded-full"></div>
+                                </div>
+                                <iframe id="playablePreviewIframe" sandbox="allow-scripts allow-popups" class="w-full bg-white rounded-b-[1.5rem]" style="height: 480px; border: none;"></iframe>
+                            </div>
+                        </div>
+                        <p id="playablePreviewMeta" class="text-center text-xs text-ink-400 mt-3"></p>
+                    </div>
+
+                    <!-- History -->
+                    <div id="playableHistorySection" class="hidden">
+                        <h4 class="text-lg font-semibold text-ink-800 mb-4">History</h4>
+                        <div id="playableHistoryList" class="space-y-3"></div>
+                        <div id="playableHistoryEmpty" class="hidden text-center py-6">
+                            <p class="text-base text-ink-400">No playables generated yet.</p>
+                        </div>
                     </div>
                 </div>
 

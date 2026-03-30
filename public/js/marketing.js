@@ -676,6 +676,9 @@ function showMarketingTab(tabName) {
         case 'mediaassets':
             loadMediaAssets();
             break;
+        case 'playables':
+            loadPlayables();
+            break;
     }
 }
 
@@ -5861,5 +5864,710 @@ async function reanalyzeBrandKit() {
         showToast(error.message || 'Failed to start brand analysis', 'error');
     } finally {
         if (btn) btn.disabled = false;
+    }
+}
+
+// ============================================
+// PLAYABLE ADS TAB
+// ============================================
+
+let playableState = {
+    templates: [],
+    selectedTemplate: null,
+    selectedContentType: 'mini_game',
+    selectedJobId: null,
+    currentContentId: null,
+    sseSource: null,
+    credits: 0
+};
+
+/**
+ * Load the Playables tab: populate job selector, fetch templates.
+ */
+async function loadPlayables() {
+    if (!selectedAdAccount) return;
+
+    const jobSelect = document.getElementById('playableJobSelect');
+    const noBrandKit = document.getElementById('playableNoBrandKit');
+    const contentTypeToggle = document.getElementById('playableContentTypeToggle');
+    const templateGrid = document.getElementById('playableTemplateGrid');
+    const configPanel = document.getElementById('playableConfigPanel');
+    const progressPanel = document.getElementById('playableProgressPanel');
+    const previewPanel = document.getElementById('playablePreviewPanel');
+
+    // Reset panels
+    [configPanel, progressPanel, previewPanel].forEach(p => p?.classList.add('hidden'));
+
+    // Load training jobs for the job selector
+    try {
+        const resp = await apiGet(`/api/marketing/media-assets/training/history?adAccountId=${selectedAdAccount.id}`);
+        const jobs = (resp.jobs || []).filter(j => j.brand_kit && j.status === 'completed');
+
+        if (jobs.length === 0) {
+            jobSelect.innerHTML = '<option value="">No models with Brand Kit available</option>';
+            noBrandKit?.classList.remove('hidden');
+            contentTypeToggle?.classList.add('hidden');
+            templateGrid?.classList.add('hidden');
+            document.getElementById('playableHistorySection')?.classList.add('hidden');
+            return;
+        }
+
+        noBrandKit?.classList.add('hidden');
+
+        jobSelect.innerHTML = jobs.map(j => {
+            const name = j.name || `Model ${j.id.substring(0, 8)}`;
+            const assetCount = j.brand_kit?.extracted_assets?.length || 0;
+            return `<option value="${j.id}">${escapeHtml(name)} (${assetCount} assets)</option>`;
+        }).join('');
+
+        // Auto-select first or previously selected
+        if (playableState.selectedJobId && jobs.find(j => j.id === playableState.selectedJobId)) {
+            jobSelect.value = playableState.selectedJobId;
+        } else {
+            playableState.selectedJobId = jobs[0].id;
+            jobSelect.value = jobs[0].id;
+        }
+
+        // Attach change listener after populating (avoids race from innerHTML-triggered onchange)
+        jobSelect.onchange = onPlayableJobChange;
+
+        await loadPlayableTemplates();
+        await loadPlayableHistory();
+    } catch (error) {
+        showToast(error.message || 'Failed to load playable ads data', 'error');
+    }
+}
+
+/**
+ * Handle job selector change.
+ */
+async function onPlayableJobChange() {
+    const jobSelect = document.getElementById('playableJobSelect');
+    playableState.selectedJobId = jobSelect.value || null;
+    playableState.selectedTemplate = null;
+    playableState.currentContentId = null;
+
+    // Zero-trust: clear all panels when switching models
+    document.getElementById('playableConfigPanel')?.classList.add('hidden');
+    document.getElementById('playableProgressPanel')?.classList.add('hidden');
+    document.getElementById('playablePreviewPanel')?.classList.add('hidden');
+    document.getElementById('playableTemplateGrid').innerHTML = '';
+    document.getElementById('playableHistoryList').innerHTML = '';
+    document.getElementById('playableHistoryEmpty')?.classList.add('hidden');
+
+    if (playableState.selectedJobId) {
+        await loadPlayableTemplates();
+        await loadPlayableHistory();
+    }
+}
+
+/**
+ * Fetch templates for the selected training job.
+ */
+async function loadPlayableTemplates() {
+    if (!playableState.selectedJobId || playableState.selectedJobId === 'undefined') return;
+
+    const contentTypeToggle = document.getElementById('playableContentTypeToggle');
+    const templateGrid = document.getElementById('playableTemplateGrid');
+
+    try {
+        const resp = await apiGet(`/api/marketing/playable-content/templates?trainingJobId=${playableState.selectedJobId}&contentType=${playableState.selectedContentType}`);
+        playableState.templates = resp.templates || [];
+        playableState.credits = resp.credits || 0;
+
+        contentTypeToggle?.classList.remove('hidden');
+        templateGrid?.classList.remove('hidden');
+
+        updatePlayableCreditsUI();
+        renderPlayableTemplateGrid();
+    } catch (error) {
+        showToast(error.message || 'Failed to load templates', 'error');
+    }
+}
+
+/**
+ * Set the content type filter (mini_game or interactive_story).
+ */
+function setPlayableContentType(type) {
+    playableState.selectedContentType = type;
+    playableState.selectedTemplate = null;
+    document.getElementById('playableConfigPanel')?.classList.add('hidden');
+
+    // Update toggle buttons
+    const gameBtn = document.getElementById('playableTypeGameBtn');
+    const storyBtn = document.getElementById('playableTypeStoryBtn');
+    if (type === 'mini_game') {
+        gameBtn.className = 'px-5 py-2.5 text-sm font-medium transition-colors bg-brand-600 text-white';
+        storyBtn.className = 'px-5 py-2.5 text-sm font-medium transition-colors bg-white text-ink-600 hover:bg-surface-50';
+    } else {
+        storyBtn.className = 'px-5 py-2.5 text-sm font-medium transition-colors bg-brand-600 text-white';
+        gameBtn.className = 'px-5 py-2.5 text-sm font-medium transition-colors bg-white text-ink-600 hover:bg-surface-50';
+    }
+
+    loadPlayableTemplates();
+}
+
+/**
+ * Render the template grid.
+ */
+function renderPlayableTemplateGrid() {
+    const grid = document.getElementById('playableTemplateGrid');
+    if (!grid) return;
+
+    const templates = playableState.templates;
+    if (templates.length === 0) {
+        grid.innerHTML = '<p class="col-span-full text-center text-ink-400 py-6">No templates available for this content type.</p>';
+        return;
+    }
+
+    const iconMap = {
+        catch_falling: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>',
+        tap_the_logo: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>',
+        color_match: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>',
+        swipe_sort: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>',
+        brand_story: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>',
+        product_reveal: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>'
+    };
+
+    grid.innerHTML = templates.map(t => {
+        const icon = iconMap[t.id] || iconMap.catch_falling;
+        const disabled = !t.available;
+        const disabledClass = disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand-400 hover:shadow-md';
+
+        return `
+        <div class="card-gradient p-5 rounded-xl border border-surface-200 transition-all ${disabledClass}"
+             ${disabled ? '' : `onclick="selectPlayableTemplate('${t.id}')"`}>
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg ${disabled ? 'bg-surface-200' : 'bg-brand-100'} flex items-center justify-center">
+                    <svg class="w-5 h-5 ${disabled ? 'text-ink-400' : 'text-brand-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icon}</svg>
+                </div>
+                <div>
+                    <h5 class="text-base font-semibold text-ink-800">${escapeHtml(t.name)}</h5>
+                    <span class="text-xs text-ink-400">${escapeHtml(t.duration)}</span>
+                </div>
+            </div>
+            <p class="text-sm text-ink-500 mb-3">${escapeHtml(t.description)}</p>
+            ${disabled ? `<p class="text-xs text-amber-600 bg-amber-50 rounded-lg px-2 py-1">${escapeHtml(t.missingReason || 'Not available')}</p>` :
+              `<div class="flex gap-2">
+                ${t.mechanics.slice(0, 3).map(m => `<span class="text-xs bg-surface-100 text-ink-500 rounded-full px-2 py-0.5">${escapeHtml(m)}</span>`).join('')}
+              </div>`}
+        </div>`;
+    }).join('');
+}
+
+/**
+ * Select a template and show the configuration panel.
+ */
+function selectPlayableTemplate(templateId) {
+    const template = playableState.templates.find(t => t.id === templateId);
+    if (!template || !template.available) return;
+
+    playableState.selectedTemplate = template;
+
+    // Show config panel
+    const configPanel = document.getElementById('playableConfigPanel');
+    configPanel?.classList.remove('hidden');
+
+    // Fill template summary
+    const summaryEl = document.getElementById('playableSelectedTemplate');
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-brand-700">${escapeHtml(template.name)}</span>
+                <span class="text-xs text-ink-400">${escapeHtml(template.duration)}</span>
+            </div>`;
+    }
+
+    // Auto-suggest title
+    const titleInput = document.getElementById('playableTitleInput');
+    if (titleInput && !titleInput.value) {
+        titleInput.value = template.name;
+    }
+
+    // Show/hide story options
+    const storyOpts = document.getElementById('playableStoryOptions');
+    if (storyOpts) {
+        storyOpts.classList.toggle('hidden', template.type !== 'interactive_story');
+    }
+
+    // Scroll to config
+    configPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * Cancel template configuration.
+ */
+function cancelPlayableConfig() {
+    playableState.selectedTemplate = null;
+    document.getElementById('playableConfigPanel')?.classList.add('hidden');
+}
+
+/**
+ * Start playable generation.
+ */
+async function startPlayableGeneration() {
+    if (!playableState.selectedTemplate || !playableState.selectedJobId) return;
+
+    const title = document.getElementById('playableTitleInput')?.value?.trim();
+    if (!title) {
+        showToast('Please enter a title', 'error');
+        return;
+    }
+
+    const ctaUrl = document.getElementById('playableCtaInput')?.value?.trim() || '';
+    const storyDirection = document.getElementById('playableStoryDirection')?.value?.trim() || '';
+
+    // Collect MRAID formats
+    const mraidFormats = [];
+    if (document.getElementById('playableFmtGoogle')?.checked) mraidFormats.push('google');
+    if (document.getElementById('playableFmtMeta')?.checked) mraidFormats.push('meta');
+    if (document.getElementById('playableFmtUnity')?.checked) mraidFormats.push('unity');
+    if (mraidFormats.length === 0) mraidFormats.push('google');
+
+    const btn = document.getElementById('playableGenerateBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+        const resp = await apiPost('/api/marketing/playable-content/generate', {
+            adAccountId: selectedAdAccount.id,
+            trainingJobId: playableState.selectedJobId,
+            templateId: playableState.selectedTemplate.id,
+            contentType: playableState.selectedContentType,
+            title,
+            ctaUrl,
+            mraidFormats,
+            storyOptions: storyDirection ? { direction: storyDirection } : {}
+        });
+
+        playableState.currentContentId = resp.content.id;
+
+        // Hide config, show progress
+        document.getElementById('playableConfigPanel')?.classList.add('hidden');
+        document.getElementById('playablePreviewPanel')?.classList.add('hidden');
+        document.getElementById('playableProgressPanel')?.classList.remove('hidden');
+
+        // Connect to SSE
+        connectPlayableSSE(resp.content.id);
+
+    } catch (error) {
+        const msg = error.message || 'Failed to start generation';
+        if (error.status === 402 || msg.includes('credits')) {
+            showToast('No generation credits remaining. Purchase more to continue.', 'error');
+        } else {
+            showToast(msg, 'error');
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+/**
+ * Connect to SSE progress stream for a generating playable.
+ */
+function connectPlayableSSE(contentId) {
+    // Close any existing connection
+    if (playableState.sseSource) {
+        playableState.sseSource.close();
+        playableState.sseSource = null;
+    }
+
+    const progressBar = document.getElementById('playableProgressBar');
+    const progressText = document.getElementById('playableProgressText');
+
+    const phaseProgress = {
+        connected: 5,
+        preparing: 10,
+        encoding_assets: 25,
+        generating_code: 50,
+        validating: 65,
+        retry: 55,
+        packaging: 80,
+        uploading: 90,
+        complete: 100,
+        error: 100
+    };
+
+    const source = new EventSource(`/api/marketing/playable-content/${contentId}/progress`);
+    playableState.sseSource = source;
+
+    source.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            const pct = phaseProgress[data.phase] || 50;
+
+            if (progressBar) progressBar.style.width = `${pct}%`;
+            if (progressText) progressText.textContent = data.message || data.phase;
+
+            if (data.phase === 'complete') {
+                source.close();
+                playableState.sseSource = null;
+
+                // Show preview + refresh credits (consumed on success)
+                setTimeout(async () => {
+                    document.getElementById('playableProgressPanel')?.classList.add('hidden');
+                    showPlayablePreview(contentId);
+                    loadPlayableHistory();
+                    try {
+                        const result = await apiGet('/api/marketing/playable-content/credits');
+                        playableState.credits = result.credits;
+                        updatePlayableCreditsUI();
+                    } catch {}
+                }, 500);
+            }
+
+            if (data.phase === 'error') {
+                source.close();
+                playableState.sseSource = null;
+                if (progressBar) progressBar.classList.replace('bg-brand-600', 'bg-red-500');
+                if (progressText) progressText.textContent = `Error: ${data.message}`;
+
+                setTimeout(() => {
+                    document.getElementById('playableProgressPanel')?.classList.add('hidden');
+                    showToast(data.message || 'Generation failed', 'error');
+                    loadPlayableHistory();
+                }, 2000);
+            }
+        } catch { /* ignore parse errors */ }
+    };
+
+    source.onerror = () => {
+        source.close();
+        playableState.sseSource = null;
+        // Fall back to polling
+        pollPlayableStatus(contentId);
+    };
+}
+
+/**
+ * Fallback: poll status if SSE disconnects.
+ */
+async function pollPlayableStatus(contentId) {
+    const progressBar = document.getElementById('playableProgressBar');
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes at 5s intervals
+
+    const poll = setInterval(async () => {
+        attempts++;
+        try {
+            const resp = await apiGet(`/api/marketing/playable-content/${contentId}/status`);
+            const { status, error_message } = resp.content;
+
+            if (status === 'completed') {
+                clearInterval(poll);
+                if (progressBar) progressBar.style.width = '100%';
+                document.getElementById('playableProgressPanel')?.classList.add('hidden');
+                showPlayablePreview(contentId);
+                loadPlayableHistory();
+                try {
+                    const cr = await apiGet('/api/marketing/playable-content/credits');
+                    playableState.credits = cr.credits;
+                    updatePlayableCreditsUI();
+                } catch {}
+            } else if (status === 'failed') {
+                clearInterval(poll);
+                document.getElementById('playableProgressPanel')?.classList.add('hidden');
+                showToast(error_message || 'Generation failed', 'error');
+                loadPlayableHistory();
+            }
+        } catch { /* ignore */ }
+
+        if (attempts >= maxAttempts) {
+            clearInterval(poll);
+            document.getElementById('playableProgressPanel')?.classList.add('hidden');
+            showToast('Generation timed out. Check history for results.', 'error');
+        }
+    }, 5000);
+}
+
+/**
+ * Show the preview panel with iframe.
+ */
+function showPlayablePreview(contentId) {
+    playableState.currentContentId = contentId;
+    const panel = document.getElementById('playablePreviewPanel');
+    const iframe = document.getElementById('playablePreviewIframe');
+    const meta = document.getElementById('playablePreviewMeta');
+
+    panel?.classList.remove('hidden');
+    if (iframe) {
+        iframe.src = `/api/marketing/playable-content/${contentId}/preview`;
+    }
+    if (meta) {
+        meta.textContent = '320 x 480 — Interactive preview (sandboxed)';
+    }
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * Download the playable as a .zip.
+ */
+function downloadPlayable() {
+    if (!playableState.currentContentId) return;
+    window.open(`/api/marketing/playable-content/${playableState.currentContentId}/download`, '_blank');
+}
+
+/**
+ * Regenerate the current playable.
+ */
+async function regeneratePlayable() {
+    if (!playableState.currentContentId) return;
+
+    const btn = document.getElementById('playableRegenBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+        const resp = await apiPost(`/api/marketing/playable-content/${playableState.currentContentId}/regenerate`);
+        playableState.currentContentId = resp.content.id;
+
+        // Show progress
+        document.getElementById('playablePreviewPanel')?.classList.add('hidden');
+        document.getElementById('playableProgressPanel')?.classList.remove('hidden');
+        const progressBar = document.getElementById('playableProgressBar');
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            progressBar.classList.replace('bg-red-500', 'bg-brand-600');
+        }
+
+        connectPlayableSSE(resp.content.id);
+    } catch (error) {
+        showToast(error.message || 'Failed to regenerate', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+/**
+ * Load playable content history.
+ */
+async function loadPlayableHistory() {
+    const section = document.getElementById('playableHistorySection');
+    const list = document.getElementById('playableHistoryList');
+    const empty = document.getElementById('playableHistoryEmpty');
+    if (!section || !list) return;
+
+    try {
+        const jobFilter = playableState.selectedJobId ? `&trainingJobId=${playableState.selectedJobId}` : '';
+        const resp = await apiGet(`/api/marketing/playable-content/history?adAccountId=${selectedAdAccount.id}${jobFilter}&limit=20`);
+        const items = resp.items || [];
+
+        section.classList.remove('hidden');
+
+        if (items.length === 0) {
+            list.innerHTML = '';
+            empty?.classList.remove('hidden');
+            return;
+        }
+        empty?.classList.add('hidden');
+
+        list.innerHTML = items.map(item => {
+            const statusColors = {
+                completed: 'bg-green-100 text-green-700',
+                failed: 'bg-red-100 text-red-700',
+                generating: 'bg-blue-100 text-blue-700',
+                pending: 'bg-surface-100 text-ink-500',
+                validating: 'bg-yellow-100 text-yellow-700',
+                packaging: 'bg-blue-100 text-blue-700'
+            };
+            const statusClass = statusColors[item.status] || statusColors.pending;
+            const date = new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const sizeKB = item.file_size_bytes ? `${(item.file_size_bytes / 1024).toFixed(0)}KB` : '';
+            const durationSec = item.generation_duration_ms ? `${(item.generation_duration_ms / 1000).toFixed(1)}s` : '';
+            const formats = (item.mraid_formats || []).join(', ');
+
+            return `
+            <div class="card-gradient p-4 rounded-lg border border-surface-200 flex items-center justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-base font-medium text-ink-800 truncate">${escapeHtml(item.title)}</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full ${statusClass}">${item.status}</span>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs text-ink-400">
+                        <span>${escapeHtml(item.template_id.replace(/_/g, ' '))}</span>
+                        <span>${date}</span>
+                        ${sizeKB ? `<span>${sizeKB}</span>` : ''}
+                        ${durationSec ? `<span>${durationSec}</span>` : ''}
+                        ${formats ? `<span>${formats}</span>` : ''}
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    ${item.status === 'completed' ? `
+                        <button onclick="showPlayablePreview('${item.id}')" class="btn-secondary btn-sm px-2.5 py-1.5 text-xs" title="Preview">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </button>
+                        <button onclick="window.open('/api/marketing/playable-content/${item.id}/download', '_blank')" class="btn-secondary btn-sm px-2.5 py-1.5 text-xs" title="Download">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        </button>
+                    ` : ''}
+                    <button onclick="deletePlayable('${item.id}')" class="btn-secondary btn-sm px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50" title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (error) {
+        // Non-blocking: history load failure shouldn't break the tab
+        console.error('Failed to load playable history:', error);
+    }
+}
+
+/**
+ * Delete a playable content item.
+ */
+async function deletePlayable(contentId) {
+    if (!confirm('Delete this playable? This cannot be undone.')) return;
+
+    try {
+        await apiDelete(`/api/marketing/playable-content/${contentId}`);
+        showToast('Playable deleted', 'success');
+
+        // If it was the previewed one, hide preview
+        if (playableState.currentContentId === contentId) {
+            document.getElementById('playablePreviewPanel')?.classList.add('hidden');
+            playableState.currentContentId = null;
+        }
+
+        loadPlayableHistory();
+    } catch (error) {
+        showToast(error.message || 'Failed to delete', 'error');
+    }
+}
+
+// ============================================
+// PLAYABLE CREDITS & PAYMENT
+// ============================================
+
+const PLAYABLE_PACK_PRICE_CENTS = 990; // $9.90 per pack of 3 credits
+const PLAYABLE_CREDITS_PER_PACK = 3;
+
+/**
+ * Update the credits UI: count, purchase controls visibility, locked overlay.
+ */
+function updatePlayableCreditsUI() {
+    const countEl = document.getElementById('playableCreditsCount');
+    const purchaseControls = document.getElementById('playablePurchaseControls');
+    const overlay = document.getElementById('playableLockedOverlay');
+    const generateBtn = document.getElementById('playableGenerateBtn');
+
+    if (countEl) countEl.textContent = playableState.credits;
+
+    // Show purchase controls when credits <= 1
+    if (purchaseControls) {
+        if (playableState.credits <= 1) {
+            purchaseControls.classList.remove('hidden');
+            purchaseControls.classList.add('flex');
+        } else {
+            purchaseControls.classList.add('hidden');
+            purchaseControls.classList.remove('flex');
+        }
+    }
+
+    // Show locked overlay when credits = 0
+    if (overlay) {
+        if (playableState.credits <= 0) {
+            overlay.classList.remove('hidden');
+        } else {
+            overlay.classList.add('hidden');
+        }
+    }
+
+    // Disable generate button when no credits
+    if (generateBtn) {
+        if (playableState.credits <= 0) {
+            generateBtn.disabled = true;
+            generateBtn.title = 'No generation credits remaining';
+        } else {
+            generateBtn.disabled = false;
+            generateBtn.title = '';
+        }
+    }
+
+    // Sync totals
+    updatePlayableCreditTotal();
+}
+
+/**
+ * Update the total price display based on quantity selector.
+ */
+function updatePlayableCreditTotal() {
+    // Get quantity from whichever selector is visible
+    const qtyMain = document.getElementById('playableCreditQty');
+    const qtyOverlay = document.getElementById('playableCreditQtyOverlay');
+    const qty = parseInt(qtyMain?.value || qtyOverlay?.value || '3');
+
+    // Sync both selectors
+    if (qtyMain) qtyMain.value = qty;
+    if (qtyOverlay) qtyOverlay.value = qty;
+
+    const total = ((PLAYABLE_PACK_PRICE_CENTS * qty) / 100).toFixed(2);
+    const credits = qty * PLAYABLE_CREDITS_PER_PACK;
+
+    const totalMain = document.getElementById('playableCreditTotal');
+    const totalOverlay = document.getElementById('playableCreditTotalOverlay');
+    if (totalMain) totalMain.textContent = `${credits} for $${total}`;
+    if (totalOverlay) totalOverlay.textContent = `${credits} for $${total}`;
+}
+
+/**
+ * Purchase playable content credits via LS compact checkout.
+ */
+async function purchasePlayableCredits() {
+    const btn = document.getElementById('playableBuyCreditsBtn');
+    const originalHtml = btn?.innerHTML;
+
+    const qtyMain = document.getElementById('playableCreditQty');
+    const qtyOverlay = document.getElementById('playableCreditQtyOverlay');
+    const packs = parseInt(qtyMain?.value || qtyOverlay?.value || '1');
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Preparing...';
+    }
+
+    try {
+        const { checkoutUrl } = await apiPost('/api/subscriptions/playable-gen-checkout', { packs });
+
+        const total = ((PLAYABLE_PACK_PRICE_CENTS * packs) / 100).toFixed(2);
+        if (btn) btn.innerHTML = `<div class="loader" style="width:14px;height:14px;"></div> Pay $${total}...`;
+
+        const paid = await showCompactCheckout(checkoutUrl, btn || document.getElementById('playableLockedOverlay'), { direction: 'up' });
+
+        if (!paid) {
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+            return;
+        }
+
+        // Poll for webhook confirmation
+        if (btn) btn.innerHTML = '<div class="loader" style="width:14px;height:14px;"></div> Confirming...';
+        const previousCredits = playableState.credits;
+        let confirmed = false;
+        for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const result = await apiGet('/api/marketing/playable-content/credits');
+                if (result.credits > previousCredits) {
+                    playableState.credits = result.credits;
+                    confirmed = true;
+                    break;
+                }
+            } catch (e) { /* continue polling */ }
+        }
+
+        if (confirmed) {
+            showToast(`${playableState.credits} playable credits available!`, 'success');
+            updatePlayableCreditsUI();
+        } else {
+            showToast('Payment received but confirmation pending. Credits will appear shortly.', 'warning');
+            setTimeout(async () => {
+                try {
+                    const result = await apiGet('/api/marketing/playable-content/credits');
+                    playableState.credits = result.credits;
+                    updatePlayableCreditsUI();
+                } catch {}
+            }, 5000);
+        }
+    } catch (error) {
+        showToast(error.message || 'Payment failed. Please try again.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
 }

@@ -1663,6 +1663,12 @@ const PER_USE_PRICING = {
     variantId: process.env.LEMON_SQUEEZY_VOICE_TRAINING_VARIANT_ID,
     description: 'Brand Voice Profile Training',
     creditsPerPurchase: 1
+  },
+  playable_content_gen: {
+    amountCents: 990, // $9.90 base for 3 credits
+    variantId: process.env.LEMON_SQUEEZY_PLAYABLE_GEN_VARIANT_ID,
+    description: 'Playable Ad Generation Pack (3 credits)',
+    creditsPerPurchase: 3
   }
 };
 
@@ -2010,6 +2016,89 @@ router.post('/asset-image-gen-pack-checkout', async (req, res) => {
   } catch (error) {
     console.error('[ASSET-IMGGEN-PACK-CHECKOUT] Error:', error);
     res.status(500).json({ error: 'Failed to create image generation pack checkout session' });
+  }
+});
+
+// Create playable content generation credit checkout (variable quantity)
+router.post('/playable-gen-checkout', async (req, res) => {
+  console.log('[PLAYABLE-GEN-CHECKOUT] POST - User:', req.user?.id);
+  try {
+    const pricing = PER_USE_PRICING.playable_content_gen;
+    if (!pricing.variantId) {
+      console.error('[PLAYABLE-GEN-CHECKOUT] Missing playable gen variant ID');
+      return res.status(500).json({ error: 'Playable generation checkout configuration error' });
+    }
+
+    const packs = Math.min(Math.max(parseInt(req.body.packs) || 1, 1), 10);
+    const totalCredits = packs * pricing.creditsPerPurchase; // 3 credits per pack
+
+    const lsHeaders = {
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+      'Authorization': `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`
+    };
+
+    const billing = await fetchLsBillingAddress(req.user.email, req.user.lsCustomerId);
+
+    const checkoutData = {
+      email: req.user.email,
+      name: req.user.name || (req.user.email ? req.user.email.split('@')[0] : undefined),
+      custom: {
+        user_id: req.user.id,
+        purchase_type: 'playable_content_gen',
+        quantity: totalCredits
+      }
+    };
+
+    if (billing) {
+      checkoutData.billing_address = {};
+      if (billing.country) checkoutData.billing_address.country = billing.country;
+      if (billing.state) checkoutData.billing_address.state = billing.state;
+      if (billing.zip) checkoutData.billing_address.zip = billing.zip;
+    }
+
+    const checkoutResponse = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: lsHeaders,
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            checkout_data: checkoutData,
+            checkout_options: { embed: false, media: true, desc: false },
+            product_options: {
+              enabled_variants: [Number(pricing.variantId)],
+              redirect_url: `${req.protocol}://${req.get('host')}/profile.html?tab=marketing`
+            },
+            custom_price: pricing.amountCents * packs
+          },
+          relationships: {
+            store: { data: { type: 'stores', id: String(process.env.LEMON_SQUEEZY_STORE_ID) } },
+            variant: { data: { type: 'variants', id: String(pricing.variantId) } }
+          }
+        }
+      })
+    });
+
+    if (!checkoutResponse.ok) {
+      const errorData = await checkoutResponse.json();
+      console.error('[PLAYABLE-GEN-CHECKOUT] LS Checkout API error:', JSON.stringify(errorData));
+      return res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+
+    const checkoutResult = await checkoutResponse.json();
+    const checkoutUrl = checkoutResult.data?.attributes?.url;
+
+    if (!checkoutUrl) {
+      console.error('[PLAYABLE-GEN-CHECKOUT] No checkout URL in LS response');
+      return res.status(500).json({ error: 'Failed to get checkout URL' });
+    }
+
+    console.log(`[PLAYABLE-GEN-CHECKOUT] Checkout created for user ${req.user.id}, packs=${packs}, credits=${totalCredits}, total=$${(pricing.amountCents * packs / 100).toFixed(2)}`);
+    res.json({ checkoutUrl, packs, totalCredits, totalCents: pricing.amountCents * packs });
+  } catch (error) {
+    console.error('[PLAYABLE-GEN-CHECKOUT] Error:', error);
+    res.status(500).json({ error: 'Failed to create playable generation checkout session' });
   }
 });
 

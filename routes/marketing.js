@@ -11,6 +11,7 @@
  */
 
 import express from 'express';
+import axios from 'axios';
 import multer from 'multer';
 import { authenticateToken } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
@@ -19,6 +20,8 @@ import { supabaseAdmin } from '../services/supabase.js';
 import marketingService from '../services/MarketingService.js';
 import brandVoiceService from '../services/BrandVoiceService.js';
 import mediaAssetService from '../services/MediaAssetService.js';
+import playableContentService from '../services/PlayableContentService.js';
+import testProgressEmitter from '../services/TestProgressEmitter.js';
 import {
   getUserAdAccounts,
   getSelectedAdAccount,
@@ -1991,6 +1994,371 @@ router.delete('/media-assets/generated/:id', async (req, res) => {
   } catch (error) {
     logger.error(`[MediaAssets] DELETE /generated/:id failed: ${error.message}`);
     res.status(500).json({ error: error.message || 'Failed to delete generated image' });
+  }
+});
+
+// ============================================
+// PLAYABLE CONTENT ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/marketing/playable-content/templates
+ * Get available playable templates, filtered by brand kit asset availability.
+ */
+router.get('/playable-content/templates', async (req, res) => {
+  try {
+    const adAccountId = await resolveAdAccountId(req);
+    const { trainingJobId, contentType } = req.query;
+
+    if (!trainingJobId || trainingJobId === 'undefined') {
+      return res.status(400).json({ error: 'trainingJobId query parameter is required' });
+    }
+
+    const job = await getMediaTrainingJobById(trainingJobId, req.user.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Training job not found' });
+    }
+
+    const brandKit = job.brand_kit;
+    if (!brandKit) {
+      return res.status(400).json({ error: 'Brand kit analysis not yet available for this training job' });
+    }
+
+    const templates = playableContentService.getAvailableTemplates(brandKit, contentType || null);
+    const credits = await playableContentService.getCredits(req.user.id);
+
+    res.json({ templates, credits: credits.totalRemaining });
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /templates failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load templates' });
+  }
+});
+
+/**
+ * POST /api/marketing/playable-content/generate
+ * Start async generation of a playable ad or interactive story.
+ */
+router.post('/playable-content/generate', async (req, res) => {
+  try {
+    const { adAccountId, trainingJobId, templateId, contentType, title, ctaUrl, mraidFormats, storyOptions } = req.body;
+
+    if (!adAccountId || !trainingJobId || !templateId || !contentType || !title) {
+      return res.status(400).json({ error: 'Missing required fields: adAccountId, trainingJobId, templateId, contentType, title' });
+    }
+
+    // Validate template exists
+    const template = playableContentService.getTemplateById(templateId);
+    if (!template) {
+      return res.status(400).json({ error: `Unknown template: ${templateId}` });
+    }
+    if (template.type !== contentType) {
+      return res.status(400).json({ error: `Template ${templateId} is type "${template.type}", not "${contentType}"` });
+    }
+
+    // Check credits (consumption happens after successful generation in the pipeline)
+    const credits = await playableContentService.getCredits(req.user.id);
+    if (credits.totalRemaining <= 0) {
+      return res.status(402).json({ error: 'No playable content generation credits remaining', creditsNeeded: 1 });
+    }
+
+    // Start async generation (credit consumed on success, not upfront)
+    const record = await playableContentService.generate(req.user.id, adAccountId, trainingJobId, {
+      templateId, contentType, title, ctaUrl, mraidFormats, storyOptions
+    });
+
+    logger.info(`[PlayableContent] Generation started: ${record.id} template=${templateId} user=${req.user.id}`);
+    res.json({ content: { id: record.id, status: record.status } });
+
+  } catch (error) {
+    logger.error(`[PlayableContent] POST /generate failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to start generation' });
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/:id/status
+ * Poll generation status.
+ */
+router.get('/playable-content/:id/status', async (req, res) => {
+  try {
+    const content = await playableContentService.getPlayable(req.params.id, req.user.id);
+    if (!content) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+
+    res.json({
+      content: {
+        id: content.id,
+        status: content.status,
+        error_message: content.error_message,
+        public_url: content.public_url,
+        file_size_bytes: content.file_size_bytes,
+        generation_duration_ms: content.generation_duration_ms
+      }
+    });
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /status failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to get status' });
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/:id/progress
+ * SSE endpoint for real-time generation progress.
+ */
+router.get('/playable-content/:id/progress', async (req, res) => {
+  try {
+    const content = await playableContentService.getPlayable(req.params.id, req.user.id);
+    if (!content) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+
+    // Set up SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    // Send initial connection event
+    res.write(`data: ${JSON.stringify({ phase: 'connected', message: 'Connected to progress stream' })}\n\n`);
+
+    // If already complete/failed, send terminal event immediately
+    if (content.status === 'completed') {
+      res.write(`data: ${JSON.stringify({ phase: 'complete', message: 'Generation complete', contentId: content.id, previewUrl: content.public_url })}\n\n`);
+      res.end();
+      return;
+    }
+    if (content.status === 'failed') {
+      res.write(`data: ${JSON.stringify({ phase: 'error', message: content.error_message || 'Generation failed' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const sessionKey = `playable:${content.id}`;
+
+    // Subscribe to progress events
+    const unsubscribe = testProgressEmitter.subscribe(req.user.id, sessionKey, (event) => {
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch { /* client disconnected */ }
+
+      if (event.phase === 'complete' || event.phase === 'error') {
+        setTimeout(() => { try { res.end(); } catch {} }, 500);
+      }
+    });
+
+    // Heartbeat to prevent proxy timeouts
+    const heartbeat = setInterval(() => {
+      try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+    }, 15000);
+
+    // Cleanup on client disconnect
+    req.on('close', () => {
+      unsubscribe();
+      clearInterval(heartbeat);
+    });
+
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /progress failed: ${error.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Failed to connect to progress stream' });
+    }
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/:id/preview
+ * Serve the preview HTML for iframe embedding (no MRAID).
+ */
+router.get('/playable-content/:id/preview', async (req, res) => {
+  try {
+    const content = await playableContentService.getPlayable(req.params.id, req.user.id);
+    if (!content) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+    if (content.status !== 'completed' || !content.final_html) {
+      return res.status(400).json({ error: 'Playable content is not ready for preview' });
+    }
+
+    // Strict CSP for sandboxed preview — allows Phaser to run but blocks all network/storage
+    res.setHeader('Content-Security-Policy',
+      "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src blob:; worker-src blob:; frame-ancestors 'self'"
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(content.final_html);
+
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /preview failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load preview' });
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/:id/download
+ * Download the packaged .zip containing all MRAID format files.
+ */
+router.get('/playable-content/:id/download', async (req, res) => {
+  try {
+    const content = await playableContentService.getPlayable(req.params.id, req.user.id);
+    if (!content) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+    if (content.status !== 'completed' || !content.storage_path) {
+      return res.status(400).json({ error: 'Playable content is not ready for download' });
+    }
+
+    // Dynamically import archiver
+    const { default: archiver } = await import('archiver');
+
+    // Set zip response headers
+    const safeName = (content.title || 'playable').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    // Add preview HTML
+    if (content.final_html) {
+      archive.append(content.final_html, { name: 'preview.html' });
+    }
+
+    // Download and add each MRAID format from storage
+    const formats = content.mraid_formats || [];
+    for (const format of formats) {
+      const storagePath = `${content.storage_path}/${format}-mraid.html`;
+      try {
+        const { data } = supabaseAdmin.storage.from('media-assets').getPublicUrl(storagePath);
+        if (data?.publicUrl) {
+          const resp = await axios.get(data.publicUrl, { timeout: 15000, responseType: 'text' });
+          if (resp.data) {
+            archive.append(resp.data, { name: `${format}-ads/index.html` });
+          }
+        }
+      } catch (dlErr) {
+        logger.warn(`[PlayableContent] Failed to include ${format} in zip: ${dlErr.message}`);
+      }
+    }
+
+    // Add README
+    const readmeLines = [
+      `Playable Ad Package: ${content.title}`,
+      `Generated: ${content.created_at}`,
+      '',
+      'Files:',
+      '  preview.html — Standalone preview (open in browser to test)',
+      ...formats.map(f => `  ${f}-ads/index.html — ${f.charAt(0).toUpperCase() + f.slice(1)} Ads format`),
+      '',
+      'Upload Instructions:',
+      '  Google Ads: Upload google-ads/index.html as a playable asset in your campaign.',
+      '  Meta Ads: Upload meta-ads/index.html in Ads Manager under Playable Ads.',
+      '  Unity Ads: Upload unity-ads/index.html in the Unity Ads dashboard.',
+      '',
+      'Note: All files are self-contained single HTML files with all assets inlined.'
+    ];
+    archive.append(readmeLines.join('\n'), { name: 'README.txt' });
+
+    await archive.finalize();
+
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /download failed: ${error.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Failed to generate download' });
+    }
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/history
+ * List user's generated playables.
+ */
+router.get('/playable-content/history', async (req, res) => {
+  try {
+    const adAccountId = await resolveAdAccountId(req);
+    const { trainingJobId, limit = '20', offset = '0' } = req.query;
+
+    const result = await playableContentService.listPlayables(req.user.id, {
+      adAccountId,
+      trainingJobId,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10)
+    });
+
+    res.json(result);
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /history failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to load history' });
+  }
+});
+
+/**
+ * POST /api/marketing/playable-content/:id/regenerate
+ * Re-generate with the same configuration.
+ */
+router.post('/playable-content/:id/regenerate', async (req, res) => {
+  try {
+    const original = await playableContentService.getPlayable(req.params.id, req.user.id);
+    if (!original) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+
+    // Check credits (consumed on success, not upfront)
+    const credits = await playableContentService.getCredits(req.user.id);
+    if (credits.totalRemaining <= 0) {
+      return res.status(402).json({ error: 'No playable content generation credits remaining' });
+    }
+
+    // Start new generation with same settings
+    const record = await playableContentService.generate(req.user.id, original.ad_account_id, original.training_job_id, {
+      templateId: original.template_id,
+      contentType: original.content_type,
+      title: original.title,
+      ctaUrl: original.cta_url,
+      mraidFormats: original.mraid_formats,
+      storyOptions: original.story_options
+    });
+
+    logger.info(`[PlayableContent] Regeneration started: ${record.id} (from ${original.id})`);
+    res.json({ content: { id: record.id, status: record.status } });
+
+  } catch (error) {
+    logger.error(`[PlayableContent] POST /regenerate failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to regenerate' });
+  }
+});
+
+/**
+ * DELETE /api/marketing/playable-content/:id
+ * Delete a playable content item and its storage files.
+ */
+router.delete('/playable-content/:id', async (req, res) => {
+  try {
+    const deleted = await playableContentService.deletePlayable(req.params.id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Playable content not found' });
+    }
+
+    logger.info(`[PlayableContent] Deleted: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error(`[PlayableContent] DELETE failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to delete' });
+  }
+});
+
+/**
+ * GET /api/marketing/playable-content/credits
+ * Get user's playable content generation credit balance.
+ */
+router.get('/playable-content/credits', async (req, res) => {
+  try {
+    const credits = await playableContentService.getCredits(req.user.id);
+    res.json({ credits: credits.totalRemaining, packs: credits.packs });
+  } catch (error) {
+    logger.error(`[PlayableContent] GET /credits failed: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Failed to get credits' });
   }
 });
 

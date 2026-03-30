@@ -147,6 +147,14 @@ export {
   getLatestUnusedPurchase,
   getAssetImageGenCredits,
   consumeAssetImageGenCredit,
+  // Playable content functions
+  createPlayableContent,
+  getPlayableContentById,
+  updatePlayableContent,
+  getUserPlayableContent,
+  deletePlayableContent,
+  getPlayableContentCredits,
+  consumePlayableContentCredit,
   // Quota enforcement
   decrementPostsRemaining,
   calculatePostingInterval,

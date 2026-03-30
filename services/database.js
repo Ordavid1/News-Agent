@@ -4109,6 +4109,188 @@ export async function consumeAssetImageGenCredit(userId) {
   return data;
 }
 
+// ============================================
+// PLAYABLE CONTENT FUNCTIONS
+// ============================================
+
+/**
+ * Create a new playable content record.
+ */
+export async function createPlayableContent(userId, data) {
+  const { data: row, error } = await supabaseAdmin
+    .from('playable_content')
+    .insert({
+      user_id: userId,
+      ad_account_id: data.adAccountId,
+      training_job_id: data.trainingJobId,
+      content_type: data.contentType,
+      template_id: data.templateId,
+      title: data.title,
+      cta_url: data.ctaUrl || null,
+      story_options: data.storyOptions || {},
+      mraid_formats: data.mraidFormats || [],
+      status: 'pending'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating playable content:', error);
+    throw error;
+  }
+  return row;
+}
+
+/**
+ * Get a playable content record by ID (scoped to user).
+ */
+export async function getPlayableContentById(contentId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('playable_content')
+    .select('*')
+    .eq('id', contentId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    logger.error('Error getting playable content:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Update a playable content record.
+ */
+export async function updatePlayableContent(contentId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('playable_content')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', contentId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error updating playable content:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * List playable content for a user, optionally filtered by ad account / training job.
+ */
+export async function getUserPlayableContent(userId, { adAccountId, trainingJobId, limit = 20, offset = 0 } = {}) {
+  let query = supabaseAdmin
+    .from('playable_content')
+    .select('id, user_id, ad_account_id, training_job_id, content_type, template_id, title, cta_url, mraid_formats, storage_path, public_url, file_size_bytes, generation_duration_ms, status, error_message, created_at, updated_at', { count: 'exact' })
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (adAccountId) query = query.eq('ad_account_id', adAccountId);
+  if (trainingJobId) query = query.eq('training_job_id', trainingJobId);
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    logger.error('Error listing playable content:', error);
+    throw error;
+  }
+  return { items: data || [], total: count || 0 };
+}
+
+/**
+ * Delete a playable content record.
+ */
+export async function deletePlayableContent(contentId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('playable_content')
+    .delete()
+    .eq('id', contentId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error deleting playable content:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get playable content generation credit balance for a user.
+ * Returns { totalRemaining, packs } with FIFO ordering.
+ */
+export async function getPlayableContentCredits(userId) {
+  const { data: packs, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('id, credits_total, credits_used, created_at')
+    .eq('user_id', userId)
+    .eq('purchase_type', 'playable_content_gen')
+    .eq('status', 'completed')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('Error getting playable content credits:', error);
+    throw error;
+  }
+
+  const activePacks = (packs || []).filter(p => p.credits_used < p.credits_total);
+  const totalRemaining = activePacks.reduce((sum, p) => sum + (p.credits_total - p.credits_used), 0);
+  return { totalRemaining, packs: activePacks };
+}
+
+/**
+ * Consume one playable content generation credit (FIFO — oldest pack first).
+ * Uses optimistic concurrency to prevent double-spending.
+ * Returns the updated purchase row, or null if no credits available.
+ */
+export async function consumePlayableContentCredit(userId) {
+  const { data: packs, error: findError } = await supabaseAdmin
+    .from('per_use_purchases')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('purchase_type', 'playable_content_gen')
+    .eq('status', 'completed')
+    .order('created_at', { ascending: true });
+
+  if (findError) {
+    logger.error('Error finding playable content credit pack:', findError);
+    throw findError;
+  }
+
+  const pack = (packs || []).find(p => p.credits_used < p.credits_total);
+  if (!pack) return null;
+
+  // Atomically increment credits_used with optimistic concurrency check
+  const { data, error } = await supabaseAdmin
+    .from('per_use_purchases')
+    .update({
+      credits_used: pack.credits_used + 1,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', pack.id)
+    .eq('credits_used', pack.credits_used) // Only if unchanged since read
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      // Race condition: another request consumed this credit — retry
+      return consumePlayableContentCredit(userId);
+    }
+    logger.error('Error consuming playable content credit:', error);
+    throw error;
+  }
+
+  return data;
+}
+
 export default {
   initializeDatabase,
   initializeFirestore,
@@ -4243,6 +4425,14 @@ export default {
   getLatestUnusedPurchase,
   getAssetImageGenCredits,
   consumeAssetImageGenCredit,
+  // Playable content functions
+  createPlayableContent,
+  getPlayableContentById,
+  updatePlayableContent,
+  getUserPlayableContent,
+  deletePlayableContent,
+  getPlayableContentCredits,
+  consumePlayableContentCredit,
   // Affiliate add-on functions
   getAffiliateAddon,
   getAffiliateAddonByLsId,

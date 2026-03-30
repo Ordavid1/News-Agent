@@ -26,6 +26,7 @@
     "@playwright/test": "^1.58.2",
     "@runwayml/sdk": "^3.14.3",
     "@supabase/supabase-js": "^2.86.2",
+    "archiver": "^7.0.1",
     "axios": "^1.11.0",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.1.2",

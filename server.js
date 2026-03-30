@@ -731,26 +731,31 @@ app.post('/webhooks/lemonsqueezy', express.raw({ type: 'application/json' }), as
             model_training: { amountCents: 990, description: 'Brand Asset Model Training', creditsPerPurchase: 1 },
             image_generation: { amountCents: 75, description: 'Brand Image Generation', creditsPerPurchase: 1 },
             asset_image_gen_pack: { amountCents: 490, description: 'Brand Asset Image Generation Pack (8 images)', creditsPerPurchase: 8 },
-            voice_training: { amountCents: 990, description: 'Brand Voice Profile Training', creditsPerPurchase: 1 }
+            voice_training: { amountCents: 990, description: 'Brand Voice Profile Training', creditsPerPurchase: 1 },
+            playable_content_gen: { amountCents: 390, description: 'Playable Ad Generation Credit', creditsPerPurchase: 1 }
           };
           const config = PER_USE_CONFIG[purchaseType];
           if (config) {
+            // For playable credits, quantity comes from checkout custom data
+            const creditsToGrant = (customData.quantity && parseInt(customData.quantity) > 0)
+              ? parseInt(customData.quantity)
+              : (config.creditsPerPurchase || 1);
             const { createPerUsePurchase } = await import('./services/database-wrapper.js');
             await createPerUsePurchase(customData.user_id, {
               purchaseType,
-              amountCents: config.amountCents,
+              amountCents: config.amountCents * creditsToGrant,
               currency: 'usd',
               status: 'completed',
               paymentProvider: 'lemon_squeezy',
               providerReferenceId: String(payload.data.id),
               description: config.description,
-              creditsTotal: config.creditsPerPurchase || 1,
+              creditsTotal: creditsToGrant,
               metadata: {
                 ad_account_id: customData.ad_account_id || null,
                 ls_order_number: payload.data.attributes?.order_number
               }
             });
-            console.log(`[WEBHOOK] Per-use purchase recorded: ${purchaseType} (${config.creditsPerPurchase || 1} credits) for user ${customData.user_id}`);
+            console.log(`[WEBHOOK] Per-use purchase recorded: ${purchaseType} (${creditsToGrant} credits) for user ${customData.user_id}`);
           }
         }
         break;

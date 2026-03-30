@@ -844,11 +844,8 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       });
     }
 
-    // Step 1: Fetch trends using agent's configured topics
-    const searchTopics = [topics[Math.floor(Math.random() * topics.length)]];
-    const selectedTopic = searchTopics[0];
-
-    console.log(`[Agent Test] Fetching trends for topic: ${selectedTopic}`);
+    // Step 1: Fetch trends using all configured topics
+    console.log(`[Agent Test] Fetching trends for topics: ${topics.join(', ')}`);
     testProgressEmitter.emitProgress(userId, agentId, 'trends', 'Searching for trending news...');
 
     let trendData;
@@ -861,7 +858,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
           console.log(`[Agent Test] No results at ${lookback - 24}h, broadening search to ${lookback}h`);
           testProgressEmitter.emitProgress(userId, agentId, 'trends', `Broadening search window to ${Math.round(lookback / 24)} days...`);
         }
-        allTrends = await trendAnalyzer.getTrendsForTopics(searchTopics, {
+        allTrends = await trendAnalyzer.getTrendsForTopics(topics, {
           keywords,
           geoFilter,
           lookbackHours: lookback
@@ -912,7 +909,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
 
         console.log(`[Agent Test] Selected article: "${trendData.title}" (from ${scored.length} candidates, top 5 scores: ${topCandidates.map(t => t.calculatedScore).join(', ')})`);
       } else {
-        const searchDescription = `topic "${selectedTopic}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
+        const searchDescription = `topics "${topics.join(', ')}"${keywords.length > 0 ? ` with keywords "${keywords.join(', ')}"` : ''}`;
         testProgressEmitter.emitProgress(userId, agentId, 'error', 'No trending news found');
         return res.status(400).json({
           success: false,
