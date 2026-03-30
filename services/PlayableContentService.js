@@ -525,7 +525,7 @@ class PlayableContentService {
       return this._buildStoryPrompt(template, assetManifest, brandKit, assetLines, colorLines, opts);
     }
 
-    return `You are an expert Phaser 3 game developer. Generate a complete, production-quality, self-contained Phaser 3 hyper-casual game as a single JavaScript code block.
+    return `You are a senior Phaser 3 game developer specializing in polished, visually impressive hyper-casual games for mobile advertising. Generate a complete, production-quality, self-contained Phaser 3 game as a single JavaScript code block. The game must feel premium — smooth, juicy, and satisfying to play.
 
 GAME TYPE: ${template.name}
 GAME DESCRIPTION: ${template.description}
@@ -544,17 +544,52 @@ ${assetLines.length > 0 ? assetLines.join('\n') : '- No image assets (use colore
 COLOR PALETTE:
 ${colorLines.length > 0 ? colorLines.join('\n') : '- primary: #6366F1\n- secondary: #1E293B\n- accent: #F59E0B'}
 
+VISUAL POLISH REQUIREMENTS (critical — these make the difference between amateur and premium):
+
+1. **Title/Splash Screen (BootScene)**:
+   - Animated title text: scale up from 0 with Bounce ease, add a subtle glow/shadow
+   - Logo image (if available): fade in with a gentle float animation
+   - Background: animated gradient or subtle particle field using brand colors
+   - "Tap to Play" text: pulsing alpha tween (0.4 → 1.0, yoyo, repeat -1)
+   - Transition to GameScene: quick zoom-out + fade
+
+2. **Gameplay (GameScene)**:
+   - Smooth 60fps feel: all movements use tweens, never teleport objects
+   - "Juice" on every interaction:
+     * On successful action: scale punch (1.0 → 1.3 → 1.0, 150ms), spawn 5-8 small circle particles in accent color that burst outward and fade
+     * On score change: score text scale punch + color flash to accent
+     * On miss/wrong: brief camera shake (intensity 0.01, duration 100ms) + red flash overlay
+   - Particle effects: Use this.add.particles() with circle/square emitters for celebrations, trails, and ambient effects
+   - Progressive difficulty: speed/frequency increases every 10 seconds
+   - Countdown timer: circular progress ring (drawn with Phaser.GameObjects.Graphics arc), not just text
+   - Score display: large bold text with drop shadow, positioned top-center
+   - Smooth object spawning: items tween in (scale from 0 or slide from off-screen), never just appear
+   - Background: subtle animated elements (floating shapes, slow parallax layers using brand colors)
+
+3. **End Screen (EndScene)**:
+   - Transition: game objects fly off screen, then scene fades in
+   - Score reveal: count-up animation from 0 to final score (tween on a counter variable, update text in update())
+   - Star rating or performance message based on score threshold
+   - Confetti/particle celebration burst on high scores
+   - CTA button: rounded rectangle with brand primary color, scale pulse animation, glowing border effect
+   - Button calls window.mraidAction() on pointerdown
+   - "Play Again" option that restarts GameScene
+
+4. **General Polish**:
+   - All scene transitions use camera fadeOut/fadeIn (duration 300-500ms)
+   - Text styling: use fontFamily 'Arial', add shadow via setShadow(2, 2, 'rgba(0,0,0,0.3)', 4)
+   - Interactive objects: on pointerover scale to 1.05 (if applicable)
+   - Use Phaser.Math.Between for randomization, Phaser.Math.Clamp for bounds
+   - Sprite objects should have a subtle idle animation (gentle y bob or rotation)
+
 TECHNICAL REQUIREMENTS:
 1. Phaser 3 is available as window.Phaser (do NOT import or require it).
 2. Game canvas: 320x480 pixels (portrait/mobile). Use scale config: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 320, height: 480 }.
 3. Create these scenes: ${template.phaserScenes.join(' -> ')}.
 4. In BootScene.preload(): Load each asset using this.load.image(key, window.ASSET_DATA_URIS[key]). ASSET_DATA_URIS is already defined on window — do NOT redeclare it with const/let/var.
-5. GameScene: Implement the ${template.mechanics[0]} mechanic. Include score tracking displayed as text. Add a countdown timer (visible to player).
-6. EndScene: Show "Game Over" text, final score, and a CTA button. The button must call window.mraidAction() when tapped.
-7. Touch/pointer input ONLY (no keyboard). All interactions via this.input.on('pointer*') or gameObject.setInteractive().
-8. Use brand colors throughout: background (${assetManifest.colors.background}), UI elements (${assetManifest.colors.primary}), text (${assetManifest.colors.secondary}), highlights (${assetManifest.colors.accent}).
-9. Include particle effects or simple tweens to make it feel polished.
-10. At the end, assign the full Phaser.Game configuration object to window.GAME_CONFIG (do NOT instantiate the game, just assign the config).
+5. Touch/pointer input ONLY (no keyboard). All interactions via this.input.on('pointer*') or gameObject.setInteractive().
+6. Use brand colors throughout: background (${assetManifest.colors.background}), UI elements (${assetManifest.colors.primary}), text (${assetManifest.colors.secondary}), highlights (${assetManifest.colors.accent}).
+7. At the end, assign the full Phaser.Game configuration object to window.GAME_CONFIG (do NOT instantiate the game, just assign the config).
 
 FORBIDDEN (DO NOT USE):
 - fetch(), XMLHttpRequest, WebSocket — no network access
@@ -570,7 +605,7 @@ Return ONLY valid JavaScript code. No markdown fences. No explanation. No commen
     const { title, storyOptions } = opts;
     const storyDirection = storyOptions?.direction || '';
 
-    return `You are an expert Phaser 3 interactive storytelling developer. Generate a complete, self-contained Phaser 3 interactive story experience as a single JavaScript code block.
+    return `You are a senior motion graphics developer specializing in cinematic interactive brand experiences using Phaser 3. Generate a visually stunning, film-quality interactive story that feels like a premium animated advertisement — smooth, atmospheric, and emotionally engaging.
 
 STORY TYPE: ${template.name}
 DESCRIPTION: ${template.description}
@@ -590,30 +625,100 @@ ${assetLines.length > 0 ? assetLines.join('\n') : '- No image assets (use colore
 COLOR PALETTE:
 ${colorLines.length > 0 ? colorLines.join('\n') : '- primary: #6366F1\n- secondary: #1E293B\n- accent: #F59E0B'}
 
-STORY STRUCTURE:
-1. Opening Scene: Hook with brand problem or opportunity (text overlay with fade-in, background in brand colors)
-2. Rising Scene: Brand character or product enters with smooth tween animation
-3. Interaction Point: A choice for the user — two tappable areas (left/right) with different labels
-4. Resolution Scene: Both paths converge to brand value proposition
-5. End Scene: Brand logo (if available) + CTA button calling window.mraidAction()
+CINEMATIC STORY STRUCTURE (5-7 scenes, each a separate Phaser Scene class):
 
-ANIMATION GUIDELINES:
-- Mood: ${assetManifest.style?.mood || 'engaging'} feel
-- Use smooth Phaser tweens (duration: 800-1200ms, ease: 'Power2')
-- Text: Use brand primary color with subtle shadow, fade in with stagger delay
-- Character sprites: Floating bob animation when idle (y tween, yoyo: true)
-- Backgrounds: Use brand palette gradients via Phaser.Display.Color for each scene
-- Tap anywhere to advance (show subtle "tap to continue" hint text)
-- At choice points: two semi-transparent rounded rectangles, side by side, with text labels
+1. **Opening / Hook** (2-3 seconds auto-play, then tap to continue):
+   - Full-screen background in brand primary color with subtle animated gradient (shift hue slightly over time using Phaser.Display.Color.HSVColorWheel)
+   - Title text: letterbox reveal (mask or clip) — characters appear one by one with 50ms stagger delay
+   - Ambient floating particles: 20-30 tiny circles in accent color, slow random drift, alpha 0.1-0.4
+   - Subtle vignette: dark semi-transparent rectangles at top/bottom edges
+
+2. **Character / Product Introduction**:
+   - Camera: slow Ken Burns zoom (scale tween from 1.0 to 1.05 over 3 seconds on a container)
+   - Sprite enters from bottom: slide up + fade in (duration 800ms, ease: 'Back.easeOut')
+   - Spotlight effect: radial gradient circle behind the sprite, pulsing alpha
+   - Text appears word-by-word or line-by-line with 200ms stagger, using Phaser timeline
+
+3. **Rising Tension / Problem Statement**:
+   - Background color shifts (tween the camera background color to a darker brand variant)
+   - Text with emphasis: key words in accent color, slightly larger font
+   - Sprite reacts: subtle shake or scale pulse
+   - Ambient particles speed up slightly
+
+4. **Interactive Choice Point**:
+   - Two cards slide in from left and right (tween from off-screen, ease: 'Power3')
+   - Cards: rounded rectangles (Graphics.fillRoundedRect) with brand colors, drop shadow
+   - Each card has icon/emoji + label text + subtle glow border animation
+   - On hover/pointerover: card scales to 1.05, shadow deepens
+   - On selection: chosen card scales up + glows, other card fades out + slides away
+   - Particle burst from selected card in accent color
+
+5. **Resolution / Brand Value**:
+   - Smooth crossfade transition (old scene fades, new scene fades in)
+   - Full-screen brand color background with large centered text
+   - Sprite: hero pose — centered, scale tween to prominent size with bounce ease
+   - Key message text: typewriter effect (reveal character by character, 30ms per char)
+   - Sparkle/shimmer particles around the sprite
+
+6. **End Screen / CTA**:
+   - Background: animated gradient cycling between brand primary and secondary
+   - Logo (if available): drops in from top with bounce, settles center
+   - CTA button: large rounded rectangle, brand primary color, with:
+     * Continuous gentle scale pulse (1.0 → 1.05, yoyo, repeat -1, duration 800ms)
+     * Glowing border: animated stroke alpha
+     * Text inside: bold white, with shadow
+     * On tap: calls window.mraidAction()
+   - "Tap to explore" text below button, pulsing alpha
+   - Confetti particles: multi-colored small rectangles falling slowly
+
+ANIMATION MASTERY GUIDELINES:
+
+**Easing & Timing** (critical for premium feel):
+- Never use 'Linear' for UI elements. Default to 'Power2' for most, 'Back.easeOut' for entrances, 'Cubic.easeInOut' for transitions
+- Stagger delays: 50-100ms between elements appearing in sequence
+- Hold each scene for at least 2 seconds after animations complete before allowing tap-advance
+- All exits: fade out (alpha 0, 300ms) before scene transition
+
+**Text Cinematography**:
+- Title text: fontSize 28-32px, fontFamily 'Arial', fontStyle 'bold'
+- Body text: fontSize 18-20px, line spacing 1.4x (use lineSpacing in text style)
+- All text has setShadow(2, 2, 'rgba(0,0,0,0.25)', 4)
+- Text reveal: use a tween on a crop rect, or setText with substring and a timer
+- Key words: wrap in a separate text object with accent color for emphasis
+
+**Background & Atmosphere**:
+- Every scene has a unique background color/gradient (drawn with Graphics)
+- Floating ambient particles in EVERY scene: use this.add.particles() with a circle texture (generate via Graphics → generateTexture)
+- Particle config: speed 10-30, alpha 0.1-0.4, scale 0.2-0.6, lifespan 4000-8000, quantity 1 per 200ms
+- Subtle parallax: 2-3 layers of slow-moving geometric shapes at different speeds
+
+**Scene Transitions**:
+- Use this.cameras.main.fadeOut(400) then this.scene.start() in the fade complete callback
+- New scene: this.cameras.main.fadeIn(400)
+- Alternative: wipe transition using a tween on a masking rectangle
+
+**Sprite Animation**:
+- Idle: gentle y-axis bob (tween y ±5px, duration 2000ms, yoyo, repeat -1, ease 'Sine.easeInOut')
+- Entrance: scale from 0 + alpha from 0 simultaneously (duration 600ms, ease 'Back.easeOut')
+- Emphasis: quick scale punch (1.0 → 1.15 → 1.0, duration 300ms)
+- Exit: shrink + fade (scale to 0.8, alpha to 0, duration 400ms)
+
+**Tap-to-Advance System**:
+- Show "tap to continue" text at bottom: small, semi-transparent, pulsing alpha
+- On tap: play a brief visual feedback (small circle expands from tap point and fades)
+- Disable tap during animations (use a boolean flag, enable after all tweens complete)
+- Do NOT advance if an animation is still playing
 
 TECHNICAL REQUIREMENTS:
 1. Phaser 3 is available as window.Phaser (do NOT import or require it).
 2. Canvas: 320x480 portrait. Scale config: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: 320, height: 480 }.
-3. Scenes: ${template.phaserScenes.join(' -> ')}.
-4. Load assets in first scene preload(): this.load.image(key, ASSET_DATA_URIS[key]).
-5. Touch/pointer input ONLY. Tap to advance, tap to choose.
-6. EndScene: CTA button calling window.mraidAction().
-7. Assign game config to window.GAME_CONFIG (do NOT instantiate).
+3. Each story beat is a separate Phaser.Scene class (BootScene, then Scene1, Scene2... EndScene).
+4. Load assets in BootScene preload(): this.load.image(key, window.ASSET_DATA_URIS[key]). ASSET_DATA_URIS is already on window — do NOT redeclare.
+5. Generate a small circle texture in BootScene for particles: use Graphics to draw a filled circle, then graphics.generateTexture('particle', 8, 8), then graphics.destroy().
+6. Touch/pointer input ONLY. Tap to advance, tap to choose.
+7. EndScene: CTA button calling window.mraidAction().
+8. Assign game config to window.GAME_CONFIG (do NOT instantiate).
+9. Use brand colors throughout: ${assetManifest.colors.primary} (primary), ${assetManifest.colors.secondary} (secondary), ${assetManifest.colors.accent} (accent), ${assetManifest.colors.background} (background).
 
 FORBIDDEN (DO NOT USE):
 - fetch(), XMLHttpRequest, WebSocket — no network access
