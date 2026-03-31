@@ -66,18 +66,9 @@ ${includeHashtags ? `- ${isHebrew ? 'האשטגים: 3-5, ספציפיים למ�
  */
 const getTikTokUserPrompt = (article, agentSettings = {}) => {
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
-  const keywords = agentSettings?.keywords || [];
   const tone = agentSettings?.contentStyle?.tone || 'professional';
   const isHebrew = isHebrewLanguage(agentSettings);
   const languageInstruction = getLanguageInstruction(agentSettings);
-
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nתחומי עניין של המשתמש: ${keywordList}`
-      : `\nUser's areas of interest: ${keywordList}`;
-  }
 
   const toneGuidance = {
     professional: isHebrew ? 'שמור על סמכותיות אך נגישות ומרתקות' : 'Keep it authoritative yet approachable and engaging',
@@ -91,7 +82,6 @@ ${isHebrew ? 'כתבה לכיתוב טיקטוק:' : 'ARTICLE FOR TIKTOK CAPTION
 ${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 ${languageInstruction}
 
 ${isHebrew ? 'טון:' : 'Tone:'} ${toneGuidance[tone] || toneGuidance.professional}

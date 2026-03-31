@@ -93,8 +93,7 @@ Length: 2-3 short paragraphs with clear spacing.`;
     Time: ${newsTimestamp}
     Summary: ${article.description}
     Source: ${article.url}
-    Keywords: ${keywords.join(', ')}
-    
+
     Create a social media news update that reports this story as breaking/developing news.
     Write as if you're a news correspondent reporting in real-time.
     Focus on the facts and newsworthiness of the story.

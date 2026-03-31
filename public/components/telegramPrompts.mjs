@@ -68,17 +68,8 @@ ${isHebrew ? 'כללים:' : 'RULES:'}
 const getTelegramUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
-  const keywords = agentSettings?.keywords || [];
   const tone = agentSettings?.contentStyle?.tone || 'professional';
   const isHebrew = isHebrewLanguage(agentSettings);
-
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nתחומי עניין של המשתמש: ${keywordList}`
-      : `\nUser's areas of interest: ${keywordList}`;
-  }
 
   const toneGuidance = {
     professional: isHebrew ? 'סמכותי ואינפורמטיבי' : 'Authoritative and informative',
@@ -95,7 +86,6 @@ ${isHebrew ? 'כותרת:' : 'Title:'} ${article.title}
 ${hasValidUrl ? `URL: ${article.url}` : (isHebrew ? '(אין קישור זמין)' : '(No URL available)')}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 
 ${isHebrew ? 'טון:' : 'Tone:'} ${toneGuidance[tone] || toneGuidance.professional}
 

@@ -55,18 +55,9 @@ ${isHebrew ? 'כללים קריטיים:' : 'CRITICAL RULES:'}
  */
 const getYouTubeUserPrompt = (article, agentSettings = {}) => {
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
-  const keywords = agentSettings?.keywords || [];
   const tone = agentSettings?.contentStyle?.tone || 'professional';
   const isHebrew = isHebrewLanguage(agentSettings);
   const languageInstruction = getLanguageInstruction(agentSettings);
-
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nתחומי עניין של המשתמש: ${keywordList}`
-      : `\nUser's areas of interest: ${keywordList}`;
-  }
 
   const toneGuidance = {
     professional: isHebrew ? 'סמכותי אך נגיש ומרתק' : 'Authoritative yet approachable and engaging',
@@ -80,7 +71,6 @@ ${isHebrew ? 'כתבה לתוכן YouTube Shorts:' : 'ARTICLE FOR YOUTUBE SHORTS
 ${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 ${languageInstruction}
 
 ${isHebrew ? 'טון:' : 'Tone:'} ${toneGuidance[tone] || toneGuidance.professional}

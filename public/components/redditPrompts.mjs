@@ -84,16 +84,7 @@ const getRedditUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const subreddit = agentSettings?.platformSettings?.reddit?.subreddit || 'news';
   const tone = agentSettings?.contentStyle?.tone || 'professional';
-  const keywords = agentSettings?.keywords || [];
   const isHebrew = isHebrewLanguage(agentSettings);
-
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nנושאים רלוונטיים: ${keywordList}`
-      : `\nRelevant topics: ${keywordList}`;
-  }
 
   return `
 ${isHebrew ? `צור פוסט Reddit עבור r/${subreddit}:` : `CREATE A REDDIT POST FOR r/${subreddit}:`}
@@ -103,7 +94,6 @@ ${isHebrew ? 'כותרת:' : 'Title:'} ${article.title}
 ${hasValidUrl ? `URL: ${article.url}` : (isHebrew ? '(אין קישור זמין)' : '(No URL available)')}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 
 ${isHebrew ? 'צור פוסט Reddit עם:' : 'Create a Reddit post with:'}
 1. ${isHebrew ? 'כותרת (מתחת ל-300 תווים): כותרת ברורה ועובדתית - ללא קליקבייט' : 'TITLE (under 300 chars): A clear, factual headline - NO clickbait'}

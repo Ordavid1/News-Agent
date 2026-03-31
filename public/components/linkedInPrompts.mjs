@@ -99,34 +99,18 @@ CRITICAL LANGUAGE INSTRUCTION:
 const buildTopicGuidance = (agentSettings) => {
   const isHebrew = isHebrewLanguage(agentSettings);
   const topics = agentSettings?.topics || [];
-  const keywords = agentSettings?.keywords || [];
 
-  // If no topics or keywords defined, return generic guidance
-  if (topics.length === 0 && keywords.length === 0) {
+  // If no topics defined, return generic guidance
+  if (topics.length === 0) {
     return isHebrew
       ? 'צור תוכן רלוונטי בהתאם לכתבה שסופקה.'
       : 'Create relevant content based on the provided article.';
   }
 
-  let guidance = '';
-
-  // Topics are user-defined strings - use them directly
-  if (topics.length > 0) {
-    const topicList = topics.join(', ');
-    guidance += isHebrew
-      ? `התמקד בנושאים הבאים: ${topicList}`
-      : `Focus on these topics: ${topicList}`;
-  }
-
-  // Keywords are user-defined - use them directly
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    guidance += isHebrew
-      ? `${topics.length > 0 ? '\n' : ''}שים לב במיוחד למילות מפתח אלה: ${keywordList}`
-      : `${topics.length > 0 ? '\n' : ''}Pay special attention to these keywords: ${keywordList}`;
-  }
-
-  return guidance;
+  const topicList = topics.join(', ');
+  return isHebrew
+    ? `התמקד בנושאים הבאים: ${topicList}`
+    : `Focus on these topics: ${topicList}`;
 };
 
 /**
@@ -237,18 +221,8 @@ ${includeHashtags ? (isHebrew ? '#האשטג1 #האשטג2 #האשטג3' : '#Has
 const getLinkedInUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
-  const keywords = agentSettings?.keywords || [];
   const isHebrew = isHebrewLanguage(agentSettings);
   const languageInstruction = getLanguageInstruction(agentSettings);
-
-  // Build context about user's focus areas
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nתחומי עניין של המשתמש: ${keywordList}`
-      : `\nUser's areas of interest: ${keywordList}`;
-  }
 
   return `
 ${isHebrew ? 'חדשות לשיתוף:' : 'BREAKING NEWS TO SHARE:'}
@@ -256,7 +230,6 @@ ${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
 ${hasValidUrl ? `${isHebrew ? 'קישור למקור:' : 'Source URL:'} ${article.url}` : (isHebrew ? '(אין קישור למקור - אל תכלול קישור)' : '(No source URL available - do NOT include any URL)')}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 ${languageInstruction}
 
 ${isHebrew

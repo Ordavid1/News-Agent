@@ -71,17 +71,7 @@ ${includeHashtags ? (isHebrew ? '#[האשטגים רלוונטיים] #[מתוכ
 const getGeneralLinkedInUserPrompt = (article, agentSettings = {}) => {
   const hasValidUrl = article.url && article.url.startsWith('http');
   const includeHashtags = agentSettings?.contentStyle?.includeHashtags !== false;
-  const keywords = agentSettings?.keywords || [];
   const isHebrew = isHebrewLanguage(agentSettings);
-
-  // Build context about user's focus areas
-  let focusContext = '';
-  if (keywords.length > 0) {
-    const keywordList = keywords.map(k => k.replace(/^#/, '')).join(', ');
-    focusContext = isHebrew
-      ? `\nתחומי עניין של המשתמש: ${keywordList}`
-      : `\nUser's areas of interest: ${keywordList}`;
-  }
 
   return `
 ${isHebrew ? 'חדשות בוערות:' : 'BREAKING NEWS:'}
@@ -89,7 +79,6 @@ ${isHebrew ? 'כותרת:' : 'Headline:'} ${article.title}
 ${hasValidUrl ? `${isHebrew ? 'קישור למקור (השתמש בקישור המדויק הזה):' : 'Source URL (USE THIS EXACT URL):'} ${article.url}` : (isHebrew ? '(אין קישור למקור - אל תכלול קישור)' : '(No source URL available - do NOT include any URL)')}
 ${isHebrew ? 'פורסם:' : 'Published:'} ${new Date(article.publishedAt || new Date()).toLocaleString(isHebrew ? 'he-IL' : 'en-US')}
 ${isHebrew ? 'תקציר:' : 'Summary:'} ${article.description || article.summary || ''}
-${focusContext}
 
 ${isHebrew
   ? `צור פוסט LinkedIn שמספק ניתוח מקצועי של התפתחות חדשותית זו.

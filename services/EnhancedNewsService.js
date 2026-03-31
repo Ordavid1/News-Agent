@@ -195,8 +195,8 @@ class EnhancedNewsService extends NewsService {
       titleMatch: 0.30,
       descMatch: 0.20,
       dateRecency: 0.20,
-      keywordDensity: 0.15,
-      userKeywordMatch: 0.15  // New weight for user-defined keywords
+      keywordDensity: 0.05,
+      userKeywordMatch: 0.25  // User keywords are intentional sub-topic filters — weight heavily
     };
 
     let scores = {

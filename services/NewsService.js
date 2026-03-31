@@ -95,14 +95,6 @@ class NewsService {
 
     const allNews = [];
 
-    // Build search queries from topics and keywords
-    const searchTerms = [...topics];
-    if (keywords.length > 0) {
-      // Add keywords to search (strip # from hashtags for search)
-      const cleanKeywords = keywords.map(k => k.replace(/^#/, ''));
-      searchTerms.push(...cleanKeywords);
-    }
-
     // Fetch news for each topic
     for (const topic of topics) {
       const cacheKey = `${topic}_${effectiveLanguage}_${sortBy}_${region}_${lookbackHours}_${keywords.join(',')}`;
@@ -155,7 +147,7 @@ class NewsService {
         // NewsAPI.ai
         if (this.newsAiKey && this.newsAiKey !== 'mock-key') {
           try {
-            const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { region, lookbackHours });
+            const newsAiResults = await this.fetchFromNewsApiAi(topic, effectiveLanguage, { keywords, region, lookbackHours });
             topicNews.push(...newsAiResults);
             logger.info(`NewsAPI.ai returned ${newsAiResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
@@ -167,7 +159,7 @@ class NewsService {
         const isIsraelOrGlobal = useHebrewSearch || (region && region.toLowerCase() === 'il') || includeGlobal;
         if (isIsraelOrGlobal && this.googleApiKey && this.googleApiKey !== 'mock-key') {
           try {
-            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { region, lookbackHours });
+            const googleResults = await this.fetchFromGoogleCSE(topic, effectiveLanguage, { keywords, region, lookbackHours });
             topicNews.push(...googleResults);
             logger.info(`Google CSE returned ${googleResults.length} articles for topic: ${topic} (total: ${topicNews.length})`);
           } catch (error) {
@@ -204,8 +196,13 @@ class NewsService {
     let filteredNews = allNews;
     if (keywords.length > 0) {
       const { matched, rest } = this.rankByKeywords(allNews, keywords);
-      logger.info(`Ranked ${allNews.length} articles: ${matched.length} match keywords, ${rest.length} topic-only`);
-      filteredNews = [...matched, ...rest];
+      logger.info(`Keyword filter: ${matched.length}/${allNews.length} articles match keywords, ${rest.length} topic-only`);
+      // Hard filter: when keywords match some articles, keep ONLY those.
+      // Fall back to all articles only if zero match (broadened time window retry handles upstream).
+      filteredNews = matched.length > 0 ? matched : allNews;
+      if (matched.length === 0) {
+        logger.info(`No articles matched keywords — falling back to all ${allNews.length} topic articles`);
+      }
     }
 
     // Filter out articles in wrong language (e.g. Japanese article when expecting English)
@@ -347,11 +344,13 @@ class NewsService {
   }
 
   async fetchFromNewsAPI(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { region = '', lookbackHours = 72 } = filters;
+    const { keywords = [], region = '', lookbackHours = 72 } = filters;
 
-    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
+    // Build query from topic search terms + user keywords for targeted results
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
+    const cleanKeywords = keywords.map(k => k.replace(/^#/, '').trim()).filter(k => k.length > 0);
+    const allTerms = [...searchQueries, ...cleanKeywords];
+    const query = allTerms.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setHours(fromDate.getHours() - lookbackHours);
@@ -398,11 +397,13 @@ class NewsService {
   }
 
   async fetchFromGNews(topic, language = 'en', sortBy = 'relevance', filters = {}) {
-    const { region = '', lookbackHours = 72 } = filters;
+    const { keywords = [], region = '', lookbackHours = 72 } = filters;
 
-    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
+    // Build query from topic search terms + user keywords for targeted results
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
+    const cleanKeywords = keywords.map(k => k.replace(/^#/, '').trim()).filter(k => k.length > 0);
+    const allTerms = [...searchQueries, ...cleanKeywords];
+    const query = allTerms.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     const fromDate = new Date();
     fromDate.setHours(fromDate.getHours() - lookbackHours);
@@ -456,11 +457,13 @@ class NewsService {
   }
 
   async fetchFromGoogleCSE(topic, language = 'en', filters = {}) {
-    const { region = '', lookbackHours = 168 } = filters;
+    const { keywords = [], region = '', lookbackHours = 168 } = filters;
 
-    // Use topic search queries from config (keywords are used for post-fetch filtering, not API queries)
+    // Build query from topic search terms + user keywords for targeted results
     const searchQueries = getTopicSearchQueries(topic);
-    const query = searchQueries.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
+    const cleanKeywords = keywords.map(k => k.replace(/^#/, '').trim()).filter(k => k.length > 0);
+    const allTerms = [...searchQueries, ...cleanKeywords];
+    const query = allTerms.map(q => q.includes(' ') ? `"${q}"` : q).join(' OR ') || topic;
 
     // Convert lookback hours to Google CSE dateRestrict format (d=days, w=weeks)
     const lookbackDays = Math.ceil(lookbackHours / 24);
@@ -532,7 +535,7 @@ class NewsService {
    * Free tier: 2,000 searches/month.
    */
   async fetchFromNewsApiAi(topic, language = 'en', filters = {}) {
-    const { region = '', lookbackHours = 72 } = filters;
+    const { keywords: userKeywords = [], region = '', lookbackHours = 72 } = filters;
 
     // Event Registry uses 3-letter language codes
     const langMap = {
@@ -542,8 +545,10 @@ class NewsService {
     };
     const erLang = langMap[language] || 'eng';
 
+    // Combine topic search queries with user keywords
     const searchQueries = getTopicSearchQueries(topic);
-    const keywords = searchQueries.length > 0 ? searchQueries : [topic];
+    const cleanUserKeywords = userKeywords.map(k => k.replace(/^#/, '').trim()).filter(k => k.length > 0);
+    const keywords = [...(searchQueries.length > 0 ? searchQueries : [topic]), ...cleanUserKeywords];
 
     const fromDate = new Date();
     fromDate.setHours(fromDate.getHours() - lookbackHours);
