@@ -115,6 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeRedditSubredditToggle();
     initializeTwitterPremiumToggle();
     initializeInstagramContentTypeToggle();
+    initializeTikTokSettingsToggle();
     initializeGeoLanguageToggle();
 });
 
@@ -587,6 +588,128 @@ function initializeInstagramContentTypeToggle() {
                 }
             });
         });
+    }
+}
+
+/**
+ * Initialize TikTok settings toggle.
+ * Shows/hides the TikTok publishing defaults when TikTok is selected.
+ * Fetches creator info to populate privacy options.
+ */
+function initializeTikTokSettingsToggle() {
+    const ttCheckbox = document.querySelector('input[name="platforms"][value="tiktok"]');
+    const ttConfig = document.getElementById('tiktokSettingsConfig');
+
+    if (ttCheckbox && ttConfig) {
+        ttConfig.classList.toggle('hidden', !ttCheckbox.checked);
+
+        ttCheckbox.addEventListener('change', (e) => {
+            ttConfig.classList.toggle('hidden', !e.target.checked);
+            if (e.target.checked) fetchTikTokCreatorInfoForSettings();
+        });
+
+        // Commercial content sub-toggle
+        const commercialCb = document.getElementById('tiktokDefaultCommercial');
+        const commercialOpts = document.getElementById('tiktokDefaultCommercialOpts');
+        if (commercialCb && commercialOpts) {
+            commercialCb.addEventListener('change', () => {
+                commercialOpts.classList.toggle('hidden', !commercialCb.checked);
+                if (!commercialCb.checked) {
+                    document.getElementById('tiktokDefaultBrandOrganic').checked = false;
+                    document.getElementById('tiktokDefaultBrandContent').checked = false;
+                }
+            });
+        }
+
+        // If TikTok is already checked on load, fetch creator info
+        if (ttCheckbox.checked) fetchTikTokCreatorInfoForSettings();
+    }
+}
+
+/** Fetch TikTok creator info to populate the privacy dropdown in settings */
+async function fetchTikTokCreatorInfoForSettings() {
+    const privacySelect = document.getElementById('tiktokDefaultPrivacy');
+    if (!privacySelect) return;
+
+    const token = localStorage.getItem('token');
+    try {
+        const resp = await fetch('/api/connections/tiktok/creator-info', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!resp.ok) {
+            privacySelect.innerHTML = '<option value="" disabled selected>Could not load — connect TikTok first</option>';
+            return;
+        }
+        const data = await resp.json();
+        const currentVal = privacySelect.dataset.savedValue || '';
+        const labels = {
+            'PUBLIC_TO_EVERYONE': 'Public - Everyone',
+            'MUTUAL_FOLLOW_FRIENDS': 'Friends - Mutual followers',
+            'FOLLOWER_OF_CREATOR': 'Followers - Your followers',
+            'SELF_ONLY': 'Private - Only you'
+        };
+        privacySelect.innerHTML = '<option value="" disabled>Select privacy level...</option>';
+        (data.creatorInfo?.privacy_level_options || []).forEach(opt => {
+            const el = document.createElement('option');
+            el.value = opt;
+            el.textContent = labels[opt] || opt;
+            if (opt === currentVal) el.selected = true;
+            privacySelect.appendChild(el);
+        });
+        if (!currentVal) privacySelect.selectedIndex = 0;
+    } catch (e) {
+        privacySelect.innerHTML = '<option value="" disabled selected>Error loading privacy options</option>';
+    }
+}
+
+/** Collect TikTok settings from the settings form */
+function collectTikTokSettings() {
+    const privacyEl = document.getElementById('tiktokDefaultPrivacy');
+    const commercialOn = document.getElementById('tiktokDefaultCommercial')?.checked;
+    return {
+        privacyLevel: privacyEl?.value || null,
+        disableComment: !(document.getElementById('tiktokDefaultAllowComment')?.checked),
+        disableDuet: !(document.getElementById('tiktokDefaultAllowDuet')?.checked),
+        disableStitch: !(document.getElementById('tiktokDefaultAllowStitch')?.checked),
+        brandContentToggle: commercialOn ? (document.getElementById('tiktokDefaultBrandContent')?.checked ?? false) : false,
+        brandOrganicToggle: commercialOn ? (document.getElementById('tiktokDefaultBrandOrganic')?.checked ?? false) : false
+    };
+}
+
+/** Load TikTok settings into the settings form */
+function loadTikTokSettings(tiktokSettings) {
+    if (!tiktokSettings) return;
+
+    const privacyEl = document.getElementById('tiktokDefaultPrivacy');
+    if (privacyEl && tiktokSettings.privacyLevel) {
+        privacyEl.dataset.savedValue = tiktokSettings.privacyLevel;
+    }
+
+    const commentCb = document.getElementById('tiktokDefaultAllowComment');
+    if (commentCb) commentCb.checked = tiktokSettings.disableComment === false;
+
+    const duetCb = document.getElementById('tiktokDefaultAllowDuet');
+    if (duetCb) duetCb.checked = tiktokSettings.disableDuet === false;
+
+    const stitchCb = document.getElementById('tiktokDefaultAllowStitch');
+    if (stitchCb) stitchCb.checked = tiktokSettings.disableStitch === false;
+
+    const commercialCb = document.getElementById('tiktokDefaultCommercial');
+    const commercialOpts = document.getElementById('tiktokDefaultCommercialOpts');
+    if (tiktokSettings.brandContentToggle || tiktokSettings.brandOrganicToggle) {
+        if (commercialCb) commercialCb.checked = true;
+        if (commercialOpts) commercialOpts.classList.remove('hidden');
+        const organicCb = document.getElementById('tiktokDefaultBrandOrganic');
+        if (organicCb) organicCb.checked = tiktokSettings.brandOrganicToggle ?? false;
+        const brandCb = document.getElementById('tiktokDefaultBrandContent');
+        if (brandCb) brandCb.checked = tiktokSettings.brandContentToggle ?? false;
+    }
+
+    // Show TikTok config section
+    const ttConfig = document.getElementById('tiktokSettingsConfig');
+    const ttCheckbox = document.querySelector('input[name="platforms"][value="tiktok"]');
+    if (ttCheckbox?.checked && ttConfig) {
+        ttConfig.classList.remove('hidden');
     }
 }
 
@@ -1222,6 +1345,11 @@ function populateForm(settings) {
                 igConfig.classList.remove('hidden');
             }
         }
+
+        // TikTok publishing defaults
+        if (settings.platformSettings.tiktok) {
+            loadTikTokSettings(settings.platformSettings.tiktok);
+        }
     }
 }
 
@@ -1343,7 +1471,8 @@ async function saveAgentWithSettings() {
             instagram: {
                 contentTypes: Array.from(document.querySelectorAll('input[name="instagramContentType"]:checked'))
                     .map(cb => cb.value) || ['post']
-            }
+            },
+            tiktok: collectTikTokSettings()
         }
     };
 
@@ -1769,6 +1898,11 @@ function populateFormWithAgentSettings(settings) {
                 igConfig.classList.remove('hidden');
             }
         }
+
+        // TikTok publishing defaults
+        if (settings.platformSettings.tiktok) {
+            loadTikTokSettings(settings.platformSettings.tiktok);
+        }
     }
 }
 
@@ -1861,7 +1995,8 @@ async function saveAgentSettings() {
             instagram: {
                 contentTypes: Array.from(document.querySelectorAll('input[name="instagramContentType"]:checked'))
                     .map(cb => cb.value) || ['post']
-            }
+            },
+            tiktok: collectTikTokSettings()
         }
     };
 

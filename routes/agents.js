@@ -5,6 +5,7 @@
  * Each agent is tied to a specific platform connection and has its own settings.
  */
 
+import crypto from 'crypto';
 import express from 'express';
 import {
   getUserAgents,
@@ -53,6 +54,22 @@ const logger = winston.createLogger({
 
 // Initialize content generator
 const contentGenerator = new ContentGenerator();
+
+// ── TikTok two-phase test flow: pending generations store ──
+// Stores generated content between the generate and publish phases so the user
+// can review and configure TikTok-specific settings before publishing.
+const pendingTikTokGenerations = new Map();
+const TIKTOK_GENERATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// Cleanup expired pending generations every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of pendingTikTokGenerations) {
+    if (now - entry.createdAt > TIKTOK_GENERATION_TTL_MS) {
+      pendingTikTokGenerations.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // Agent limits by subscription tier
 const AGENT_LIMITS = {
@@ -372,6 +389,14 @@ router.post('/', authenticateToken, agentCreateValidation, async (req, res) => {
             contentTypes: Array.isArray(settings.platformSettings?.instagram?.contentTypes)
               ? settings.platformSettings.instagram.contentTypes.filter(t => ['post', 'reels'].includes(t))
               : ['post']
+          },
+          tiktok: {
+            privacyLevel: settings.platformSettings?.tiktok?.privacyLevel ?? null,
+            disableComment: settings.platformSettings?.tiktok?.disableComment ?? null,
+            disableDuet: settings.platformSettings?.tiktok?.disableDuet ?? null,
+            disableStitch: settings.platformSettings?.tiktok?.disableStitch ?? null,
+            brandContentToggle: settings.platformSettings?.tiktok?.brandContentToggle ?? false,
+            brandOrganicToggle: settings.platformSettings?.tiktok?.brandOrganicToggle ?? false
           }
         }
       };
@@ -486,6 +511,14 @@ router.put('/:id', authenticateToken, agentUpdateValidation, async (req, res) =>
             contentTypes: Array.isArray(settings.platformSettings?.instagram?.contentTypes)
               ? settings.platformSettings.instagram.contentTypes.filter(t => ['post', 'reels'].includes(t))
               : (agent.settings?.platformSettings?.instagram?.contentTypes || ['post'])
+          },
+          tiktok: {
+            privacyLevel: settings.platformSettings?.tiktok?.privacyLevel ?? agent.settings?.platformSettings?.tiktok?.privacyLevel ?? null,
+            disableComment: settings.platformSettings?.tiktok?.disableComment ?? agent.settings?.platformSettings?.tiktok?.disableComment ?? null,
+            disableDuet: settings.platformSettings?.tiktok?.disableDuet ?? agent.settings?.platformSettings?.tiktok?.disableDuet ?? null,
+            disableStitch: settings.platformSettings?.tiktok?.disableStitch ?? agent.settings?.platformSettings?.tiktok?.disableStitch ?? null,
+            brandContentToggle: settings.platformSettings?.tiktok?.brandContentToggle ?? agent.settings?.platformSettings?.tiktok?.brandContentToggle ?? false,
+            brandOrganicToggle: settings.platformSettings?.tiktok?.brandOrganicToggle ?? agent.settings?.platformSettings?.tiktok?.brandOrganicToggle ?? false
           }
         }
       };
@@ -1374,7 +1407,7 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
         case 'threads':
           publishResult = await publishToThreads(content, userId, imageUrl);
           break;
-        case 'tiktok':
+        case 'tiktok': {
           if (!generatedContent.videoUrl) {
             testProgressEmitter.emitProgress(userId, agentId, 'error', 'TikTok requires a video — generation failed');
             return res.status(400).json({
@@ -1383,11 +1416,82 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
               step: 'publishing'
             });
           }
-          content.videoUrl = generatedContent.videoUrl;
-          publishResult = await publishToTikTok(content, userId, generatedContent.videoUrl, {
-            videoBuffer: generatedContent.videoBuffer
+
+          // TikTok Content Sharing Guidelines compliance: return generated content
+          // for user review before publishing. The user must configure privacy,
+          // interactions, and commercial disclosure in the review modal.
+          const generationId = crypto.randomUUID();
+
+          // Fetch creator info for the review modal
+          let creatorInfo = null;
+          try {
+            const TikTokPublisher = (await import('../publishers/TikTokPublisher.js')).default;
+            const tiktokConn = await TokenManager.getTokens(userId, 'tiktok');
+            const tiktokPublisher = TikTokPublisher.withCredentials({
+              accessToken: tiktokConn.access_token,
+              openId: tiktokConn.platform_user_id || tiktokConn.platform_metadata?.openId,
+              metadata: tiktokConn.platform_metadata
+            });
+            const [creatorResult, userResult] = await Promise.allSettled([
+              tiktokPublisher.getCreatorInfo(),
+              tiktokPublisher.verifyToken()
+            ]);
+            const creator = creatorResult.status === 'fulfilled' ? creatorResult.value : {};
+            const user = userResult.status === 'fulfilled' ? userResult.value : {};
+            creatorInfo = {
+              creator_nickname: user?.display_name || tiktokConn.platform_display_name || tiktokConn.platform_username || 'TikTok User',
+              creator_avatar_url: user?.avatar_url || tiktokConn.platform_avatar_url || null,
+              creator_username: tiktokConn.platform_username || user?.username || null,
+              privacy_level_options: creator.privacy_level_options || [],
+              max_video_post_duration_sec: creator.max_video_post_duration_sec || 600,
+              comment_disabled: creator.comment_disabled ?? false,
+              duet_disabled: creator.duet_disabled ?? false,
+              stitch_disabled: creator.stitch_disabled ?? false
+            };
+          } catch (ciErr) {
+            console.warn(`[Agent Test] Failed to fetch TikTok creator info: ${ciErr.message}`);
+            creatorInfo = { privacy_level_options: [], comment_disabled: false, duet_disabled: false, stitch_disabled: false };
+          }
+
+          // Store the generation for the publish phase
+          pendingTikTokGenerations.set(generationId, {
+            content,
+            generatedContent,
+            trendData,
+            imageUrl,
+            videoUrl: generatedContent.videoUrl,
+            videoBuffer: generatedContent.videoBuffer,
+            userId,
+            agentId,
+            agent,
+            tone,
+            topics,
+            userTier,
+            createdAt: Date.now()
           });
-          break;
+
+          testProgressEmitter.emitProgress(userId, agentId, 'review', 'Content ready for review');
+
+          return res.json({
+            success: true,
+            phase: 'review',
+            generationId,
+            content: {
+              text: generatedContent.text,
+              videoUrl: generatedContent.videoUrl,
+              articleUrl: trendData.url || null,
+              trend: trendData.title,
+              topic: trendData.topic || topics[0] || '',
+              imageUrl: imageUrl || null
+            },
+            creatorInfo,
+            agent: {
+              id: agent.id,
+              name: agent.name,
+              platform
+            }
+          });
+        }
         case 'youtube':
           if (!generatedContent.videoUrl) {
             testProgressEmitter.emitProgress(userId, agentId, 'error', 'YouTube requires a video — generation failed');
@@ -1522,6 +1626,173 @@ router.post('/:id/test', authenticateToken, async (req, res) => {
       error: 'Test post failed',
       message: error.message,
       step: 'unknown'
+    });
+  }
+});
+
+/**
+ * POST /api/agents/:id/test/publish
+ * TikTok publish phase — accepts user-configured settings from the review modal
+ * and publishes the previously generated content.
+ */
+router.post('/:id/test/publish', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const agentId = req.params.id;
+  const {
+    generationId,
+    caption,
+    privacyLevel,
+    disableComment,
+    disableDuet,
+    disableStitch,
+    brandContentToggle,
+    brandOrganicToggle
+  } = req.body;
+
+  if (!generationId) {
+    return res.status(400).json({ success: false, error: 'generationId is required' });
+  }
+
+  // Retrieve the pending generation
+  const pending = pendingTikTokGenerations.get(generationId);
+  if (!pending) {
+    return res.status(410).json({
+      success: false,
+      error: 'Generation expired or not found. Please run the test again.',
+      step: 'expired'
+    });
+  }
+
+  // Validate ownership
+  if (pending.userId !== userId || pending.agentId !== agentId) {
+    return res.status(403).json({ success: false, error: 'Access denied' });
+  }
+
+  // Validate required TikTok settings
+  if (!privacyLevel) {
+    return res.status(400).json({ success: false, error: 'Privacy level is required per TikTok guidelines' });
+  }
+
+  // Branded Content + SELF_ONLY conflict check
+  if (brandContentToggle && privacyLevel === 'SELF_ONLY') {
+    return res.status(400).json({
+      success: false,
+      error: 'Branded content visibility cannot be set to private (SELF_ONLY)'
+    });
+  }
+
+  // Consume the pending generation (one-time use)
+  pendingTikTokGenerations.delete(generationId);
+
+  const { content, generatedContent, trendData, agent, tone, topics, userTier } = pending;
+
+  // Update caption if user edited it
+  if (caption && caption.trim()) {
+    content.text = caption.trim();
+  }
+  content.videoUrl = pending.videoUrl;
+
+  console.log(`[Agent Test] TikTok publish phase — agent ${agentId}, privacy: ${privacyLevel}`);
+  testProgressEmitter.startSession(userId, agentId);
+  testProgressEmitter.emitProgress(userId, agentId, 'publishing', 'Publishing to TikTok...');
+
+  try {
+    const publishResult = await publishToTikTok(content, userId, pending.videoUrl, {
+      videoBuffer: pending.videoBuffer,
+      privacyLevel,
+      disableComment: disableComment ?? false,
+      disableDuet: disableDuet ?? false,
+      disableStitch: disableStitch ?? false,
+      brandContentToggle: brandContentToggle ?? false,
+      brandOrganicToggle: brandOrganicToggle ?? false
+    });
+
+    // Post-publish bookkeeping
+    testProgressEmitter.emitProgress(userId, agentId, 'saving', 'Saving results...');
+
+    const post = await createPost(userId, {
+      topic: trendData.topic || topics[0] || '',
+      content: content.text,
+      platforms: ['tiktok'],
+      status: publishResult?.success ? 'published' : 'failed',
+      metadata: {
+        tone,
+        sourceUrl: trendData.url,
+        trend: trendData.title,
+        agentId: agent.id,
+        agentName: agent.name,
+        testPost: true
+      }
+    });
+
+    if (publishResult?.success) {
+      try { await incrementAgentPost(agentId); } catch (e) {
+        console.warn('[Agent Test] Failed to increment agent post count:', e);
+      }
+    }
+
+    // Dedup
+    try {
+      const { supabaseAdmin } = await import('../services/supabase.js');
+      const articleDedup = new ArticleDeduplicationService(supabaseAdmin);
+      await articleDedup.markArticleUsed(agentId, {
+        url: trendData.url,
+        title: trendData.title || trendData.topic,
+        description: trendData.description,
+        publishedAt: trendData.publishedAt,
+        source: trendData.source
+      });
+    } catch (e) {
+      console.warn('[Agent Test] Failed to mark article in dedup system:', e.message);
+    }
+
+    // Mark test as used
+    try { await markAgentTestUsed(agentId); } catch (e) {
+      console.warn('[Agent Test] Failed to mark test as used:', e);
+    }
+
+    await logUsage(userId, 'agent_test_post', {
+      agentId,
+      platform: 'tiktok',
+      topic: trendData.topic || topics[0] || '',
+      success: publishResult?.success || false
+    });
+
+    testProgressEmitter.emitProgress(userId, agentId, 'complete',
+      publishResult?.success ? 'Published to TikTok!' : 'Publishing to TikTok failed'
+    );
+
+    res.json({
+      success: publishResult?.success || false,
+      message: publishResult?.success
+        ? 'Successfully posted to TikTok!'
+        : 'Failed to post to TikTok',
+      agent: { id: agent.id, name: agent.name, platform: 'tiktok' },
+      post: {
+        id: post.id,
+        topic: trendData.topic || topics[0] || '',
+        content: content.text,
+        tone,
+        trend: trendData.title,
+        videoUrl: pending.videoUrl || null,
+        articleUrl: trendData.url || null
+      },
+      result: publishResult,
+      debug: {
+        articleTitle: trendData.title,
+        articleScore: trendData.calculatedScore?.toFixed(2) || 'N/A',
+        articleUrl: trendData.url || 'none',
+        imageUrl: pending.imageUrl || 'none',
+        userTier
+      }
+    });
+  } catch (publishError) {
+    console.error(`[Agent Test] TikTok publish error:`, publishError);
+    testProgressEmitter.emitProgress(userId, agentId, 'error', publishError.message || 'Publishing failed');
+    res.status(500).json({
+      success: false,
+      error: publishError.message || 'Publishing failed',
+      step: 'publishing'
     });
   }
 });

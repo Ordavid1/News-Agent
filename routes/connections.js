@@ -322,6 +322,67 @@ router.patch('/:platform/active-page', authenticateToken, async (req, res) => {
 });
 
 /**
+ * GET /api/connections/tiktok/creator-info
+ * Fetch TikTok creator info (privacy options, interaction restrictions, max duration).
+ * Required by TikTok Content Sharing Guidelines for the publishing review UI.
+ */
+router.get('/tiktok/creator-info', authenticateToken, async (req, res) => {
+  try {
+    const connection = await TokenManager.getTokens(req.user.id, 'tiktok');
+
+    if (!connection || connection.status !== 'active') {
+      return res.status(404).json({
+        success: false,
+        error: 'No active TikTok connection found. Please connect TikTok first.'
+      });
+    }
+
+    const TikTokPublisher = (await import('../publishers/TikTokPublisher.js')).default;
+    const publisher = TikTokPublisher.withCredentials({
+      accessToken: connection.access_token,
+      openId: connection.platform_user_id || connection.platform_metadata?.openId,
+      metadata: connection.platform_metadata
+    });
+
+    // Fetch creator info and user profile in parallel
+    const [creatorInfo, userInfo] = await Promise.allSettled([
+      publisher.getCreatorInfo(),
+      publisher.verifyToken()
+    ]);
+
+    const creator = creatorInfo.status === 'fulfilled' ? creatorInfo.value : null;
+    const user = userInfo.status === 'fulfilled' ? userInfo.value : null;
+
+    if (!creator) {
+      return res.status(502).json({
+        success: false,
+        error: 'Failed to fetch TikTok creator info. Your account may not be eligible to post.'
+      });
+    }
+
+    res.json({
+      success: true,
+      creatorInfo: {
+        creator_nickname: user?.display_name || connection.platform_display_name || connection.platform_username || 'TikTok User',
+        creator_avatar_url: user?.avatar_url || connection.platform_avatar_url || null,
+        creator_username: connection.platform_username || user?.username || null,
+        privacy_level_options: creator.privacy_level_options || [],
+        max_video_post_duration_sec: creator.max_video_post_duration_sec || 600,
+        comment_disabled: creator.comment_disabled ?? false,
+        duet_disabled: creator.duet_disabled ?? false,
+        stitch_disabled: creator.stitch_disabled ?? false
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching TikTok creator info:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch TikTok creator info'
+    });
+  }
+});
+
+/**
  * GET /api/connections/:platform/initiate
  * Initiate OAuth flow for a platform
  */

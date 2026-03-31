@@ -628,7 +628,14 @@ class PublishingService {
       const mediaUrl = videoUrl || content.videoUrl;
       const result = await publisher.publishPost(content.text, mediaUrl, {
         videoBuffer: options.videoBuffer,
-        sourceUrl: content.source?.url || options.sourceUrl
+        sourceUrl: content.source?.url || options.sourceUrl,
+        // TikTok Content Sharing compliance options
+        privacyLevel: options.privacyLevel,
+        disableComment: options.disableComment,
+        disableDuet: options.disableDuet,
+        disableStitch: options.disableStitch,
+        brandContentToggle: options.brandContentToggle,
+        brandOrganicToggle: options.brandOrganicToggle
       });
 
       if (result.success) {

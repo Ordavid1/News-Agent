@@ -78,6 +78,11 @@ class TikTokPublisher {
    * @param {Object} options - Additional options
    * @param {string} options.privacyLevel - Privacy: SELF_ONLY, MUTUAL_FOLLOW_FRIENDS, FOLLOWER_OF_CREATOR, PUBLIC_TO_EVERYONE
    * @param {Buffer} options.videoBuffer - Pre-downloaded video buffer (for FILE_UPLOAD fallback)
+   * @param {boolean} options.disableDuet - Disable duet for this video
+   * @param {boolean} options.disableComment - Disable comments for this video
+   * @param {boolean} options.disableStitch - Disable stitch for this video
+   * @param {boolean} options.brandContentToggle - Declare branded content (paid partnership)
+   * @param {boolean} options.brandOrganicToggle - Declare promotional content (your own brand)
    * @returns {Promise<Object>} { success, platform, publishId, postId }
    */
   async publishPost(caption, videoUrl, options = {}) {
@@ -118,7 +123,7 @@ class TikTokPublisher {
       if (videoUrl) {
         // Primary: PULL_FROM_URL
         try {
-          publishId = await this.initPullFromUrl(videoUrl, formattedCaption, privacyLevel);
+          publishId = await this.initPullFromUrl(videoUrl, formattedCaption, privacyLevel, options);
         } catch (pullError) {
           // If PULL_FROM_URL fails (e.g., domain not verified), fall back to FILE_UPLOAD
           logger.warn(`PULL_FROM_URL failed: ${pullError.message}. Falling back to FILE_UPLOAD...`);
@@ -126,14 +131,14 @@ class TikTokPublisher {
           if (!options.videoBuffer) {
             // Need to download the video first
             const videoBuffer = await this.downloadVideo(videoUrl);
-            publishId = await this.initFileUpload(videoBuffer, formattedCaption, privacyLevel);
+            publishId = await this.initFileUpload(videoBuffer, formattedCaption, privacyLevel, options);
           } else {
-            publishId = await this.initFileUpload(options.videoBuffer, formattedCaption, privacyLevel);
+            publishId = await this.initFileUpload(options.videoBuffer, formattedCaption, privacyLevel, options);
           }
         }
       } else {
         // Direct FILE_UPLOAD from buffer
-        publishId = await this.initFileUpload(options.videoBuffer, formattedCaption, privacyLevel);
+        publishId = await this.initFileUpload(options.videoBuffer, formattedCaption, privacyLevel, options);
       }
 
       // Poll for publish completion
@@ -176,21 +181,10 @@ class TikTokPublisher {
    * TikTok downloads the video from the provided URL.
    * @returns {string} publish_id for status polling
    */
-  async initPullFromUrl(videoUrl, caption, privacyLevel) {
+  async initPullFromUrl(videoUrl, caption, privacyLevel, options = {}) {
     logger.info(`Initializing PULL_FROM_URL upload (${IS_AUDITED ? 'direct post' : 'inbox'}) — video: ${videoUrl}`);
 
-    const postInfo = {
-      title: caption, // TikTok caption field — max 2200 chars (enforced by formatForTikTok)
-      is_aigc: true,  // Label as AI-generated content per TikTok policy
-      disable_duet: false,
-      disable_comment: false,
-      disable_stitch: false
-    };
-
-    // Only direct post (audited) uses privacy_level; inbox endpoint doesn't accept it
-    if (IS_AUDITED) {
-      postInfo.privacy_level = privacyLevel;
-    }
+    const postInfo = this.buildPostInfo(caption, privacyLevel, options);
 
     const response = await axios.post(
       `${TIKTOK_API_BASE}${PUBLISH_ENDPOINT}`,
@@ -227,7 +221,7 @@ class TikTokPublisher {
    * @param {string} privacyLevel - Privacy setting
    * @returns {string} publish_id
    */
-  async initFileUpload(videoBuffer, caption, privacyLevel) {
+  async initFileUpload(videoBuffer, caption, privacyLevel, options = {}) {
     const videoSize = videoBuffer.length;
     const chunkSize = videoSize; // Single-chunk upload: chunk_size = video_size (valid up to 64MB)
     const totalChunkCount = 1;  // AI-generated videos are well under 64MB
@@ -235,18 +229,7 @@ class TikTokPublisher {
     logger.info(`Initializing FILE_UPLOAD — size: ${(videoSize / (1024 * 1024)).toFixed(1)} MB`);
 
     // Step 1: Initialize upload
-    const postInfo = {
-      title: caption, // TikTok caption field — max 2200 chars (enforced by formatForTikTok)
-      is_aigc: true,  // Label as AI-generated content per TikTok policy
-      disable_duet: false,
-      disable_comment: false,
-      disable_stitch: false
-    };
-
-    // Only direct post (audited) uses privacy_level; inbox endpoint doesn't accept it
-    if (IS_AUDITED) {
-      postInfo.privacy_level = privacyLevel;
-    }
+    const postInfo = this.buildPostInfo(caption, privacyLevel, options);
 
     const initResponse = await axios.post(
       `${TIKTOK_API_BASE}${PUBLISH_ENDPOINT}`,
@@ -367,6 +350,34 @@ class TikTokPublisher {
   // ═══════════════════════════════════════════════════
   // UTILITIES
   // ═══════════════════════════════════════════════════
+
+  /**
+   * Build the post_info object for TikTok API requests.
+   * Reads interaction and commercial disclosure settings from options,
+   * applying TikTok Content Sharing Guidelines compliance.
+   */
+  buildPostInfo(caption, privacyLevel, options = {}) {
+    const postInfo = {
+      title: caption,
+      is_aigc: true,
+      disable_duet: options.disableDuet ?? false,
+      disable_comment: options.disableComment ?? false,
+      disable_stitch: options.disableStitch ?? false
+    };
+
+    // Only direct post (audited) uses privacy_level; inbox endpoint doesn't accept it
+    if (IS_AUDITED) {
+      postInfo.privacy_level = privacyLevel;
+    }
+
+    // Commercial content disclosure (Content Sharing Guidelines Point 3)
+    if (options.brandContentToggle || options.brandOrganicToggle) {
+      postInfo.brand_content_toggle = options.brandContentToggle ?? false;
+      postInfo.brand_organic_toggle = options.brandOrganicToggle ?? false;
+    }
+
+    return postInfo;
+  }
 
   /**
    * Build standard TikTok API headers.

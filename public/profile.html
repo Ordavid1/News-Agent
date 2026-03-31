@@ -3259,6 +3259,152 @@
         </div>
     </div>
 
+    <!-- TikTok Content Sharing Review Modal (all 5 UX compliance points) -->
+    <div id="tiktokReviewModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center p-4">
+        <div class="bg-surface-0 rounded-2xl shadow-2xl p-6 sm:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <!-- Header with Creator Info (Point 1) -->
+            <div class="flex justify-between items-center mb-5">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-[#010101]/10 flex items-center justify-center overflow-hidden" id="ttReviewAvatar">
+                        <svg class="w-5 h-5 text-[#010101]" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13a8.28 8.28 0 005.58 2.15v-3.44a4.85 4.85 0 01-2.65-.78V6.69h2.65z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-ink-800" style="font-family: 'Satoshi', sans-serif;">Post to TikTok</h3>
+                        <p class="text-sm text-ink-400" id="ttReviewCreatorName">Loading creator info...</p>
+                    </div>
+                </div>
+                <button onclick="closeTikTokReviewModal()" class="text-ink-400 hover:text-ink-700 transition-colors text-2xl">&times;</button>
+            </div>
+
+            <!-- Creator error state -->
+            <div id="ttReviewCreatorError" class="hidden mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                <p class="text-sm text-red-600" id="ttReviewCreatorErrorText"></p>
+            </div>
+
+            <!-- Video Preview (Point 5) -->
+            <div class="mb-5">
+                <label class="label mb-1">Video Preview</label>
+                <div class="rounded-xl overflow-hidden bg-black aspect-[9/16] max-h-[280px] flex items-center justify-center mx-auto" style="max-width: 160px;">
+                    <video id="ttReviewVideo" class="w-full h-full object-contain" controls playsinline>
+                        Your browser does not support video playback.
+                    </video>
+                </div>
+            </div>
+
+            <!-- Editable Caption (Point 2 + Point 5) -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-1">
+                    <label class="label" for="ttReviewCaption">Caption</label>
+                    <span class="text-xs text-ink-400" id="ttReviewCharCount">0 / 2200</span>
+                </div>
+                <textarea id="ttReviewCaption" rows="4"
+                    class="w-full rounded-xl border border-surface-200 p-3 text-sm text-ink-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none resize-y"
+                    placeholder="Enter your TikTok caption..."
+                    maxlength="2200"></textarea>
+                <p class="text-xs text-ink-400 mt-1">Source: <a id="ttReviewArticleLink" href="#" target="_blank" class="text-brand-500 hover:underline"></a></p>
+            </div>
+
+            <div class="border-t border-surface-200 my-4"></div>
+
+            <!-- Privacy Level Dropdown (Point 2) -->
+            <div class="mb-4">
+                <label class="label" for="ttReviewPrivacy">Who can view this video <span class="text-red-500">*</span></label>
+                <select id="ttReviewPrivacy" class="w-full rounded-xl border border-surface-200 p-2.5 text-sm text-ink-800 focus:border-brand-500 outline-none">
+                    <option value="" disabled selected>Select privacy level...</option>
+                </select>
+                <p class="text-xs text-ink-400 mt-1">Options are based on your TikTok account settings</p>
+            </div>
+
+            <!-- Interaction Checkboxes (Point 2) -->
+            <div class="mb-4">
+                <label class="label mb-2">Allow interactions on this video</label>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-3 cursor-pointer" id="ttReviewCommentLabel">
+                        <input type="checkbox" id="ttReviewAllowComment" class="checkbox">
+                        <span class="text-sm text-ink-700">Allow Comments</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer" id="ttReviewDuetLabel">
+                        <input type="checkbox" id="ttReviewAllowDuet" class="checkbox">
+                        <span class="text-sm text-ink-700">Allow Duet</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer" id="ttReviewStitchLabel">
+                        <input type="checkbox" id="ttReviewAllowStitch" class="checkbox">
+                        <span class="text-sm text-ink-700">Allow Stitch</span>
+                    </label>
+                </div>
+                <p class="text-xs text-ink-400 mt-1">None are selected by default. Greyed-out options are disabled in your TikTok account settings.</p>
+            </div>
+
+            <div class="border-t border-surface-200 my-4"></div>
+
+            <!-- Commercial Content Disclosure (Point 3) -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="label">Commercial content disclosure</label>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="ttReviewCommercialToggle" class="sr-only peer">
+                        <div class="w-9 h-5 bg-surface-300 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-surface-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-500"></div>
+                    </label>
+                </div>
+                <p class="text-xs text-ink-400 mb-3">Enable if this content promotes a brand, product, or service</p>
+
+                <!-- Sub-options (hidden until toggle is ON) -->
+                <div id="ttReviewCommercialOptions" class="hidden pl-4 border-l-2 border-surface-200 space-y-3">
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" id="ttReviewBrandOrganic" class="checkbox mt-0.5">
+                        <div>
+                            <span class="text-sm font-medium text-ink-700">Your Brand</span>
+                            <p class="text-xs text-ink-400">You are promoting yourself or your own business</p>
+                            <p class="text-xs text-amber-600 mt-0.5 hidden" id="ttReviewBrandOrganicLabel">Your video will be labeled as "Promotional content"</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer" id="ttReviewBrandContentLabel">
+                        <input type="checkbox" id="ttReviewBrandContent" class="checkbox mt-0.5">
+                        <div>
+                            <span class="text-sm font-medium text-ink-700">Branded Content</span>
+                            <p class="text-xs text-ink-400">You are promoting another brand or a third party</p>
+                            <p class="text-xs text-amber-600 mt-0.5 hidden" id="ttReviewBrandContentNotice">Your video will be labeled as "Paid partnership"</p>
+                        </div>
+                    </label>
+                    <p class="text-xs text-red-500 hidden" id="ttReviewCommercialError">You need to indicate if your content promotes yourself, a third party, or both.</p>
+                </div>
+            </div>
+
+            <div class="border-t border-surface-200 my-4"></div>
+
+            <!-- Compliance Declaration (Point 5) -->
+            <div class="mb-4">
+                <p class="text-xs text-ink-500" id="ttReviewComplianceText">
+                    By posting, you agree to TikTok's <a href="https://www.tiktok.com/legal/page/row/music-usage-confirmation/en" target="_blank" class="text-brand-500 hover:underline">Music Usage Confirmation</a>.
+                </p>
+            </div>
+
+            <!-- AI-Generated Content Notice -->
+            <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <p class="text-xs text-blue-700">This content is AI-generated and will be labeled accordingly on TikTok per their platform policy.</p>
+            </div>
+
+            <!-- Processing Notice (Point 5) -->
+            <div class="mb-5">
+                <p class="text-xs text-ink-400">After posting, it may take a few minutes for TikTok to process and publish your video to your profile.</p>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex gap-3">
+                <button onclick="closeTikTokReviewModal()" class="btn-outline flex-1 py-3">Cancel</button>
+                <button onclick="publishTikTokFromReview()" id="ttReviewPublishBtn" class="btn-primary flex-1 py-3" disabled>
+                    <span id="ttReviewPublishText">Post to TikTok</span>
+                    <svg id="ttReviewPublishSpinner" class="hidden animate-spin ml-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Beta Plan Unavailable Modal -->
     <div id="betaPlanModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 items-center justify-center p-4">
         <div class="bg-surface-0 rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">

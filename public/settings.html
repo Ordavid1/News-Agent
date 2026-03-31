@@ -466,19 +466,69 @@
                         </label>
 
                         <!-- TikTok (Starter+) -->
-                        <div class="flex items-center justify-between p-4 border border-surface-200 rounded-xl hover:border-brand-200 transition-colors" data-min-tier="starter" data-platform-gate="tiktok">
-                            <label class="flex items-center gap-3 cursor-pointer flex-1">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#010101]/10">
-                                    <svg class="w-5 h-5 text-[#010101]" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13a8.28 8.28 0 005.58 2.15v-3.44a4.85 4.85 0 01-2.65-.78V6.69h2.65z"/>
-                                    </svg>
+                        <div class="border border-surface-200 rounded-xl hover:border-brand-200 transition-colors" data-min-tier="starter" data-platform-gate="tiktok">
+                            <div class="flex items-center justify-between p-4">
+                                <label class="flex items-center gap-3 cursor-pointer flex-1">
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-[#010101]/10">
+                                        <svg class="w-5 h-5 text-[#010101]" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13a8.28 8.28 0 005.58 2.15v-3.44a4.85 4.85 0 01-2.65-.78V6.69h2.65z"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-ink-800">TikTok</p>
+                                        <p class="text-sm text-ink-400">AI-generated video content</p>
+                                    </div>
+                                </label>
+                                <input type="checkbox" name="platforms" value="tiktok" class="checkbox">
+                            </div>
+                            <!-- TikTok Publishing Defaults (shown when TikTok is selected) -->
+                            <div id="tiktokSettingsConfig" class="px-4 pb-4 pt-0 border-t border-surface-200 hidden">
+                                <p class="text-sm text-ink-500 mt-3 mb-1">Publishing defaults for automated posts:</p>
+                                <p class="text-xs text-ink-400 mb-3">These settings apply to all automated TikTok posts. You can override them during test posts.</p>
+
+                                <div class="mb-3">
+                                    <label class="label" for="tiktokDefaultPrivacy">Default Privacy Level <span class="text-red-500">*</span></label>
+                                    <select id="tiktokDefaultPrivacy" class="w-full rounded-xl border border-surface-200 p-2.5 text-sm text-ink-800 focus:border-brand-500 outline-none">
+                                        <option value="" disabled selected>Loading privacy options...</option>
+                                    </select>
                                 </div>
-                                <div>
-                                    <p class="font-medium text-ink-800">TikTok</p>
-                                    <p class="text-sm text-ink-400">AI-generated video content</p>
+
+                                <div class="mb-3">
+                                    <label class="label mb-2">Allow interactions</label>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center gap-3 cursor-pointer">
+                                            <input type="checkbox" id="tiktokDefaultAllowComment" class="checkbox">
+                                            <span class="text-sm text-ink-700">Comments</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer">
+                                            <input type="checkbox" id="tiktokDefaultAllowDuet" class="checkbox">
+                                            <span class="text-sm text-ink-700">Duet</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer">
+                                            <input type="checkbox" id="tiktokDefaultAllowStitch" class="checkbox">
+                                            <span class="text-sm text-ink-700">Stitch</span>
+                                        </label>
+                                    </div>
                                 </div>
-                            </label>
-                            <input type="checkbox" name="platforms" value="tiktok" class="checkbox">
+
+                                <div class="mb-2">
+                                    <label class="label mb-2">Commercial content</label>
+                                    <label class="flex items-center gap-3 cursor-pointer">
+                                        <input type="checkbox" id="tiktokDefaultCommercial" class="checkbox">
+                                        <span class="text-sm text-ink-700">Posts contain commercial content</span>
+                                    </label>
+                                    <div id="tiktokDefaultCommercialOpts" class="ml-6 mt-2 space-y-2 hidden">
+                                        <label class="flex items-center gap-3 cursor-pointer">
+                                            <input type="checkbox" id="tiktokDefaultBrandOrganic" class="checkbox">
+                                            <span class="text-sm text-ink-700">Your Brand</span>
+                                        </label>
+                                        <label class="flex items-center gap-3 cursor-pointer">
+                                            <input type="checkbox" id="tiktokDefaultBrandContent" class="checkbox">
+                                            <span class="text-sm text-ink-700">Branded Content</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- YouTube (Starter+) -->

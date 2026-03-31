@@ -1980,6 +1980,13 @@ async function deleteAgent(agentId, agentName) {
 }
 
 async function testAgentPost(agentId) {
+    // Check if this is a TikTok agent — TikTok requires a two-phase flow
+    // (generate → review → publish) per Content Sharing Guidelines
+    const agent = agents.find(a => a.id === agentId);
+    if (agent?.platform === 'tiktok') {
+        return testTikTokAgentPost(agentId);
+    }
+
     const token = localStorage.getItem('token');
     const agentCard = document.getElementById(`agent-${agentId}`);
     const testBtn = agentCard?.querySelector('button');
@@ -2255,11 +2262,389 @@ function closeAgentTestModal() {
     }
 }
 
+// ============================================
+// TikTok Content Sharing Review Flow
+// Two-phase test: generate → review modal → publish
+// ============================================
+
+// State for the current TikTok review session
+let _ttReviewState = { agentId: null, generationId: null };
+
+/**
+ * TikTok two-phase test: generate content first, then show review modal.
+ */
+async function testTikTokAgentPost(agentId) {
+    const token = localStorage.getItem('token');
+    const agentCard = document.getElementById(`agent-${agentId}`);
+    const testBtn = agentCard?.querySelector('button');
+    const progressContainer = document.getElementById(`agent-progress-${agentId}`);
+    const progressText = progressContainer?.querySelector('.test-progress-text');
+    const progressDot = progressContainer?.querySelector('.test-progress-dot');
+
+    if (testBtn) { testBtn.disabled = true; testBtn.innerHTML = '<span class="loading-spinner"></span>'; }
+    if (progressContainer) {
+        progressContainer.classList.remove('hidden', 'test-progress-exiting');
+        progressContainer.offsetHeight;
+        progressContainer.classList.add('test-progress-active');
+    }
+
+    let eventSource = null;
+    try {
+        eventSource = new EventSource(`/api/agents/${agentId}/test/progress?token=${encodeURIComponent(token)}`);
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (progressText && data.message && data.phase !== 'connected') {
+                    updateProgressText(progressText, progressDot, data.message, data.phase);
+                }
+            } catch (e) { /* ignore */ }
+        };
+        eventSource.onerror = () => {};
+    } catch (e) { /* graceful degradation */ }
+
+    const abortController = new AbortController();
+    const fetchTimeoutId = setTimeout(() => abortController.abort(), 15 * 60 * 1000);
+
+    try {
+        const response = await fetch(`/api/agents/${agentId}/test`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            },
+            signal: abortController.signal
+        });
+        clearTimeout(fetchTimeoutId);
+        if (eventSource) eventSource.close();
+
+        const result = await response.json();
+
+        if (result.phase === 'review') {
+            // Content generated — show review modal
+            if (progressText) updateProgressText(progressText, progressDot, 'Content ready — review before posting', 'review');
+            setTimeout(() => hideProgressLine(progressContainer), 2000);
+            showTikTokReviewModal(result, agentId);
+        } else if (!response.ok || !result.success) {
+            // Generation failed
+            if (progressText) updateProgressText(progressText, progressDot, result.error || 'Generation failed', 'error');
+            showAgentTestResults(result, false);
+            setTimeout(() => hideProgressLine(progressContainer), 3000);
+        } else {
+            // Unexpected success without review phase
+            showAgentTestResults(result, response.ok);
+            setTimeout(() => hideProgressLine(progressContainer), 3000);
+        }
+    } catch (error) {
+        clearTimeout(fetchTimeoutId);
+        if (eventSource) eventSource.close();
+        const isTimeout = error.name === 'AbortError';
+        if (progressText) updateProgressText(progressText, progressDot,
+            isTimeout ? 'Request timed out — video generation may have exceeded 15 minutes' : 'Network error occurred', 'error');
+        showAgentTestResults({ success: false, error: 'Network error', message: error.message }, false);
+        setTimeout(() => hideProgressLine(progressContainer), 3000);
+    } finally {
+        if (testBtn) { testBtn.disabled = false; testBtn.innerHTML = '<span>Test</span>'; }
+    }
+}
+
+/**
+ * Populate and show the TikTok review modal.
+ */
+function showTikTokReviewModal(data, agentId) {
+    _ttReviewState = { agentId, generationId: data.generationId };
+    const modal = document.getElementById('tiktokReviewModal');
+    const ci = data.creatorInfo || {};
+
+    // Point 1: Creator info
+    const nameEl = document.getElementById('ttReviewCreatorName');
+    nameEl.textContent = ci.creator_username
+        ? `Posting as @${ci.creator_username}`
+        : `Posting as ${ci.creator_nickname || 'TikTok User'}`;
+
+    const avatarEl = document.getElementById('ttReviewAvatar');
+    if (ci.creator_avatar_url) {
+        avatarEl.innerHTML = `<img src="${ci.creator_avatar_url}" class="w-10 h-10 rounded-full object-cover" alt="avatar">`;
+    }
+
+    // Video preview
+    const videoEl = document.getElementById('ttReviewVideo');
+    videoEl.src = data.content?.videoUrl || '';
+
+    // Caption
+    const captionEl = document.getElementById('ttReviewCaption');
+    captionEl.value = data.content?.text || '';
+    ttUpdateCharCount();
+
+    // Article link
+    const linkEl = document.getElementById('ttReviewArticleLink');
+    linkEl.href = data.content?.articleUrl || '#';
+    linkEl.textContent = data.content?.trend || data.content?.articleUrl || '';
+
+    // Point 2: Privacy dropdown (no default)
+    const privacyEl = document.getElementById('ttReviewPrivacy');
+    privacyEl.innerHTML = '<option value="" disabled selected>Select privacy level...</option>';
+    const privacyLabels = {
+        'PUBLIC_TO_EVERYONE': 'Public - Everyone',
+        'MUTUAL_FOLLOW_FRIENDS': 'Friends - Mutual followers',
+        'FOLLOWER_OF_CREATOR': 'Followers - Your followers',
+        'SELF_ONLY': 'Private - Only you'
+    };
+    (ci.privacy_level_options || []).forEach(opt => {
+        const el = document.createElement('option');
+        el.value = opt;
+        el.textContent = privacyLabels[opt] || opt;
+        privacyEl.appendChild(el);
+    });
+
+    // Point 2: Interaction checkboxes (unchecked, greyed if creator disabled)
+    const commentCb = document.getElementById('ttReviewAllowComment');
+    const duetCb = document.getElementById('ttReviewAllowDuet');
+    const stitchCb = document.getElementById('ttReviewAllowStitch');
+
+    commentCb.checked = false;
+    commentCb.disabled = ci.comment_disabled;
+    document.getElementById('ttReviewCommentLabel').classList.toggle('opacity-40', ci.comment_disabled);
+
+    duetCb.checked = false;
+    duetCb.disabled = ci.duet_disabled;
+    document.getElementById('ttReviewDuetLabel').classList.toggle('opacity-40', ci.duet_disabled);
+
+    stitchCb.checked = false;
+    stitchCb.disabled = ci.stitch_disabled;
+    document.getElementById('ttReviewStitchLabel').classList.toggle('opacity-40', ci.stitch_disabled);
+
+    // Point 3: Reset commercial content disclosure
+    document.getElementById('ttReviewCommercialToggle').checked = false;
+    document.getElementById('ttReviewCommercialOptions').classList.add('hidden');
+    document.getElementById('ttReviewBrandOrganic').checked = false;
+    document.getElementById('ttReviewBrandContent').checked = false;
+    document.getElementById('ttReviewCommercialError').classList.add('hidden');
+    document.getElementById('ttReviewBrandOrganicLabel').classList.add('hidden');
+    document.getElementById('ttReviewBrandContentNotice').classList.add('hidden');
+
+    // Reset publish button
+    const publishBtn = document.getElementById('ttReviewPublishBtn');
+    publishBtn.disabled = true;
+    document.getElementById('ttReviewPublishText').textContent = 'Post to TikTok';
+    document.getElementById('ttReviewPublishSpinner').classList.add('hidden');
+
+    // Creator error check
+    const errorEl = document.getElementById('ttReviewCreatorError');
+    if (!ci.privacy_level_options || ci.privacy_level_options.length === 0) {
+        errorEl.classList.remove('hidden');
+        document.getElementById('ttReviewCreatorErrorText').textContent =
+            'Unable to fetch your TikTok privacy options. Your account may not be eligible to post. Please try again later.';
+        publishBtn.disabled = true;
+    } else {
+        errorEl.classList.add('hidden');
+    }
+
+    ttUpdateComplianceText();
+    ttValidateForm();
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeTikTokReviewModal() {
+    const modal = document.getElementById('tiktokReviewModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    _ttReviewState = { agentId: null, generationId: null };
+    // Reset the test button
+    loadAgents();
+}
+
+/**
+ * Publish from the TikTok review modal with user-selected settings.
+ */
+async function publishTikTokFromReview() {
+    const { agentId, generationId } = _ttReviewState;
+    if (!agentId || !generationId) return;
+
+    const token = localStorage.getItem('token');
+    const publishBtn = document.getElementById('ttReviewPublishBtn');
+    const publishText = document.getElementById('ttReviewPublishText');
+    const publishSpinner = document.getElementById('ttReviewPublishSpinner');
+
+    publishBtn.disabled = true;
+    publishText.textContent = 'Publishing...';
+    publishSpinner.classList.remove('hidden');
+
+    const caption = document.getElementById('ttReviewCaption').value.trim();
+    const privacyLevel = document.getElementById('ttReviewPrivacy').value;
+    const disableComment = !document.getElementById('ttReviewAllowComment').checked;
+    const disableDuet = !document.getElementById('ttReviewAllowDuet').checked;
+    const disableStitch = !document.getElementById('ttReviewAllowStitch').checked;
+
+    const commercialOn = document.getElementById('ttReviewCommercialToggle').checked;
+    const brandOrganicToggle = commercialOn && document.getElementById('ttReviewBrandOrganic').checked;
+    const brandContentToggle = commercialOn && document.getElementById('ttReviewBrandContent').checked;
+
+    try {
+        const response = await fetch(`/api/agents/${agentId}/test/publish`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': getCsrfToken()
+            },
+            body: JSON.stringify({
+                generationId,
+                caption,
+                privacyLevel,
+                disableComment,
+                disableDuet,
+                disableStitch,
+                brandContentToggle,
+                brandOrganicToggle
+            })
+        });
+
+        const result = await response.json();
+        closeTikTokReviewModal();
+        showAgentTestResults(result, response.ok);
+    } catch (error) {
+        console.error('TikTok publish error:', error);
+        publishBtn.disabled = false;
+        publishText.textContent = 'Post to TikTok';
+        publishSpinner.classList.add('hidden');
+        showNotification('Publishing failed: ' + error.message, 'error');
+    }
+}
+
+/** Caption character counter */
+function ttUpdateCharCount() {
+    const caption = document.getElementById('ttReviewCaption');
+    const counter = document.getElementById('ttReviewCharCount');
+    if (caption && counter) {
+        counter.textContent = `${caption.value.length} / 2200`;
+    }
+}
+
+/** Point 3/4: Commercial toggle + privacy interaction logic */
+function ttHandleCommercialToggle() {
+    const toggle = document.getElementById('ttReviewCommercialToggle');
+    const options = document.getElementById('ttReviewCommercialOptions');
+    options.classList.toggle('hidden', !toggle.checked);
+
+    if (!toggle.checked) {
+        document.getElementById('ttReviewBrandOrganic').checked = false;
+        document.getElementById('ttReviewBrandContent').checked = false;
+        document.getElementById('ttReviewCommercialError').classList.add('hidden');
+        document.getElementById('ttReviewBrandOrganicLabel').classList.add('hidden');
+        document.getElementById('ttReviewBrandContentNotice').classList.add('hidden');
+    }
+    ttUpdateComplianceText();
+    ttHandlePrivacyCommercialConstraints();
+    ttValidateForm();
+}
+
+function ttHandleBrandCheckboxChange() {
+    const organic = document.getElementById('ttReviewBrandOrganic').checked;
+    const branded = document.getElementById('ttReviewBrandContent').checked;
+
+    document.getElementById('ttReviewBrandOrganicLabel').classList.toggle('hidden', !organic);
+    document.getElementById('ttReviewBrandContentNotice').classList.toggle('hidden', !branded);
+
+    const commercialOn = document.getElementById('ttReviewCommercialToggle').checked;
+    document.getElementById('ttReviewCommercialError').classList.toggle('hidden', !commercialOn || organic || branded);
+
+    ttUpdateComplianceText();
+    ttHandlePrivacyCommercialConstraints();
+    ttValidateForm();
+}
+
+/** Point 4: Branded Content + SELF_ONLY mutual exclusion */
+function ttHandlePrivacyCommercialConstraints() {
+    const privacyEl = document.getElementById('ttReviewPrivacy');
+    const brandedCb = document.getElementById('ttReviewBrandContent');
+    const branded = document.getElementById('ttReviewCommercialToggle').checked && brandedCb.checked;
+
+    // Disable SELF_ONLY option when Branded Content is checked
+    for (const opt of privacyEl.options) {
+        if (opt.value === 'SELF_ONLY') {
+            opt.disabled = branded;
+            if (branded && privacyEl.value === 'SELF_ONLY') {
+                privacyEl.value = '';
+            }
+        }
+    }
+
+    // Disable Branded Content when SELF_ONLY is selected
+    const brandContentLabel = document.getElementById('ttReviewBrandContentLabel');
+    if (privacyEl.value === 'SELF_ONLY') {
+        brandedCb.disabled = true;
+        brandedCb.checked = false;
+        brandContentLabel.classList.add('opacity-40');
+        brandContentLabel.title = 'Branded content visibility cannot be set to private';
+        document.getElementById('ttReviewBrandContentNotice').classList.add('hidden');
+    } else {
+        brandedCb.disabled = false;
+        brandContentLabel.classList.remove('opacity-40');
+        brandContentLabel.title = '';
+    }
+}
+
+/** Point 5: Dynamic compliance text */
+function ttUpdateComplianceText() {
+    const el = document.getElementById('ttReviewComplianceText');
+    const commercialOn = document.getElementById('ttReviewCommercialToggle').checked;
+    const branded = commercialOn && document.getElementById('ttReviewBrandContent').checked;
+
+    if (branded) {
+        el.innerHTML = 'By posting, you agree to TikTok\'s <a href="https://www.tiktok.com/legal/page/row/bc-policy/en" target="_blank" class="text-brand-500 hover:underline">Branded Content Policy</a> and <a href="https://www.tiktok.com/legal/page/row/music-usage-confirmation/en" target="_blank" class="text-brand-500 hover:underline">Music Usage Confirmation</a>.';
+    } else {
+        el.innerHTML = 'By posting, you agree to TikTok\'s <a href="https://www.tiktok.com/legal/page/row/music-usage-confirmation/en" target="_blank" class="text-brand-500 hover:underline">Music Usage Confirmation</a>.';
+    }
+}
+
+/** Validate form completeness — enable/disable publish button */
+function ttValidateForm() {
+    const btn = document.getElementById('ttReviewPublishBtn');
+    const privacy = document.getElementById('ttReviewPrivacy').value;
+    const caption = document.getElementById('ttReviewCaption').value.trim();
+    const commercialOn = document.getElementById('ttReviewCommercialToggle').checked;
+    const organic = document.getElementById('ttReviewBrandOrganic').checked;
+    const branded = document.getElementById('ttReviewBrandContent').checked;
+
+    let valid = true;
+    if (!privacy) valid = false;
+    if (!caption) valid = false;
+    if (commercialOn && !organic && !branded) valid = false;
+
+    // Check if publish is already in progress
+    const publishText = document.getElementById('ttReviewPublishText');
+    if (publishText?.textContent === 'Publishing...') valid = false;
+
+    btn.disabled = !valid;
+}
+
+// Wire up TikTok review modal event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    const captionEl = document.getElementById('ttReviewCaption');
+    if (captionEl) captionEl.addEventListener('input', () => { ttUpdateCharCount(); ttValidateForm(); });
+
+    const privacyEl = document.getElementById('ttReviewPrivacy');
+    if (privacyEl) privacyEl.addEventListener('change', () => { ttHandlePrivacyCommercialConstraints(); ttValidateForm(); });
+
+    const commercialToggle = document.getElementById('ttReviewCommercialToggle');
+    if (commercialToggle) commercialToggle.addEventListener('change', ttHandleCommercialToggle);
+
+    const brandOrganic = document.getElementById('ttReviewBrandOrganic');
+    if (brandOrganic) brandOrganic.addEventListener('change', ttHandleBrandCheckboxChange);
+
+    const brandContent = document.getElementById('ttReviewBrandContent');
+    if (brandContent) brandContent.addEventListener('change', ttHandleBrandCheckboxChange);
+});
+
 // Close modals on escape key
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeCreateAgentModal();
         closeAgentTestModal();
+        closeTikTokReviewModal();
     }
 });
 
@@ -2270,6 +2655,9 @@ document.addEventListener('click', (e) => {
     }
     if (e.target.id === 'agentTestResultModal') {
         closeAgentTestModal();
+    }
+    if (e.target.id === 'tiktokReviewModal') {
+        closeTikTokReviewModal();
     }
 });
 

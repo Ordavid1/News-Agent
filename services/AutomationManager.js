@@ -1191,7 +1191,7 @@ class AutomationManager {
           result = await publishToThreads(content, userId, imageUrl);
           break;
 
-        case 'tiktok':
+        case 'tiktok': {
           // TikTok requires a video URL — generated in step 3.7
           if (!content.videoUrl) {
             logger.warn(`Skipping TikTok for agent ${agent.id}: no video URL available`);
@@ -1201,8 +1201,19 @@ class AutomationManager {
               error: 'TikTok requires a video. Video generation must complete before publishing.'
             };
           }
-          result = await publishToTikTok(content, userId, content.videoUrl);
+          // Pass user-configured TikTok publishing settings (Content Sharing Guidelines compliance)
+          const tiktokSettings = platformSettings.tiktok || {};
+          result = await publishToTikTok(content, userId, content.videoUrl, {
+            videoBuffer: content.videoBuffer,
+            privacyLevel: tiktokSettings.privacyLevel || undefined,
+            disableComment: tiktokSettings.disableComment,
+            disableDuet: tiktokSettings.disableDuet,
+            disableStitch: tiktokSettings.disableStitch,
+            brandContentToggle: tiktokSettings.brandContentToggle,
+            brandOrganicToggle: tiktokSettings.brandOrganicToggle
+          });
           break;
+        }
 
         case 'youtube':
           // YouTube Shorts requires a video URL — generated in step 3.7
