@@ -45,7 +45,8 @@ router.get('/google/callback', async (req, res, next) => {
       });
 
       // Redirect to profile page (token also in URL for backwards compatibility during migration)
-      res.redirect(`/profile.html?token=${token}`);
+      const newUserParam = req.user._isNewUser ? '&new_user=1' : '';
+      res.redirect(`/profile.html?token=${token}${newUserParam}`);
     } catch (error) {
       console.error('[AUTH] Callback error:', error);
       res.redirect('/auth.html?error=callback_failed');

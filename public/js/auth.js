@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         localStorage.setItem('token', token);
         // Remove token from URL
         window.history.replaceState({}, document.title, window.location.pathname);
-        
+
         // Check if user had an intended plan
         const intendedPlan = localStorage.getItem('intendedPlan');
         if (intendedPlan) {

@@ -30,14 +30,16 @@ export function initializePassport() {
           // Check if user exists
           let user = await getUserByEmail(email);
           
+          let isNewUser = false;
           if (user) {
             // Update last login
-            await updateUser(user.id, { 
+            await updateUser(user.id, {
               lastLogin: new Date(),
               googleId: profile.id
             });
           } else {
             // Create new user
+            isNewUser = true;
             user = await createUser({
               email,
               name,
@@ -47,7 +49,8 @@ export function initializePassport() {
               authProvider: 'google'
             });
           }
-          
+
+          user._isNewUser = isNewUser;
           return done(null, user);
         } catch (error) {
           return done(error, null);

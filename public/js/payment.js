@@ -79,6 +79,21 @@ async function checkout(plan) {
                     });
 
                     if (subResponse.ok) {
+                        // Track purchase conversion
+                        if (typeof gtag === 'function') {
+                            const tierPrices = { starter: 25, growth: 75, business: 250 };
+                            const value = tierPrices[tier] || 0;
+                            gtag('event', 'purchase', {
+                                currency: 'USD',
+                                value: value,
+                                items: [{ item_name: tier + '_plan', price: value }]
+                            });
+                            gtag('event', 'conversion', {
+                                send_to: 'AW-18053463418',
+                                value: value,
+                                currency: 'USD'
+                            });
+                        }
                         alert('Test payment successful! Redirecting to profile...');
                         setTimeout(() => {
                             window.location.href = '/profile.html?tab=agents&section=subscription&payment=success';

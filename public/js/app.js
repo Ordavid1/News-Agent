@@ -89,7 +89,7 @@ async function handleLogin(event) {
 async function handleSignup(event) {
     event.preventDefault();
     const formData = new FormData(event.target);
-    
+
     try {
         const response = await fetch(`${API_URL}/auth/register`, {
             method: 'POST',
@@ -100,13 +100,18 @@ async function handleSignup(event) {
                 password: formData.get('password')
             })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok) {
             authToken = data.token;
             localStorage.setItem('token', authToken);
             currentUser = data.user;
+            // Track sign-up conversion
+            if (typeof gtag === 'function') {
+                gtag('event', 'sign_up', { method: 'email' });
+                gtag('event', 'conversion', { send_to: 'AW-18053463418', event_category: 'sign_up' });
+            }
             closeModal();
             showDashboard();
         } else {

@@ -54,9 +54,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (urlToken) {
         // Store token from OAuth callback
         localStorage.setItem('token', urlToken);
-        // Remove token from URL for security (preserve other params like tab)
+
+        // Track sign-up conversion for new OAuth users only
+        const isNewUser = urlParams.get('new_user');
+        if (isNewUser && typeof gtag === 'function') {
+            gtag('event', 'sign_up', { method: 'google_oauth' });
+            gtag('event', 'conversion', { send_to: 'AW-18053463418', event_category: 'sign_up' });
+        }
+
+        // Remove token and new_user from URL for security (preserve other params like tab)
         const cleanUrl = new URL(window.location);
         cleanUrl.searchParams.delete('token');
+        cleanUrl.searchParams.delete('new_user');
         window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search);
     }
 
@@ -877,7 +886,7 @@ async function selectPlan(plan) {
                     if (subResponse.ok) {
                         alert('Test payment successful!');
                         await loadUserProfile();
-                        showPaymentSuccessMessage();
+                        showPaymentSuccessMessage(tier);
                     } else {
                         const error = await subResponse.json();
                         alert('Failed to activate subscription: ' + (error.error || 'Unknown error'));
@@ -973,7 +982,7 @@ async function selectPlan(plan) {
                 const anchorEl = button || planCard || document.body;
                 const paid = await showCompactCheckout(data.checkoutUrl, anchorEl, { direction: 'down' });
                 if (paid) {
-                    showPaymentSuccessMessage();
+                    showPaymentSuccessMessage(tier);
                     await loadUserProfile();
                 }
             } else {
@@ -2326,7 +2335,23 @@ function closePlanChangeNotification() {
 // Payment Success/Cancel Handling
 // ============================================
 
-function showPaymentSuccessMessage() {
+function showPaymentSuccessMessage(tier) {
+    // Track purchase conversion
+    if (typeof gtag === 'function') {
+        const tierPrices = { starter: 25, growth: 75, business: 250 };
+        const purchaseTier = tier || currentUser?.subscription?.tier || 'unknown';
+        const value = tierPrices[purchaseTier] || 0;
+        gtag('event', 'purchase', {
+            currency: 'USD',
+            value: value,
+            items: [{ item_name: purchaseTier + '_plan', price: value }]
+        });
+        gtag('event', 'conversion', {
+            send_to: 'AW-18053463418',
+            value: value,
+            currency: 'USD'
+        });
+    }
     // Create and show success notification
     const notification = document.createElement('div');
     notification.id = 'paymentSuccessNotification';
