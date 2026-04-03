@@ -27,14 +27,25 @@
     // Panel activation / dimming
     // ============================================================
 
-    function playVideo(video) {
+    function playVideo(video, thenUnmute) {
         if (!video || prefersReducedMotion()) return;
+        // Always start muted so autoplay is allowed by the browser
+        video.muted = true;
+        function doPlay() {
+            video.play().then(function () {
+                // Unmute after playback has started successfully
+                if (thenUnmute) {
+                    video.muted = false;
+                    syncMuteIcon(video);
+                }
+            }).catch(function () {});
+        }
         if (video.readyState >= 2) {
-            video.play().catch(function () {});
+            doPlay();
         } else {
             video.addEventListener('canplay', function onCanPlay() {
                 video.removeEventListener('canplay', onCanPlay);
-                video.play().catch(function () {});
+                doPlay();
             });
         }
     }
@@ -50,11 +61,9 @@
         dimmedPanel.classList.add('panel-dimmed');
         dimmedPanel.classList.remove('panel-active');
 
-        playVideo(activeVideo);
+        playVideo(activeVideo, true);
         pauseVideo(dimmedVideo);
 
-        // Unmute active, mute dimmed
-        if (activeVideo) { activeVideo.muted = false; syncMuteIcon(activeVideo); }
         if (dimmedVideo) { dimmedVideo.muted = true; syncMuteIcon(dimmedVideo); }
 
         syncPlayPauseIcon(activeVideo);
