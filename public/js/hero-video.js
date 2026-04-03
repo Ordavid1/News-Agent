@@ -52,6 +52,11 @@
 
         playVideo(activeVideo);
         pauseVideo(dimmedVideo);
+
+        // Unmute active, mute dimmed
+        if (activeVideo) { activeVideo.muted = false; syncMuteIcon(activeVideo); }
+        if (dimmedVideo) { dimmedVideo.muted = true; syncMuteIcon(dimmedVideo); }
+
         syncPlayPauseIcon(activeVideo);
         syncPlayPauseIcon(dimmedVideo);
     }
@@ -61,6 +66,11 @@
         panelMarketing.classList.remove('panel-active', 'panel-dimmed');
         pauseVideo(videoNews);
         pauseVideo(videoMarketing);
+
+        // Re-mute both on reset
+        if (videoNews) { videoNews.muted = true; syncMuteIcon(videoNews); }
+        if (videoMarketing) { videoMarketing.muted = true; syncMuteIcon(videoMarketing); }
+
         syncPlayPauseIcon(videoNews);
         syncPlayPauseIcon(videoMarketing);
     }
