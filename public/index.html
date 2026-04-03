@@ -170,7 +170,7 @@
           "name": "What is Configure News?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Configure News is an AI-powered social media automation platform that automatically generates and publishes trending news content to your social media accounts including Twitter, LinkedIn, Reddit, and Facebook. It saves content creators up to 95% of their time by handling content creation and posting automatically."
+            "text": "Configure News is an AI-powered social media automation platform with two engines: News Agents that automatically generate and publish trending content across 10 platforms, and Marketing Pro that trains AI on your brand voice, manages Meta Ads campaigns, and generates on-brand media. It saves content creators up to 95% of their time by handling content creation, publishing, and advertising automatically."
           }
         },
         {
@@ -178,7 +178,7 @@
           "name": "How does AI social media automation work?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Configure News uses advanced AI to monitor trending news topics, automatically generate engaging social media posts tailored for each platform, and schedule them for optimal posting times. The AI understands platform-specific requirements like Twitter's character limits and LinkedIn's professional tone."
+            "text": "Configure News uses advanced AI to monitor trending news topics, automatically generate engaging social media posts tailored for each platform, and schedule them for optimal posting times. The AI understands platform-specific requirements like Twitter's character limits, LinkedIn's professional tone, TikTok's viral caption style, and YouTube Shorts formatting."
           }
         },
         {
@@ -418,7 +418,7 @@
 
     <main>
     <!-- ==================== HERO SECTION ==================== -->
-    <section class="relative pt-24 sm:pt-32 md:pt-40 pb-16 sm:pb-20 md:pb-32 px-4 sm:px-6 overflow-hidden">
+    <section class="relative pt-28 sm:pt-32 md:pt-36 pb-16 sm:pb-20 md:pb-28 px-4 sm:px-6 overflow-hidden">
         <!-- Floating gradient orbs -->
         <div class="hero-orb w-[500px] h-[500px] bg-brand-300/30 top-[-10%] left-[-10%] animate-orb-float-1"></div>
         <div class="hero-orb w-[400px] h-[400px] bg-accent-300/20 top-[10%] right-[-8%] animate-orb-float-2"></div>
@@ -426,67 +426,182 @@
         <!-- Dot grid pattern -->
         <div class="absolute inset-0 grid-pattern opacity-40 pointer-events-none"></div>
 
-        <div class="relative max-w-5xl mx-auto text-center">
-            <!-- Overline badge -->
-            <div class="animate-on-scroll inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-brand-50 border border-brand-200 mb-8">
-                <span class="flex h-2 w-2 rounded-full bg-brand-500 animate-pulse-ring"></span>
-                <span class="text-caption text-brand-700">AI-powered content automation</span>
-            </div>
-
+        <div class="relative max-w-[1400px] mx-auto">
             <!-- Headline -->
-            <h1 class="animate-on-scroll font-satoshi text-3xl sm:text-display-lg md:text-display-xl leading-[1.05] mb-6">
-                Your Social Media,<br>
-                <span class="gradient-text-vibrant">Fully Automated</span>
-            </h1>
-
-            <!-- Subtitle -->
-            <p class="animate-on-scroll text-body-lg md:text-xl text-ink-500 max-w-2xl mx-auto mb-10 leading-relaxed" data-delay="100">
-                Configure News uses AI to generate, schedule, and publish trending content across every platform — so you can grow your audience while you sleep.
-            </p>
-
-            <!-- CTA Buttons -->
-            <div class="animate-on-scroll flex flex-col sm:flex-row items-center justify-center gap-4 mb-20" data-delay="200">
-                <button onclick="showSignup()" class="btn-primary btn-lg text-base w-full sm:w-auto">
-                    Start Free Trial
-                    <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-                </button>
+            <div class="animate-on-scroll text-center mb-6">
+                <h1 class="font-satoshi text-3xl sm:text-display-lg md:text-display-xl leading-[1.05]">
+                    Choose Your <span class="gradient-text-vibrant">Agentic Marketer</span>
+                </h1>
             </div>
 
-            <!-- Stats -->
-            <div class="animate-on-scroll stagger-children grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto" data-delay="300">
-                <div class="card-static p-6 text-center">
-                    <div class="text-display font-satoshi gradient-text mb-1" data-counter="14694">0</div>
-                    <div class="text-body-sm text-ink-500 font-medium">Posts Generated</div>
+            <!-- Split-Screen Video Container -->
+            <div id="hero-split" class="animate-on-scroll grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5" data-delay="150">
+
+                <!-- LEFT: News Agents -->
+                <div class="hero-video-panel relative rounded-2xl overflow-hidden shadow-card-lg cursor-pointer"
+                     id="panel-news"
+                     role="button"
+                     tabindex="0"
+                     aria-label="Explore News Agents automation — hover or focus to play video">
+                    <video id="video-news"
+                           class="w-full aspect-[16/10] object-cover bg-black"
+                           muted loop playsinline preload="metadata" aria-hidden="true">
+                        <source src="/videos/Configure%20News%20Social%20Media%20Automation.mp4" type="video/mp4">
+                    </video>
+                    <!-- Default label (visible when idle) -->
+                    <div class="hero-panel-label absolute inset-0 flex flex-col items-center justify-center bg-black/40">
+                        <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-brand-500/90 flex items-center justify-center mb-4" style="box-shadow:0 0 32px rgba(99,102,241,0.4)">
+                            <svg class="w-8 h-8 sm:w-10 sm:h-10 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6V7.5z"/></svg>
+                        </div>
+                        <span class="text-white text-xl sm:text-2xl font-bold font-satoshi">News Agents</span>
+                        <span class="text-white font-bold text-body mt-1">AI Agentic Publisher on 10 Social Platforms</span>
+                    </div>
+                    <!-- Messaging overlay (shown when the MARKETING panel is hovered) -->
+                    <div class="hero-panel-overlay absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 sm:p-10 text-center opacity-0 pointer-events-none">
+                        <h2 class="font-satoshi font-bold text-3xl sm:text-4xl md:text-5xl leading-[1.1] text-white mb-5">
+                            Your Brand, <span class="gradient-text-vibrant">Amplified</span>
+                        </h2>
+                        <p class="text-xl sm:text-2xl text-white/80 max-w-lg mb-7 leading-snug">AI learns your brand voice, generates on-brand content, manages Meta Ads, and grows your audience on autopilot.</p>
+                        <br>
+                        <button onclick="showSignup()" class="btn-primary btn-lg">Explore Marketing Pro</button>
+                    </div>
+                    <!-- Video Controls -->
+                    <div class="hero-video-controls absolute bottom-0 left-0 right-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 bg-gradient-to-t from-black/70 to-transparent opacity-0 transition-opacity duration-300 z-10" data-for="video-news">
+                        <button class="hero-ctrl-play flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors" aria-label="Play/Pause">
+                            <svg class="hero-icon-play w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            <svg class="hero-icon-pause w-4 h-4 text-white hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
+                        </button>
+                        <div class="hero-ctrl-progress flex-1 relative h-1.5 bg-white/20 rounded-full cursor-pointer group">
+                            <div class="hero-progress-filled h-full bg-white/80 rounded-full transition-none" style="width:0%"></div>
+                            <div class="hero-progress-thumb absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity" style="left:0%"></div>
+                        </div>
+                        <button class="hero-ctrl-mute flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors" aria-label="Mute/Unmute">
+                            <svg class="hero-icon-muted w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+                            <svg class="hero-icon-unmuted w-4 h-4 text-white hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+                        </button>
+                    </div>
                 </div>
-                <div class="card-static p-6 text-center">
-                    <div class="text-display font-satoshi gradient-text mb-1">95%</div>
-                    <div class="text-body-sm text-ink-500 font-medium">Time Saved</div>
+
+                <!-- RIGHT: Marketing Pro -->
+                <div class="hero-video-panel relative rounded-2xl overflow-hidden shadow-card-lg cursor-pointer"
+                     id="panel-marketing"
+                     role="button"
+                     tabindex="0"
+                     aria-label="Explore Marketing Pro tools — hover or focus to play video">
+                    <video id="video-marketing"
+                           class="w-full aspect-[16/10] object-cover bg-black"
+                           muted loop playsinline preload="metadata" aria-hidden="true">
+                        <source src="public/videos/News Marketing Pro AI Platform - 2nd Take.mp4" type="video/mp4">
+                    </video>
+                    <!-- Default label -->
+                    <div class="hero-panel-label absolute inset-0 flex flex-col items-center justify-center bg-black/40">
+                        <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-accent-500/90 flex items-center justify-center mb-4" style="box-shadow:0 0 32px rgba(236,72,153,0.4)">
+                            <svg class="w-8 h-8 sm:w-10 sm:h-10 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"/></svg>
+                        </div>
+                        <span class="text-white text-xl sm:text-2xl font-bold font-satoshi">Marketing Pro</span>
+                        <span class="text-white font-bold text-body mt-1">Brand Playables Voice and Asset Creator &amp; Autonomous Ads</span>
+                    </div>
+                    <!-- Messaging overlay (shown when the NEWS panel is hovered) -->
+                    <div class="hero-panel-overlay absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 sm:p-10 text-center opacity-0 pointer-events-none">
+                        <h2 class="font-satoshi font-bold text-3xl sm:text-4xl md:text-5xl leading-[1.1] text-white mb-5">
+                            Your Social Channels, <span class="gradient-text-vibrant">Autonomous</span>
+                        </h2>
+                        <p class="text-xl sm:text-2xl text-white/80 max-w-lg mb-7 leading-snug">AI generates, schedules, and publishes trending content across 10 platforms — so you can grow your audience while you sleep.</p>
+                        <br>
+                        <button onclick="showSignup()" class="btn-primary btn-lg">Start Free Trial</button>
+                    </div>
+                    <!-- Video Controls -->
+                    <div class="hero-video-controls absolute bottom-0 left-0 right-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 bg-gradient-to-t from-black/70 to-transparent opacity-0 transition-opacity duration-300 z-10" data-for="video-marketing">
+                        <button class="hero-ctrl-play flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors" aria-label="Play/Pause">
+                            <svg class="hero-icon-play w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            <svg class="hero-icon-pause w-4 h-4 text-white hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
+                        </button>
+                        <div class="hero-ctrl-progress flex-1 relative h-1.5 bg-white/20 rounded-full cursor-pointer group">
+                            <div class="hero-progress-filled h-full bg-white/80 rounded-full transition-none" style="width:0%"></div>
+                            <div class="hero-progress-thumb absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity" style="left:0%"></div>
+                        </div>
+                        <button class="hero-ctrl-mute flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors" aria-label="Mute/Unmute">
+                            <svg class="hero-icon-muted w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+                            <svg class="hero-icon-unmuted w-4 h-4 text-white hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+                        </button>
+                    </div>
                 </div>
-                <div class="card-static p-6 text-center">
-                    <div class="text-display font-satoshi gradient-text mb-1">24/7</div>
-                    <div class="text-body-sm text-ink-500 font-medium">Always Running</div>
+            </div>
+
+                <!-- ==================== PLATFORM LOGOS ==================== -->
+    <section class="py-12 border-y border-surface-200 bg-surface-50">
+        <div class="max-w-5xl mx-auto px-6">
+            <p class="text-center text-caption text-ink-400 uppercase tracking-wider mb-8">Publish to all 10 major platforms</p>
+            <div class="flex flex-wrap items-center justify-center gap-6 md:gap-10 opacity-60">
+                <!-- Twitter/X -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">X / Twitter</span>
+                </div>
+                <!-- LinkedIn -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">LinkedIn</span>
+                </div>
+                <!-- Reddit -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">Reddit</span>
+                </div>
+                <!-- Facebook -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">Facebook</span>
+                </div>
+                <!-- Instagram -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 1 0 0-12.324zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405a1.441 1.441 0 1 1-2.882 0 1.441 1.441 0 0 1 2.882 0z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">Instagram</span>
+                </div>
+                <!-- Threads -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12.186 24h-.007c-3.581-.024-6.334-1.205-8.184-3.509C2.35 18.44 1.5 15.586 1.472 12.01v-.017c.03-3.579.879-6.43 2.525-8.482C5.845 1.205 8.6.024 12.18 0h.014c2.746.02 5.043.725 6.826 2.098 1.677 1.29 2.858 3.13 3.509 5.467l-2.04.569c-1.104-3.96-3.898-5.984-8.304-6.015-2.91.022-5.11.936-6.54 2.717C4.307 6.504 3.616 8.914 3.59 12c.025 3.086.718 5.496 2.057 7.164 1.432 1.781 3.632 2.698 6.542 2.717 2.35-.02 4.08-.623 5.288-1.842 1.378-1.392 1.588-3.14 1.342-4.248-.178-.798-.632-1.467-1.303-1.905-.236 2.063-.894 3.592-1.975 4.564-1.19 1.07-2.829 1.579-4.876 1.515-1.532-.048-2.828-.517-3.748-1.357-.94-.858-1.457-2.023-1.457-3.276 0-1.6.655-2.93 1.843-3.744.985-.675 2.28-1.04 3.637-1.028 1.084.01 2.06.2 2.91.568l-.002-.17c-.015-1.405-.264-2.44-.762-3.166-.545-.795-1.417-1.199-2.59-1.199h-.075c-.86.015-1.57.286-2.112.807l-1.354-1.51c.846-.82 1.94-1.266 3.266-1.33l.148-.003c1.753 0 3.104.638 3.916 1.846.696 1.036 1.065 2.478 1.095 4.282v.02c.024 1.793.013 3.168-.148 4.09.5.248.95.6 1.322 1.043.622.74 1.026 1.7 1.2 2.856.35 2.322-.427 4.82-2.37 6.775C18.26 23.09 15.61 23.97 12.186 24zm-1.248-8.39c-.98-.01-1.77.188-2.337.582-.65.453-.993 1.117-.993 1.92 0 .672.248 1.241.716 1.645.508.438 1.263.67 2.184.698 1.475.046 2.588-.293 3.303-.995.69-.678 1.11-1.753 1.252-3.186-.804-.376-1.784-.636-2.824-.656l-.3-.008z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">Threads</span>
+                </div>
+                <!-- Telegram -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">Telegram</span>
+                </div>
+                <!-- WhatsApp -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">WhatsApp</span>
+                </div>
+                <!-- TikTok -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">TikTok</span>
+                </div>
+                <!-- YouTube -->
+                <div class="flex flex-col items-center gap-1.5 hover:opacity-100 transition-opacity">
+                    <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    <span class="text-[10px] text-ink-400 font-medium">YouTube</span>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- ==================== PLATFORM LOGOS ==================== -->
-    <section class="py-12 border-y border-surface-200 bg-surface-50">
-        <div class="max-w-5xl mx-auto px-6">
-            <p class="text-center text-caption text-ink-400 uppercase tracking-wider mb-8">Publish to all major platforms</p>
-            <div class="flex flex-wrap items-center justify-center gap-8 md:gap-14 opacity-60">
-                <!-- Twitter/X -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <!-- LinkedIn -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-                <!-- Reddit -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/></svg>
-                <!-- Facebook -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                <!-- Telegram -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                <!-- Instagram -->
-                <svg class="w-7 h-7 text-ink-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 1 0 0-12.324zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405a1.441 1.441 0 1 1-2.882 0 1.441 1.441 0 0 1 2.882 0z"/></svg>
+            
+            <!-- Stats -->
+            <div class="animate-on-scroll stagger-children grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto mt-12" data-delay="300">
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1" data-counter="14694">0</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Posts Generated</div>
+                </div>
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1">10</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Platforms Supported</div>
+                </div>
+                <div class="card-static p-6 text-center">
+                    <div class="text-display font-satoshi gradient-text mb-1">24/7</div>
+                    <div class="text-body-sm text-ink-500 font-medium">Always Running</div>
+                </div>
             </div>
         </div>
     </section>
@@ -498,12 +613,20 @@
             <div class="text-center mb-16 md:mb-20 animate-on-scroll">
                 <span class="badge-primary mb-4 inline-block">Powerful Features</span>
                 <h2 class="font-satoshi text-2xl sm:text-display-lg mb-4">Everything you need to<br class="hidden md:block"> <span class="gradient-text">dominate social media</span></h2>
-                <p class="text-body-lg text-ink-500 max-w-2xl mx-auto">From content generation to multi-platform publishing, Configure News handles every aspect of your social media strategy.</p>
+                <p class="text-body-lg text-ink-500 max-w-2xl mx-auto">From autonomous news agents to full-funnel marketing — Configure News handles every aspect of your social media strategy.</p>
             </div>
 
-            <!-- Bento Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children animate-on-scroll">
-                <!-- Feature 1: AI Content -->
+            <!-- === NEWS AGENTS === -->
+            <div class="mb-8 animate-on-scroll">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6V7.5z"/></svg>
+                    </div>
+                    <h3 class="text-heading font-satoshi text-ink-900">News Agents</h3>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children animate-on-scroll mb-16">
+                <!-- Feature 1: AI Content Generation -->
                 <div class="card-static feature-card-hover p-5 sm:p-8 lg:col-span-2">
                     <div class="flex flex-col md:flex-row md:items-start gap-6">
                         <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center">
@@ -511,21 +634,21 @@
                         </div>
                         <div>
                             <h3 class="text-subheading text-ink-900 mb-2">AI-Powered Content Generation</h3>
-                            <p class="text-body text-ink-500 leading-relaxed">Advanced AI analyzes trending topics and generates platform-optimized posts that match your brand voice. Each piece of content is uniquely crafted for maximum engagement.</p>
+                            <p class="text-body text-ink-500 leading-relaxed">Advanced AI analyzes trending topics and generates platform-optimized posts across all 10 platforms — from Twitter threads to TikTok captions to YouTube Shorts descriptions. Each piece of content is uniquely crafted for maximum engagement.</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Feature 2: Multi-Platform -->
+                <!-- Feature 2: Multi-Platform Publishing -->
                 <div class="card-static feature-card-hover p-5 sm:p-8">
                     <div class="w-14 h-14 rounded-2xl bg-accent-50 border border-accent-100 flex items-center justify-center mb-5">
                         <svg class="w-7 h-7 text-accent-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"/></svg>
                     </div>
-                    <h3 class="text-subheading text-ink-900 mb-2">Multi-Platform Publishing</h3>
-                    <p class="text-body text-ink-500">One click publishes to Twitter, LinkedIn, Reddit, Facebook, Telegram, Instagram, and more. Content adapts to each platform.</p>
+                    <h3 class="text-subheading text-ink-900 mb-2">10-Platform Publishing</h3>
+                    <p class="text-body text-ink-500">Publish to Twitter/X, LinkedIn, Reddit, Facebook, Instagram, Threads, Telegram, WhatsApp, TikTok, and YouTube. Content adapts automatically to each platform.</p>
                 </div>
 
-                <!-- Feature 3: Scheduling -->
+                <!-- Feature 3: Smart Scheduling -->
                 <div class="card-static feature-card-hover p-5 sm:p-8">
                     <div class="w-14 h-14 rounded-2xl bg-cyan-50 border border-cyan-100 flex items-center justify-center mb-5">
                         <svg class="w-7 h-7 text-cyan-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -534,7 +657,7 @@
                     <p class="text-body text-ink-500">Set your posting schedule and let AI determine optimal timing. Posts go out when your audience is most active.</p>
                 </div>
 
-                <!-- Feature 4: Trending -->
+                <!-- Feature 4: Trending News Detection -->
                 <div class="card-static feature-card-hover p-5 sm:p-8">
                     <div class="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center mb-5">
                         <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>
@@ -542,16 +665,74 @@
                     <h3 class="text-subheading text-ink-900 mb-2">Trending News Detection</h3>
                     <p class="text-body text-ink-500">AI monitors news sources in real-time, identifying trending stories relevant to your niche before they peak.</p>
                 </div>
+            </div>
 
-                <!-- Feature 5: Analytics -->
+            <!-- === MARKETING PRO === -->
+            <div class="mb-8 animate-on-scroll">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-accent-50 border border-accent-100 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-accent-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"/></svg>
+                    </div>
+                    <h3 class="text-heading font-satoshi text-ink-900">Marketing Pro</h3>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children animate-on-scroll mb-16">
+                <!-- Feature 5: Brand Voice -->
                 <div class="card-static feature-card-hover p-5 sm:p-8 lg:col-span-2">
+                    <div class="flex flex-col md:flex-row md:items-start gap-6">
+                        <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-violet-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-subheading text-ink-900 mb-2">Brand Voice Training</h3>
+                            <p class="text-body text-ink-500 leading-relaxed">AI learns your unique writing style from your existing posts. Once trained, it generates content that consistently matches your brand's tone, vocabulary, and personality across all 10 platforms — every post feels authentically yours.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature 6: Brand Kit & Media -->
+                <div class="card-static feature-card-hover p-5 sm:p-8">
+                    <div class="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center mb-5">
+                        <svg class="w-7 h-7 text-rose-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21zm14.25-14.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"/></svg>
+                    </div>
+                    <h3 class="text-subheading text-ink-900 mb-2">Brand Kit &amp; AI Media</h3>
+                    <p class="text-body text-ink-500">Train AI on your brand assets. Generate on-brand images, videos, and Playable Ads with LoRA training for visual consistency across all content.</p>
+                </div>
+
+                <!-- Feature 7: Meta Ads & Auto-Boost -->
+                <div class="card-static feature-card-hover p-5 sm:p-8">
+                    <div class="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-5">
+                        <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
+                    </div>
+                    <h3 class="text-subheading text-ink-900 mb-2">Meta Ads &amp; Auto-Boost</h3>
+                    <p class="text-body text-ink-500">Manage Meta Ads campaigns for Facebook &amp; Instagram. Set auto-boost rules triggered by engagement, audience targeting, and ROI tracking.</p>
+                </div>
+            </div>
+
+            <!-- === VIDEO & ANALYTICS === -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 stagger-children animate-on-scroll">
+                <!-- Feature 8: TikTok, YouTube & Reels -->
+                <div class="card-static feature-card-hover p-5 sm:p-8">
+                    <div class="flex flex-col md:flex-row md:items-start gap-6">
+                        <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-pink-50 border border-pink-100 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-pink-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-subheading text-ink-900 mb-2">TikTok, YouTube &amp; Reels</h3>
+                            <p class="text-body text-ink-500 leading-relaxed">AI-generated short-form video content optimized for TikTok, YouTube Shorts, and Instagram Reels. Intelligent video prompts, automatic thumbnails, and platform-native formats.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature 9: Analytics & Performance -->
+                <div class="card-static feature-card-hover p-5 sm:p-8">
                     <div class="flex flex-col md:flex-row md:items-start gap-6">
                         <div class="flex-shrink-0 w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
                             <svg class="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
                         </div>
                         <div>
-                            <h3 class="text-subheading text-ink-900 mb-2">Analytics &amp; Performance Insights</h3>
-                            <p class="text-body text-ink-500 leading-relaxed">Track post performance across all platforms in a unified dashboard. Understand what content resonates with your audience and optimize your strategy with data-driven insights.</p>
+                            <h3 class="text-subheading text-ink-900 mb-2">Analytics &amp; Performance</h3>
+                            <p class="text-body text-ink-500 leading-relaxed">Unified dashboard with platform performance, agent performance, content &amp; timing insights, and CSV export. Understand what drives engagement across all 10 platforms.</p>
                         </div>
                     </div>
                 </div>
@@ -851,7 +1032,7 @@
                         <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
                     <div class="accordion-content">
-                        Configure News is an AI-powered social media automation platform that automatically generates and publishes trending news content to your social media accounts including Twitter, LinkedIn, Reddit, and Facebook. It saves content creators up to 95% of their time by handling content creation and posting automatically.
+                        Configure News is an AI-powered social media automation platform with two engines: <strong>News Agents</strong> that automatically generate and publish trending content across 10 platforms, and <strong>Marketing Pro</strong> that trains AI on your brand voice, manages Meta Ads campaigns, and generates on-brand media. It saves content creators up to 95% of their time by handling content creation, publishing, and advertising automatically.
                     </div>
                 </details>
 
@@ -861,7 +1042,7 @@
                         <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
                     <div class="accordion-content">
-                        Configure News uses advanced AI to monitor trending news topics, automatically generate engaging social media posts tailored for each platform, and schedule them for optimal posting times. The AI understands platform-specific requirements like Twitter's character limits and LinkedIn's professional tone.
+                        Configure News uses advanced AI to monitor trending news topics, automatically generate engaging social media posts tailored for each platform, and schedule them for optimal posting times. The AI understands platform-specific requirements like Twitter's character limits, LinkedIn's professional tone, TikTok's viral caption style, and YouTube Shorts formatting.
                     </div>
                 </details>
 
@@ -871,7 +1052,7 @@
                         <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
                     <div class="accordion-content">
-                        Configure News supports Twitter/X, LinkedIn, Reddit, Facebook, Telegram, and Instagram. Depending on your subscription plan, you can post to multiple platforms simultaneously with content optimized for each platform's unique requirements.
+                        Configure News supports 10 platforms: Twitter/X, LinkedIn, Reddit, Facebook, Instagram, Threads, Telegram, WhatsApp, TikTok, and YouTube. All paid plans include all 10 platforms. Content is automatically optimized for each platform's unique requirements — character limits, tone, media formats, and community guidelines.
                     </div>
                 </details>
 
@@ -881,7 +1062,7 @@
                         <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </summary>
                     <div class="accordion-content">
-                        Configure News offers three pricing tiers: Starter at $25/month (6 text posts/day, 2 videos/month), Growth at $75/month (12 text posts/day, 10 videos/month), and Business at $250/month (30 text posts/day, 30 videos/month). All plans include all 9 platforms. A free trial is available.
+                        Configure News offers four pricing tiers: Free at $0/month (1 post/week, 1 AI agent), Starter at $25/month (6 posts/day, 2 videos/month), Growth at $75/month (12 posts/day, 10 videos/month), and Business at $250/month (30 posts/day, 30 videos/month). All paid plans include all 10 platforms. Optional add-ons include Marketing Pro+ at $19/month for Meta Ads management.
                     </div>
                 </details>
 
@@ -894,6 +1075,120 @@
                         Yes! Configure News offers a free tier with 1 post per week so you can test the AI content generation and see how it works for your social media strategy before committing to a paid plan.
                     </div>
                 </details>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">What is Brand Voice and how does it work?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </summary>
+                    <div class="accordion-content">
+                        Brand Voice is Configure News's AI training feature that learns your unique writing style and brand guidelines. Once trained, it generates content that consistently matches your brand's tone, vocabulary, and messaging across all 10 supported platforms, ensuring every post feels authentically yours. It uses LoRA training for visual brand consistency as well.
+                    </div>
+                </details>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">What is Marketing Pro+ and what does it include?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </summary>
+                    <div class="accordion-content">
+                        Marketing Pro+ is an optional add-on at $19/month per ad account that gives you full Meta Ads campaign management for Facebook and Instagram. It includes post boosting with configurable budgets, auto-boost rules triggered by engagement thresholds, reusable audience templates with demographic and interest targeting, reach estimation, and a dedicated marketing analytics dashboard with spend and ROI tracking.
+                    </div>
+                </details>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">Does Configure News support TikTok and YouTube video creation?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </summary>
+                    <div class="accordion-content">
+                        Yes. Configure News includes AI video generation powered by Flux2-Pro for creating short-form video content optimized for TikTok, YouTube Shorts, and Instagram Reels. The platform features an intelligent video prompt engine and automatic thumbnail generation. Video quotas vary by tier: Starter gets 2 videos/month, Growth gets 10, and Business gets 30.
+                    </div>
+                </details>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">What analytics and reporting does Configure News offer?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </summary>
+                    <div class="accordion-content">
+                        Configure News provides a unified analytics dashboard covering platform performance (per-platform engagement, reach, and growth), agent performance (which AI agents are performing best), and content and timing insights (what types of posts and what posting times drive the most engagement). Business tier subscribers can export all data to CSV for external reporting.
+                    </div>
+                </details>
+
+                <details class="accordion-item bg-surface-0 group">
+                    <summary class="accordion-trigger list-none">
+                        <span class="font-semibold">What is the Brand Kit / Media feature?</span>
+                        <svg class="faq-chevron w-5 h-5 text-ink-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </summary>
+                    <div class="accordion-content">
+                        Brand Kit lets you train AI on your brand's visual assets — logos, colors, imagery style. The system then generates on-brand images and media for your posts. It also supports creating Playable Ads for interactive mobile ad experiences and uses LoRA training to maintain visual consistency across all generated content.
+                    </div>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- ==================== BLOG / LEARN MORE ==================== -->
+    <section class="py-16 sm:py-24 px-4 sm:px-6 bg-surface-0">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-12 animate-on-scroll">
+                <span class="badge-primary mb-4 inline-block">Learn More</span>
+                <h2 class="font-satoshi text-2xl sm:text-display-lg mb-4">Deep dives into <span class="gradient-text">Marketing Pro</span></h2>
+                <p class="text-body-lg text-ink-500 max-w-2xl mx-auto">Explore how each Marketing Pro feature can transform your social media strategy.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 stagger-children animate-on-scroll">
+                <!-- Blog 1: Brand Voice -->
+                <a href="/blog/brand-voice-ai-training.html" class="block group">
+                    <article class="card-static feature-card-hover p-6 h-full">
+                        <div class="bg-gradient-to-br from-violet-500 to-brand-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+                        </div>
+                        <span class="text-violet-600 text-caption font-semibold uppercase tracking-wider">Brand Voice</span>
+                        <h3 class="text-subheading font-satoshi text-ink-900 mt-2 mb-3 group-hover:text-brand-600 transition-colors">
+                            How AI Learns Your Brand Voice and Writes Like You
+                        </h3>
+                        <p class="text-ink-500 text-body-sm mb-4">
+                            Discover how Configure News trains on your existing content to generate posts that match your unique tone and style.
+                        </p>
+                        <span class="text-brand-500 text-body-sm font-medium">Read article &rarr;</span>
+                    </article>
+                </a>
+
+                <!-- Blog 2: Brand Kit / Media Assets -->
+                <a href="/blog/brand-kit-media-generation.html" class="block group">
+                    <article class="card-static feature-card-hover p-6 h-full">
+                        <div class="bg-gradient-to-br from-accent-500 to-rose-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21zm14.25-14.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"/></svg>
+                        </div>
+                        <span class="text-accent-600 text-caption font-semibold uppercase tracking-wider">Brand Kit</span>
+                        <h3 class="text-subheading font-satoshi text-ink-900 mt-2 mb-3 group-hover:text-brand-600 transition-colors">
+                            Brand Kit &amp; AI Media: From Asset Training to Playable Ads
+                        </h3>
+                        <p class="text-ink-500 text-body-sm mb-4">
+                            Learn how to train AI on your brand assets and generate on-brand images, videos, and interactive ads.
+                        </p>
+                        <span class="text-brand-500 text-body-sm font-medium">Read article &rarr;</span>
+                    </article>
+                </a>
+
+                <!-- Blog 3: Marketing Pro+ -->
+                <a href="/blog/marketing-pro-meta-ads.html" class="block group">
+                    <article class="card-static feature-card-hover p-6 h-full">
+                        <div class="bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-xl h-32 flex items-center justify-center mb-4">
+                            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg>
+                        </div>
+                        <span class="text-emerald-600 text-caption font-semibold uppercase tracking-wider">Meta Ads</span>
+                        <h3 class="text-subheading font-satoshi text-ink-900 mt-2 mb-3 group-hover:text-brand-600 transition-colors">
+                            Marketing Pro+: Meta Ads Management and Auto-Boost Rules
+                        </h3>
+                        <p class="text-ink-500 text-body-sm mb-4">
+                            Manage Facebook &amp; Instagram ad campaigns, set up auto-boost triggers, and track ROI from one dashboard.
+                        </p>
+                        <span class="text-brand-500 text-body-sm font-medium">Read article &rarr;</span>
+                    </article>
+                </a>
             </div>
         </div>
     </section>
@@ -983,6 +1278,7 @@
     <div id="modalContainer"></div>
 
     <script src="/js/animations.js"></script>
+    <script src="/js/hero-video.js"></script>
     <script src="/js/nav.js"></script>
     <script src="/js/app.js"></script>
     <script src="/js/cookieConsent.js"></script>

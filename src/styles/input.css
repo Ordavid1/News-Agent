@@ -573,6 +573,66 @@
                        radial-gradient(at 52% 99%, rgba(6,182,212,0.06) 0px, transparent 50%);
   }
 
+  /* ===== HERO SPLIT-SCREEN VIDEO ===== */
+  .hero-video-panel {
+    @apply border border-surface-300;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .hero-video-panel:hover,
+  .hero-video-panel:focus-visible {
+    box-shadow: 0 0 40px rgba(99, 102, 241, 0.18);
+    transform: scale(1.01);
+  }
+  .hero-video-panel:focus-visible {
+    @apply ring-2 ring-brand-500 ring-offset-2;
+  }
+  .hero-video-panel video {
+    min-height: 300px;
+  }
+  @media (min-width: 768px) {
+    .hero-video-panel video {
+      min-height: 380px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .hero-video-panel video {
+      min-height: 420px;
+    }
+  }
+  .hero-panel-label {
+    transition: opacity 0.3s ease;
+  }
+  .hero-panel-overlay {
+    transition: opacity 0.3s ease;
+  }
+  .hero-video-panel.panel-active .hero-panel-label {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Show controls when panel is active (video playing) */
+  .hero-video-panel.panel-active .hero-video-controls {
+    opacity: 1;
+  }
+  .hero-video-panel.panel-dimmed .hero-panel-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .hero-video-panel.panel-dimmed .hero-panel-label {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .hero-video-panel.panel-dimmed {
+    transform: scale(0.98);
+  }
+  .hero-video-panel.panel-dimmed:hover {
+    transform: scale(0.98);
+    box-shadow: none;
+  }
+  /* Controls always visible on hover over the panel even when idle (for scrubbing) */
+  .hero-video-panel:hover .hero-video-controls {
+    opacity: 1;
+  }
+
   /* ===== SKELETON LOADING ===== */
   .skeleton {
     @apply bg-surface-200 rounded-input;

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Primary Meta Tags -->
+    <title>Brand Kit & AI Media Generation: From Asset Training to Playable Ads | Configure News</title>
+    <meta name="title" content="Brand Kit & AI Media Generation: From Asset Training to Playable Ads">
+    <meta name="description" content="Learn how Brand Kit uses LoRA training to generate on-brand images and playable ads for social media. Complete guide to AI visual brand consistency, credit-based image generation, and interactive ad experiences.">
+    <meta name="keywords" content="brand kit AI, LoRA training brand, AI image generation social media, playable ads, brand visual consistency, AI media generation, brand asset training, on-brand content generation">
+    <meta name="author" content="Configure News">
+    <meta name="robots" content="index, follow">
+
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://configure.news/blog/brand-kit-media-generation.html">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://configure.news/blog/brand-kit-media-generation.html">
+    <meta property="og:title" content="Brand Kit & AI Media Generation: From Asset Training to Playable Ads">
+    <meta property="og:description" content="Learn how Brand Kit uses LoRA training to generate on-brand images and playable ads for social media.">
+    <meta property="og:image" content="https://configure.news/images/favicon.png">
+    <meta property="og:site_name" content="Configure News">
+    <meta property="article:published_time" content="2026-04-03T00:00:00Z">
+    <meta property="article:author" content="Configure News">
+    <meta property="article:section" content="Marketing Pro">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Brand Kit & AI Media Generation: From Asset Training to Playable Ads">
+    <meta name="twitter:description" content="Learn how Brand Kit uses LoRA training to generate on-brand images and playable ads for social media.">
+    <meta name="twitter:image" content="https://configure.news/images/favicon.png">
+
+    <!-- App Icons -->
+    <link rel="icon" type="image/png" href="/images/favicon.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#6366F1">
+    <script>
+      (function(){var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else if(window.matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.setAttribute('data-theme','dark');else document.documentElement.setAttribute('data-theme','light');})();
+    </script>
+
+    <!-- Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XNHM5CHXEB"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XNHM5CHXEB');
+      gtag('config', 'AW-18053463418');
+    </script>
+
+    <!-- Structured Data - Article -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "Brand Kit & AI Media Generation: From Asset Training to Playable Ads",
+      "description": "Learn how Brand Kit uses LoRA training to generate on-brand images and playable ads for social media. Complete guide to AI visual brand consistency, credit-based image generation, and interactive ad experiences.",
+      "image": "https://configure.news/images/favicon.png",
+      "author": {
+        "@type": "Organization",
+        "name": "Configure News",
+        "url": "https://configure.news"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Configure News",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://configure.news/images/logo.png"
+        }
+      },
+      "datePublished": "2026-04-03",
+      "dateModified": "2026-04-03",
+      "mainEntityOfPage": {
+        "@type": "WebPage",
+        "@id": "https://configure.news/blog/brand-kit-media-generation.html"
+      },
+      "articleSection": "Marketing Pro",
+      "wordCount": 2800
+    }
+    </script>
+
+    <!-- Breadcrumb -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://configure.news/"},
+        {"@type": "ListItem", "position": 2, "name": "Blog", "item": "https://configure.news/blog/"},
+        {"@type": "ListItem", "position": 3, "name": "Brand Kit & AI Media Generation", "item": "https://configure.news/blog/brand-kit-media-generation.html"}
+      ]
+    }
+    </script>
+
+    <!-- FAQ Schema for AEO -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Brand Kit in Configure News?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Brand Kit is Configure News's visual brand training feature that lets you upload your brand assets — logos, color palettes, typography, and reference imagery — so the AI can learn your visual identity. Once trained, every piece of generated media automatically reflects your brand's look and feel, ensuring visual consistency across all social media platforms without manual design work."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does LoRA training work for brand media?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "LoRA (Low-Rank Adaptation) is a fine-tuning technique that trains a small, efficient adapter on top of a large image generation model using your brand's visual assets. Instead of retraining an entire model from scratch, LoRA learns the specific visual patterns — color treatments, composition styles, and design motifs — that make your brand unique. The result is a lightweight brand model that generates images indistinguishable from those created by your in-house design team."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What are Playable Ads?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Playable Ads are interactive mobile ad experiences that let users engage with a mini version of your product or content before clicking through. Unlike static banners or video ads, Playable Ads invite the viewer to tap, swipe, or interact, resulting in significantly higher engagement rates and lower cost per acquisition. Configure News's Brand Kit enables Playable Ad creation by providing the trained visual assets needed to generate interactive ad creatives that are fully on-brand."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <link rel="stylesheet" href="/styles/output.css">
+    <link rel="stylesheet" href="/styles/cookieConsent.css">
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+    .prose h2 { color: rgb(var(--color-ink-800)); font-size: 1.75rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 1rem; }
+    .prose h3 { color: rgb(var(--color-ink-700)); font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; }
+    .prose p { color: rgb(var(--color-ink-600)); line-height: 1.8; margin-bottom: 1.25rem; }
+    .prose ul, .prose ol { color: rgb(var(--color-ink-600)); margin-bottom: 1.25rem; padding-left: 1.5rem; }
+    .prose li { margin-bottom: 0.5rem; }
+    .prose strong { color: rgb(var(--color-ink-800)); }
+    .prose a { color: rgb(var(--color-brand-500)); text-decoration: underline; }
+    .prose blockquote { border-left: 4px solid rgb(var(--color-brand-500)); padding-left: 1rem; margin: 1.5rem 0; color: rgb(var(--color-ink-400)); font-style: italic; }
+    </style>
+</head>
+<body class="min-h-screen bg-surface-50">
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-surface-0/90 backdrop-blur-md border-b border-surface-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="/" class="text-xl font-bold gradient-text" style="font-family: 'Satoshi', sans-serif;">Configure News</a>
+                <div class="hidden md:flex items-center gap-6">
+                    <a href="/#features" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Features</a>
+                    <a href="/#pricing" class="text-ink-500 hover:text-brand-600 transition-colors text-sm font-medium">Pricing</a>
+                    <a href="/blog/" class="text-brand-600 text-sm font-medium">Blog</a>
+                    <div class="theme-toggle" aria-label="Theme switcher">
+                        <button class="theme-toggle-btn" data-theme-mode="light" title="Light" aria-label="Light theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="system" title="System" aria-label="System theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+                        <button class="theme-toggle-btn" data-theme-mode="dark" title="Dark" aria-label="Dark theme"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Article -->
+    <article class="pt-12 pb-16 px-4 sm:px-6 lg:px-8">
+        <div class="container mx-auto max-w-3xl">
+            <!-- Breadcrumb -->
+            <nav class="text-sm text-ink-400 mb-8">
+                <a href="/" class="hover:text-brand-600">Home</a>
+                <span class="mx-2">/</span>
+                <a href="/blog/" class="hover:text-brand-600">Blog</a>
+                <span class="mx-2">/</span>
+                <span class="text-ink-600">Brand Kit & AI Media Generation</span>
+            </nav>
+
+            <!-- Header -->
+            <header class="mb-12">
+                <span class="text-brand-600 text-sm font-medium uppercase tracking-wide">Marketing Pro</span>
+                <h1 class="text-4xl md:text-5xl font-bold mt-4 mb-6 gradient-text leading-tight" style="font-family: 'Satoshi', sans-serif;">
+                    Brand Kit & AI Media Generation: From Asset Training to Playable Ads
+                </h1>
+                <div class="flex items-center text-ink-400 text-sm">
+                    <time datetime="2026-04-03">April 3, 2026</time>
+                    <span class="mx-3">&bull;</span>
+                    <span>~10 min read</span>
+                    <span class="mx-3">&bull;</span>
+                    <span>By Configure News Team</span>
+                </div>
+            </header>
+
+            <!-- Featured Image Placeholder -->
+            <div class="bg-gradient-to-br from-accent-500 to-rose-500 rounded-2xl h-64 flex items-center justify-center mb-12">
+                <svg class="w-16 h-16 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Zm16.5-13.5h.008v.008h-.008V7.5Zm0 0a1.125 1.125 0 1 0-2.25 0 1.125 1.125 0 0 0 2.25 0Z"/>
+                </svg>
+            </div>
+
+            <!-- Table of Contents -->
+            <div class="card-static p-6 mb-12">
+                <h2 class="text-lg font-bold mb-4 text-brand-600">Table of Contents</h2>
+                <ol class="space-y-2 text-ink-600">
+                    <li><a href="#what-is-brand-kit" class="hover:text-brand-600 transition">1. What is Brand Kit?</a></li>
+                    <li><a href="#setting-up" class="hover:text-brand-600 transition">2. Setting Up Your Brand Kit</a></li>
+                    <li><a href="#lora-training" class="hover:text-brand-600 transition">3. LoRA Training for Visual Consistency</a></li>
+                    <li><a href="#ai-image-generation" class="hover:text-brand-600 transition">4. AI Image Generation</a></li>
+                    <li><a href="#playable-ads" class="hover:text-brand-600 transition">5. Playable Ads</a></li>
+                    <li><a href="#integrating-brand-kit" class="hover:text-brand-600 transition">6. Integrating Brand Kit with Your Content Strategy</a></li>
+                    <li><a href="#getting-started" class="hover:text-brand-600 transition">7. Getting Started with Brand Kit</a></li>
+                </ol>
+            </div>
+
+            <!-- Content -->
+            <div class="prose max-w-none">
+                <p class="text-xl text-ink-600 mb-8">
+                    Visual consistency is one of the hardest parts of scaling a social media presence. Every post, ad, and story needs to look unmistakably like your brand — but producing that volume of on-brand creative manually is expensive and slow. Brand Kit solves this by training AI on your visual identity so every generated asset carries your brand's DNA from the first pixel. In this guide we will walk through the full pipeline: uploading assets, training a LoRA model, generating images on a credit system, building Playable Ads, and weaving it all into your existing content strategy on Configure News.
+                </p>
+
+                <!-- Section 1 -->
+                <h2 id="what-is-brand-kit">What is Brand Kit?</h2>
+                <p>
+                    <strong>Brand Kit</strong> is Configure News's visual brand intelligence layer. At its core it is a structured collection of your brand's visual assets — logos, color palettes, typography samples, photography styles, and reference imagery — combined with an AI training pipeline that teaches image generation models what your brand looks like. Think of it as giving the AI a design brief that it never forgets.
+                </p>
+                <p>
+                    Traditional social media tools ask you to upload a logo and pick a hex code. Brand Kit goes much further. It ingests dozens or even hundreds of reference images, analyzes the recurring visual patterns — your preferred lighting, composition, color grading, and subject treatment — and distills that knowledge into a compact model adapter. The result is an AI that can produce net-new images indistinguishable in style from your existing creative library.
+                </p>
+                <p>
+                    This matters because brand recognition is built through repetition. Research consistently shows that consistent brand presentation across platforms can increase revenue by up to 23%. When every social post, every ad creative, and every blog hero image shares the same visual language, audiences build stronger associations with your brand. Brand Kit automates that consistency at scale.
+                </p>
+
+                <blockquote>
+                    "Brand Kit turns your visual identity into a living AI model. Instead of writing style guides that designers interpret differently every time, you train the AI once and get pixel-perfect consistency forever."
+                </blockquote>
+
+                <p>
+                    Brand Kit is not a template library. Templates give you a fixed layout that you fill in. Brand Kit gives the AI generative freedom to create original compositions while staying within the visual boundaries of your brand. The difference is between a coloring book and an artist who studied your aesthetic for years — the output is fresh every time but always recognizably yours.
+                </p>
+
+                <!-- Section 2 -->
+                <h2 id="setting-up">Setting Up Your Brand Kit</h2>
+                <p>
+                    Setting up Brand Kit starts with gathering the right assets. The quality and breadth of your input directly determines the quality of the AI's output, so it is worth investing time in the upload phase.
+                </p>
+
+                <h3>Required Assets</h3>
+                <ul>
+                    <li><strong>Primary logo</strong> — Your main logo file in PNG or SVG format with a transparent background. Include both horizontal and stacked variations if you use them.</li>
+                    <li><strong>Color palette</strong> — Define your primary, secondary, and accent colors using hex values. Brand Kit uses these as hard constraints during generation so the AI never drifts outside your palette.</li>
+                    <li><strong>Typography samples</strong> — Upload images or specify the font families you use in headings and body text. The AI learns to emulate your typographic style in generated graphics.</li>
+                    <li><strong>Reference imagery (10-50 images recommended)</strong> — These are the most important inputs. Upload existing social posts, campaign visuals, product photography, and any other imagery that represents your brand's visual direction. The more varied and representative the set, the better the training outcome.</li>
+                </ul>
+
+                <h3>Configuring Brand Guidelines</h3>
+                <p>
+                    Beyond raw assets, Brand Kit accepts written guidelines that act as generation rules. You can specify constraints such as:
+                </p>
+                <ul>
+                    <li><strong>Composition preferences</strong> — Whether your brand favors minimal whitespace, centered subjects, or asymmetric editorial layouts.</li>
+                    <li><strong>Color usage rules</strong> — For example, "primary blue should be dominant in at least 60% of the composition" or "never use red as a background color."</li>
+                    <li><strong>Imagery restrictions</strong> — Exclude certain visual elements that conflict with your brand. A healthcare brand might restrict cartoonish illustrations; a luxury brand might exclude stock-photo aesthetics.</li>
+                    <li><strong>Tone and mood</strong> — Descriptive keywords like "warm and approachable," "bold and technical," or "clean and minimalist" that guide the AI's stylistic decisions.</li>
+                </ul>
+                <p>
+                    Once assets and guidelines are uploaded, Configure News runs a validation pass to ensure file quality, resolution, and diversity are sufficient for training. You will receive a readiness score with actionable recommendations — for instance, "Add 5 more reference images showing your product in outdoor settings" — before initiating the training pipeline.
+                </p>
+
+                <!-- Section 3 -->
+                <h2 id="lora-training">LoRA Training for Visual Consistency</h2>
+                <p>
+                    The technical engine behind Brand Kit's visual consistency is <strong>LoRA (Low-Rank Adaptation)</strong>, a fine-tuning technique originally developed for large language models and now widely applied to diffusion-based image generators. Understanding how it works helps explain why Brand Kit produces such reliable results.
+                </p>
+
+                <h3>How LoRA Works</h3>
+                <p>
+                    A full image generation model contains billions of parameters. Retraining all of those parameters on a small set of brand images would be computationally prohibitive and likely cause the model to overfit — it would memorize your specific images rather than learning your style. LoRA avoids both problems by freezing the original model weights and inserting small, trainable adapter matrices into key layers of the network.
+                </p>
+                <p>
+                    These adapter matrices are typically only 1-5% the size of the full model, which means training completes in minutes rather than days and the resulting adapter file is lightweight enough to swap in and out on demand. When generation runs, the base model handles general image understanding — lighting, anatomy, perspective — while the LoRA adapter nudges every decision toward your brand's visual characteristics.
+                </p>
+
+                <h3>What the Adapter Learns</h3>
+                <p>
+                    The LoRA adapter captures several layers of brand-specific visual intelligence:
+                </p>
+                <ul>
+                    <li><strong>Color distribution</strong> — Not just which colors to use, but how to distribute them across a composition. Your brand might favor a 60-30-10 ratio of navy, white, and gold. The adapter learns that ratio implicitly.</li>
+                    <li><strong>Texture and material treatment</strong> — Whether your visuals tend toward flat illustration, photorealistic rendering, or textured overlays.</li>
+                    <li><strong>Subject positioning and scale</strong> — Your brand might consistently place the product in the lower-right third or center human subjects with generous headroom. These spatial patterns are encoded in the adapter.</li>
+                    <li><strong>Lighting signatures</strong> — Soft diffused lighting for a wellness brand, dramatic high-contrast lighting for a sports brand — the adapter reproduces your lighting mood.</li>
+                    <li><strong>Design motifs</strong> — Recurring graphic elements like gradient overlays, geometric shapes, or border treatments that appear across your creative library.</li>
+                </ul>
+
+                <h3>Training Iterations and Quality</h3>
+                <p>
+                    Brand Kit runs the LoRA training process in stages. An initial training pass produces a draft adapter, which is then evaluated against a held-out set of your reference images using perceptual similarity metrics. If the similarity score falls below a threshold, the system automatically adjusts learning rates and runs additional passes. Most brand kits converge within two to three iterations. Once complete, the adapter is stored as part of your account and is instantly available for all image generation requests.
+                </p>
+
+                <blockquote>
+                    "LoRA is the breakthrough that makes personalized brand media practical. You get the creative power of a billion-parameter model with the visual specificity of your own design team — at a fraction of the cost."
+                </blockquote>
+
+                <!-- Section 4 -->
+                <h2 id="ai-image-generation">AI Image Generation</h2>
+                <p>
+                    With a trained Brand Kit, generating on-brand images becomes as simple as describing what you need. The generation system combines your LoRA adapter with a text prompt to produce images that are both contextually relevant and visually on-brand.
+                </p>
+
+                <h3>The Generation Workflow</h3>
+                <p>
+                    When you create a social media post in Configure News — either manually or through an automated News Agent — the system evaluates whether the post would benefit from a visual. If you have Brand Kit enabled, the content generation pipeline automatically produces an image prompt derived from the post text, then routes that prompt through the image generation model with your LoRA adapter active. The resulting image is attached to the post before publishing.
+                </p>
+                <p>
+                    You can also generate images on demand from the Brand Kit dashboard. Provide a text description — "product hero shot on a gradient background with our brand colors" or "team collaboration scene in a modern office" — and the system returns multiple variations. Select the one you prefer, or regenerate with an adjusted prompt.
+                </p>
+
+                <h3>Credit-Based Generation</h3>
+                <p>
+                    Image generation runs on a credit system that scales with your subscription tier. Each generated image consumes one credit, and credits renew monthly. This model keeps costs predictable and ensures you always know how many visuals you can produce in a billing cycle. Higher-tier plans include more credits and unlock higher-resolution outputs, batch generation, and priority processing.
+                </p>
+                <ul>
+                    <li><strong>Starter tier</strong> — A monthly credit allotment for essential social media visuals, suitable for businesses posting a few times per week.</li>
+                    <li><strong>Growth tier</strong> — Expanded credits with access to higher-resolution outputs and batch generation of up to 10 images per request.</li>
+                    <li><strong>Business tier</strong> — High-volume credit pools, priority generation queue, and access to advanced features including Playable Ad creation.</li>
+                </ul>
+                <p>
+                    Unused credits do not roll over, which encourages active use and keeps the generation infrastructure scaled to actual demand. If you need a one-time burst of credits beyond your tier's allotment — for a product launch or campaign sprint — add-on credit packs are available.
+                </p>
+
+                <h3>Output Formats and Sizes</h3>
+                <p>
+                    Brand Kit generates images in platform-optimized dimensions by default. When an image is generated for a Twitter post, it outputs at 1200x675 pixels. For LinkedIn, 1200x627. For Instagram, 1080x1080 or 1080x1350. You can override these defaults with custom dimensions when generating from the dashboard. All outputs are delivered in PNG format with optional WebP conversion for faster web loading.
+                </p>
+
+                <!-- Section 5 -->
+                <h2 id="playable-ads">Playable Ads</h2>
+                <p>
+                    <strong>Playable Ads</strong> represent the next frontier in digital advertising. They are interactive, mini-experience advertisements — typically served on mobile — that invite the viewer to engage with the ad content before clicking through to a landing page or app store listing. Rather than passively watching a video or glancing at a static banner, the user taps, swipes, drags, or otherwise interacts with a lightweight simulation of the product or service.
+                </p>
+
+                <h3>Why Playable Ads Outperform</h3>
+                <p>
+                    The performance data behind Playable Ads is compelling. Across industries, Playable Ads consistently demonstrate:
+                </p>
+                <ul>
+                    <li><strong>Higher engagement rates</strong> — Interactive elements hold attention 3-8x longer than static ads.</li>
+                    <li><strong>Better qualified leads</strong> — Users who engage with a Playable Ad have already experienced a micro-version of your product, so they convert at higher rates and retain longer.</li>
+                    <li><strong>Lower cost per acquisition</strong> — Higher click-through rates and conversion rates compound into significantly lower CPAs compared to traditional display or video ads.</li>
+                    <li><strong>Stronger brand recall</strong> — The act of interacting with a brand experience creates a memory trace far stronger than passive viewing.</li>
+                </ul>
+
+                <h3>How Brand Kit Enables Playable Ads</h3>
+                <p>
+                    Creating Playable Ads has historically required specialized agencies and weeks of development time. Brand Kit changes the equation by providing the trained visual assets and templates needed to generate Playable Ad creatives programmatically. Here is how the pipeline works:
+                </p>
+                <ol>
+                    <li><strong>Scene composition</strong> — The system uses your Brand Kit to generate the visual elements of the ad: backgrounds, product imagery, UI elements, and call-to-action graphics, all on-brand.</li>
+                    <li><strong>Interaction layer</strong> — You select from a library of interaction patterns — swipe to reveal, tap to explore, drag to customize, quiz-style selection — and the system maps your branded visuals onto the interaction framework.</li>
+                    <li><strong>Assembly and export</strong> — The final Playable Ad is assembled as a self-contained HTML5 package that meets the specifications of major ad networks including Google Ads, Meta Ads, Unity Ads, and ironSource.</li>
+                    <li><strong>A/B variation</strong> — Brand Kit can generate multiple visual variations of the same Playable Ad so you can test which creative performs best without redesigning from scratch.</li>
+                </ol>
+                <p>
+                    The result is a Playable Ad that looks like it was hand-crafted by your design team but was produced in minutes. Because every visual element originates from your trained Brand Kit, the ad is guaranteed to be on-brand without a single round of design review.
+                </p>
+
+                <!-- Section 6 -->
+                <h2 id="integrating-brand-kit">Integrating Brand Kit with Your Content Strategy</h2>
+                <p>
+                    Brand Kit does not exist in isolation. It is one component of Configure News's end-to-end content automation platform, and its real power emerges when it works alongside News Agents, Brand Voice, and the multi-platform publishing pipeline.
+                </p>
+
+                <h3>Brand Kit + News Agents</h3>
+                <p>
+                    <a href="/blog/ai-social-media-automation-guide.html">News Agents</a> are the automated content engines that monitor news sources, generate posts, and publish them to your connected platforms. When Brand Kit is active, News Agents automatically request on-brand images for posts that would benefit from visuals. The decision of whether to attach an image is contextual — a breaking news update might go text-only for speed, while a thought leadership piece gets a custom hero image. This intelligence is built into the agent's generation logic so you do not need to configure it manually.
+                </p>
+
+                <h3>Brand Kit + Brand Voice</h3>
+                <p>
+                    Brand Voice controls the textual personality of your content — tone, vocabulary, sentence structure, and topical emphasis. Brand Kit is its visual counterpart. Together they ensure that every touchpoint with your audience is consistent in both what it says and how it looks. A post that uses your brand's confident, direct voice paired with your brand's bold, high-contrast visual style creates a cohesive impression that neither element could achieve alone.
+                </p>
+
+                <h3>Cross-Platform Visual Adaptation</h3>
+                <p>
+                    Different platforms have different visual expectations. LinkedIn audiences respond to clean, professional graphics. Twitter favors eye-catching, scroll-stopping visuals. Instagram demands high-quality, aesthetically rich imagery. Brand Kit handles these differences automatically by adjusting composition, color intensity, and detail level based on the target platform — all while staying within your brand's visual boundaries. A single content concept produces multiple platform-native visual variations without additional effort.
+                </p>
+
+                <h3>Campaign Workflows</h3>
+                <p>
+                    For planned campaigns — product launches, seasonal promotions, event coverage — Brand Kit integrates into the campaign workflow. You define the campaign theme and messaging, and the system generates a cohesive set of visuals across all required formats: social posts, story frames, ad creatives, email headers, and blog illustrations. The result is a campaign that looks unified across every channel, produced in a fraction of the time a traditional design process would require.
+                </p>
+
+                <!-- Section 7 -->
+                <h2 id="getting-started">Getting Started with Brand Kit</h2>
+                <p>
+                    Ready to bring visual consistency to your social media presence? Here is a step-by-step walkthrough for setting up Brand Kit and generating your first on-brand images.
+                </p>
+
+                <h3>Step 1: Gather Your Brand Assets</h3>
+                <p>
+                    Before entering the Brand Kit setup flow, collect the following: your primary logo (PNG or SVG, transparent background), your color palette hex values, 10-50 representative images that capture your brand's visual style, and any written brand guidelines you have. The more comprehensive your inputs, the more accurate the trained model will be.
+                </p>
+
+                <h3>Step 2: Create a New Brand Kit</h3>
+                <p>
+                    Navigate to the Brand Kit section in your Configure News dashboard. Click "Create Brand Kit" and give it a descriptive name — for example, your company name or the product line it represents. If you manage multiple brands, you can create separate Brand Kits for each.
+                </p>
+
+                <h3>Step 3: Upload and Tag Assets</h3>
+                <p>
+                    Upload your logo files, enter your color palette values, and drag-and-drop your reference images into the asset library. Tag each image with descriptive labels — "product shot," "lifestyle," "social graphic," "event photo" — to help the training pipeline understand the diversity of your visual output.
+                </p>
+
+                <h3>Step 4: Configure Guidelines</h3>
+                <p>
+                    Fill in the brand guidelines form: composition preferences, color usage rules, imagery restrictions, and mood descriptors. These guidelines act as hard and soft constraints during both training and generation. Be specific where it matters — "primary blue (#1E3A8A) should appear in every generated image" — and descriptive where flexibility helps — "generally warm, inviting, and human-centered."
+                </p>
+
+                <h3>Step 5: Initiate Training</h3>
+                <p>
+                    Click "Train Brand Kit" to start the LoRA training pipeline. The system will display a progress indicator and an estimated completion time, typically between five and fifteen minutes depending on the number of reference images. Once training completes, you will receive a readiness notification and a set of sample images generated by the new adapter for your review.
+                </p>
+
+                <h3>Step 6: Review and Refine</h3>
+                <p>
+                    Examine the sample images. If they accurately capture your brand's visual style, your Brand Kit is ready for production use. If certain aspects are off — perhaps the color balance skews too warm, or the composition is too busy — you can adjust your guidelines and retrain. Most users achieve a satisfactory result after one or two refinement cycles.
+                </p>
+
+                <h3>Step 7: Activate Across Your Pipeline</h3>
+                <p>
+                    Once satisfied, toggle Brand Kit to "Active." From this point forward, all image generation across your account — whether triggered by News Agents, manual post creation, or Playable Ad assembly — will use your trained Brand Kit. You can deactivate, switch between kits, or retrain at any time as your brand evolves.
+                </p>
+
+                <p>
+                    Brand Kit transforms visual content production from a bottleneck into a competitive advantage. Instead of choosing between brand consistency and publishing volume, you get both. Your AI knows your brand as well as your best designer does — and it never takes a day off.
+                </p>
+
+                <!-- CTA Box -->
+                <div class="card-gradient p-8 mt-12 text-center">
+                    <h3 class="text-2xl font-bold mb-4 gradient-text" style="font-family: 'Satoshi', sans-serif;">Ready to Build Your Brand Kit?</h3>
+                    <p class="text-ink-500 mb-6">
+                        Start generating on-brand visuals, social media images, and Playable Ads with Configure News.
+                    </p>
+                    <a href="/auth.html" class="btn-primary">
+                        Start Free Trial
+                    </a>
+                </div>
+            </div>
+
+            <!-- Author Box -->
+            <div class="mt-12 p-6 bg-surface-50 border border-surface-200 rounded-2xl flex items-center gap-6">
+                <div class="w-16 h-16 bg-gradient-to-br from-accent-500 to-rose-500 rounded-full flex items-center justify-center">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-lg">Configure News Team</h4>
+                    <p class="text-ink-400 text-sm">The Configure News team is dedicated to helping businesses and creators automate their social media presence with AI-powered tools for content, visuals, and advertising.</p>
+                </div>
+            </div>
+
+            <!-- Related Articles -->
+            <div class="mt-16">
+                <h3 class="text-2xl font-bold mb-8 text-ink-800">Related Articles</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <a href="/blog/ai-social-media-automation-guide.html" class="card-interactive p-6 hover:scale-105 transition block">
+                        <span class="text-brand-600 text-sm">Complete Guide</span>
+                        <h4 class="font-bold mt-2">The Complete Guide to AI Social Media Automation in 2026</h4>
+                    </a>
+                    <a href="/blog/how-to-automate-social-media-posting.html" class="card-interactive p-6 hover:scale-105 transition block">
+                        <span class="text-cyan-600 text-sm">Tutorial</span>
+                        <h4 class="font-bold mt-2">How to Automate Social Media Posting: Step-by-Step</h4>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </article>
+
+    <!-- Footer -->
+    <footer class="border-t border-surface-200 bg-surface-0 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl mx-auto">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="text-xl font-bold gradient-text mb-4" style="font-family: 'Satoshi', sans-serif;">Configure News</div>
+                    <p class="text-ink-400 text-sm">AI-powered social media automation platform.</p>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4 text-ink-800">Product</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/#features" class="hover:text-brand-600 transition-colors">Features</a></li>
+                        <li><a href="/#pricing" class="hover:text-brand-600 transition-colors">Pricing</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4 text-ink-800">Resources</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="/blog/" class="hover:text-brand-600 transition-colors">Blog</a></li>
+                        <li><a href="/blog/ai-social-media-automation-guide.html" class="hover:text-brand-600 transition-colors">Guides</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-4 text-ink-800">Legal</h4>
+                    <ul class="space-y-2 text-sm text-ink-400">
+                        <li><a href="mailto:support@aipostgenerator.dev" class="hover:text-brand-600 transition-colors">Contact</a></li>
+                        <li><a href="/privacy.html" class="hover:text-brand-600 transition-colors">Privacy</a></li>
+                        <li><a href="/terms.html" class="hover:text-brand-600 transition-colors">Terms</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-surface-200 pt-8 text-center text-sm text-ink-400">
+                <p>&copy; 2025-2026 Configure News. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/js/animations.js"></script>
+    <script src="/js/nav.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/cookieConsent.js"></script>
+    <script src="/js/themeManager.js"></script>
+</body>
+</html>
