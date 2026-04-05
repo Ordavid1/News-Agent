@@ -1,0 +1,39 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Catch the Goods!",
+    "subtitle": "Drag to collect",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "encouragement": ["Nice!", "Great!", "Amazing!", "On Fire!", "Wow!"],
+    "gameOver": "Time's Up!",
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "duration": 45,
+    "spawnRate": 900,
+    "fallSpeedMin": 120,
+    "fallSpeedMax": 260,
+    "pointsPerCatch": 10,
+    "missLimit": 0
+  },
+  "assets": {
+    "collectibles": ["sprite_0"],
+    "logo": "logo_0"
+  },
+  "difficulty": {
+    "rampInterval": 10,
+    "speedMultiplier": 1.15,
+    "spawnRateDecrease": 60
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}

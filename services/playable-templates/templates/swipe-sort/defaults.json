@@ -1,0 +1,46 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Sort the Items!",
+    "subtitle": "Swipe left or right",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "leftCategory": "Category A",
+    "rightCategory": "Category B",
+    "encouragement": ["Nice!", "Great!", "Perfect!", "On Fire!", "Wow!"],
+    "gameOver": "Time's Up!",
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "duration": 45,
+    "pointsPerSort": 10,
+    "streakBonus": 5,
+    "swipeThreshold": 80,
+    "itemCount": 20
+  },
+  "assets": {
+    "sortableItems": [
+      { "key": null, "label": "Apple",   "category": "left" },
+      { "key": null, "label": "Banana",  "category": "left" },
+      { "key": null, "label": "Cherry",  "category": "left" },
+      { "key": null, "label": "Carrot",  "category": "right" },
+      { "key": null, "label": "Broccoli","category": "right" },
+      { "key": null, "label": "Pepper",  "category": "right" }
+    ],
+    "logo": "logo_0"
+  },
+  "difficulty": {
+    "rampInterval": 5,
+    "timePerItemDecrease": 200
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}

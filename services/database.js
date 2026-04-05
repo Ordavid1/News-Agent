@@ -3092,7 +3092,9 @@ export async function getBoostablePublishedPosts(userId, limit = 50, days = 0) {
     .eq('user_id', userId)
     .in('platform', ['facebook', 'instagram'])
     .eq('success', true)
-    .not('platform_post_id', 'is', null);
+    .not('platform_post_id', 'is', null)
+    // Skip posts already flagged as inaccessible on the platform (deleted, permission loss, etc.)
+    .or('engagement->>unavailable.is.null,engagement->>unavailable.neq.true');
 
   if (days > 0) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -4136,20 +4138,26 @@ export async function consumeAssetImageGenCredit(userId) {
  * Create a new playable content record.
  */
 export async function createPlayableContent(userId, data) {
+  const insertPayload = {
+    user_id: userId,
+    ad_account_id: data.adAccountId,
+    training_job_id: data.trainingJobId,
+    content_type: data.contentType,
+    template_id: data.templateId,
+    title: data.title,
+    cta_url: data.ctaUrl || null,
+    story_options: data.storyOptions || {},
+    mraid_formats: data.mraidFormats || [],
+    status: 'pending'
+  };
+
+  // Optional hybrid-template fields (require migration add_hybrid_template_fields.sql)
+  if (data.generationMode) insertPayload.generation_mode = data.generationMode;
+  if (data.templateVersion) insertPayload.template_version = data.templateVersion;
+
   const { data: row, error } = await supabaseAdmin
     .from('playable_content')
-    .insert({
-      user_id: userId,
-      ad_account_id: data.adAccountId,
-      training_job_id: data.trainingJobId,
-      content_type: data.contentType,
-      template_id: data.templateId,
-      title: data.title,
-      cta_url: data.ctaUrl || null,
-      story_options: data.storyOptions || {},
-      mraid_formats: data.mraidFormats || [],
-      status: 'pending'
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -4204,7 +4212,7 @@ export async function updatePlayableContent(contentId, userId, updates) {
 export async function getUserPlayableContent(userId, { adAccountId, trainingJobId, limit = 20, offset = 0 } = {}) {
   let query = supabaseAdmin
     .from('playable_content')
-    .select('id, user_id, ad_account_id, training_job_id, content_type, template_id, title, cta_url, mraid_formats, storage_path, public_url, file_size_bytes, generation_duration_ms, status, error_message, created_at, updated_at', { count: 'exact' })
+    .select('id, user_id, ad_account_id, training_job_id, content_type, template_id, title, cta_url, mraid_formats, storage_path, public_url, file_size_bytes, generation_duration_ms, status, error_message, generation_mode, template_version, created_at, updated_at', { count: 'exact' })
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -4308,6 +4316,266 @@ export async function consumePlayableContentCredit(userId) {
   }
 
   return data;
+}
+
+// ============================================================
+// Brand Story functions
+// ============================================================
+
+/**
+ * Create a new brand story
+ */
+export async function createBrandStory(userId, config) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_stories')
+    .insert({
+      user_id: userId,
+      name: config.name,
+      story_focus: config.story_focus || 'product',
+      persona_type: config.persona_type,
+      persona_config: config.persona_config || {},
+      subject: config.subject || {},
+      brand_kit_job_id: config.brand_kit_job_id || null,
+      target_platforms: config.target_platforms || [],
+      publish_frequency: config.publish_frequency || 'daily',
+      status: 'draft'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating brand story:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get all brand stories for a user, ordered newest first
+ */
+export async function getBrandStories(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_stories')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('Error getting brand stories:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+/**
+ * Get a specific brand story by ID (scoped to user)
+ */
+export async function getBrandStoryById(storyId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_stories')
+    .select('*')
+    .eq('id', storyId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting brand story by ID:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Update a brand story (partial update via spread)
+ */
+export async function updateBrandStory(storyId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_stories')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', storyId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error updating brand story:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Delete a brand story and its episodes (cascade)
+ */
+export async function deleteBrandStory(storyId, userId) {
+  const { error } = await supabaseAdmin
+    .from('brand_stories')
+    .delete()
+    .eq('id', storyId)
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error deleting brand story:', error);
+    throw error;
+  }
+  return true;
+}
+
+/**
+ * Create a new episode in a brand story
+ */
+export async function createBrandStoryEpisode(storyId, userId, episodeData) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_story_episodes')
+    .insert({
+      story_id: storyId,
+      user_id: userId,
+      episode_number: episodeData.episode_number,
+      scene_description: episodeData.scene_description || {},
+      status: episodeData.status || 'pending'
+    })
+    .select()
+    .single();
+
+  if (error) {
+    logger.error('Error creating brand story episode:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get all episodes for a story, ordered by episode number
+ */
+export async function getBrandStoryEpisodes(storyId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_story_episodes')
+    .select('*')
+    .eq('story_id', storyId)
+    .eq('user_id', userId)
+    .order('episode_number', { ascending: true });
+
+  if (error) {
+    logger.error('Error getting brand story episodes:', error);
+    throw error;
+  }
+  return data || [];
+}
+
+/**
+ * Get a specific episode by ID
+ */
+export async function getBrandStoryEpisodeById(episodeId, userId) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_story_episodes')
+    .select('*')
+    .eq('id', episodeId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error getting brand story episode by ID:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Update a brand story episode (partial update)
+ */
+export async function updateBrandStoryEpisode(episodeId, userId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from('brand_story_episodes')
+    .update(updates)
+    .eq('id', episodeId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    logger.error('Error updating brand story episode:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get all active brand stories that are due for their next episode.
+ * Used by AutomationManager to find stories ready for automated episode generation.
+ * Checks publish_frequency against the latest episode's created_at.
+ */
+export async function getBrandStoriesReadyForEpisode() {
+  // Get all active stories with their latest episode timestamp
+  const { data: stories, error } = await supabaseAdmin
+    .from('brand_stories')
+    .select('*')
+    .eq('status', 'active');
+
+  if (error) {
+    logger.error('Error getting active brand stories:', error);
+    throw error;
+  }
+
+  if (!stories || stories.length === 0) return [];
+
+  const ready = [];
+  const now = Date.now();
+
+  for (const story of stories) {
+    // Get the latest episode for this story
+    const { data: latestEpisode } = await supabaseAdmin
+      .from('brand_story_episodes')
+      .select('created_at, status')
+      .eq('story_id', story.id)
+      .order('episode_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Skip if there's an episode still being generated
+    if (latestEpisode && !['published', 'failed', 'ready'].includes(latestEpisode.status)) {
+      continue;
+    }
+
+    // Calculate interval based on publish_frequency
+    const intervalMs = {
+      daily: 24 * 60 * 60 * 1000,
+      every_2_days: 2 * 24 * 60 * 60 * 1000,
+      every_3_days: 3 * 24 * 60 * 60 * 1000,
+      weekly: 7 * 24 * 60 * 60 * 1000
+    }[story.publish_frequency] || (24 * 60 * 60 * 1000);
+
+    // If no episodes yet or enough time has passed since the last one
+    if (!latestEpisode) {
+      ready.push(story);
+    } else {
+      const lastAt = new Date(latestEpisode.created_at).getTime();
+      if (now - lastAt >= intervalMs) {
+        ready.push(story);
+      }
+    }
+  }
+
+  return ready;
+}
+
+/**
+ * Count brand stories for a user
+ */
+export async function countBrandStories(userId) {
+  const { count, error } = await supabaseAdmin
+    .from('brand_stories')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (error) {
+    logger.error('Error counting brand stories:', error);
+    throw error;
+  }
+  return count || 0;
 }
 
 export default {
@@ -4477,5 +4745,17 @@ export default {
   isAffiliateProductPublished,
   getAffiliatePublishedProducts,
   getAgentPublishedProductIds,
-  getAffiliateStats
+  getAffiliateStats,
+  // Brand story functions
+  createBrandStory,
+  getBrandStories,
+  getBrandStoryById,
+  updateBrandStory,
+  deleteBrandStory,
+  createBrandStoryEpisode,
+  getBrandStoryEpisodes,
+  getBrandStoryEpisodeById,
+  updateBrandStoryEpisode,
+  getBrandStoriesReadyForEpisode,
+  countBrandStories
 };

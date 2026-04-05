@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "recipe-full-setup": {
+      "source": "runwayml/skills",
+      "sourceType": "github",
+      "computedHash": "d29c9298d3081d8e01a7c34748e8617c377481dda5b35717471d8f347ce38596"
+    }
+  }
+}

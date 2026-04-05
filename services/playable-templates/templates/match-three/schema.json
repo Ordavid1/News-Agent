@@ -1,0 +1,66 @@
+{
+  "templateName": "Match Three Puzzle",
+  "description": "A premium match-3 puzzle where players swap adjacent brand-colored gems to form lines of 3 or more. Matches explode with sparkles, gems cascade down with gravity, chains multiply the score, and a countdown timer races against a target score.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette used to tint gems, UI, and background accents",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color — drives UI, first gem type, CTA" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text color and secondary gem type tint" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, sparkles, score flashes" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":          { "type": "string", "required": true, "maxLength": 30, "description": "Game title shown on splash" },
+        "subtitle":       { "type": "string", "maxLength": 50, "description": "Subtitle or tagline on splash" },
+        "cta":            { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text on end screen" },
+        "scoreLabel":     { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "targetLabel":    { "type": "string", "maxLength": 15, "description": "Label above target score" },
+        "comboMessage":   { "type": "string", "maxLength": 20, "description": "Template for combo popups (use {x} for multiplier)" },
+        "winMessage":     { "type": "string", "maxLength": 25, "description": "End screen headline when target reached" },
+        "loseMessage":    { "type": "string", "maxLength": 25, "description": "End screen headline when target missed" },
+        "encouragement":  { "type": "array", "maxItems": 5, "description": "Random encouragement messages on big matches" },
+        "playAgain":      { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core match-3 tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "gridCols":         { "type": "number", "required": true, "min": 4, "max": 8, "description": "Number of grid columns" },
+        "gridRows":         { "type": "number", "required": true, "min": 4, "max": 8, "description": "Number of grid rows" },
+        "gemTypes":         { "type": "number", "required": true, "min": 4, "max": 6, "description": "Number of distinct gem types (shapes)" },
+        "duration":         { "type": "number", "required": true, "min": 30, "max": 120, "description": "Game duration in seconds" },
+        "targetScore":      { "type": "number", "required": true, "min": 100, "max": 5000, "description": "Target score to win" },
+        "pointsPer3":       { "type": "number", "min": 10, "max": 200, "description": "Points for a 3-gem match" },
+        "pointsPer4":       { "type": "number", "min": 20, "max": 400, "description": "Points for a 4-gem match" },
+        "pointsPer5":       { "type": "number", "min": 40, "max": 800, "description": "Points for a 5+ gem match" },
+        "comboMultiplier":  { "type": "number", "min": 1.0, "max": 3.0, "description": "Score multiplier added per cascade level" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "logo":           { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" }
+      }
+    }
+  }
+}

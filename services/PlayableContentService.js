@@ -31,6 +31,7 @@ import {
   createPerUsePurchase
 } from './database-wrapper.js';
 import testProgressEmitter from './TestProgressEmitter.js';
+import HybridTemplateEngine from './playable-templates/engine/HybridTemplateEngine.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -48,13 +49,24 @@ const logger = winston.createLogger({
 const STORAGE_BUCKET = 'media-assets';
 const PHASER_CDN_URL = 'https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js';
 
-// Generation limits
+// Generation limits — AI classic path (320x480)
 const MAX_ASSET_SIZE_BYTES = 2 * 1024 * 1024; // 2MB total for inlined assets
 const MAX_SPRITE_DIMENSION = 256;
 const MAX_LOGO_DIMENSION = 128;
 const MAX_CODE_SIZE_BYTES = 200 * 1024; // 200KB for game code
 const MAX_RETRIES = 1;
 const GEMINI_TIMEOUT_MS = 180000; // 180s for code generation (Gemini Flash can be slow for large outputs)
+
+// Generation limits — Hybrid template path (640x960, higher quality)
+const HYBRID_ASSET_BUDGET_BYTES = 3 * 1024 * 1024; // 3MB for higher-res assets
+const HYBRID_SPRITE_DIMENSION = 512;
+const HYBRID_LOGO_DIMENSION = 256;
+const HYBRID_CONFIG_TIMEOUT_MS = 60000; // 60s for config JSON (much smaller than game code)
+
+// Generation modes
+const GENERATION_MODE_AI_CLASSIC = 'ai_classic';
+const GENERATION_MODE_HYBRID = 'hybrid';
+const DEFAULT_GENERATION_MODE = GENERATION_MODE_HYBRID;
 
 // ============================================
 // GAME TEMPLATE REGISTRY
@@ -72,7 +84,9 @@ const GAME_TEMPLATES = {
     optionalAssets: { maxSprites: 5 },
     mechanics: ['touch_drag', 'score', 'timer'],
     phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
   },
   tap_the_logo: {
     id: 'tap_the_logo',
@@ -84,7 +98,9 @@ const GAME_TEMPLATES = {
     optionalAssets: { maxSprites: 3 },
     mechanics: ['tap', 'score', 'timer', 'speed_ramp'],
     phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
   },
   color_match: {
     id: 'color_match',
@@ -97,7 +113,9 @@ const GAME_TEMPLATES = {
     optionalAssets: { maxLogos: 1 },
     mechanics: ['tap', 'match', 'score', 'timer'],
     phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
   },
   swipe_sort: {
     id: 'swipe_sort',
@@ -109,7 +127,9 @@ const GAME_TEMPLATES = {
     optionalAssets: { maxSprites: 6 },
     mechanics: ['swipe', 'score', 'timer'],
     phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
   },
 
   // === Interactive Stories ===
@@ -124,7 +144,9 @@ const GAME_TEMPLATES = {
     requiredBrandKit: ['brand_summary', 'style_characteristics'],
     mechanics: ['tap_advance', 'choice_branch', 'parallax'],
     phaserScenes: ['BootScene', 'StoryScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
   },
   product_reveal: {
     id: 'product_reveal',
@@ -136,9 +158,90 @@ const GAME_TEMPLATES = {
     optionalAssets: { maxSprites: 3, maxLogos: 1 },
     mechanics: ['tap_reveal', 'animation_sequence', 'parallax'],
     phaserScenes: ['BootScene', 'RevealScene', 'EndScene'],
-    ctaPlacement: 'end_screen'
+    ctaPlacement: 'end_screen',
+    engines: ['ai_classic', 'hybrid'],
+    tier: 'premium'
+  },
+
+  // === Premium Hybrid-Only Templates (New game types) ===
+  scratch_reveal: {
+    id: 'scratch_reveal',
+    type: 'mini_game',
+    name: 'Scratch to Reveal',
+    description: 'Players scratch a surface to reveal a brand message or product underneath. High brand visibility, simple mechanics.',
+    duration: '20-45s',
+    requiredAssets: { minSprites: 1 },
+    optionalAssets: { maxLogos: 1 },
+    mechanics: ['touch_drag', 'reveal'],
+    phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
+    ctaPlacement: 'end_screen',
+    engines: ['hybrid'],
+    tier: 'premium'
+  },
+  quiz_trivia: {
+    id: 'quiz_trivia',
+    type: 'mini_game',
+    name: 'Brand Quiz',
+    description: '3-5 brand trivia questions with timed responses. Strong engagement, naturally leads to CTA.',
+    duration: '45-90s',
+    requiredAssets: {}, // No sprites required
+    requiredBrandKit: ['brand_summary'],
+    optionalAssets: { maxLogos: 1 },
+    mechanics: ['tap', 'quiz', 'score', 'timer'],
+    phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
+    ctaPlacement: 'end_screen',
+    engines: ['hybrid'],
+    tier: 'premium'
+  },
+  endless_runner: {
+    id: 'endless_runner',
+    type: 'mini_game',
+    name: 'Endless Runner',
+    description: 'Side-scrolling character dodges obstacles and collects brand items. Parallax scrolling with progressive speed.',
+    duration: '30-90s',
+    requiredAssets: { minSprites: 1 },
+    optionalAssets: { maxSprites: 5, maxLogos: 1 },
+    mechanics: ['tap', 'jump', 'dodge', 'collect', 'score'],
+    phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
+    ctaPlacement: 'end_screen',
+    engines: ['hybrid'],
+    tier: 'premium'
+  },
+  match_three: {
+    id: 'match_three',
+    type: 'mini_game',
+    name: 'Match-3 Puzzle',
+    description: 'Classic match-3 puzzle with brand-colored gems. Proven addictive mechanics with cascading combos.',
+    duration: '60-90s',
+    requiredAssets: {}, // Uses brand colors only
+    requiredBrandKit: ['color_palette'],
+    optionalAssets: { maxLogos: 1 },
+    mechanics: ['tap', 'swap', 'match', 'cascade', 'score'],
+    phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
+    ctaPlacement: 'end_screen',
+    engines: ['hybrid'],
+    tier: 'premium'
+  },
+  tower_stack: {
+    id: 'tower_stack',
+    type: 'mini_game',
+    name: 'Tower Stacker',
+    description: 'Tap to drop blocks and stack as high as possible. Overhanging parts get sliced off. Clean, satisfying gameplay.',
+    duration: '30-60s',
+    requiredAssets: {}, // Uses brand colors only
+    optionalAssets: { maxLogos: 1 },
+    mechanics: ['tap', 'timing', 'stack', 'score'],
+    phaserScenes: ['BootScene', 'GameScene', 'EndScene'],
+    ctaPlacement: 'end_screen',
+    engines: ['hybrid'],
+    tier: 'premium'
   }
 };
+
+// Map template IDs to template directory names (underscore → dash)
+function templateIdToDirName(templateId) {
+  return templateId.replace(/_/g, '-');
+}
 
 // ============================================
 // SERVICE CLASS
@@ -147,6 +250,7 @@ const GAME_TEMPLATES = {
 class PlayableContentService {
   constructor() {
     this._phaserJsCache = null;
+    this._hybridEngine = new HybridTemplateEngine();
     logger.info('PlayableContentService initialized');
   }
 
@@ -216,11 +320,28 @@ class PlayableContentService {
    * Progress is streamed via TestProgressEmitter SSE.
    */
   async generate(userId, adAccountId, trainingJobId, options) {
-    const { templateId, contentType, title, ctaUrl, mraidFormats = ['google'], storyOptions = {} } = options;
+    const {
+      templateId,
+      contentType,
+      title,
+      ctaUrl,
+      mraidFormats = ['google'],
+      storyOptions = {},
+      generationMode: requestedMode
+    } = options;
 
     const template = this.getTemplateById(templateId);
     if (!template) throw new Error(`Unknown template: ${templateId}`);
     if (template.type !== contentType) throw new Error(`Template ${templateId} is type ${template.type}, not ${contentType}`);
+
+    // Determine generation mode — defaults to hybrid for premium quality
+    // Falls back to ai_classic if template doesn't support hybrid
+    const supportedEngines = template.engines || ['ai_classic'];
+    let generationMode = requestedMode || DEFAULT_GENERATION_MODE;
+    if (!supportedEngines.includes(generationMode)) {
+      logger.warn(`Template ${templateId} does not support mode '${generationMode}'. Falling back to '${supportedEngines[0]}'.`);
+      generationMode = supportedEngines[0];
+    }
 
     // Create DB record
     const record = await createPlayableContent(userId, {
@@ -231,7 +352,11 @@ class PlayableContentService {
       title,
       ctaUrl,
       storyOptions,
-      mraidFormats
+      mraidFormats,
+      generationMode,
+      templateVersion: generationMode === GENERATION_MODE_HYBRID
+        ? this._hybridEngine.getTemplateVersion()
+        : null
     });
 
     const contentId = record.id;
@@ -243,12 +368,16 @@ class PlayableContentService {
 
     const startTime = Date.now();
 
-    // Fire-and-forget the pipeline
-    this._runPipeline(userId, adAccountId, trainingJobId, contentId, sessionKey, template, {
-      title, ctaUrl, mraidFormats, storyOptions, startTime
-    }).catch(err => {
-      logger.error(`Pipeline failed for ${contentId}: ${err.message}`);
-    });
+    // Fire-and-forget the appropriate pipeline
+    const pipelineOpts = { title, ctaUrl, mraidFormats, storyOptions, startTime };
+
+    if (generationMode === GENERATION_MODE_HYBRID) {
+      this._runHybridPipeline(userId, adAccountId, trainingJobId, contentId, sessionKey, template, pipelineOpts)
+        .catch(err => { logger.error(`Hybrid pipeline failed for ${contentId}: ${err.message}`); });
+    } else {
+      this._runPipeline(userId, adAccountId, trainingJobId, contentId, sessionKey, template, pipelineOpts)
+        .catch(err => { logger.error(`AI-classic pipeline failed for ${contentId}: ${err.message}`); });
+    }
 
     return record;
   }
@@ -381,6 +510,148 @@ class PlayableContentService {
   }
 
   // ============================================
+  // HYBRID TEMPLATE PIPELINE (Premium)
+  // ============================================
+  /**
+   * Hybrid generation pipeline: hand-crafted template + AI JSON config.
+   *
+   *   1. Load brand kit and build asset manifest
+   *   2. Encode assets as data URIs (higher resolution than AI-classic)
+   *   3. Call Gemini to generate a small JSON config (not game code)
+   *   4. Parse + validate config; fall back to branded defaults on failure
+   *   5. Compile: shared modules + template game.js + config → final JavaScript
+   *   6. Wrap in HTML + MRAID packages → upload to storage
+   */
+  async _runHybridPipeline(userId, adAccountId, trainingJobId, contentId, sessionKey, template, opts) {
+    const { title, ctaUrl, mraidFormats, storyOptions, startTime } = opts;
+
+    try {
+      // Phase 1: Load brand kit
+      this._emitProgress(userId, sessionKey, 'preparing', 'Loading brand kit and selecting assets...');
+      await updatePlayableContent(contentId, userId, { status: 'generating' });
+
+      const job = await getMediaTrainingJobById(trainingJobId, userId);
+      if (!job || !job.brand_kit) {
+        throw new Error('Training job or brand kit not found');
+      }
+      const brandKit = job.brand_kit;
+
+      // Phase 2: Build asset manifest
+      const assetManifest = this._buildAssetManifest(brandKit, template);
+
+      // Phase 3: Encode assets as data URIs at higher resolution
+      this._emitProgress(userId, sessionKey, 'encoding_assets', 'Preparing high-resolution assets...');
+      const inlinedAssets = await this._inlineAssetsAsDataURIs(assetManifest, {
+        spriteDimension: HYBRID_SPRITE_DIMENSION,
+        logoDimension: HYBRID_LOGO_DIMENSION,
+        assetBudget: HYBRID_ASSET_BUDGET_BYTES
+      });
+
+      // Phase 4: Generate JSON config via Gemini
+      this._emitProgress(userId, sessionKey, 'generating_code', 'Generating brand configuration with AI...');
+
+      const templateDirName = templateIdToDirName(template.id);
+      const configPrompt = this._hybridEngine.buildConfigPrompt(templateDirName, assetManifest, brandKit, {
+        title, ctaUrl, storyOptions
+      });
+
+      let rawConfigText = null;
+      let rawConfig = null;
+      try {
+        rawConfigText = await this._callGemini(configPrompt, HYBRID_CONFIG_TIMEOUT_MS);
+        rawConfig = this._hybridEngine.parseConfigResponse(rawConfigText);
+      } catch (err) {
+        logger.warn(`Hybrid config generation failed: ${err.message}. Using branded defaults.`);
+      }
+
+      // Phase 5: Validate config + compile template
+      this._emitProgress(userId, sessionKey, 'validating', 'Validating configuration...');
+      await updatePlayableContent(contentId, userId, { status: 'validating' });
+
+      const compiled = this._hybridEngine.compileTemplate(
+        templateDirName,
+        rawConfig,
+        assetManifest.colors
+      );
+
+      const gameCode = compiled.gameCode;
+      const finalConfig = compiled.config;
+
+      if (compiled.usedDefaults) {
+        logger.info(`Playable ${contentId}: used defaults (${compiled.validationErrors.length} validation issues)`);
+      }
+
+      // Phase 6: Package
+      this._emitProgress(userId, sessionKey, 'packaging', 'Assembling premium playable packages...');
+      await updatePlayableContent(contentId, userId, { status: 'packaging' });
+
+      const phaserJs = await this._getPhaserJs();
+      const previewHtml = this._buildPreviewHTML(gameCode, inlinedAssets, phaserJs, assetManifest.palette, ctaUrl, { width: 640, height: 960 });
+
+      const mraidHtmls = {};
+      for (const format of mraidFormats) {
+        mraidHtmls[format] = this._wrapWithMRAID(gameCode, inlinedAssets, phaserJs, assetManifest.palette, ctaUrl, format, { width: 640, height: 960 });
+      }
+
+      // Phase 7: Upload to storage
+      this._emitProgress(userId, sessionKey, 'uploading', 'Saving to storage...');
+      const basePath = `${userId}/${adAccountId}/playable-content/${contentId}`;
+
+      const previewUrl = await this._uploadToStorage(`${basePath}/preview.html`, previewHtml, 'text/html');
+
+      for (const [format, html] of Object.entries(mraidHtmls)) {
+        await this._uploadToStorage(`${basePath}/${format}-mraid.html`, html, 'text/html');
+      }
+
+      const totalSize = Buffer.byteLength(previewHtml, 'utf8') +
+        Object.values(mraidHtmls).reduce((sum, html) => sum + Buffer.byteLength(html, 'utf8'), 0);
+
+      // Phase 8: Consume credit
+      const consumed = await consumePlayableContentCredit(userId);
+      if (!consumed) {
+        logger.warn(`Playable ${contentId}: no credit to consume (may have been pre-consumed)`);
+      }
+
+      // Phase 9: Complete
+      const duration = Date.now() - startTime;
+      await updatePlayableContent(contentId, userId, {
+        status: 'completed',
+        game_code: gameCode,
+        final_html: previewHtml,
+        gemini_prompt: configPrompt,
+        template_config: finalConfig,
+        asset_manifest: {
+          sprites: assetManifest.sprites.map(s => ({ type: s.type, description: s.description })),
+          logos: assetManifest.logos.map(l => ({ type: l.type, description: l.description })),
+          palette: assetManifest.palette
+        },
+        storage_path: basePath,
+        public_url: previewUrl,
+        file_size_bytes: totalSize,
+        generation_duration_ms: duration
+      });
+
+      this._emitProgress(userId, sessionKey, 'complete', 'Premium playable content ready!', {
+        contentId,
+        previewUrl,
+        duration,
+        usedDefaults: compiled.usedDefaults
+      });
+
+      logger.info(`Hybrid playable ${contentId} completed in ${duration}ms, size: ${(totalSize / 1024).toFixed(0)}KB, defaults: ${compiled.usedDefaults}`);
+
+    } catch (err) {
+      logger.error(`Hybrid playable ${contentId} pipeline error: ${err.message}`);
+      await updatePlayableContent(contentId, userId, {
+        status: 'failed',
+        error_message: err.message
+      }).catch(e => logger.error(`Failed to update failed status: ${e.message}`));
+
+      this._emitProgress(userId, sessionKey, 'error', err.message);
+    }
+  }
+
+  // ============================================
   // ASSET PIPELINE
   // ============================================
 
@@ -433,8 +704,15 @@ class PlayableContentService {
   /**
    * Download extracted assets, resize, and encode as base64 data URIs.
    * Enforces a total size budget.
+   *
+   * @param {object} manifest  Asset manifest from _buildAssetManifest
+   * @param {object} [opts]    { spriteDimension, logoDimension, assetBudget }
    */
-  async _inlineAssetsAsDataURIs(manifest) {
+  async _inlineAssetsAsDataURIs(manifest, opts = {}) {
+    const spriteDim = opts.spriteDimension || MAX_SPRITE_DIMENSION;
+    const logoDim = opts.logoDimension || MAX_LOGO_DIMENSION;
+    const budget = opts.assetBudget || MAX_ASSET_SIZE_BYTES;
+
     const assets = {};
     let totalBytes = 0;
 
@@ -444,10 +722,10 @@ class PlayableContentService {
       if (!sprite.url) continue;
 
       try {
-        const dataUri = await this._downloadAndEncode(sprite.url, MAX_SPRITE_DIMENSION);
+        const dataUri = await this._downloadAndEncode(sprite.url, spriteDim);
         const sizeBytes = Buffer.byteLength(dataUri, 'utf8');
 
-        if (totalBytes + sizeBytes > MAX_ASSET_SIZE_BYTES) {
+        if (totalBytes + sizeBytes > budget) {
           logger.warn(`Asset budget exceeded at sprite_${i}, skipping remaining sprites`);
           break;
         }
@@ -464,10 +742,10 @@ class PlayableContentService {
       if (!logo.url) continue;
 
       try {
-        const dataUri = await this._downloadAndEncode(logo.url, MAX_LOGO_DIMENSION);
+        const dataUri = await this._downloadAndEncode(logo.url, logoDim);
         const sizeBytes = Buffer.byteLength(dataUri, 'utf8');
 
-        if (totalBytes + sizeBytes > MAX_ASSET_SIZE_BYTES) {
+        if (totalBytes + sizeBytes > budget) {
           logger.warn(`Asset budget exceeded at logo_${i}, skipping remaining logos`);
           break;
         }
@@ -748,9 +1026,11 @@ Return the COMPLETE corrected JavaScript code.`;
   }
 
   /**
-   * Call Gemini Flash to generate code.
+   * Call Gemini Flash to generate code or config JSON.
+   * @param {string} prompt     The prompt text
+   * @param {number} [timeoutMs]  Request timeout (defaults to GEMINI_TIMEOUT_MS)
    */
-  async _callGemini(prompt) {
+  async _callGemini(prompt, timeoutMs) {
     const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
     if (!apiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY not configured');
 
@@ -767,7 +1047,7 @@ Return the COMPLETE corrected JavaScript code.`;
         'x-goog-api-key': apiKey,
         'Content-Type': 'application/json'
       },
-      timeout: GEMINI_TIMEOUT_MS
+      timeout: timeoutMs || GEMINI_TIMEOUT_MS
     });
 
     const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
@@ -1051,8 +1331,9 @@ window.GAME_CONFIG = {
 
   /**
    * Build the preview HTML (no MRAID, for iframe preview in the app).
+   * @param {object} [dimensions]  { width, height } — defaults to 320x480
    */
-  _buildPreviewHTML(gameCode, inlinedAssets, phaserJs, palette, ctaUrl) {
+  _buildPreviewHTML(gameCode, inlinedAssets, phaserJs, palette, ctaUrl, dimensions = {}) {
     const primary = palette.find(c => c.usage === 'primary')?.hex || '#6366F1';
     const background = palette.find(c => c.usage === 'background')?.hex || '#F8FAFC';
 
@@ -1092,9 +1373,12 @@ if (window.GAME_CONFIG) {
 
   /**
    * Wrap game code with MRAID for specific ad network format.
+   * @param {object} [dimensions]  { width, height } — defaults to 320x480
    */
-  _wrapWithMRAID(gameCode, inlinedAssets, phaserJs, palette, ctaUrl, format) {
+  _wrapWithMRAID(gameCode, inlinedAssets, phaserJs, palette, ctaUrl, format, dimensions = {}) {
     const background = palette.find(c => c.usage === 'background')?.hex || '#F8FAFC';
+    const adWidth = dimensions.width || 320;
+    const adHeight = dimensions.height || 480;
 
     const mraidBridge = this._getMRAIDBridge(format, ctaUrl);
     const metaTags = this._getMRAIDMetaTags(format);
@@ -1104,7 +1388,7 @@ if (window.GAME_CONFIG) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="ad.size" content="width=320,height=480">
+<meta name="ad.size" content="width=${adWidth},height=${adHeight}">
 ${metaTags}
 <title>Playable Ad</title>
 <style>

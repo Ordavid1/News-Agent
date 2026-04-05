@@ -1,0 +1,46 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Endless Dash!",
+    "subtitle": "Run, jump, collect",
+    "cta": "Learn More",
+    "tapToStart": "Tap to Run!",
+    "scoreLabel": "Score",
+    "distanceLabel": "Distance",
+    "encouragement": ["Nice!", "Combo!", "Amazing!", "On Fire!", "Keep going!"],
+    "gameOver": "Game Over!",
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "initialSpeed": 220,
+    "maxSpeed": 560,
+    "jumpHeight": 210,
+    "gravity": 1400,
+    "obstacleSpawnRate": 1600,
+    "collectibleSpawnRate": 1200,
+    "lives": 3,
+    "pointsPerCollectible": 10,
+    "pointsPerDistance": 1
+  },
+  "assets": {
+    "character": "sprite_0",
+    "collectibles": ["sprite_0"],
+    "logo": "logo_0"
+  },
+  "difficulty": {
+    "rampInterval": 8,
+    "speedIncrease": 35,
+    "spawnRateDecrease": 90
+  },
+  "theme": {
+    "backgroundStyle": "parallax",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade",
+    "groundStyle": "striped"
+  }
+}

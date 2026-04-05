@@ -40,6 +40,7 @@ import marketingRoutes from './routes/marketing.js';
 import affiliateRoutes from './routes/affiliate.js';
 import supportRoutes from './routes/support.js';
 import feedRoutes from './routes/feed.js';
+import brandStoryRoutes from './routes/brand-stories.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -124,6 +125,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com", "https://api.fontshare.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.fontshare.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
+      mediaSrc: ["'self'", "blob:", "https:", process.env.SUPABASE_URL].filter(Boolean),
       connectSrc: ["'self'", "https://api.lemonsqueezy.com", "https://www.google-analytics.com", "https://analytics.google.com", "https://region1.google-analytics.com", process.env.SUPABASE_URL].filter(Boolean),
       frameSrc: ["'self'", "https://app.lemonsqueezy.com", "https://*.lemonsqueezy.com", "https://www.youtube.com", "https://www.tiktok.com"],
       objectSrc: ["'none'"],
@@ -949,6 +951,7 @@ app.use('/api/marketing', marketingRoutes); // Marketing API (auth + CSRF + mark
 app.use('/api/affiliate', authenticateToken, csrfProtection, affiliateRoutes); // AE Affiliate API (affiliate addon middleware in router)
 app.use('/api/support', supportRoutes); // Support chat (public, no auth — rate limited in router)
 app.use('/api/feed', feedRoutes);       // Public feed — no auth required, rate limited in router
+app.use('/api/brand-stories', brandStoryRoutes); // Brand Story video series (auth handled in router)
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

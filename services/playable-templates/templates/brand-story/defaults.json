@@ -1,0 +1,71 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Our Story",
+    "subtitle": "Tap to discover",
+    "pages": [
+      {
+        "headline": "Discover",
+        "body": "Something amazing awaits around every corner.",
+        "emphasisWords": ["amazing"],
+        "bgColor": "#6366F1"
+      },
+      {
+        "headline": "Meet the Future",
+        "body": "Built with passion and precision for those who demand more.",
+        "emphasisWords": ["passion", "precision"],
+        "bgColor": "#4F46E5"
+      },
+      {
+        "headline": "The Challenge",
+        "body": "In a world of noise, finding clarity feels impossible.",
+        "emphasisWords": ["clarity", "impossible"],
+        "bgColor": "#1E293B"
+      },
+      {
+        "headline": "Your Choice",
+        "body": "Two paths forward. Which resonates with you?",
+        "emphasisWords": ["paths"],
+        "bgColor": "#312E81"
+      },
+      {
+        "headline": "The Answer",
+        "body": "Crafted to empower you with confidence and elegance.",
+        "emphasisWords": ["empower", "elegance"],
+        "bgColor": "#4F46E5"
+      },
+      {
+        "headline": "Begin Today",
+        "body": "Your journey starts now. Take the first step.",
+        "emphasisWords": ["journey", "first step"],
+        "bgColor": "#6366F1"
+      }
+    ],
+    "choiceA": "Innovation",
+    "choiceB": "Simplicity",
+    "ctaText": "Learn More",
+    "replayText": "Replay"
+  },
+  "assets": {
+    "hero": "sprite_0",
+    "logo": "logo_0"
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  },
+  "story": {
+    "pageCount": 6,
+    "choiceEnabled": true,
+    "autoAdvanceDelay": 0,
+    "typewriterSpeed": 40,
+    "kenBurnsDuration": 3000,
+    "kenBurnsScale": 1.03
+  }
+}

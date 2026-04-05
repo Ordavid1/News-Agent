@@ -1,0 +1,72 @@
+{
+  "templateName": "Tower Stack",
+  "description": "A premium tap-to-drop tower stacker. Blocks slide across the top of the tower and the player taps to lock them in place. Overhanging sections are sliced off with physics. Perfect drops grant bonus points. Camera scrolls up as the tower grows.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color — used for the base block and core tower hue" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text, UI labels, and vignette tint" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Perfect popups, sparkle bursts, score flashes" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":           { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":        { "type": "string", "maxLength": 50, "description": "Subtitle or tagline on splash" },
+        "cta":             { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text on end screen" },
+        "scoreLabel":      { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "heightLabel":     { "type": "string", "maxLength": 15, "description": "Label for height counter" },
+        "perfectMessage":  { "type": "string", "maxLength": 20, "description": "Popup shown on a perfectly centered drop" },
+        "gameOver":        { "type": "string", "maxLength": 20, "description": "Game over headline" },
+        "encouragement":   { "type": "array", "maxItems": 5, "description": "Random encouragement messages on streaks" },
+        "playAgain":       { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "blockWidth":       { "type": "number", "required": true, "min": 80,  "max": 400, "description": "Initial block width in pixels" },
+        "blockHeight":      { "type": "number", "required": true, "min": 20,  "max": 80,  "description": "Block height in pixels" },
+        "initialSpeed":     { "type": "number", "required": true, "min": 100, "max": 500, "description": "Starting sweep speed of moving block (px/s)" },
+        "maxSpeed":         { "type": "number", "required": true, "min": 200, "max": 900, "description": "Maximum sweep speed as tower grows (px/s)" },
+        "perfectThreshold": { "type": "number", "required": true, "min": 1,   "max": 15,  "description": "Pixel tolerance for a perfect drop" },
+        "pointsPerBlock":   { "type": "number", "required": true, "min": 1,   "max": 100, "description": "Points awarded per stacked block" },
+        "perfectBonus":     { "type": "number", "required": true, "min": 0,   "max": 200, "description": "Extra points for a perfect drop" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "logo": { "type": "string", "description": "Asset key for brand logo on splash/end screen (e.g., 'logo_0')" }
+      }
+    },
+    "difficulty": {
+      "description": "Difficulty ramp parameters",
+      "type": "object",
+      "properties": {
+        "speedIncrease":         { "type": "number", "min": 0,   "max": 50,  "description": "Pixels/sec added per interval" },
+        "speedIncreaseInterval": { "type": "number", "min": 1,   "max": 20,  "description": "Blocks between speed increases" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" },
+        "blockStyle":       { "type": "string", "enum": ["rounded", "sharp", "beveled"], "description": "Visual style for stacked blocks" }
+      }
+    }
+  }
+}

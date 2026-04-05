@@ -1,0 +1,34 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Scratch to Win!",
+    "subtitle": "Reveal your prize",
+    "scratchPrompt": "Scratch the card!",
+    "revealMessage": "You discovered something special!",
+    "prizeText": "Exclusive Offer Inside",
+    "ctaText": "Claim Now",
+    "encouragement": ["Keep going!", "Almost there!", "Nice!", "So close!", "Great!"],
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "scratchThreshold": 60,
+    "scratchRadius": 28,
+    "timerEnabled": false,
+    "duration": 45
+  },
+  "assets": {
+    "revealImage": "sprite_0",
+    "logo": "logo_0"
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade",
+    "overlayStyle": "metallic"
+  }
+}

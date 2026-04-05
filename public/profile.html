@@ -1111,6 +1111,14 @@
                                 Playables
                             </span>
                         </button>
+                        <button onclick="showMarketingTab('brandstory')" id="mkt-tab-brandstory" class="mkt-tab-btn tab-btn whitespace-nowrap">
+                            <span class="flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
+                                </svg>
+                                Brand Story
+                            </span>
+                        </button>
                     </div>
                     <!-- Ad Account Selector (aligned with sub-tabs) -->
                     <div class="relative flex-shrink-0 pb-px" id="adAccountDropdownWrapper">
@@ -2429,6 +2437,26 @@
                                 </div>
                             </div>
 
+                            <!-- Generation Engine Selector -->
+                            <div id="playableEngineSelector">
+                                <label class="block text-sm font-medium text-ink-700 mb-2">Generation Engine</label>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <label class="flex flex-col gap-1 p-3 rounded-lg border border-brand-400 bg-brand-50 cursor-pointer transition-all has-[:checked]:border-brand-600 has-[:checked]:bg-brand-100 has-[:checked]:shadow-sm">
+                                        <input type="radio" name="playableGenMode" id="playableGenModeHybrid" value="hybrid" checked class="sr-only peer">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-600 text-white px-2 py-0.5 rounded-full">&#10024; Premium</span>
+                                        </div>
+                                        <span class="text-sm font-semibold text-ink-800">Hand-crafted Templates</span>
+                                        <span class="text-xs text-ink-500">640x960 HD &middot; Guaranteed polish &middot; Faster generation</span>
+                                    </label>
+                                    <label class="flex flex-col gap-1 p-3 rounded-lg border border-surface-300 bg-white cursor-pointer transition-all has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50 has-[:checked]:shadow-sm">
+                                        <input type="radio" name="playableGenMode" id="playableGenModeClassic" value="ai_classic" class="sr-only peer">
+                                        <span class="text-sm font-semibold text-ink-800 mt-[22px]">Classic AI</span>
+                                        <span class="text-xs text-ink-500">320x480 &middot; Fully AI-generated &middot; Creative variance</span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <button onclick="startPlayableGeneration()" id="playableGenerateBtn" class="btn-primary w-full py-3 text-base font-medium rounded-lg flex items-center justify-center gap-2">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
@@ -2484,6 +2512,462 @@
                         <div id="playableHistoryList" class="space-y-3"></div>
                         <div id="playableHistoryEmpty" class="hidden text-center py-6">
                             <p class="text-base text-ink-400">No playables generated yet.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== BRAND STORY TAB ===== -->
+                <div id="mkt-content-brandstory" class="mkt-tab-content hidden">
+                    <!-- Header -->
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                        <div>
+                            <h3 class="text-2xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Brand Story</h3>
+                            <p class="text-ink-500 text-base">Create automated short-form video series with AI-powered storytelling</p>
+                        </div>
+                        <button onclick="showCreateStoryWizard()" id="brandStoryCreateBtn" class="btn-primary px-5 py-2.5 text-base font-medium rounded-lg flex items-center gap-2 whitespace-nowrap">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            New Story
+                        </button>
+                    </div>
+
+                    <!-- Story List View -->
+                    <div id="brandStoryList" class="space-y-4">
+                        <!-- Populated dynamically by JS -->
+                    </div>
+                    <div id="brandStoryEmpty" class="hidden card-gradient p-8 text-center">
+                        <svg class="w-16 h-16 text-ink-200 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path>
+                        </svg>
+                        <p class="text-ink-600 font-medium text-lg mb-2">No Brand Stories yet</p>
+                        <p class="text-ink-400 text-base mb-4">Create your first AI-powered video story series for Reels, Stories, and TikTok.</p>
+                        <button onclick="showCreateStoryWizard()" class="btn-primary px-5 py-2.5 text-base font-medium rounded-lg inline-flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Create Your First Story
+                        </button>
+                    </div>
+
+                    <!-- Create Story Wizard (hidden by default) -->
+                    <div id="brandStoryWizard" class="hidden">
+                        <!-- Wizard Steps Indicator -->
+                        <div class="flex items-center gap-2 mb-6">
+                            <div id="wizStep1" class="flex items-center gap-1.5 text-sm font-medium text-brand-600">
+                                <span class="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs">1</span>
+                                Focus
+                            </div>
+                            <div class="flex-1 h-px bg-surface-300"></div>
+                            <div id="wizStep2" class="flex items-center gap-1.5 text-sm font-medium text-ink-400">
+                                <span class="w-6 h-6 rounded-full bg-surface-200 text-ink-500 flex items-center justify-center text-xs">2</span>
+                                Persona
+                            </div>
+                            <div class="flex-1 h-px bg-surface-300"></div>
+                            <div id="wizStep3" class="flex items-center gap-1.5 text-sm font-medium text-ink-400">
+                                <span class="w-6 h-6 rounded-full bg-surface-200 text-ink-500 flex items-center justify-center text-xs">3</span>
+                                Subject
+                            </div>
+                            <div class="flex-1 h-px bg-surface-300"></div>
+                            <div id="wizStep4" class="flex items-center gap-1.5 text-sm font-medium text-ink-400">
+                                <span class="w-6 h-6 rounded-full bg-surface-200 text-ink-500 flex items-center justify-center text-xs">4</span>
+                                Settings
+                            </div>
+                            <div class="flex-1 h-px bg-surface-300"></div>
+                            <div id="wizStep5" class="flex items-center gap-1.5 text-sm font-medium text-ink-400">
+                                <span class="w-6 h-6 rounded-full bg-surface-200 text-ink-500 flex items-center justify-center text-xs">5</span>
+                                Review
+                            </div>
+                        </div>
+
+                        <!-- Step 1: Focus -->
+                        <div id="wizardStep1" class="card-gradient p-6">
+                            <h4 class="text-lg font-semibold text-ink-800 mb-4">What is this story focusing on?</h4>
+                            <p class="text-ink-500 text-sm mb-4">This shapes how the wizard walks you through persona and subject selection.</p>
+
+                            <div class="space-y-3 mb-6">
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="storyFocus" value="person" checked class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">A person</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Models, influencers, political figures, brand ambassadors &mdash; stories about a specific person.</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="storyFocus" value="product" class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">A product</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Any physical product, any industry &mdash; stories showcasing a product.</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="storyFocus" value="landscape" class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">A landscape</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Real estate, architecture, spa, school, place &mdash; stories showcasing a space.</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="flex justify-end mt-6">
+                                <button onclick="wizardNext(2)" class="btn-primary px-6 py-2.5 text-base font-medium rounded-lg">Next: Persona</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Persona -->
+                        <div id="wizardStep2" class="card-gradient p-6 hidden">
+                            <h4 class="text-lg font-semibold text-ink-800 mb-4">Define Your Persona</h4>
+                            <p class="text-ink-500 text-sm mb-4">Choose how to create the brand ambassador for your video series.</p>
+
+                            <div class="space-y-3 mb-6">
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="personaType" value="described" checked class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">Describe a Persona</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">AI will generate an avatar based on your description</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="personaType" value="selected" class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">Choose from Library</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Select from HeyGen's stock avatar collection</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="personaType" value="uploaded" class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">Upload Brand Person</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Upload photos of your brand ambassador for a custom avatar</p>
+                                    </div>
+                                </label>
+                                <label class="flex items-start gap-3 p-4 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50">
+                                    <input type="radio" name="personaType" value="brand_kit" class="mt-1 text-brand-600 focus:ring-brand-500">
+                                    <div>
+                                        <span class="font-medium text-ink-800">Choose from Brand Kit</span>
+                                        <p class="text-sm text-ink-500 mt-0.5">Pick a person cutout extracted from your Brand Kit assets</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <p class="text-xs text-ink-400 mb-3">The first persona is the primary narrator. Additional personas enrich the cast (supporting characters, foils, etc.).</p>
+
+                            <!-- Describe persona fields -->
+                            <div id="personaDescribeFields">
+                                <div id="describedPersonaList" class="space-y-4">
+                                    <!-- Populated by JS -->
+                                </div>
+                                <button type="button" onclick="addDescribedPersona()" id="addDescribedBtn" class="mt-3 text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                    </svg>
+                                    Add Persona (<span id="describedPersonaCount">0</span>/3)
+                                </button>
+                            </div>
+
+                            <!-- Select avatar (hidden unless selected) -->
+                            <div id="personaSelectFields" class="hidden">
+                                <!-- Auto-Assign button for product/landscape focus only (JS toggles visibility) -->
+                                <button type="button" onclick="autoAssignBestFitCharacter()" id="autoAssignAvatarBtn" class="hidden mb-3 btn-secondary px-4 py-2 text-sm font-medium rounded-lg inline-flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                    <span id="autoAssignAvatarBtnText">Auto Assign Best Fit Character</span>
+                                </button>
+                                <p id="autoAssignAvatarHint" class="hidden text-xs text-ink-400 mb-2">Skip manual browsing &mdash; we'll pick a professional avatar that fits your story focus.</p>
+
+                                <p class="text-xs text-ink-400 mb-2">Click avatars to select (up to 3). <span id="selectedAvatarCount">0</span>/3 selected.</p>
+                                <div id="stockAvatarGrid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                                    <p class="col-span-full text-center text-ink-400 py-4">Loading avatars...</p>
+                                </div>
+                                <input type="hidden" id="selectedAvatarsJson" value="[]">
+                            </div>
+
+                            <!-- Upload persona images (hidden unless uploaded) -->
+                            <div id="personaUploadFields" class="hidden">
+                                <div id="uploadedPersonaList" class="space-y-4">
+                                    <!-- Populated by JS: each slot has its own drop zone + 3-5 photo uploader -->
+                                </div>
+                                <button type="button" onclick="addUploadedPersona()" id="addUploadedBtn" class="mt-3 text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                    </svg>
+                                    Add Person (<span id="uploadedPersonaCount">0</span>/3)
+                                </button>
+                            </div>
+
+                            <!-- Choose from Brand Kit (hidden unless brand_kit selected) -->
+                            <div id="personaBrandKitFields" class="hidden">
+                                <p class="text-xs text-ink-400 mb-2">Click cutouts to select (up to 3). <span id="selectedBrandKitCount">0</span>/3 selected.</p>
+                                <div id="brandKitPersonaGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                    <p class="col-span-full text-center text-ink-400 py-4">Loading Brand Kit personas...</p>
+                                </div>
+                                <input type="hidden" id="selectedBrandKitPersonasJson" value="[]">
+                            </div>
+
+                            <!-- Voice picker — shared across all persona types -->
+                            <div class="mt-6 pt-4 border-t border-surface-200">
+                                <label class="block text-sm font-medium text-ink-700 mb-1">Narrator Voice</label>
+                                <p class="text-xs text-ink-400 mb-2">Pick the voice for spoken dialogue shots. Leave empty to auto-match to the avatar.</p>
+                                <div class="flex gap-2 items-center">
+                                    <select id="personaVoiceSelect" class="flex-1 rounded-lg border border-surface-300 bg-white text-ink-800 py-2 px-3 text-sm focus:ring-2 focus:ring-brand-500" onchange="onVoiceSelectChange()">
+                                        <option value="">Auto (match avatar)</option>
+                                    </select>
+                                    <button type="button" onclick="previewSelectedVoice()" id="voicePreviewBtn" class="btn-secondary px-3 py-2 text-xs rounded-lg" disabled>
+                                        Preview
+                                    </button>
+                                </div>
+                                <div class="flex gap-3 mt-2">
+                                    <label class="flex items-center gap-1 text-xs text-ink-500">
+                                        <input type="radio" name="voiceGenderFilter" value="" checked onchange="filterVoicesByGender(this.value)" class="text-brand-600"> All
+                                    </label>
+                                    <label class="flex items-center gap-1 text-xs text-ink-500">
+                                        <input type="radio" name="voiceGenderFilter" value="female" onchange="filterVoicesByGender(this.value)" class="text-brand-600"> Female
+                                    </label>
+                                    <label class="flex items-center gap-1 text-xs text-ink-500">
+                                        <input type="radio" name="voiceGenderFilter" value="male" onchange="filterVoicesByGender(this.value)" class="text-brand-600"> Male
+                                    </label>
+                                </div>
+                                <audio id="voicePreviewAudio" class="hidden" preload="none"></audio>
+                            </div>
+
+                            <div class="flex justify-end mt-6">
+                                <button onclick="wizardNext(3)" class="btn-primary px-6 py-2.5 text-base font-medium rounded-lg">Next: Subject</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Subject/Product -->
+                        <div id="wizardStep3" class="card-gradient p-6 hidden">
+                            <h4 class="text-lg font-semibold text-ink-800 mb-4">Choose Your Subject</h4>
+                            <p class="text-ink-500 text-sm mb-4">Upload 1-3 images of your product/subject, or pick from your Brand Kit. AI will analyze and describe it automatically.</p>
+
+                            <!-- Source toggle -->
+                            <div class="inline-flex rounded-lg border border-surface-300 overflow-hidden mb-4">
+                                <button type="button" onclick="setSubjectSource('upload')" id="subjectSrcUploadBtn" class="px-5 py-2 text-sm font-medium transition-colors bg-brand-600 text-white">Upload Images</button>
+                                <button type="button" onclick="setSubjectSource('brand_kit')" id="subjectSrcBrandKitBtn" class="px-5 py-2 text-sm font-medium transition-colors bg-white text-ink-600 hover:bg-surface-50">From Brand Kit</button>
+                            </div>
+
+                            <!-- Upload variant -->
+                            <div id="subjectUploadVariant">
+                                <div class="border-2 border-dashed border-surface-300 rounded-lg p-6 text-center hover:border-brand-400 transition-colors cursor-pointer" id="subjectDropZone" onclick="document.getElementById('subjectFileInput').click()">
+                                    <svg class="w-10 h-10 text-ink-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <p class="text-ink-600 font-medium">Drop 1-3 subject images here</p>
+                                    <p class="text-ink-400 text-sm mt-1">Clear product shots for best analysis (JPEG, PNG, WebP, 10MB max each)</p>
+                                    <input type="file" id="subjectFileInput" multiple accept="image/jpeg,image/png,image/webp" class="hidden">
+                                </div>
+                                <div id="subjectUploadPreview" class="grid grid-cols-3 gap-3 mt-3 hidden"></div>
+                            </div>
+
+                            <!-- Brand Kit variant -->
+                            <div id="subjectBrandKitVariant" class="hidden">
+                                <p class="text-sm text-ink-500 mb-3">Select 1-3 assets (logos, graphics, or product cutouts) from your Brand Kits:</p>
+                                <div id="brandKitSubjectGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 max-h-96 overflow-y-auto">
+                                    <p class="col-span-full text-center text-ink-400 py-4">Loading Brand Kit assets...</p>
+                                </div>
+                            </div>
+
+                            <!-- Analyze button -->
+                            <div class="mt-4 flex items-center gap-3">
+                                <button onclick="analyzeSubjectImages()" id="analyzeSubjectBtn" class="btn-primary px-5 py-2.5 text-base font-medium rounded-lg flex items-center gap-2" disabled>
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                                    </svg>
+                                    <span id="analyzeSubjectBtnText">Analyze Subject</span>
+                                </button>
+                                <span id="analyzeSubjectStatus" class="text-sm text-ink-400 hidden"></span>
+                            </div>
+
+                            <!-- Analysis result (read-only) -->
+                            <div id="subjectAnalysisResult" class="hidden mt-6 p-4 bg-surface-50 rounded-lg border border-surface-200">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h5 class="font-semibold text-ink-800">AI-Generated Subject Profile</h5>
+                                    <button onclick="resetSubjectAnalysis()" class="text-xs text-brand-600 hover:text-brand-700">Re-analyze</button>
+                                </div>
+                                <div class="space-y-2 text-sm">
+                                    <div><span class="text-ink-400">Name:</span> <span class="font-medium text-ink-800" id="subjectResultName"></span></div>
+                                    <div><span class="text-ink-400">Category:</span> <span class="font-medium text-ink-800" id="subjectResultCategory"></span></div>
+                                    <div><span class="text-ink-400">Description:</span> <span class="text-ink-700" id="subjectResultDescription"></span></div>
+                                    <div><span class="text-ink-400">Key Features:</span> <span class="text-ink-700" id="subjectResultFeatures"></span></div>
+                                    <div><span class="text-ink-400">Visual Description:</span> <span class="text-ink-700" id="subjectResultVisual"></span></div>
+                                </div>
+                            </div>
+
+                            <!-- Hidden inputs to store analyzed subject JSON -->
+                            <input type="hidden" id="subjectAnalyzedJson" value="">
+
+                            <div class="flex justify-between mt-6">
+                                <button onclick="wizardBack(2)" class="btn-secondary px-6 py-2.5 text-base font-medium rounded-lg">Back</button>
+                                <button onclick="wizardNext(4)" id="subjectNextBtn" class="btn-primary px-6 py-2.5 text-base font-medium rounded-lg" disabled>Next: Settings</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Settings -->
+                        <div id="wizardStep4" class="card-gradient p-6 hidden">
+                            <h4 class="text-lg font-semibold text-ink-800 mb-4">Story Settings</h4>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-ink-700 mb-1">Story Name</label>
+                                    <input type="text" id="storyName" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500" placeholder="The Scent of Tomorrow">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-ink-700 mb-2">Target Platforms</label>
+                                    <div class="flex flex-wrap gap-3">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" value="tiktok" name="storyPlatforms" checked class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                            <span class="text-sm text-ink-700">TikTok</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" value="instagram" name="storyPlatforms" class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                            <span class="text-sm text-ink-700">Instagram Reels</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" value="youtube" name="storyPlatforms" class="rounded border-surface-300 text-brand-600 focus:ring-brand-500">
+                                            <span class="text-sm text-ink-700">YouTube Shorts</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Publish Frequency</label>
+                                        <select id="storyFrequency" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="daily">Daily</option>
+                                            <option value="every_2_days" selected>Every 2 Days</option>
+                                            <option value="every_3_days">Every 3 Days</option>
+                                            <option value="weekly">Weekly</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Brand Kit</label>
+                                        <select id="storyBrandKit" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="">None (generate without brand context)</option>
+                                            <!-- Populated dynamically -->
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between mt-6">
+                                <button onclick="wizardBack(3)" class="btn-secondary px-6 py-2.5 text-base font-medium rounded-lg">Back</button>
+                                <button onclick="wizardNext(5)" class="btn-primary px-6 py-2.5 text-base font-medium rounded-lg">Next: Review</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 5: Review & Generate -->
+                        <div id="wizardStep5" class="card-gradient p-6 hidden">
+                            <h4 class="text-lg font-semibold text-ink-800 mb-4">Review & Create</h4>
+                            <div id="wizardReviewSummary" class="space-y-3 mb-6">
+                                <!-- Populated dynamically by JS -->
+                            </div>
+                            <div class="flex justify-between">
+                                <button onclick="wizardBack(4)" class="btn-secondary px-6 py-2.5 text-base font-medium rounded-lg">Back</button>
+                                <button onclick="createBrandStory()" id="wizardCreateBtn" class="btn-primary px-8 py-2.5 text-base font-medium rounded-lg flex items-center gap-2">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                    </svg>
+                                    Create Story & Generate Storyline
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Story Detail View (hidden by default) -->
+                    <div id="brandStoryDetail" class="hidden">
+                        <button onclick="backToStoryList()" class="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-4">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                            </svg>
+                            Back to stories
+                        </button>
+
+                        <!-- Story Header -->
+                        <div class="card-gradient p-6 mb-6">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <h4 id="storyDetailTitle" class="text-xl font-semibold text-ink-800 mb-1"></h4>
+                                    <p id="storyDetailLogline" class="text-ink-500 text-base"></p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span id="storyDetailStatus" class="px-3 py-1 text-xs font-medium rounded-full"></span>
+                                    <button onclick="toggleStoryAutomation()" id="storyAutomationBtn" class="btn-secondary btn-sm px-4 py-1.5 text-sm"></button>
+                                    <button onclick="deleteCurrentStory()" id="storyDeleteBtn" class="btn-sm px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors flex items-center gap-1" title="Delete story">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Avatar training banner -->
+                            <div id="avatarTrainingBanner" class="hidden mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-sm text-blue-800">
+                                <svg class="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                <span id="avatarTrainingMsg">Training your avatar...</span>
+                            </div>
+
+                            <!-- Full storyline overview -->
+                            <div id="storyDetailOverview" class="mt-4 pt-4 border-t border-surface-200 hidden space-y-6">
+                                <!-- Meta chips -->
+                                <div id="storyMetaChips" class="flex flex-wrap gap-2"></div>
+
+                                <!-- Two-column: Arc + Characters -->
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <section>
+                                        <h5 class="text-sm font-semibold text-ink-600 uppercase tracking-wider mb-3">Story Arc</h5>
+                                        <dl id="storyArcContent" class="text-sm text-ink-600 space-y-2"></dl>
+                                    </section>
+                                    <section>
+                                        <h5 class="text-sm font-semibold text-ink-600 uppercase tracking-wider mb-3">Characters</h5>
+                                        <div id="storyCharactersContent" class="space-y-3"></div>
+                                    </section>
+                                </div>
+
+                                <!-- Planned episodes -->
+                                <section>
+                                    <h5 class="text-sm font-semibold text-ink-600 uppercase tracking-wider mb-3">Planned Episodes</h5>
+                                    <div id="storyPlannedEpisodes" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                                </section>
+
+                                <!-- Season bible (collapsible) -->
+                                <section>
+                                    <button type="button" onclick="toggleSeasonBible()" class="flex items-center gap-2 text-sm font-semibold text-ink-600 uppercase tracking-wider mb-2 hover:text-ink-800">
+                                        <svg id="seasonBibleChevron" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                        </svg>
+                                        Season Bible
+                                    </button>
+                                    <div id="seasonBibleContent" class="hidden text-sm text-ink-600 whitespace-pre-wrap bg-surface-50 rounded-lg p-4 max-h-96 overflow-y-auto"></div>
+                                </section>
+                            </div>
+                        </div>
+
+                        <!-- Generate Next Episode Button -->
+                        <div class="flex items-center gap-3 mb-6">
+                            <button onclick="generateNextEpisode()" id="generateEpisodeBtn" class="btn-primary px-5 py-2.5 text-base font-medium rounded-lg flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                <span id="generateEpisodeBtnText">Generate 1st Episode</span>
+                            </button>
+                            <span id="episodeGeneratingStatus" class="text-sm text-ink-400 hidden">
+                                <svg class="w-4 h-4 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Generating...
+                            </span>
+                        </div>
+
+                        <!-- Episode Timeline -->
+                        <div id="episodeTimeline" class="space-y-4">
+                            <!-- Populated dynamically by JS -->
+                        </div>
+                        <div id="noEpisodesMsg" class="hidden text-center py-8">
+                            <p class="text-ink-400 text-base">No episodes yet. Click the Generate button above to create the first one.</p>
                         </div>
                     </div>
                 </div>

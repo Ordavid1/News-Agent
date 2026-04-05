@@ -1,0 +1,61 @@
+{
+  "templateName": "Scratch & Reveal",
+  "description": "A premium scratch card game where the player scratches over a metallic surface to reveal a brand message, product, or prize underneath. Auto-completes with a cinematic reveal once the scratch threshold is reached.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for card frame, overlay tint, and UI accents" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text color and secondary elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, sparkle particles, and progress bar fill" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":          { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":       { "type": "string", "maxLength": 50, "description": "Subtitle or tagline on splash screen" },
+        "scratchPrompt":  { "type": "string", "maxLength": 30, "description": "Instructional text above the scratch card (e.g., 'Scratch to reveal!')" },
+        "revealMessage":  { "type": "string", "required": true, "maxLength": 60, "description": "Main message revealed under the scratch surface" },
+        "prizeText":      { "type": "string", "maxLength": 40, "description": "Prize or offer text displayed below the reveal image" },
+        "ctaText":        { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text" },
+        "encouragement":  { "type": "array", "maxItems": 5, "description": "Random encouragement messages shown during scratching" },
+        "playAgain":      { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "scratchThreshold": { "type": "number", "required": true, "min": 30, "max": 90, "description": "Percentage of area that must be scratched to trigger the full reveal (0-100)" },
+        "scratchRadius":    { "type": "number", "min": 15, "max": 60, "description": "Radius of each scratch circle in pixels" },
+        "timerEnabled":     { "type": "boolean", "description": "Whether to show a countdown timer" },
+        "duration":         { "type": "number", "min": 15, "max": 120, "description": "Game duration in seconds (only used if timerEnabled is true)" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "revealImage": { "type": "string", "description": "Asset key for the product/brand image revealed under the scratch surface" },
+        "logo":        { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" },
+        "overlayStyle":     { "type": "string", "enum": ["metallic", "solid", "gradient", "shimmer"], "description": "Visual style of the scratch overlay surface" }
+      }
+    }
+  }
+}

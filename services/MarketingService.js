@@ -1711,52 +1711,36 @@ class MarketingService {
 
         if (post.platform === 'facebook') {
           // Cascading fallback for Facebook post insights:
-          // 1. Modern metrics (post_media_views + reactions) — works for media posts
-          // 2. Reactions only — works for all post types via insights API
-          // 3. Basic Graph API fields (likes, comments, shares) — broadest compatibility
+          // 1. Insights API (post_reactions_by_type_total) — requires read_insights permission
+          // 2. Basic Graph API fields (likes, comments, shares) — broadest compatibility
+          // Note: post_media_views was deprecated by Meta and removed from Graph API
           let insightsSuccess = false;
+          let postUnavailable = false;
 
-          // Attempt 1: Modern metrics (media posts)
+          // Attempt 1: Insights API (reactions breakdown)
           try {
             const insights = await this._callMarketingApi(accessToken, 'GET',
               `/${post.platform_post_id}/insights`, {
-                metric: 'post_media_views,post_reactions_by_type_total'
+                metric: 'post_reactions_by_type_total'
               }
             );
             if (insights.data) {
               const reactionsData = insights.data.find(i => i.name === 'post_reactions_by_type_total')?.values?.[0]?.value || {};
               const totalReactions = Object.values(reactionsData).reduce((sum, count) => sum + (count || 0), 0);
-              engagement = {
-                reactions: totalReactions,
-                views: insights.data.find(i => i.name === 'post_media_views')?.values?.[0]?.value || 0
-              };
+              engagement = { reactions: totalReactions };
               insightsSuccess = true;
             }
           } catch (insightsErr) {
-            // Attempt 2: If invalid metric (#100), try reactions only (works for non-media posts)
-            if (insightsErr.fbErrorCode === 100) {
-              try {
-                const fallback = await this._callMarketingApi(accessToken, 'GET',
-                  `/${post.platform_post_id}/insights`, {
-                    metric: 'post_reactions_by_type_total'
-                  }
-                );
-                if (fallback.data) {
-                  const reactionsData = fallback.data.find(i => i.name === 'post_reactions_by_type_total')?.values?.[0]?.value || {};
-                  const totalReactions = Object.values(reactionsData).reduce((sum, count) => sum + (count || 0), 0);
-                  engagement = { reactions: totalReactions };
-                  insightsSuccess = true;
-                }
-              } catch (fallbackErr) {
-                logger.debug(`Fallback insights also failed for FB post ${post.platform_post_id}: ${fallbackErr.message}`);
-              }
+            // Subcode 33 = object does not exist / not accessible — stop retrying this post
+            if (insightsErr.fbErrorSubcode === 33) {
+              postUnavailable = true;
             } else {
               logger.debug(`Could not fetch insights for FB post ${post.platform_post_id}: ${insightsErr.message}`);
             }
           }
 
-          // Attempt 3: Basic engagement fields (broadest permission compatibility)
-          if (!insightsSuccess) {
+          // Attempt 2: Basic engagement fields (broadest permission compatibility)
+          if (!insightsSuccess && !postUnavailable) {
             try {
               const basic = await this._callMarketingApi(accessToken, 'GET',
                 `/${post.platform_post_id}`, {
@@ -1769,8 +1753,21 @@ class MarketingService {
                 shares: basic.shares?.count || 0
               };
             } catch (basicErr) {
-              logger.debug(`Could not fetch basic engagement for FB post ${post.platform_post_id}: ${basicErr.message}`);
+              if (basicErr.fbErrorSubcode === 33) {
+                postUnavailable = true;
+              } else {
+                logger.debug(`Could not fetch basic engagement for FB post ${post.platform_post_id}: ${basicErr.message}`);
+              }
             }
+          }
+
+          // If the post is gone from Facebook's side, flag it so future syncs skip it
+          if (postUnavailable) {
+            engagement = {
+              unavailable: true,
+              reason: 'not_accessible_on_platform',
+              marked_at: new Date().toISOString()
+            };
           }
         } else if (post.platform === 'instagram') {
           // Fetch basic IG media fields (impressions/reach are NOT direct fields)
@@ -1785,19 +1782,37 @@ class MarketingService {
             comments: result.comments_count || 0
           };
 
-          // Fetch IG media insights separately
+          // Fetch IG media insights separately.
+          // Note: Meta deprecated `impressions` for IG media in April 2025 (replaced by `views`).
+          // Graph API v22+ supports `views`; older versions still accept `reach`.
           try {
             const insights = await this._callMarketingApi(accessToken, 'GET',
               `/${post.platform_post_id}/insights`, {
-                metric: 'impressions,reach'
+                metric: 'reach,views'
               }
             );
             if (insights.data) {
-              engagement.impressions = insights.data.find(i => i.name === 'impressions')?.values?.[0]?.value || 0;
               engagement.reach = insights.data.find(i => i.name === 'reach')?.values?.[0]?.value || 0;
+              engagement.views = insights.data.find(i => i.name === 'views')?.values?.[0]?.value || 0;
             }
           } catch (insightsErr) {
-            logger.debug(`Could not fetch insights for IG post ${post.platform_post_id}: ${insightsErr.message}`);
+            // If `views` isn't supported on this API version, retry with reach only
+            if (insightsErr.fbErrorCode === 100) {
+              try {
+                const fallback = await this._callMarketingApi(accessToken, 'GET',
+                  `/${post.platform_post_id}/insights`, {
+                    metric: 'reach'
+                  }
+                );
+                if (fallback.data) {
+                  engagement.reach = fallback.data.find(i => i.name === 'reach')?.values?.[0]?.value || 0;
+                }
+              } catch (fallbackErr) {
+                logger.debug(`Could not fetch insights for IG post ${post.platform_post_id}: ${fallbackErr.message}`);
+              }
+            } else {
+              logger.debug(`Could not fetch insights for IG post ${post.platform_post_id}: ${insightsErr.message}`);
+            }
           }
         }
 

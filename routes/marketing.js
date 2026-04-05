@@ -2041,7 +2041,17 @@ router.get('/playable-content/templates', async (req, res) => {
  */
 router.post('/playable-content/generate', async (req, res) => {
   try {
-    const { adAccountId, trainingJobId, templateId, contentType, title, ctaUrl, mraidFormats, storyOptions } = req.body;
+    const {
+      adAccountId,
+      trainingJobId,
+      templateId,
+      contentType,
+      title,
+      ctaUrl,
+      mraidFormats,
+      storyOptions,
+      generationMode
+    } = req.body;
 
     if (!adAccountId || !trainingJobId || !templateId || !contentType || !title) {
       return res.status(400).json({ error: 'Missing required fields: adAccountId, trainingJobId, templateId, contentType, title' });
@@ -2056,6 +2066,11 @@ router.post('/playable-content/generate', async (req, res) => {
       return res.status(400).json({ error: `Template ${templateId} is type "${template.type}", not "${contentType}"` });
     }
 
+    // Validate generationMode if provided (service has its own fallback logic)
+    if (generationMode && !['ai_classic', 'hybrid'].includes(generationMode)) {
+      return res.status(400).json({ error: `Invalid generationMode: ${generationMode}. Must be 'ai_classic' or 'hybrid'.` });
+    }
+
     // Check credits (consumption happens after successful generation in the pipeline)
     const credits = await playableContentService.getCredits(req.user.id);
     if (credits.totalRemaining <= 0) {
@@ -2064,11 +2079,18 @@ router.post('/playable-content/generate', async (req, res) => {
 
     // Start async generation (credit consumed on success, not upfront)
     const record = await playableContentService.generate(req.user.id, adAccountId, trainingJobId, {
-      templateId, contentType, title, ctaUrl, mraidFormats, storyOptions
+      templateId, contentType, title, ctaUrl, mraidFormats, storyOptions, generationMode
     });
 
-    logger.info(`[PlayableContent] Generation started: ${record.id} template=${templateId} user=${req.user.id}`);
-    res.json({ content: { id: record.id, status: record.status } });
+    logger.info(`[PlayableContent] Generation started: ${record.id} template=${templateId} mode=${generationMode || 'default'} user=${req.user.id}`);
+    res.json({
+      content: {
+        id: record.id,
+        status: record.status,
+        generation_mode: record.generation_mode,
+        template_version: record.template_version
+      }
+    });
 
   } catch (error) {
     logger.error(`[PlayableContent] POST /generate failed: ${error.message}`);

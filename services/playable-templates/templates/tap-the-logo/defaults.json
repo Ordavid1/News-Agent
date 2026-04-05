@@ -1,0 +1,38 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Tap the Logo!",
+    "subtitle": "Tap before they vanish",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "encouragement": ["Nice!", "Great!", "Amazing!", "On Fire!", "Wow!"],
+    "gameOver": "Time's Up!",
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "duration": 45,
+    "spawnRate": 1200,
+    "visibleTime": 2000,
+    "pointsPerTap": 10,
+    "shrinkBeforeVanish": true
+  },
+  "assets": {
+    "targets": ["sprite_0"],
+    "logo": "logo_0"
+  },
+  "difficulty": {
+    "rampInterval": 10,
+    "visibleTimeDecrease": 150,
+    "spawnRateDecrease": 80
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}

@@ -696,6 +696,9 @@ function showMarketingTab(tabName) {
         case 'playables':
             loadPlayables();
             break;
+        case 'brandstory':
+            loadBrandStories();
+            break;
     }
 }
 
@@ -6107,17 +6110,24 @@ function renderPlayableTemplateGrid() {
         color_match: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>',
         swipe_sort: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>',
         brand_story: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>',
-        product_reveal: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>'
+        product_reveal: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>',
+        scratch_reveal: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>',
+        quiz_trivia: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+        endless_runner: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>',
+        match_three: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>',
+        tower_stack: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z"></path>'
     };
 
     grid.innerHTML = templates.map(t => {
         const icon = iconMap[t.id] || iconMap.catch_falling;
         const disabled = !t.available;
         const disabledClass = disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand-400 hover:shadow-md';
+        const isPremium = (t.tier === 'premium') && Array.isArray(t.engines) && t.engines.includes('hybrid');
 
         return `
-        <div class="card-gradient p-5 rounded-xl border border-surface-200 transition-all ${disabledClass}"
+        <div class="card-gradient p-5 rounded-xl border border-surface-200 transition-all relative ${disabledClass}"
              ${disabled ? '' : `onclick="selectPlayableTemplate('${t.id}')"`}>
+            ${isPremium ? '<span class="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-600 text-white px-2 py-0.5 rounded-full shadow-sm">\u2728 Premium</span>' : ''}
             <div class="flex items-center gap-3 mb-3">
                 <div class="w-10 h-10 rounded-lg ${disabled ? 'bg-surface-200' : 'bg-brand-100'} flex items-center justify-center">
                     <svg class="w-5 h-5 ${disabled ? 'text-ink-400' : 'text-brand-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">${icon}</svg>
@@ -6171,6 +6181,35 @@ function selectPlayableTemplate(templateId) {
         storyOpts.classList.toggle('hidden', template.type !== 'interactive_story');
     }
 
+    // Constrain engine selection based on template support
+    // Hybrid-only templates (new game types) force hybrid mode
+    const engineSelector = document.getElementById('playableEngineSelector');
+    const hybridRadio = document.getElementById('playableGenModeHybrid');
+    const classicRadio = document.getElementById('playableGenModeClassic');
+    const engines = template.engines || ['ai_classic'];
+    const supportsHybrid = engines.includes('hybrid');
+    const supportsClassic = engines.includes('ai_classic');
+
+    if (hybridRadio && classicRadio) {
+        // If only one engine supported, select it and disable switching
+        if (supportsHybrid && !supportsClassic) {
+            hybridRadio.checked = true;
+            classicRadio.disabled = true;
+            classicRadio.parentElement.classList.add('opacity-40', 'cursor-not-allowed');
+        } else if (supportsClassic && !supportsHybrid) {
+            classicRadio.checked = true;
+            hybridRadio.disabled = true;
+            hybridRadio.parentElement.classList.add('opacity-40', 'cursor-not-allowed');
+        } else {
+            // Both supported — enable both, default to hybrid
+            classicRadio.disabled = false;
+            hybridRadio.disabled = false;
+            classicRadio.parentElement.classList.remove('opacity-40', 'cursor-not-allowed');
+            hybridRadio.parentElement.classList.remove('opacity-40', 'cursor-not-allowed');
+            if (!hybridRadio.checked && !classicRadio.checked) hybridRadio.checked = true;
+        }
+    }
+
     // Scroll to config
     configPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -6208,6 +6247,10 @@ async function startPlayableGeneration() {
     const btn = document.getElementById('playableGenerateBtn');
     if (btn) btn.disabled = true;
 
+    // Read selected generation mode (defaults to hybrid)
+    const selectedModeRadio = document.querySelector('input[name="playableGenMode"]:checked');
+    const generationMode = selectedModeRadio ? selectedModeRadio.value : 'hybrid';
+
     try {
         const resp = await apiPost('/api/marketing/playable-content/generate', {
             adAccountId: selectedAdAccount.id,
@@ -6217,7 +6260,8 @@ async function startPlayableGeneration() {
             title,
             ctaUrl,
             mraidFormats,
-            storyOptions: storyDirection ? { direction: storyDirection } : {}
+            storyOptions: storyDirection ? { direction: storyDirection } : {},
+            generationMode
         });
 
         playableState.currentContentId = resp.content.id;
@@ -6651,4 +6695,1711 @@ async function purchasePlayableCredits() {
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
+}
+
+// ============================================
+// BRAND STORY TAB
+// ============================================
+
+let brandStoryState = {
+    stories: [],
+    currentStoryId: null,
+    wizardStep: 1,
+    stockAvatars: [],
+    storyFocus: 'person',  // 'person' | 'product' | 'landscape' — selected at Step 1
+    voices: [],            // All HeyGen voices (loaded once per wizard open)
+    selectedVoiceId: ''    // Optional override; empty = auto-match
+};
+
+/**
+ * Load and display all brand stories for the current user.
+ */
+async function loadBrandStories() {
+    const listEl = document.getElementById('brandStoryList');
+    const emptyEl = document.getElementById('brandStoryEmpty');
+    const wizardEl = document.getElementById('brandStoryWizard');
+    const detailEl = document.getElementById('brandStoryDetail');
+
+    // Hide wizard and detail views
+    if (wizardEl) wizardEl.classList.add('hidden');
+    if (detailEl) detailEl.classList.add('hidden');
+    if (listEl) listEl.classList.remove('hidden');
+
+    try {
+        const result = await apiGet('/api/brand-stories');
+        brandStoryState.stories = result.stories || [];
+
+        if (brandStoryState.stories.length === 0) {
+            if (listEl) listEl.classList.add('hidden');
+            if (emptyEl) emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        if (emptyEl) emptyEl.classList.add('hidden');
+        if (listEl) {
+            listEl.innerHTML = brandStoryState.stories.map(story => renderStoryCard(story)).join('');
+            listEl.classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Error loading brand stories:', error);
+        if (listEl) listEl.innerHTML = '<p class="text-red-500 text-center py-4">Failed to load brand stories.</p>';
+    }
+}
+
+/**
+ * Render a story card for the list view.
+ */
+function renderStoryCard(story) {
+    const statusColors = {
+        draft: 'bg-surface-100 text-ink-500',
+        active: 'bg-green-100 text-green-700',
+        paused: 'bg-yellow-100 text-yellow-700',
+        completed: 'bg-blue-100 text-blue-700'
+    };
+    const statusClass = statusColors[story.status] || statusColors.draft;
+
+    const platforms = (story.target_platforms || []).map(p =>
+        `<span class="text-xs bg-surface-100 text-ink-500 px-2 py-0.5 rounded">${escapeHtml(p)}</span>`
+    ).join(' ');
+
+    return `
+        <div class="card-gradient p-5 hover:shadow-md transition-shadow relative group">
+            <div class="flex items-start justify-between cursor-pointer" onclick="showStoryDetail('${story.id}')">
+                <div class="flex-1 min-w-0 pr-10">
+                    <div class="flex items-center gap-2 mb-1">
+                        <h4 class="text-lg font-semibold text-ink-800 truncate">${escapeHtml(story.name)}</h4>
+                        <span class="px-2.5 py-0.5 text-xs font-medium rounded-full ${statusClass}">${story.status}</span>
+                    </div>
+                    <p class="text-sm text-ink-500 mb-2">${story.storyline?.logline || story.storyline?.theme || 'Storyline not generated yet'}</p>
+                    <div class="flex items-center gap-3 text-xs text-ink-400">
+                        <span>${story.total_episodes || 0} episodes</span>
+                        <span>${(story.publish_frequency || 'daily').replace(/_/g, ' ')}</span>
+                        ${platforms}
+                    </div>
+                </div>
+                <svg class="w-5 h-5 text-ink-300 flex-shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+            </div>
+            <button onclick="event.stopPropagation(); deleteBrandStory('${story.id}', '${escapeHtml(story.name).replace(/'/g, '&#39;')}')"
+                    class="absolute top-3 right-3 p-1.5 text-ink-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete story">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+            </button>
+        </div>
+    `;
+}
+
+/**
+ * Delete the currently-viewed story from the detail view.
+ */
+async function deleteCurrentStory() {
+    const storyId = brandStoryState.currentStoryId;
+    if (!storyId) return;
+    const story = (brandStoryState.stories || []).find(s => s.id === storyId);
+    const name = story?.name || 'this story';
+    return deleteBrandStory(storyId, name);
+}
+
+/**
+ * Delete a brand story with confirmation.
+ */
+async function deleteBrandStory(storyId, storyName) {
+    if (!confirm(`Delete brand story "${storyName}"? This will also delete all episodes. This cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const result = await apiDelete(`/api/brand-stories/${storyId}`);
+        if (!result.success) throw new Error(result.error || 'Delete failed');
+
+        showToast('Story deleted', 'success');
+
+        // If we're viewing this story's detail, go back to list
+        if (brandStoryState.currentStoryId === storyId) {
+            backToStoryList();
+        } else {
+            loadBrandStories();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to delete story', 'error');
+    }
+}
+
+/**
+ * Show the 5-step story creation wizard (Focus → Persona → Subject → Settings → Review).
+ */
+function showCreateStoryWizard() {
+    document.getElementById('brandStoryList')?.classList.add('hidden');
+    document.getElementById('brandStoryEmpty')?.classList.add('hidden');
+    document.getElementById('brandStoryDetail')?.classList.add('hidden');
+    document.getElementById('brandStoryWizard')?.classList.remove('hidden');
+
+    brandStoryState.wizardStep = 1;
+    brandStoryState.storyFocus = 'person';
+    wizardShowStep(1);
+
+    // Load Brand Kit models for Settings step
+    loadBrandKitOptionsForWizard();
+
+    // Set up focus radio listeners — changes filter the Persona step's allowed persona_types
+    document.querySelectorAll('input[name="storyFocus"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            brandStoryState.storyFocus = radio.value;
+            applyFocusToPersonaStep(radio.value);
+        });
+    });
+    // Force-check the default "person" radio and apply its rules
+    const personRadio = document.querySelector('input[name="storyFocus"][value="person"]');
+    if (personRadio) personRadio.checked = true;
+
+    // Set up persona type radio listeners
+    document.querySelectorAll('input[name="personaType"]').forEach(radio => {
+        radio.addEventListener('change', () => updatePersonaFields(radio.value));
+    });
+
+    // Reset persona selection state + apply initial focus filter (defaults to person)
+    resetPersonaSelectionState();
+    applyFocusToPersonaStep('person');
+
+    // Set up subject upload handlers
+    setupSubjectUploadHandlers();
+
+    // Reset subject state
+    subjectState = { source: 'upload', uploadFiles: [], selectedBrandKitAssets: [], brandKitAssets: [] };
+    document.getElementById('subjectAnalyzedJson').value = '';
+    document.getElementById('subjectAnalysisResult')?.classList.add('hidden');
+    document.getElementById('subjectNextBtn')?.setAttribute('disabled', 'disabled');
+}
+
+/**
+ * Apply focus rules to the Persona step: hide/show persona_type radio options
+ * and the Auto-Assign button based on what's allowed for the chosen story focus.
+ *
+ * Focus → allowed persona_types:
+ *   person    → uploaded, brand_kit
+ *   product   → selected
+ *   landscape → selected
+ */
+function applyFocusToPersonaStep(focus) {
+    const allowedByFocus = {
+        person:    ['uploaded', 'brand_kit'],
+        product:   ['selected'],
+        landscape: ['selected']
+    };
+    const allowed = allowedByFocus[focus] || ['selected'];
+
+    // Hide/show each persona_type radio's parent <label>
+    document.querySelectorAll('input[name="personaType"]').forEach(radio => {
+        const label = radio.closest('label');
+        if (!label) return;
+        const isAllowed = allowed.includes(radio.value);
+        label.classList.toggle('hidden', !isAllowed);
+        if (!isAllowed) radio.checked = false;
+    });
+
+    // Auto-select the first allowed persona_type and render its panel
+    const firstAllowedRadio = document.querySelector(
+        `input[name="personaType"][value="${allowed[0]}"]`
+    );
+    if (firstAllowedRadio) {
+        firstAllowedRadio.checked = true;
+        updatePersonaFields(firstAllowedRadio.value);
+    }
+
+    // Toggle Auto-Assign button — only for product/landscape (not for person)
+    const autoBtn = document.getElementById('autoAssignAvatarBtn');
+    const autoHint = document.getElementById('autoAssignAvatarHint');
+    const showAutoAssign = focus !== 'person';
+    if (autoBtn) autoBtn.classList.toggle('hidden', !showAutoAssign);
+    if (autoHint) autoHint.classList.toggle('hidden', !showAutoAssign);
+
+    // Reset persona selection state to prevent stale data from previous focus
+    resetPersonaSelectionState();
+
+    // Lazy-load HeyGen voices into the voice picker (first time the Persona step is shown)
+    loadVoices();
+}
+
+/**
+ * Call the backend to auto-pick a stock avatar best fitting the story focus + subject.
+ * Populates personaSelectionState.selected[0] so the user can proceed without manual browsing.
+ */
+async function autoAssignBestFitCharacter() {
+    const btn = document.getElementById('autoAssignAvatarBtn');
+    const txt = document.getElementById('autoAssignAvatarBtnText');
+    if (btn) btn.disabled = true;
+    if (txt) txt.textContent = 'Auto-picking...';
+
+    try {
+        // Pull subject hint from previously analyzed subject (if available)
+        let subjectHint = '';
+        try {
+            const analyzed = document.getElementById('subjectAnalyzedJson')?.value;
+            if (analyzed) {
+                const s = JSON.parse(analyzed);
+                subjectHint = s.category || s.name || '';
+            }
+        } catch (e) { /* ignore */ }
+
+        const params = new URLSearchParams({
+            focus: brandStoryState.storyFocus,
+            subject_hint: subjectHint
+        });
+        const result = await apiGet(`/api/brand-stories/avatars/auto-pick?${params.toString()}`);
+        if (!result.success || !result.avatar) {
+            throw new Error(result.error || 'No avatar returned');
+        }
+
+        // Ensure stock avatars are loaded (so the grid renders a checkmark on the chosen one)
+        if (brandStoryState.stockAvatars.length === 0) {
+            await loadStockAvatars();
+        }
+
+        // Populate personaSelectionState.selected[0] with the auto-picked avatar
+        personaSelectionState.selected = [{
+            heygen_avatar_id: result.avatar.avatarId,
+            avatar_name: result.avatar.name
+        }];
+        renderStockAvatarGrid();
+
+        showToast(`Auto-selected: ${result.avatar.name}`, 'success');
+    } catch (err) {
+        showToast(err.message || 'Auto-pick failed', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+        if (txt) txt.textContent = 'Auto Assign Best Fit Character';
+    }
+}
+
+/**
+ * Update visible persona fields based on selected type.
+ */
+function updatePersonaFields(type) {
+    document.getElementById('personaDescribeFields')?.classList.toggle('hidden', type !== 'described');
+    document.getElementById('personaSelectFields')?.classList.toggle('hidden', type !== 'selected');
+    document.getElementById('personaUploadFields')?.classList.toggle('hidden', type !== 'uploaded');
+    document.getElementById('personaBrandKitFields')?.classList.toggle('hidden', type !== 'brand_kit');
+
+    if (type === 'described') {
+        renderDescribedPersonas();
+    } else if (type === 'selected') {
+        if (brandStoryState.stockAvatars.length === 0) loadStockAvatars();
+        else renderStockAvatarGrid();
+    } else if (type === 'uploaded') {
+        renderUploadedPersonas();
+    } else if (type === 'brand_kit') {
+        if (!brandStoryState.brandKitPersonas) loadBrandKitPersonas();
+        else renderBrandKitPersonaGrid();
+    }
+}
+
+/**
+ * Load person cutouts extracted from the user's Brand Kits.
+ */
+// ─────────────────────────────────────────────────────
+// MULTI-PERSONA SUPPORT (up to 3 personas per story)
+// ─────────────────────────────────────────────────────
+
+// Selection state for each persona type
+let personaSelectionState = {
+    described: [],        // [{ description, personality }]
+    selected: [],         // [{ heygen_avatar_id, avatar_name }]  (HeyGen avatars)
+    uploaded: [],         // [{ reference_image_urls: [File] }]   (File objects, keeping them as Files for now)
+    brand_kit: []         // [{ cutout_url, description, brand_kit_job_id }]
+};
+
+const MAX_PERSONAS = 3;
+
+// ═══ DESCRIBED TYPE ═══
+
+/**
+ * Render the list of described persona cards.
+ */
+function renderDescribedPersonas() {
+    const list = document.getElementById('describedPersonaList');
+    const countEl = document.getElementById('describedPersonaCount');
+    const addBtn = document.getElementById('addDescribedBtn');
+    if (!list) return;
+
+    if (personaSelectionState.described.length === 0) {
+        // Start with one empty persona
+        personaSelectionState.described.push({ description: '', personality: '' });
+    }
+
+    list.innerHTML = personaSelectionState.described.map((p, i) => `
+        <div class="p-4 border border-surface-200 rounded-lg bg-surface-50 space-y-3">
+            <div class="flex items-center justify-between">
+                <h5 class="text-sm font-semibold text-ink-700">Persona ${i + 1}${i === 0 ? ' <span class="text-xs font-normal text-brand-600">(Primary Narrator)</span>' : ''}</h5>
+                ${i > 0 ? `<button type="button" onclick="removeDescribedPersona(${i})" class="text-xs text-red-500 hover:text-red-600">Remove</button>` : ''}
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-ink-600 mb-1">Description</label>
+                <textarea oninput="updateDescribedPersona(${i}, 'description', this.value)" rows="2" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2 px-3 text-sm focus:ring-2 focus:ring-brand-500" placeholder="A confident woman in her 30s with warm brown eyes...">${escapeHtml(p.description || '')}</textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-ink-600 mb-1">Personality / Voice Style</label>
+                <input type="text" oninput="updateDescribedPersona(${i}, 'personality', this.value)" value="${escapeHtml(p.personality || '')}" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2 px-3 text-sm focus:ring-2 focus:ring-brand-500" placeholder="Charismatic, warm, knowledgeable">
+            </div>
+        </div>
+    `).join('');
+
+    if (countEl) countEl.textContent = personaSelectionState.described.length;
+    if (addBtn) addBtn.disabled = personaSelectionState.described.length >= MAX_PERSONAS;
+}
+
+function addDescribedPersona() {
+    if (personaSelectionState.described.length >= MAX_PERSONAS) return;
+    personaSelectionState.described.push({ description: '', personality: '' });
+    renderDescribedPersonas();
+}
+
+function removeDescribedPersona(i) {
+    personaSelectionState.described.splice(i, 1);
+    if (personaSelectionState.described.length === 0) {
+        personaSelectionState.described.push({ description: '', personality: '' });
+    }
+    renderDescribedPersonas();
+}
+
+function updateDescribedPersona(i, field, value) {
+    if (personaSelectionState.described[i]) {
+        personaSelectionState.described[i][field] = value;
+    }
+}
+
+// ═══ SELECTED (HeyGen stock) TYPE ═══
+
+async function loadStockAvatars() {
+    const grid = document.getElementById('stockAvatarGrid');
+    if (!grid) return;
+
+    try {
+        const result = await apiGet('/api/brand-stories/avatars/stock');
+        brandStoryState.stockAvatars = result.avatars || [];
+
+        if (brandStoryState.stockAvatars.length === 0) {
+            grid.innerHTML = '<p class="col-span-full text-center text-ink-400 py-4">No stock avatars available. Configure HEYGEN_API_KEY.</p>';
+            return;
+        }
+
+        renderStockAvatarGrid();
+    } catch (error) {
+        grid.innerHTML = '<p class="col-span-full text-center text-red-500 py-4">Failed to load avatars</p>';
+    }
+}
+
+/**
+ * Load HeyGen voices into the voice picker dropdown.
+ * Called lazily when the Persona step is shown.
+ */
+async function loadVoices() {
+    if (brandStoryState.voices.length > 0) {
+        _renderVoiceOptions(brandStoryState.voices);
+        return;
+    }
+    try {
+        const result = await apiGet('/api/brand-stories/voices?language=en');
+        brandStoryState.voices = result.voices || [];
+        _renderVoiceOptions(brandStoryState.voices);
+    } catch (err) {
+        console.error('Failed to load voices:', err);
+    }
+}
+
+/**
+ * Populate the voice <select> with filtered options.
+ */
+function _renderVoiceOptions(voices) {
+    const sel = document.getElementById('personaVoiceSelect');
+    if (!sel) return;
+    const currentValue = sel.value;
+    const opts = ['<option value="">Auto (match avatar)</option>'];
+    for (const v of voices) {
+        const gender = v.gender ? ` (${v.gender})` : '';
+        opts.push(`<option value="${escapeHtml(v.voice_id)}">${escapeHtml(v.name || 'Voice')}${gender}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+    // Preserve selection if still valid
+    if (currentValue && voices.some(v => v.voice_id === currentValue)) {
+        sel.value = currentValue;
+    }
+    onVoiceSelectChange();
+}
+
+/**
+ * Filter voices by gender (radio onChange handler).
+ */
+function filterVoicesByGender(gender) {
+    const filtered = !gender
+        ? brandStoryState.voices
+        : brandStoryState.voices.filter(v => (v.gender || '').toLowerCase() === gender.toLowerCase());
+    _renderVoiceOptions(filtered);
+}
+
+/**
+ * Called when user picks a voice — updates state + preview button.
+ */
+function onVoiceSelectChange() {
+    const sel = document.getElementById('personaVoiceSelect');
+    const btn = document.getElementById('voicePreviewBtn');
+    if (!sel) return;
+    brandStoryState.selectedVoiceId = sel.value || '';
+    if (btn) btn.disabled = !brandStoryState.selectedVoiceId;
+}
+
+/**
+ * Play the selected voice's preview audio sample.
+ */
+function previewSelectedVoice() {
+    const sel = document.getElementById('personaVoiceSelect');
+    const audio = document.getElementById('voicePreviewAudio');
+    if (!sel || !audio || !sel.value) return;
+    const voice = brandStoryState.voices.find(v => v.voice_id === sel.value);
+    if (!voice?.preview_audio) {
+        showToast('No preview available for this voice', 'warning');
+        return;
+    }
+    audio.src = voice.preview_audio;
+    audio.play().catch(err => {
+        console.error('Voice preview playback failed:', err);
+        showToast('Failed to play voice preview', 'error');
+    });
+}
+
+function renderStockAvatarGrid() {
+    const grid = document.getElementById('stockAvatarGrid');
+    if (!grid) return;
+
+    grid.innerHTML = brandStoryState.stockAvatars.map(avatar => {
+        const selectedIdx = personaSelectionState.selected.findIndex(s => s.heygen_avatar_id === avatar.avatarId);
+        const isSelected = selectedIdx >= 0;
+        return `
+            <div class="border rounded-lg p-2 cursor-pointer transition-colors text-center relative ${isSelected ? 'border-brand-500 bg-brand-50' : 'border-surface-200 hover:border-brand-400'}"
+                 onclick="toggleStockAvatar(this, '${avatar.avatarId}', '${escapeHtml(avatar.name)}')">
+                ${avatar.previewUrl ? `<img src="${avatar.previewUrl}" alt="${escapeHtml(avatar.name)}" class="w-full aspect-square object-cover rounded mb-1">` : '<div class="w-full aspect-square bg-surface-100 rounded mb-1 flex items-center justify-center text-ink-300 text-2xl">?</div>'}
+                <p class="text-xs text-ink-600 truncate">${escapeHtml(avatar.name)}</p>
+                ${isSelected ? `<div class="absolute top-1 left-1 w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold">${selectedIdx + 1}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    const countEl = document.getElementById('selectedAvatarCount');
+    if (countEl) countEl.textContent = personaSelectionState.selected.length;
+    document.getElementById('selectedAvatarsJson').value = JSON.stringify(personaSelectionState.selected);
+}
+
+function toggleStockAvatar(el, avatarId, name) {
+    const idx = personaSelectionState.selected.findIndex(s => s.heygen_avatar_id === avatarId);
+
+    if (idx >= 0) {
+        personaSelectionState.selected.splice(idx, 1);
+    } else {
+        if (personaSelectionState.selected.length >= MAX_PERSONAS) {
+            showToast('Maximum 3 avatars allowed', 'warning');
+            return;
+        }
+        personaSelectionState.selected.push({ heygen_avatar_id: avatarId, avatar_name: name });
+    }
+
+    renderStockAvatarGrid();
+}
+
+// ═══ UPLOADED TYPE ═══
+
+function renderUploadedPersonas() {
+    const list = document.getElementById('uploadedPersonaList');
+    const countEl = document.getElementById('uploadedPersonaCount');
+    const addBtn = document.getElementById('addUploadedBtn');
+    if (!list) return;
+
+    if (personaSelectionState.uploaded.length === 0) {
+        personaSelectionState.uploaded.push({ reference_image_files: [] });
+    }
+
+    list.innerHTML = personaSelectionState.uploaded.map((p, i) => {
+        const files = p.reference_image_files || [];
+        return `
+            <div class="p-4 border border-surface-200 rounded-lg bg-surface-50 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h5 class="text-sm font-semibold text-ink-700">Person ${i + 1}${i === 0 ? ' <span class="text-xs font-normal text-brand-600">(Primary Narrator)</span>' : ''}</h5>
+                    ${i > 0 ? `<button type="button" onclick="removeUploadedPersona(${i})" class="text-xs text-red-500 hover:text-red-600">Remove</button>` : ''}
+                </div>
+                <div class="border-2 border-dashed border-surface-300 rounded-lg p-4 text-center hover:border-brand-400 transition-colors cursor-pointer" onclick="document.getElementById('uploadedFileInput${i}').click()">
+                    <p class="text-ink-500 text-xs">Drop or click: 1+ clear face photo (only the first is used for the talking avatar)</p>
+                    <input type="file" id="uploadedFileInput${i}" multiple accept="image/jpeg,image/png" class="hidden" onchange="handleUploadedFiles(${i}, this.files)">
+                </div>
+                ${files.length > 0 ? `
+                    <div class="grid grid-cols-5 gap-2">
+                        ${files.map((f, fi) => `
+                            <div class="relative aspect-square">
+                                <img src="${URL.createObjectURL(f)}" class="w-full h-full object-cover rounded border border-surface-200">
+                                <button onclick="removeUploadedFile(${i}, ${fi})" class="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px]">\u00d7</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+
+    if (countEl) countEl.textContent = personaSelectionState.uploaded.length;
+    if (addBtn) addBtn.disabled = personaSelectionState.uploaded.length >= MAX_PERSONAS;
+}
+
+function addUploadedPersona() {
+    if (personaSelectionState.uploaded.length >= MAX_PERSONAS) return;
+    personaSelectionState.uploaded.push({ reference_image_files: [] });
+    renderUploadedPersonas();
+}
+
+function removeUploadedPersona(i) {
+    personaSelectionState.uploaded.splice(i, 1);
+    if (personaSelectionState.uploaded.length === 0) {
+        personaSelectionState.uploaded.push({ reference_image_files: [] });
+    }
+    renderUploadedPersonas();
+}
+
+function handleUploadedFiles(personaIdx, fileList) {
+    const files = [...fileList].filter(f => f.type.startsWith('image/')).slice(0, 15);
+    if (personaSelectionState.uploaded[personaIdx]) {
+        personaSelectionState.uploaded[personaIdx].reference_image_files = files;
+        renderUploadedPersonas();
+    }
+}
+
+function removeUploadedFile(personaIdx, fileIdx) {
+    const p = personaSelectionState.uploaded[personaIdx];
+    if (p?.reference_image_files) {
+        p.reference_image_files.splice(fileIdx, 1);
+        renderUploadedPersonas();
+    }
+}
+
+// ═══ BRAND KIT TYPE ═══
+
+async function loadBrandKitPersonas() {
+    const grid = document.getElementById('brandKitPersonaGrid');
+    if (!grid) return;
+
+    try {
+        const result = await apiGet('/api/brand-stories/personas/brand-kit');
+        const personas = result.personas || [];
+        brandStoryState.brandKitPersonas = personas;
+
+        if (personas.length === 0) {
+            grid.innerHTML = `
+                <div class="col-span-full text-center py-6">
+                    <p class="text-ink-500 text-sm mb-2">No person cutouts found in your Brand Kits.</p>
+                    <p class="text-ink-400 text-xs">Train a model in Brand Asset Gen. tab, then run Brand Kit analysis to extract person cutouts.</p>
+                </div>
+            `;
+            return;
+        }
+
+        renderBrandKitPersonaGrid();
+    } catch (error) {
+        console.error('Error loading Brand Kit personas:', error);
+        grid.innerHTML = '<p class="col-span-full text-center text-red-500 py-4">Failed to load Brand Kit personas</p>';
+    }
+}
+
+function renderBrandKitPersonaGrid() {
+    const grid = document.getElementById('brandKitPersonaGrid');
+    if (!grid || !brandStoryState.brandKitPersonas) return;
+
+    grid.innerHTML = brandStoryState.brandKitPersonas.map(persona => {
+        const selectedIdx = personaSelectionState.brand_kit.findIndex(s => s.cutout_url === persona.url);
+        const isSelected = selectedIdx >= 0;
+        return `
+            <div class="border rounded-lg p-2 cursor-pointer transition-colors relative ${isSelected ? 'border-brand-500 bg-brand-50' : 'border-surface-200 hover:border-brand-400'}"
+                 onclick="toggleBrandKitPersona(this, '${escapeHtml(persona.url)}', '${escapeHtml(persona.description)}', '${escapeHtml(persona.brand_kit_job_id)}')">
+                <img src="${escapeHtml(persona.url)}" alt="${escapeHtml(persona.description)}" class="w-full aspect-square object-cover rounded mb-2 bg-surface-100">
+                <p class="text-xs font-medium text-ink-700 truncate">${escapeHtml(persona.description.slice(0, 40))}</p>
+                <p class="text-xs text-ink-400 truncate">${escapeHtml(persona.brand_kit_name)}</p>
+                ${isSelected ? `<div class="absolute top-1 left-1 w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold">${selectedIdx + 1}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    const countEl = document.getElementById('selectedBrandKitCount');
+    if (countEl) countEl.textContent = personaSelectionState.brand_kit.length;
+    document.getElementById('selectedBrandKitPersonasJson').value = JSON.stringify(personaSelectionState.brand_kit);
+}
+
+function toggleBrandKitPersona(el, url, description, brandKitJobId) {
+    const idx = personaSelectionState.brand_kit.findIndex(s => s.cutout_url === url);
+
+    if (idx >= 0) {
+        personaSelectionState.brand_kit.splice(idx, 1);
+    } else {
+        if (personaSelectionState.brand_kit.length >= MAX_PERSONAS) {
+            showToast('Maximum 3 personas allowed', 'warning');
+            return;
+        }
+        personaSelectionState.brand_kit.push({ cutout_url: url, description, brand_kit_job_id: brandKitJobId });
+    }
+
+    renderBrandKitPersonaGrid();
+}
+
+// ═══ STATE RESET (called when wizard opens) ═══
+
+function resetPersonaSelectionState() {
+    personaSelectionState = {
+        described: [],
+        selected: [],
+        uploaded: [],
+        brand_kit: []
+    };
+    renderDescribedPersonas();
+}
+
+/**
+ * Load Brand Kit model options for the wizard's step 3 dropdown.
+ * Fetches all of the user's completed Brand Kits across all ad accounts.
+ */
+async function loadBrandKitOptionsForWizard() {
+    const select = document.getElementById('storyBrandKit');
+    if (!select) return;
+
+    try {
+        const result = await apiGet('/api/brand-stories/brand-kits');
+        const brandKits = result.brandKits || [];
+
+        select.innerHTML = '<option value="">None (generate without brand context)</option>';
+
+        if (brandKits.length === 0) {
+            const opt = document.createElement('option');
+            opt.disabled = true;
+            opt.textContent = 'No Brand Kits available — analyze one in Brand Asset Gen. tab';
+            select.appendChild(opt);
+            return;
+        }
+
+        brandKits.forEach(kit => {
+            const opt = document.createElement('option');
+            opt.value = kit.id;
+            const summary = kit.brand_summary ? ` \u2014 ${kit.brand_summary.slice(0, 40)}...` : '';
+            opt.textContent = `${kit.name}${summary}`;
+            select.appendChild(opt);
+        });
+    } catch (error) {
+        console.error('Failed to load Brand Kit options:', error);
+        select.innerHTML = '<option value="">Failed to load Brand Kits</option>';
+    }
+}
+
+/**
+ * Wizard navigation.
+ */
+function wizardNext(step) {
+    // Validate focus is selected before leaving Step 1 (Focus) for Step 2 (Persona)
+    if (step === 2 && !document.querySelector('input[name="storyFocus"]:checked')) {
+        showToast('Please select a story focus', 'warning');
+        return;
+    }
+    brandStoryState.wizardStep = step;
+    wizardShowStep(step);
+
+    // Populate review summary on the final step (5)
+    if (step === 5) populateWizardReview();
+}
+
+function wizardBack(step) {
+    brandStoryState.wizardStep = step;
+    wizardShowStep(step);
+}
+
+function wizardShowStep(step) {
+    for (let i = 1; i <= 5; i++) {
+        const stepEl = document.getElementById(`wizardStep${i}`);
+        if (stepEl) stepEl.classList.toggle('hidden', i !== step);
+
+        // Update step indicator
+        const indicator = document.getElementById(`wizStep${i}`);
+        if (indicator) {
+            const circle = indicator.querySelector('span');
+            if (i < step) {
+                indicator.className = indicator.className.replace('text-ink-400', 'text-brand-600');
+                if (!indicator.className.includes('text-brand-600')) indicator.classList.add('text-brand-600');
+                indicator.classList.remove('text-ink-400');
+                if (circle) { circle.className = 'w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs'; circle.textContent = '\u2713'; }
+            } else if (i === step) {
+                indicator.className = indicator.className.replace('text-ink-400', 'text-brand-600');
+                if (!indicator.className.includes('text-brand-600')) indicator.classList.add('text-brand-600');
+                indicator.classList.remove('text-ink-400');
+                if (circle) { circle.className = 'w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs'; circle.textContent = i; }
+            } else {
+                indicator.className = indicator.className.replace('text-brand-600', 'text-ink-400');
+                if (!indicator.className.includes('text-ink-400')) indicator.classList.add('text-ink-400');
+                indicator.classList.remove('text-brand-600');
+                if (circle) { circle.className = 'w-6 h-6 rounded-full bg-surface-200 text-ink-500 flex items-center justify-center text-xs'; circle.textContent = i; }
+            }
+        }
+    }
+}
+
+/**
+ * Populate the review summary on step 5.
+ */
+function populateWizardReview() {
+    const summary = document.getElementById('wizardReviewSummary');
+    if (!summary) return;
+
+    const storyFocus = document.querySelector('input[name="storyFocus"]:checked')?.value || 'person';
+    const personaType = document.querySelector('input[name="personaType"]:checked')?.value || 'described';
+    const storyName = document.getElementById('storyName')?.value || 'Untitled';
+    // Subject name comes from the analyzed JSON (Step 3)
+    let subjectName = 'Not specified';
+    try {
+        const analyzed = document.getElementById('subjectAnalyzedJson')?.value;
+        if (analyzed) subjectName = JSON.parse(analyzed).name || 'Not specified';
+    } catch (e) { /* ignore */ }
+    const frequency = document.getElementById('storyFrequency')?.value || 'daily';
+    const platforms = [...document.querySelectorAll('input[name="storyPlatforms"]:checked')].map(c => c.value);
+
+    summary.innerHTML = `
+        <div class="p-3 bg-surface-50 rounded-lg">
+            <div class="grid grid-cols-2 gap-3 text-sm">
+                <div><span class="text-ink-400">Focus:</span> <span class="font-medium text-ink-800 capitalize">${storyFocus}</span></div>
+                <div><span class="text-ink-400">Story Name:</span> <span class="font-medium text-ink-800">${escapeHtml(storyName)}</span></div>
+                <div><span class="text-ink-400">Persona:</span> <span class="font-medium text-ink-800">${personaType}</span></div>
+                <div><span class="text-ink-400">Subject:</span> <span class="font-medium text-ink-800">${escapeHtml(subjectName)}</span></div>
+                <div><span class="text-ink-400">Frequency:</span> <span class="font-medium text-ink-800">${frequency.replace(/_/g, ' ')}</span></div>
+                <div class="col-span-2"><span class="text-ink-400">Platforms:</span> <span class="font-medium text-ink-800">${platforms.join(', ') || 'none selected'}</span></div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Create the brand story and trigger storyline generation.
+ */
+async function createBrandStory() {
+    const btn = document.getElementById('wizardCreateBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Creating...'; }
+
+    try {
+        const personaType = document.querySelector('input[name="personaType"]:checked')?.value || 'described';
+        let personaConfig = {};
+
+        // Build personas array (up to 3) from persona selection state
+        let personas = [];
+        if (personaType === 'described') {
+            personas = personaSelectionState.described
+                .filter(p => (p.description || '').trim().length > 0)
+                .map(p => ({ description: p.description, personality: p.personality }));
+        } else if (personaType === 'selected') {
+            personas = personaSelectionState.selected.map(p => ({
+                heygen_avatar_id: p.heygen_avatar_id,
+                avatar_name: p.avatar_name
+            }));
+        } else if (personaType === 'brand_kit') {
+            personas = personaSelectionState.brand_kit.map(p => ({
+                cutout_url: p.cutout_url,
+                description: p.description,
+                brand_kit_job_id: p.brand_kit_job_id
+            }));
+        } else if (personaType === 'uploaded') {
+            // Upload each persona's photos to Supabase Storage via the API
+            const personasWithFiles = personaSelectionState.uploaded.filter(p => (p.reference_image_files || []).length > 0);
+            if (personasWithFiles.length === 0) {
+                throw new Error('Please upload at least one photo per person');
+            }
+
+            showToast('Uploading persona photos...', 'info');
+
+            for (const p of personasWithFiles) {
+                const formData = new FormData();
+                p.reference_image_files.forEach(f => formData.append('images', f));
+
+                const resp = await fetch('/api/brand-stories/personas/upload', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'X-CSRF-Token': getCsrfToken() },
+                    body: formData
+                });
+                const uploadResult = await resp.json();
+                if (!uploadResult.success) throw new Error(uploadResult.error || 'Photo upload failed');
+                personas.push({ reference_image_urls: uploadResult.urls });
+            }
+        }
+
+        if (personas.length === 0) {
+            throw new Error('Please add at least one persona');
+        }
+
+        // Apply the selected HeyGen voice_id to every persona so the HeyGen
+        // narrator matches the user's gender/style preference. Empty value
+        // means "auto-match" — backend falls back to gender-matched English voice.
+        const chosenVoiceId = brandStoryState.selectedVoiceId || '';
+        if (chosenVoiceId) {
+            personas = personas.map(p => ({ ...p, heygen_voice_id: chosenVoiceId }));
+        }
+
+        personaConfig = { personas };
+
+        // Subject is produced by Gemini image analysis (Step 2)
+        let subject = {};
+        try {
+            const analyzedJson = document.getElementById('subjectAnalyzedJson')?.value || '';
+            if (analyzedJson) subject = JSON.parse(analyzedJson);
+        } catch (e) {
+            console.warn('Failed to parse analyzed subject JSON:', e);
+        }
+
+        const platforms = [...document.querySelectorAll('input[name="storyPlatforms"]:checked')].map(c => c.value);
+
+        const payload = {
+            name: document.getElementById('storyName')?.value || 'Untitled Story',
+            story_focus: document.querySelector('input[name="storyFocus"]:checked')?.value || 'person',
+            persona_type: personaType,
+            persona_config: personaConfig,
+            subject,
+            brand_kit_job_id: document.getElementById('storyBrandKit')?.value || null,
+            target_platforms: platforms,
+            publish_frequency: document.getElementById('storyFrequency')?.value || 'daily'
+        };
+
+        // Step 1: Create the story
+        const createResult = await apiPost('/api/brand-stories', payload);
+        if (!createResult.success) throw new Error(createResult.error || 'Failed to create story');
+
+        const storyId = createResult.story.id;
+        showToast('Story created! Generating storyline...', 'success');
+
+        // Step 2: Generate the storyline
+        const storylineResult = await apiPost(`/api/brand-stories/${storyId}/generate-storyline`);
+        if (!storylineResult.success) throw new Error(storylineResult.error || 'Storyline generation failed');
+
+        showToast('Storyline generated!', 'success');
+
+        // Show the story detail view
+        showStoryDetail(storyId);
+    } catch (error) {
+        showToast(error.message || 'Failed to create brand story', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Create Story & Generate Storyline'; }
+    }
+}
+
+/**
+ * Show the detail view for a specific story.
+ */
+async function showStoryDetail(storyId) {
+    brandStoryState.currentStoryId = storyId;
+
+    // Hide other views
+    document.getElementById('brandStoryList')?.classList.add('hidden');
+    document.getElementById('brandStoryEmpty')?.classList.add('hidden');
+    document.getElementById('brandStoryWizard')?.classList.add('hidden');
+    document.getElementById('brandStoryDetail')?.classList.remove('hidden');
+
+    try {
+        const result = await apiGet(`/api/brand-stories/${storyId}`);
+        const story = result.story;
+
+        // Cache story personas for narrator-name lookup in episode cards
+        brandStoryState.currentStoryPersonas = Array.isArray(story.persona_config?.personas)
+          ? story.persona_config.personas
+          : [story.persona_config];
+
+        // Populate header
+        document.getElementById('storyDetailTitle').textContent = story.name;
+        document.getElementById('storyDetailLogline').textContent = story.storyline?.logline || story.storyline?.theme || '';
+
+        // Status badge
+        const statusEl = document.getElementById('storyDetailStatus');
+        const statusColors = { draft: 'bg-surface-100 text-ink-500', active: 'bg-green-100 text-green-700', paused: 'bg-yellow-100 text-yellow-700', completed: 'bg-blue-100 text-blue-700' };
+        statusEl.className = `px-3 py-1 text-xs font-medium rounded-full ${statusColors[story.status] || statusColors.draft}`;
+        statusEl.textContent = story.status;
+
+        // Automation button
+        const autoBtn = document.getElementById('storyAutomationBtn');
+        if (story.status === 'active') {
+            autoBtn.textContent = 'Pause';
+            autoBtn.onclick = () => toggleStoryAutomation(storyId, 'pause');
+        } else {
+            autoBtn.textContent = 'Activate';
+            autoBtn.onclick = () => toggleStoryAutomation(storyId, 'activate');
+        }
+
+        // Full storyline overview
+        if (story.storyline) {
+            renderStorylineDetail(story);
+        }
+
+        // Avatar training banner
+        updateAvatarTrainingBanner(story);
+
+        // Episodes
+        renderEpisodeTimeline(story.episodes || []);
+
+        // Update generate button with the next episode number
+        const genBtn = document.getElementById('generateEpisodeBtn');
+        const genBtnText = document.getElementById('generateEpisodeBtnText');
+        if (genBtn) genBtn.onclick = () => generateNextEpisode(storyId);
+        if (genBtnText) {
+            const nextEpisodeNum = (story.episodes?.length || 0) + 1;
+            genBtnText.textContent = `Generate ${ordinalSuffix(nextEpisodeNum)} Episode`;
+        }
+
+        // Auto-resume polling if any episode is still mid-pipeline.
+        // This handles the case where the user navigates away, refreshes the page,
+        // or reopens the story detail view while an episode is being generated.
+        const inProgress = (story.episodes || []).some(ep =>
+            ['pending', 'generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing'].includes(ep.status)
+        );
+        if (inProgress) {
+            if (genBtn) genBtn.disabled = true;
+            document.getElementById('episodeGeneratingStatus')?.classList.remove('hidden');
+            pollStoryUpdates(storyId);
+        }
+
+    } catch (error) {
+        showToast('Failed to load story details', 'error');
+        console.error('Error loading story detail:', error);
+    }
+}
+
+/**
+ * Render the full storyline overview (meta chips, arc, characters,
+ * planned episodes, season bible) inside the story detail view.
+ */
+function renderStorylineDetail(story) {
+    const storyline = story.storyline || {};
+    const overviewEl = document.getElementById('storyDetailOverview');
+    if (!overviewEl) return;
+    overviewEl.classList.remove('hidden');
+
+    // 1) Meta chips (genre, tone, target_audience)
+    const chipsEl = document.getElementById('storyMetaChips');
+    if (chipsEl) {
+        const chips = [];
+        if (storyline.genre) chips.push({ label: 'Genre', value: storyline.genre });
+        if (storyline.tone) chips.push({ label: 'Tone', value: storyline.tone });
+        if (storyline.target_audience) chips.push({ label: 'Audience', value: storyline.target_audience });
+        chipsEl.innerHTML = chips.map(c =>
+            `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-100 text-xs text-ink-700"><span class="text-ink-400">${c.label}:</span> <span class="font-medium">${escapeHtml(c.value)}</span></span>`
+        ).join('');
+    }
+
+    // 2) Full 5-part arc
+    const arcEl = document.getElementById('storyArcContent');
+    const arc = storyline.arc || {};
+    if (arcEl) {
+        const rows = [
+            ['Premise', arc.premise],
+            ['Inciting Incident', arc.inciting_incident],
+            ['Rising Action', arc.rising_action],
+            ['Climax', arc.climax_hints],
+            ['Resolution', arc.resolution_hints]
+        ].filter(([_, v]) => v);
+        arcEl.innerHTML = rows.map(([label, v]) =>
+            `<div><dt class="text-xs font-semibold text-ink-500 uppercase tracking-wider">${label}</dt><dd class="mt-0.5">${escapeHtml(v)}</dd></div>`
+        ).join('');
+    }
+
+    // 3) Characters
+    const charsEl = document.getElementById('storyCharactersContent');
+    const characters = storyline.characters || [];
+    if (charsEl) {
+        if (characters.length === 0) {
+            charsEl.innerHTML = '<p class="text-sm text-ink-400">No characters defined.</p>';
+        } else {
+            charsEl.innerHTML = characters.map(c => `
+                <div class="p-3 bg-surface-50 rounded-lg border border-surface-200">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-semibold text-ink-800 text-sm">${escapeHtml(c.name || 'Unnamed')}</span>
+                        ${c.role ? `<span class="px-2 py-0.5 text-xs bg-brand-100 text-brand-700 rounded">${escapeHtml(c.role)}</span>` : ''}
+                    </div>
+                    ${c.personality ? `<p class="text-xs text-ink-600 mb-1"><span class="text-ink-400">Personality:</span> ${escapeHtml(c.personality)}</p>` : ''}
+                    ${c.visual_description ? `<p class="text-xs text-ink-600 mb-1"><span class="text-ink-400">Visual:</span> ${escapeHtml(c.visual_description)}</p>` : ''}
+                    ${c.arc ? `<p class="text-xs text-ink-600 mb-1"><span class="text-ink-400">Arc:</span> ${escapeHtml(c.arc)}</p>` : ''}
+                    ${c.relationship_to_product ? `<p class="text-xs text-ink-600"><span class="text-ink-400">Connection:</span> ${escapeHtml(c.relationship_to_product)}</p>` : ''}
+                </div>
+            `).join('');
+        }
+    }
+
+    // 4) Planned episodes (with generated vs. upcoming distinction)
+    const plannedEl = document.getElementById('storyPlannedEpisodes');
+    const planned = storyline.episodes || [];
+    const generatedCount = (story.episodes || []).length;
+    if (plannedEl) {
+        if (planned.length === 0) {
+            plannedEl.innerHTML = '<p class="col-span-full text-sm text-ink-400">No planned episodes.</p>';
+        } else {
+            plannedEl.innerHTML = planned.map((ep, i) => {
+                const isGenerated = i < generatedCount;
+                return `
+                    <div class="p-3 rounded-lg border ${isGenerated ? 'bg-green-50 border-green-200' : 'bg-white border-surface-200'}">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${isGenerated ? 'bg-green-600 text-white' : 'bg-surface-200 text-ink-500'}">${isGenerated ? '\u2713' : (i + 1)}</span>
+                            <span class="font-semibold text-ink-800 text-sm truncate">${escapeHtml(ep.title || 'Untitled')}</span>
+                            ${ep.mood ? `<span class="ml-auto px-1.5 py-0.5 text-xs bg-surface-100 text-ink-500 rounded">${escapeHtml(ep.mood)}</span>` : ''}
+                        </div>
+                        ${ep.hook ? `<p class="text-xs text-ink-600 mb-1"><span class="text-ink-400">Hook:</span> ${escapeHtml(ep.hook)}</p>` : ''}
+                        ${ep.narrative_beat ? `<p class="text-xs text-ink-600 mb-1"><span class="text-ink-400">Beat:</span> ${escapeHtml(ep.narrative_beat)}</p>` : ''}
+                        ${ep.cliffhanger ? `<p class="text-xs text-ink-600"><span class="text-ink-400">Cliff:</span> ${escapeHtml(ep.cliffhanger)}</p>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 5) Season bible — render but keep collapsed
+    const bibleEl = document.getElementById('seasonBibleContent');
+    if (bibleEl) {
+        bibleEl.textContent = storyline.season_bible || 'No season bible written.';
+    }
+}
+
+/**
+ * Toggle the season bible collapsible section.
+ */
+function toggleSeasonBible() {
+    const content = document.getElementById('seasonBibleContent');
+    const chevron = document.getElementById('seasonBibleChevron');
+    if (!content) return;
+    const isHidden = content.classList.contains('hidden');
+    content.classList.toggle('hidden');
+    if (chevron) chevron.style.transform = isHidden ? 'rotate(90deg)' : '';
+}
+
+/**
+ * Show/hide the avatar training banner based on training_status.
+ */
+function updateAvatarTrainingBanner(story) {
+    const banner = document.getElementById('avatarTrainingBanner');
+    const msg = document.getElementById('avatarTrainingMsg');
+    if (!banner || !msg) return;
+
+    const status = story.persona_config?.training_status;
+    const messages = {
+        pending: 'Preparing avatar setup...',
+        generating_persona_image: 'Creating your persona image via AI...',
+        processing: 'Uploading avatar to HeyGen...',
+        failed: null,  // handled separately
+        completed: null,
+        skipped: null
+    };
+
+    if (status === 'failed') {
+        banner.className = 'mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm text-red-800';
+        const errMsg = story.persona_config?.training_error || 'Unknown error';
+        msg.textContent = `Avatar setup failed: ${errMsg}`;
+        banner.classList.remove('hidden');
+    } else if (messages[status]) {
+        banner.className = 'mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-sm text-blue-800';
+        msg.innerHTML = `
+            <svg class="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span>${messages[status]}</span>
+        `;
+        banner.classList.remove('hidden');
+        // Start polling if not already running
+        if (!banner.dataset.polling) {
+            banner.dataset.polling = '1';
+            pollAvatarTraining(story.id);
+        }
+    } else {
+        banner.classList.add('hidden');
+        delete banner.dataset.polling;
+    }
+}
+
+/**
+ * Poll the story every 20s to refresh the avatar training status.
+ */
+async function pollAvatarTraining(storyId, attempt = 0) {
+    if (attempt > 30) return;  // Max 10 minutes
+    if (storyId !== brandStoryState.currentStoryId) return; // User left the detail view
+
+    await new Promise(resolve => setTimeout(resolve, 20000));
+
+    try {
+        const result = await apiGet(`/api/brand-stories/${storyId}`);
+        const story = result.story;
+        updateAvatarTrainingBanner(story);
+        const status = story.persona_config?.training_status;
+        if (status && !['completed', 'failed', 'skipped'].includes(status)) {
+            pollAvatarTraining(storyId, attempt + 1);
+        }
+    } catch (err) {
+        console.error('Avatar polling error:', err);
+        pollAvatarTraining(storyId, attempt + 1);
+    }
+}
+
+/**
+ * Resolve the narrator's display name from the cached story personas.
+ */
+function _narratorName(idx) {
+    const personas = brandStoryState.currentStoryPersonas || [];
+    const p = personas[Math.max(0, Math.min(idx, personas.length - 1))];
+    if (!p) return `Persona ${idx + 1}`;
+    // Try description, avatar_name, or fall back
+    const name = (p.description || '').slice(0, 30).trim() || p.avatar_name || `Persona ${idx + 1}`;
+    return name;
+}
+
+/**
+ * Render the shot sequence chips for an episode card.
+ * Shows the multi-shot composition Gemini planned (e.g. [broll 5s] \u2192 [dialogue 8s] \u2192 [cinematic 7s]).
+ * Falls back to the single shot_type if the episode doesn't have a shots[] array.
+ */
+function _renderShotChips(scene) {
+    const shotColors = {
+        dialogue: 'bg-purple-100 text-purple-700',
+        cinematic: 'bg-indigo-100 text-indigo-700',
+        broll: 'bg-amber-100 text-amber-700'
+    };
+
+    const shots = Array.isArray(scene.shots) && scene.shots.length > 0
+        ? scene.shots
+        : (scene.shot_type ? [{ shot_type: scene.shot_type, duration_seconds: scene.duration_target_seconds || 10, narrator_persona_index: scene.narrator_persona_index }] : []);
+
+    if (shots.length === 0) return '';
+
+    return shots.map((shot, i) => {
+        const color = shotColors[shot.shot_type] || 'bg-surface-100 text-ink-600';
+        const duration = shot.duration_seconds ? `\u00B7${shot.duration_seconds}s` : '';
+        const narrator = shot.shot_type === 'dialogue' && typeof shot.narrator_persona_index === 'number'
+            ? ` \uD83C\uDFA4${escapeHtml(_narratorName(shot.narrator_persona_index))}`
+            : '';
+        const arrow = i < shots.length - 1
+            ? '<span class="text-ink-300 text-xs">\u2192</span>'
+            : '';
+        return `<span class="px-2 py-0.5 text-xs rounded ${color}">${escapeHtml(shot.shot_type || '?')}${duration}${narrator}</span>${arrow}`;
+    }).join('');
+}
+
+/**
+ * Render the episode timeline in the story detail view.
+ */
+function renderEpisodeTimeline(episodes) {
+    const timelineEl = document.getElementById('episodeTimeline');
+    const noEpisodesEl = document.getElementById('noEpisodesMsg');
+
+    if (!episodes || episodes.length === 0) {
+        if (timelineEl) timelineEl.classList.add('hidden');
+        if (noEpisodesEl) noEpisodesEl.classList.remove('hidden');
+        return;
+    }
+
+    if (noEpisodesEl) noEpisodesEl.classList.add('hidden');
+    if (!timelineEl) return;
+    timelineEl.classList.remove('hidden');
+
+    timelineEl.innerHTML = episodes.map(ep => {
+        const scene = ep.scene_description || {};
+        const statusIcons = {
+            pending: '<span class="text-ink-400">Pending</span>',
+            generating_scene: '<span class="text-blue-500">Writing scene...</span>',
+            generating_storyboard: '<span class="text-blue-500">Creating storyboard...</span>',
+            generating_avatar: '<span class="text-blue-500">Recording avatar...</span>',
+            generating_video: '<span class="text-blue-500">Generating video...</span>',
+            compositing: '<span class="text-blue-500">Compositing...</span>',
+            ready: '<span class="text-green-600 font-medium">Ready</span>',
+            publishing: '<span class="text-blue-500">Publishing...</span>',
+            published: '<span class="text-green-700 font-medium">Published</span>',
+            failed: '<span class="text-red-500">Failed</span>'
+        };
+
+        const isReady = ep.status === 'ready' || ep.status === 'published';
+        const videoPlayable = ep.final_video_url && ep.final_video_url.includes('supabase');
+        const title = scene.title || 'Episode ' + ep.episode_number;
+
+        return `
+            <div class="card-gradient p-4 flex gap-4" data-episode-id="${ep.id}" data-video-url="${escapeHtml(ep.final_video_url || '')}" data-video-title="${escapeHtml(title)}">
+                <div class="flex-shrink-0 w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-sm">
+                    ${ep.episode_number}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <h5 class="font-semibold text-ink-800 truncate">${escapeHtml(title)}</h5>
+                        ${statusIcons[ep.status] || statusIcons.pending}
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                        ${_renderShotChips(scene)}
+                    </div>
+                    <p class="text-sm text-ink-500 line-clamp-2">${escapeHtml(scene.narrative_beat || scene.hook || '')}</p>
+                    ${ep.error_message ? `<p class="mt-1 text-xs text-red-500">${escapeHtml(ep.error_message)}</p>` : ''}
+                    <div class="mt-2 flex gap-2 items-start">
+                        ${ep.storyboard_frame_url ? `<img src="${escapeHtml(ep.storyboard_frame_url)}" alt="Storyboard" class="w-20 h-auto rounded border border-surface-200">` : ''}
+                        ${isReady && ep.final_video_url ? `
+                            <div class="flex flex-col gap-1.5">
+                                <button data-action="play" class="px-3 py-1.5 text-xs bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    Play
+                                </button>
+                                <a href="${escapeHtml(ep.final_video_url)}" download="episode-${ep.episode_number}.mp4" target="_blank" class="px-3 py-1.5 text-xs bg-white border border-surface-300 text-ink-700 rounded hover:bg-surface-50 flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    Download
+                                </a>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+                <div class="flex-shrink-0 flex flex-col items-end gap-2">
+                    ${videoPlayable
+                        ? `<video src="${escapeHtml(ep.final_video_url)}" data-action="play" class="w-20 h-36 object-cover rounded-lg border border-surface-200 cursor-pointer" muted playsinline></video>`
+                        : (ep.final_video_url
+                            ? '<div class="w-20 h-36 bg-surface-100 rounded-lg flex items-center justify-center text-ink-300 text-xs text-center p-1">Video not playable in browser</div>'
+                            : '<div class="w-20 h-36 bg-surface-100 rounded-lg flex items-center justify-center text-ink-300 text-xs">No video</div>')
+                    }
+                    <button data-action="delete" class="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Wire up event delegation (avoids HTML-escaping issues with inline onclick)
+    timelineEl.onclick = (e) => {
+        const actionEl = e.target.closest('[data-action]');
+        if (!actionEl) return;
+        const card = actionEl.closest('[data-episode-id]');
+        if (!card) return;
+
+        const action = actionEl.dataset.action;
+        const episodeId = card.dataset.episodeId;
+        const videoUrl = card.dataset.videoUrl;
+        const videoTitle = card.dataset.videoTitle;
+
+        if (action === 'play' && videoUrl) {
+            openEpisodeVideo(videoUrl, videoTitle);
+        } else if (action === 'delete') {
+            deleteEpisode(episodeId);
+        }
+    };
+}
+
+/**
+ * Open the episode video in a full-screen modal player.
+ */
+function openEpisodeVideo(url, title) {
+    // Simple modal-based player
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4';
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+        <div class="bg-black rounded-lg overflow-hidden max-w-md w-full max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between p-3 bg-ink-900 text-white">
+                <span class="font-medium text-sm truncate">${title}</span>
+                <button onclick="this.closest('.fixed').remove()" class="text-white hover:text-ink-300">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <video src="${url}" controls autoplay class="w-full bg-black" style="max-height: 80vh"></video>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+/**
+ * Delete a single episode with confirmation.
+ */
+async function deleteEpisode(episodeId) {
+    if (!confirm('Delete this episode? This cannot be undone.')) return;
+
+    const storyId = brandStoryState.currentStoryId;
+    if (!storyId) return;
+
+    try {
+        const result = await apiDelete(`/api/brand-stories/${storyId}/episodes/${episodeId}`);
+        if (!result.success) throw new Error(result.error || 'Delete failed');
+        showToast('Episode deleted', 'success');
+        showStoryDetail(storyId);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete episode', 'error');
+    }
+}
+
+/**
+ * Generate the next episode for the current story.
+ */
+async function generateNextEpisode(storyId) {
+    const targetId = storyId || brandStoryState.currentStoryId;
+    if (!targetId) return;
+
+    const btn = document.getElementById('generateEpisodeBtn');
+    const statusEl = document.getElementById('episodeGeneratingStatus');
+
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.classList.remove('hidden');
+
+    try {
+        const result = await apiPost(`/api/brand-stories/${targetId}/generate-episode`);
+        if (!result.success) throw new Error(result.error || 'Failed to start episode generation');
+
+        showToast('Episode generation started! This may take a few minutes.', 'success');
+
+        // Poll for updates
+        pollStoryUpdates(targetId);
+    } catch (error) {
+        showToast(error.message || 'Failed to generate episode', 'error');
+        if (btn) btn.disabled = false;
+        if (statusEl) statusEl.classList.add('hidden');
+    }
+}
+
+/**
+ * Poll for story updates (episode generation progress).
+ */
+async function pollStoryUpdates(storyId, attempt = 0) {
+    if (attempt > 60) {
+        const btn = document.getElementById('generateEpisodeBtn');
+        if (btn) btn.disabled = false;
+        document.getElementById('episodeGeneratingStatus')?.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const result = await apiGet(`/api/brand-stories/${storyId}`);
+        const story = result.story;
+        renderEpisodeTimeline(story.episodes || []);
+
+        const generating = (story.episodes || []).some(ep =>
+            ['generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing'].includes(ep.status)
+        );
+
+        if (generating) {
+            setTimeout(() => pollStoryUpdates(storyId, attempt + 1), 5000);
+        } else {
+            const btn = document.getElementById('generateEpisodeBtn');
+            if (btn) btn.disabled = false;
+            document.getElementById('episodeGeneratingStatus')?.classList.add('hidden');
+
+            const latest = (story.episodes || []).slice(-1)[0];
+            if (latest?.status === 'ready' || latest?.status === 'published') {
+                showToast(`Episode ${latest.episode_number} is ready!`, 'success');
+            } else if (latest?.status === 'failed') {
+                showToast(`Episode generation failed: ${latest.error_message || 'Unknown error'}`, 'error');
+            }
+        }
+    } catch (error) {
+        setTimeout(() => pollStoryUpdates(storyId, attempt + 1), 5000);
+    }
+}
+
+/**
+ * Toggle story automation (activate / pause).
+ */
+async function toggleStoryAutomation(storyId, action) {
+    const targetId = storyId || brandStoryState.currentStoryId;
+    if (!targetId) return;
+
+    try {
+        const result = await apiPost(`/api/brand-stories/${targetId}/${action}`);
+        if (!result.success) throw new Error(result.error || `Failed to ${action} story`);
+
+        showToast(`Story ${action === 'activate' ? 'activated' : 'paused'}`, 'success');
+        showStoryDetail(targetId);
+    } catch (error) {
+        showToast(error.message || `Failed to ${action} story`, 'error');
+    }
+}
+
+/**
+ * Convert a number to an ordinal string: 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th", etc.
+ */
+function ordinalSuffix(n) {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/**
+ * Navigate back to the story list from detail view.
+ */
+function backToStoryList() {
+    brandStoryState.currentStoryId = null;
+    document.getElementById('brandStoryDetail')?.classList.add('hidden');
+    document.getElementById('brandStoryWizard')?.classList.add('hidden');
+    loadBrandStories();
+}
+
+// ============================================
+// SUBJECT ANALYSIS (Step 2 of Brand Story wizard)
+// ============================================
+
+// State for subject image selection
+let subjectState = {
+    source: 'upload',                   // 'upload' | 'brand_kit'
+    uploadFiles: [],                    // File objects (max 3)
+    selectedBrandKitAssets: [],         // [{ id, url, brand_kit_job_id }]
+    brandKitAssets: []                  // All available Brand Kit assets
+};
+
+/**
+ * Toggle between "Upload Images" and "From Brand Kit" tabs.
+ */
+function setSubjectSource(src) {
+    subjectState.source = src;
+    const uploadBtn = document.getElementById('subjectSrcUploadBtn');
+    const bkBtn = document.getElementById('subjectSrcBrandKitBtn');
+    const uploadVariant = document.getElementById('subjectUploadVariant');
+    const bkVariant = document.getElementById('subjectBrandKitVariant');
+
+    if (src === 'upload') {
+        uploadBtn?.classList.replace('bg-white', 'bg-brand-600');
+        uploadBtn?.classList.replace('text-ink-600', 'text-white');
+        bkBtn?.classList.replace('bg-brand-600', 'bg-white');
+        bkBtn?.classList.replace('text-white', 'text-ink-600');
+        uploadVariant?.classList.remove('hidden');
+        bkVariant?.classList.add('hidden');
+    } else {
+        bkBtn?.classList.replace('bg-white', 'bg-brand-600');
+        bkBtn?.classList.replace('text-ink-600', 'text-white');
+        uploadBtn?.classList.replace('bg-brand-600', 'bg-white');
+        uploadBtn?.classList.replace('text-white', 'text-ink-600');
+        bkVariant?.classList.remove('hidden');
+        uploadVariant?.classList.add('hidden');
+
+        // Lazy-load Brand Kit assets
+        if (subjectState.brandKitAssets.length === 0) loadBrandKitSubjects();
+    }
+
+    updateAnalyzeButtonState();
+}
+
+/**
+ * Load non-person assets (logos, graphics, products) from user's Brand Kits.
+ */
+async function loadBrandKitSubjects() {
+    const grid = document.getElementById('brandKitSubjectGrid');
+    if (!grid) return;
+
+    try {
+        const result = await apiGet('/api/brand-stories/subjects/brand-kit');
+        subjectState.brandKitAssets = result.subjects || [];
+
+        if (subjectState.brandKitAssets.length === 0) {
+            grid.innerHTML = `
+                <div class="col-span-full text-center py-6">
+                    <p class="text-ink-500 text-sm mb-2">No subject assets found in your Brand Kits.</p>
+                    <p class="text-ink-400 text-xs">Train a model in Brand Asset Gen. tab and run Brand Kit analysis to extract logos and graphics.</p>
+                </div>
+            `;
+            return;
+        }
+
+        grid.innerHTML = subjectState.brandKitAssets.map(asset => `
+            <div class="border border-surface-200 rounded-lg p-2 cursor-pointer hover:border-brand-400 transition-colors relative"
+                 data-asset-id="${escapeHtml(asset.id)}"
+                 onclick="toggleBrandKitSubject(this, '${escapeHtml(asset.id)}', '${escapeHtml(asset.url)}', '${escapeHtml(asset.brand_kit_job_id)}')">
+                <img src="${escapeHtml(asset.url)}" alt="${escapeHtml(asset.description)}" class="w-full aspect-square object-contain rounded mb-1 bg-surface-100">
+                <p class="text-xs text-ink-600 truncate">${escapeHtml(asset.type)} · ${escapeHtml(asset.description.slice(0, 30))}</p>
+                <div class="absolute top-1 right-1 w-5 h-5 rounded-full border-2 border-white bg-surface-300 hidden" data-check></div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading Brand Kit subjects:', error);
+        grid.innerHTML = '<p class="col-span-full text-center text-red-500 py-4">Failed to load assets</p>';
+    }
+}
+
+/**
+ * Toggle selection of a Brand Kit asset (max 3).
+ */
+function toggleBrandKitSubject(el, assetId, url, brandKitJobId) {
+    const idx = subjectState.selectedBrandKitAssets.findIndex(a => a.id === assetId);
+
+    if (idx >= 0) {
+        // Deselect
+        subjectState.selectedBrandKitAssets.splice(idx, 1);
+        el.classList.remove('border-brand-500', 'bg-brand-50');
+        el.classList.add('border-surface-200');
+        el.querySelector('[data-check]')?.classList.add('hidden');
+    } else {
+        // Select (enforce max 3)
+        if (subjectState.selectedBrandKitAssets.length >= 3) {
+            showToast('Maximum 3 assets allowed', 'warning');
+            return;
+        }
+        subjectState.selectedBrandKitAssets.push({ id: assetId, url, brand_kit_job_id: brandKitJobId });
+        el.classList.add('border-brand-500', 'bg-brand-50');
+        el.classList.remove('border-surface-200');
+        const check = el.querySelector('[data-check]');
+        if (check) {
+            check.classList.remove('hidden', 'bg-surface-300');
+            check.classList.add('bg-brand-600');
+            check.innerHTML = '<svg class="w-3 h-3 text-white m-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>';
+        }
+    }
+
+    updateAnalyzeButtonState();
+}
+
+/**
+ * Attach file input listener when wizard shows step 2.
+ */
+function setupSubjectUploadHandlers() {
+    const fileInput = document.getElementById('subjectFileInput');
+    if (!fileInput || fileInput.dataset.bound === '1') return;
+
+    fileInput.dataset.bound = '1';
+    fileInput.addEventListener('change', (e) => {
+        const files = [...e.target.files].slice(0, 3);
+        subjectState.uploadFiles = files;
+        renderSubjectUploadPreview();
+        updateAnalyzeButtonState();
+    });
+
+    // Drag-and-drop
+    const zone = document.getElementById('subjectDropZone');
+    if (zone && zone.dataset.bound !== '1') {
+        zone.dataset.bound = '1';
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            zone.classList.add('border-brand-500', 'bg-brand-50');
+        });
+        zone.addEventListener('dragleave', () => {
+            zone.classList.remove('border-brand-500', 'bg-brand-50');
+        });
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.classList.remove('border-brand-500', 'bg-brand-50');
+            const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')).slice(0, 3);
+            subjectState.uploadFiles = files;
+            renderSubjectUploadPreview();
+            updateAnalyzeButtonState();
+        });
+    }
+}
+
+/**
+ * Render thumbnails of uploaded files.
+ */
+function renderSubjectUploadPreview() {
+    const preview = document.getElementById('subjectUploadPreview');
+    if (!preview) return;
+
+    if (subjectState.uploadFiles.length === 0) {
+        preview.classList.add('hidden');
+        preview.innerHTML = '';
+        return;
+    }
+
+    preview.classList.remove('hidden');
+    preview.innerHTML = subjectState.uploadFiles.map((file, idx) => {
+        const url = URL.createObjectURL(file);
+        return `
+            <div class="relative border border-surface-200 rounded-lg overflow-hidden">
+                <img src="${url}" alt="Upload ${idx + 1}" class="w-full aspect-square object-contain bg-surface-100">
+                <button onclick="removeSubjectUploadFile(${idx})" class="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600">\u00d7</button>
+            </div>
+        `;
+    }).join('');
+}
+
+function removeSubjectUploadFile(idx) {
+    subjectState.uploadFiles.splice(idx, 1);
+    document.getElementById('subjectFileInput').value = '';
+    renderSubjectUploadPreview();
+    updateAnalyzeButtonState();
+}
+
+/**
+ * Enable/disable Analyze button based on whether images are selected.
+ */
+function updateAnalyzeButtonState() {
+    const btn = document.getElementById('analyzeSubjectBtn');
+    if (!btn) return;
+
+    const hasImages = subjectState.source === 'upload'
+        ? subjectState.uploadFiles.length > 0
+        : subjectState.selectedBrandKitAssets.length > 0;
+
+    btn.disabled = !hasImages;
+}
+
+/**
+ * Call the backend to analyze the selected images via Gemini.
+ */
+async function analyzeSubjectImages() {
+    const btn = document.getElementById('analyzeSubjectBtn');
+    const btnText = document.getElementById('analyzeSubjectBtnText');
+    const statusEl = document.getElementById('analyzeSubjectStatus');
+
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = 'Analyzing...';
+    if (statusEl) {
+        statusEl.classList.remove('hidden');
+        statusEl.textContent = 'Gemini is analyzing your images...';
+    }
+
+    try {
+        let result;
+
+        if (subjectState.source === 'upload') {
+            // Upload images as multipart/form-data
+            const formData = new FormData();
+            subjectState.uploadFiles.forEach(f => formData.append('images', f));
+
+            // Attach brand kit context if a Brand Kit is selected in step 3
+            const brandKitJobId = document.getElementById('storyBrandKit')?.value;
+            if (brandKitJobId) formData.append('brandKitJobId', brandKitJobId);
+
+            const resp = await fetch('/api/brand-stories/subjects/analyze', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'X-CSRF-Token': getCsrfToken() },
+                body: formData
+            });
+            result = await resp.json();
+        } else {
+            // Brand Kit asset URLs
+            const payload = {
+                imageUrls: subjectState.selectedBrandKitAssets.map(a => a.url),
+                brandKitJobId: subjectState.selectedBrandKitAssets[0]?.brand_kit_job_id || null
+            };
+            result = await apiPost('/api/brand-stories/subjects/analyze', payload);
+        }
+
+        if (!result.success) throw new Error(result.error || 'Analysis failed');
+
+        const subject = result.subject;
+
+        // Store the analyzed subject JSON
+        document.getElementById('subjectAnalyzedJson').value = JSON.stringify(subject);
+
+        // Display result
+        document.getElementById('subjectResultName').textContent = subject.name || '';
+        document.getElementById('subjectResultCategory').textContent = subject.category || '';
+        document.getElementById('subjectResultDescription').textContent = subject.description || '';
+        document.getElementById('subjectResultFeatures').textContent = (subject.key_features || []).join(', ');
+        document.getElementById('subjectResultVisual').textContent = subject.visual_description || '';
+        document.getElementById('subjectAnalysisResult').classList.remove('hidden');
+
+        // Enable "Next" button
+        document.getElementById('subjectNextBtn').disabled = false;
+
+        showToast('Subject analyzed successfully', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to analyze subject', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.textContent = 'Analyze Subject';
+        if (statusEl) statusEl.classList.add('hidden');
+    }
+}
+
+/**
+ * Reset subject analysis to allow re-analysis with different images.
+ */
+function resetSubjectAnalysis() {
+    document.getElementById('subjectAnalyzedJson').value = '';
+    document.getElementById('subjectAnalysisResult').classList.add('hidden');
+    document.getElementById('subjectNextBtn').disabled = true;
 }

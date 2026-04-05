@@ -183,5 +183,17 @@ export {
   isAffiliateProductPublished,
   getAffiliatePublishedProducts,
   getAgentPublishedProductIds,
-  getAffiliateStats
+  getAffiliateStats,
+  // Brand story functions
+  createBrandStory,
+  getBrandStories,
+  getBrandStoryById,
+  updateBrandStory,
+  deleteBrandStory,
+  createBrandStoryEpisode,
+  getBrandStoryEpisodes,
+  getBrandStoryEpisodeById,
+  updateBrandStoryEpisode,
+  getBrandStoriesReadyForEpisode,
+  countBrandStories
 } from './database.js';

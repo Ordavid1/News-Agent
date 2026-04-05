@@ -1,0 +1,36 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#F8FAFC",
+    "accent": "#F59E0B",
+    "background": "#0F172A"
+  },
+  "texts": {
+    "teaserText": "Something big is coming...",
+    "productName": "Your Product",
+    "brandStatement": "Redefining what's possible for your business",
+    "features": [
+      { "icon": "\u26a1", "text": "Lightning Fast Performance" },
+      { "icon": "\ud83d\udee1\ufe0f", "text": "Enterprise-Grade Security" },
+      { "icon": "\ud83c\udf0d", "text": "Global Scale Built In" }
+    ],
+    "ctaText": "Explore Now",
+    "tapPrompt": "Tap to Reveal",
+    "replayText": "Replay"
+  },
+  "assets": {
+    "product": "sprite_0",
+    "logo": "logo_0"
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade",
+    "revealStyle": "explosion"
+  },
+  "reveal": {
+    "featureCount": 3,
+    "autoAdvance": false,
+    "autoAdvanceDelay": 3000
+  }
+}

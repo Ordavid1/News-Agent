@@ -1,0 +1,75 @@
+{
+  "templateName": "Interactive Brand Story",
+  "description": "A cinematic interactive narrative with tap-to-advance story pages, typewriter text reveals, choice points, parallax depth, and Ken Burns zoom. Premium Apple-keynote-level polish for brand storytelling.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals and story pages",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for backgrounds, accents, and CTA" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text color and secondary elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Emphasis words, highlights, particle effects, and glow" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Default scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings including story page content",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":      { "type": "string", "required": true, "maxLength": 40, "description": "Brand title on the splash screen" },
+        "subtitle":   { "type": "string", "maxLength": 60, "description": "Tagline or subtitle on the splash screen" },
+        "pages": {
+          "type": "array",
+          "required": true,
+          "minItems": 3,
+          "maxItems": 7,
+          "description": "Story page content array. Each page has its own headline, body, emphasis words, and background color.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "headline":       { "type": "string", "required": true, "maxLength": 30, "description": "Page headline displayed prominently" },
+              "body":           { "type": "string", "required": true, "maxLength": 150, "description": "Page body text revealed with animation" },
+              "emphasisWords":  { "type": "array", "maxItems": 5, "description": "Words within body text to highlight in accent color" },
+              "bgColor":        { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Override background color for this page" }
+            }
+          }
+        },
+        "choiceA":    { "type": "string", "maxLength": 25, "description": "Label for the first choice card" },
+        "choiceB":    { "type": "string", "maxLength": 25, "description": "Label for the second choice card" },
+        "ctaText":    { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text on the final page" },
+        "replayText": { "type": "string", "maxLength": 15, "description": "Replay button text" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to story roles",
+      "type": "object",
+      "properties": {
+        "hero": { "type": "string", "description": "Asset key for the hero/product sprite shown on story pages" },
+        "logo": { "type": "string", "description": "Asset key for the brand logo on splash and final page" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme and animation options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style for each page" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density throughout the story" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Transition style between scenes and pages" }
+      }
+    },
+    "story": {
+      "description": "Story behavior and flow configuration",
+      "type": "object",
+      "properties": {
+        "pageCount":        { "type": "number", "min": 3, "max": 7, "description": "Number of story pages to display (auto-derived from pages array length if omitted)" },
+        "choiceEnabled":    { "type": "boolean", "description": "Whether the choice point page is included in the story flow" },
+        "autoAdvanceDelay": { "type": "number", "min": 0, "max": 15000, "description": "Auto-advance delay in ms after page animations complete (0 = manual tap only)" },
+        "typewriterSpeed":  { "type": "number", "min": 20, "max": 120, "description": "Milliseconds per character for typewriter text reveal" },
+        "kenBurnsDuration": { "type": "number", "min": 2000, "max": 8000, "description": "Duration of Ken Burns zoom effect per page in ms" },
+        "kenBurnsScale":    { "type": "number", "min": 1.01, "max": 1.08, "description": "Target scale for Ken Burns zoom (starts at 1.0)" }
+      }
+    }
+  }
+}

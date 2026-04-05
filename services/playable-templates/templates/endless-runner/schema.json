@@ -1,0 +1,77 @@
+{
+  "templateName": "Endless Runner",
+  "description": "Side-scrolling runner where a character dodges obstacles and collects brand items. Multi-layer parallax, progressive speed increase, and a cinematic splash/end flow.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for UI, character, near parallax" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text, ground, obstacle silhouettes" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Collectibles, sparkles, score flashes, trail" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Sky / scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":          { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":       { "type": "string", "maxLength": 50, "description": "Subtitle or tagline" },
+        "cta":            { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text" },
+        "tapToStart":     { "type": "string", "maxLength": 20, "description": "Splash tap prompt (e.g. 'Tap to Run!')" },
+        "scoreLabel":     { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "distanceLabel":  { "type": "string", "maxLength": 15, "description": "Label for distance counter" },
+        "encouragement":  { "type": "array", "maxItems": 5, "description": "Random encouragement messages on collect streak" },
+        "gameOver":       { "type": "string", "maxLength": 20, "description": "Game over headline" },
+        "playAgain":      { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "initialSpeed":          { "type": "number", "required": true, "min": 120, "max": 400, "description": "Starting scroll speed (px/s)" },
+        "maxSpeed":              { "type": "number", "required": true, "min": 200, "max": 900, "description": "Cap on scroll speed (px/s)" },
+        "jumpHeight":            { "type": "number", "required": true, "min": 120, "max": 320, "description": "Jump apex height in pixels" },
+        "gravity":               { "type": "number", "required": true, "min": 600, "max": 2400, "description": "Descent acceleration feel (px/s^2)" },
+        "obstacleSpawnRate":     { "type": "number", "required": true, "min": 600, "max": 3000, "description": "Initial ms between obstacle spawns" },
+        "collectibleSpawnRate":  { "type": "number", "required": true, "min": 500, "max": 3000, "description": "Initial ms between collectible spawns" },
+        "lives":                 { "type": "number", "required": true, "min": 1, "max": 5, "description": "Total lives (hits) before game over" },
+        "pointsPerCollectible":  { "type": "number", "required": true, "min": 1, "max": 100, "description": "Points awarded per collectible" },
+        "pointsPerDistance":     { "type": "number", "required": true, "min": 0, "max": 10, "description": "Points awarded per distance unit" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "character":    { "type": "string", "description": "Asset key for runner character (falls back to circle if missing)" },
+        "collectibles": { "type": "array", "maxItems": 5, "description": "Asset keys for collectible items (e.g., ['sprite_0', 'sprite_1'])" },
+        "logo":         { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "difficulty": {
+      "description": "Difficulty ramp parameters",
+      "type": "object",
+      "properties": {
+        "rampInterval":      { "type": "number", "min": 3, "max": 30, "description": "Seconds between difficulty increases" },
+        "speedIncrease":     { "type": "number", "min": 5, "max": 120, "description": "px/s added to scroll speed per ramp" },
+        "spawnRateDecrease": { "type": "number", "min": 0, "max": 300, "description": "ms removed from spawn rates per ramp" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" },
+        "groundStyle":      { "type": "string", "enum": ["solid", "striped", "dotted", "dashed"], "description": "Scrolling ground decoration style" }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "templateName": "Product Reveal",
+  "description": "A cinematic product/service reveal with interactive multi-phase animations, brand-themed transitions, and premium visual polish. Users tap through dramatic reveal stages culminating in a CTA.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals and transitions",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for backgrounds, glows, and CTA" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text, headings, and secondary UI elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, particles, badges, and shimmer effects" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color (dark recommended)" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings for the reveal experience",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "teaserText":     { "type": "string", "required": true, "maxLength": 40, "description": "Teaser headline on the boot/splash screen" },
+        "productName":    { "type": "string", "required": true, "maxLength": 40, "description": "Product or service name revealed in Phase 2" },
+        "brandStatement": { "type": "string", "required": true, "maxLength": 80, "description": "Brand statement or tagline shown in Phase 4" },
+        "features": {
+          "type": "array",
+          "required": true,
+          "maxItems": 5,
+          "description": "Feature badges displayed in Phase 3 (icon + text pairs)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "icon": { "type": "string", "maxLength": 4, "description": "Emoji or single character icon for the badge" },
+              "text": { "type": "string", "maxLength": 30, "description": "Short feature description text" }
+            }
+          }
+        },
+        "ctaText":        { "type": "string", "required": true, "maxLength": 20, "description": "CTA button label" },
+        "tapPrompt":      { "type": "string", "maxLength": 20, "description": "Prompt text below mystery circle (e.g., 'Tap to Reveal')" },
+        "replayText":     { "type": "string", "maxLength": 15, "description": "Replay button text" }
+      }
+    },
+    "assets": {
+      "description": "Brand assets mapped to reveal roles",
+      "type": "object",
+      "properties": {
+        "product": { "type": "string", "description": "Asset key for the main product/service image sprite" },
+        "logo":    { "type": "string", "description": "Asset key for brand logo shown in boot and CTA phases" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme and animation style options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style throughout the experience" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density across all phases" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Transition style between boot and reveal scenes" },
+        "revealStyle":      { "type": "string", "enum": ["explosion", "dissolve", "spiral"], "description": "Style of the product reveal particle burst" }
+      }
+    },
+    "reveal": {
+      "description": "Reveal experience tuning parameters",
+      "type": "object",
+      "properties": {
+        "featureCount":     { "type": "number", "min": 1, "max": 5, "description": "Number of feature badges to display (uses first N from features array)" },
+        "autoAdvance":      { "type": "boolean", "description": "Whether phases auto-advance after a delay (true) or require tap (false)" },
+        "autoAdvanceDelay": { "type": "number", "min": 1000, "max": 8000, "description": "Delay in ms before auto-advancing to next phase (if autoAdvance is true)" }
+      }
+    }
+  }
+}

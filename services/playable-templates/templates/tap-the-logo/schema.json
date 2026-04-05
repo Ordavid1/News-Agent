@@ -1,0 +1,69 @@
+{
+  "templateName": "Tap the Logo",
+  "description": "Brand logos appear at random positions and the player taps them before they vanish. Speed increases over time with progressive difficulty ramps.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for UI and target highlights" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text and secondary elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, score flashes, sparkle particles" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":          { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":       { "type": "string", "maxLength": 50, "description": "Subtitle or tagline" },
+        "cta":            { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text" },
+        "scoreLabel":     { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "encouragement":  { "type": "array", "maxItems": 5, "description": "Random encouragement messages on successful tap" },
+        "gameOver":       { "type": "string", "maxLength": 20, "description": "Game over headline" },
+        "playAgain":      { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "duration":           { "type": "number", "required": true, "min": 20, "max": 120, "description": "Game duration in seconds" },
+        "spawnRate":          { "type": "number", "min": 500, "max": 3000, "description": "Initial ms between target spawns" },
+        "visibleTime":        { "type": "number", "min": 500, "max": 5000, "description": "Initial ms a target stays visible before vanishing" },
+        "pointsPerTap":       { "type": "number", "min": 1, "max": 100, "description": "Points awarded per successful tap" },
+        "shrinkBeforeVanish": { "type": "boolean", "description": "Whether targets shrink before vanishing as a visual warning" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "targets": { "type": "array", "maxItems": 5, "description": "Asset keys for tap targets (e.g., ['sprite_0', 'sprite_1'])" },
+        "logo":    { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "difficulty": {
+      "description": "Difficulty ramp parameters",
+      "type": "object",
+      "properties": {
+        "rampInterval":        { "type": "number", "min": 5, "max": 30, "description": "Seconds between difficulty increases" },
+        "visibleTimeDecrease": { "type": "number", "min": 0, "max": 500, "description": "ms decrease in visible time per ramp" },
+        "spawnRateDecrease":   { "type": "number", "min": 0, "max": 300, "description": "ms decrease in spawn rate per ramp" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" }
+      }
+    }
+  }
+}

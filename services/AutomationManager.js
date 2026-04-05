@@ -282,6 +282,9 @@ class AutomationManager {
     if (contentSource === 'brand_voice') {
       return await this.processVoiceAgent(agent, agentLog);
     }
+    if (contentSource === 'brand_story') {
+      return await this.processBrandStoryAgent(agent, agentLog);
+    }
 
     // 2. Get trending content based on agent's topics/keywords
     const trend = await this.getTrendForAgent(agent);
@@ -852,6 +855,86 @@ class AutomationManager {
 
     agentLog('error', `Failed to publish brand voice post: ${publishResult.error}`);
     return { success: false, error: publishResult.error };
+  }
+
+  /**
+   * Process a Brand Story agent — generate next episode and publish.
+   * Uses BrandStoryService for the full pipeline: scene → storyboard → avatar → video → composite → publish.
+   */
+  async processBrandStoryAgent(agent, agentLog) {
+    const userId = agent.user_id;
+    const platform = agent.platform;
+    const settings = agent.settings || {};
+    const brandStoryId = settings.brandStoryId;
+
+    if (!brandStoryId) {
+      agentLog('warn', 'No brandStoryId configured — pausing agent');
+      await updateAgentInDb(agent.id, { status: 'paused' });
+      return { success: false, error: 'no_brand_story_id' };
+    }
+
+    // Dynamic import to avoid circular dependencies
+    const brandStoryService = (await import('./BrandStoryService.js')).default;
+    const { getBrandStoryById, getBrandStoriesReadyForEpisode } = await import('./database-wrapper.js');
+
+    // Verify story exists and is active
+    const story = await getBrandStoryById(brandStoryId, userId);
+    if (!story || story.status !== 'active') {
+      agentLog('warn', `Brand story ${brandStoryId} not active (${story?.status || 'missing'}) — skipping`);
+      return { success: false, error: 'story_not_active' };
+    }
+
+    if (!story.storyline) {
+      agentLog('warn', 'Brand story has no storyline — skipping');
+      return { success: false, error: 'no_storyline' };
+    }
+
+    // Check if it's time for a new episode based on publish_frequency
+    // The getBrandStoriesReadyForEpisode already handles frequency logic,
+    // but we do a quick interval check here for the agent system
+    agentLog('info', `Running Brand Story episode pipeline for "${story.name}"`);
+
+    try {
+      // Run the full episode pipeline
+      const episode = await brandStoryService.runEpisodePipeline(brandStoryId, userId, (stage, detail) => {
+        agentLog('info', `[BrandStory] ${stage}: ${detail}`);
+      });
+
+      if (!episode || !episode.final_video_url) {
+        agentLog('warn', 'Episode pipeline completed but no final video URL');
+        return { success: false, error: 'no_video_produced' };
+      }
+
+      // Publish the final video to the target platform
+      agentLog('info', `Publishing episode ${episode.episode_number} to ${platform}...`);
+
+      const content = {
+        text: episode.scene_description?.dialogue_script || episode.scene_description?.hook || story.name,
+        videoUrl: episode.final_video_url,
+        platform
+      };
+
+      const publishResult = await this.publishForAgent(agent, content, null);
+
+      if (publishResult?.success) {
+        // Update episode with publish results
+        const { updateBrandStoryEpisode } = await import('./database-wrapper.js');
+        await updateBrandStoryEpisode(episode.id, userId, {
+          status: 'published',
+          published_at: new Date().toISOString(),
+          publish_results: { [platform]: publishResult }
+        });
+
+        agentLog('info', `Brand Story episode ${episode.episode_number} published to ${platform}`);
+        return { success: true, platform, episodeNumber: episode.episode_number };
+      }
+
+      agentLog('error', `Failed to publish brand story episode: ${publishResult?.error || 'unknown'}`);
+      return { success: false, error: publishResult?.error || 'publish_failed' };
+    } catch (error) {
+      agentLog('error', `Brand Story pipeline failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 
   /**

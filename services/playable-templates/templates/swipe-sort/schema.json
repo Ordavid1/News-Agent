@@ -1,0 +1,82 @@
+{
+  "templateName": "Swipe to Sort",
+  "description": "Items appear on screen and the player swipes left or right to sort them into matching categories. Progressive difficulty with decreasing time per item. Fast-paced sorting mechanic with streak bonuses.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for UI, card accents, and category zones" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text and secondary elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, score flashes, streak effects, particles" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":            { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":         { "type": "string", "maxLength": 50, "description": "Subtitle or tagline" },
+        "cta":              { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text" },
+        "scoreLabel":       { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "leftCategory":     { "type": "string", "required": true, "maxLength": 20, "description": "Label for the left category zone" },
+        "rightCategory":    { "type": "string", "required": true, "maxLength": 20, "description": "Label for the right category zone" },
+        "encouragement":    { "type": "array", "maxItems": 5, "description": "Random encouragement messages on correct sort" },
+        "gameOver":         { "type": "string", "maxLength": 20, "description": "Game over headline" },
+        "playAgain":        { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "duration":         { "type": "number", "required": true, "min": 20, "max": 120, "description": "Game duration in seconds" },
+        "pointsPerSort":    { "type": "number", "min": 1, "max": 100, "description": "Points awarded per correct sort" },
+        "streakBonus":      { "type": "number", "min": 0, "max": 50, "description": "Extra points per consecutive correct sort in a streak" },
+        "swipeThreshold":   { "type": "number", "min": 30, "max": 200, "description": "Pixel distance item must travel past center to register a sort" },
+        "itemCount":        { "type": "number", "min": 5, "max": 50, "description": "Total number of items to sort during the game" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "sortableItems": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Array of sortable item objects. Each has: key (asset key or null for shape), label (display name), category ('left' or 'right')",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key":      { "type": "string", "description": "Asset key for item sprite (e.g., 'sprite_0') or null for colored shape" },
+              "label":    { "type": "string", "required": true, "maxLength": 20, "description": "Text label displayed on the item card" },
+              "category": { "type": "string", "required": true, "enum": ["left", "right"], "description": "Which category this item belongs to" }
+            }
+          }
+        },
+        "logo": { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "difficulty": {
+      "description": "Difficulty ramp parameters",
+      "type": "object",
+      "properties": {
+        "rampInterval":         { "type": "number", "min": 3, "max": 30, "description": "Number of items sorted between difficulty increases" },
+        "timePerItemDecrease":  { "type": "number", "min": 0, "max": 500, "description": "Milliseconds decrease in time allowed per item at each ramp" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" }
+      }
+    }
+  }
+}

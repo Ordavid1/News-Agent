@@ -1,0 +1,79 @@
+{
+  "templateName": "Quiz Trivia",
+  "description": "A premium brand quiz game. Players answer 3-5 timed multiple-choice questions on animated cards, score points for correct answers (with speed bonus), and see a star-rated result screen with a CTA.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for option cards and UI" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text and secondary UI elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, sparkles, score bursts" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" },
+        "correct":    { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Color used for correct-answer feedback (default green)" },
+        "incorrect":  { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Color used for incorrect-answer feedback (default red)" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":             { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":          { "type": "string", "maxLength": 60, "description": "Subtitle or tagline on splash" },
+        "cta":               { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text on end screen" },
+        "correctMessage":    { "type": "string", "maxLength": 20, "description": "Feedback text shown on correct answer" },
+        "incorrectMessage":  { "type": "string", "maxLength": 20, "description": "Feedback text shown on incorrect answer" },
+        "resultMessages":    { "type": "array", "maxItems": 4, "description": "Result messages by score tier (low to high, index 0..3)" },
+        "playAgain":         { "type": "string", "maxLength": 15, "description": "Play again link text" },
+        "questionLabel":     { "type": "string", "maxLength": 10, "description": "Label prefix for question counter (e.g., 'Q')" },
+        "tapToStart":        { "type": "string", "maxLength": 20, "description": "Splash prompt text" },
+        "scoreLabel":        { "type": "string", "maxLength": 15, "description": "Label above score on end screen" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "questionCount":   { "type": "number", "required": true, "min": 3, "max": 10, "description": "Number of questions to play (trims questions array)" },
+        "timePerQuestion": { "type": "number", "required": true, "min": 5, "max": 30, "description": "Seconds allotted per question" },
+        "pointsPerCorrect":{ "type": "number", "required": true, "min": 10, "max": 500, "description": "Base points for a correct answer" },
+        "bonusForSpeed":   { "type": "number", "min": 0, "max": 500, "description": "Max bonus points for answering quickly (scales with time remaining)" },
+        "revealDelay":     { "type": "number", "min": 600, "max": 3000, "description": "ms to show answer feedback before next question" }
+      }
+    },
+    "questions": {
+      "description": "Array of quiz questions. The AI generates brand-relevant questions.",
+      "type": "array",
+      "required": true,
+      "minItems": 3,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "properties": {
+          "question":     { "type": "string", "required": true, "maxLength": 140, "description": "The question text" },
+          "options":      { "type": "array", "required": true, "minItems": 2, "maxItems": 4, "description": "Answer options (2-4)" },
+          "correctIndex": { "type": "number", "required": true, "min": 0, "max": 3, "description": "Zero-based index of the correct option" }
+        }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "logo": { "type": "string", "description": "Asset key for brand logo on splash/end screen" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" }
+      }
+    }
+  }
+}

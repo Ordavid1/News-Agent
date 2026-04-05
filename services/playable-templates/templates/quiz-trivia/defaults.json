@@ -1,0 +1,69 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC",
+    "correct": "#10B981",
+    "incorrect": "#EF4444"
+  },
+  "texts": {
+    "title": "Test Your Knowledge!",
+    "subtitle": "How well do you know the brand?",
+    "cta": "Learn More",
+    "correctMessage": "Correct!",
+    "incorrectMessage": "Not quite!",
+    "resultMessages": [
+      "Keep exploring!",
+      "Nice effort!",
+      "Well done!",
+      "Brand expert!"
+    ],
+    "playAgain": "Play Again",
+    "questionLabel": "Q",
+    "tapToStart": "Tap to Start",
+    "scoreLabel": "Score"
+  },
+  "gameplay": {
+    "questionCount": 5,
+    "timePerQuestion": 12,
+    "pointsPerCorrect": 100,
+    "bonusForSpeed": 50,
+    "revealDelay": 1400
+  },
+  "questions": [
+    {
+      "question": "What makes our brand unique?",
+      "options": ["Quality", "Speed", "Innovation", "Style"],
+      "correctIndex": 2
+    },
+    {
+      "question": "Which value do we prioritize most?",
+      "options": ["Customers", "Profits", "Trends", "Tradition"],
+      "correctIndex": 0
+    },
+    {
+      "question": "What year was our company founded?",
+      "options": ["1998", "2005", "2012", "2018"],
+      "correctIndex": 1
+    },
+    {
+      "question": "Where are we headquartered?",
+      "options": ["New York", "London", "Tokyo", "San Francisco"],
+      "correctIndex": 3
+    },
+    {
+      "question": "What is our flagship product known for?",
+      "options": ["Durability", "Design", "Price", "Simplicity"],
+      "correctIndex": 1
+    }
+  ],
+  "assets": {
+    "logo": "logo_0"
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}

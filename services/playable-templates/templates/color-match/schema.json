@@ -1,0 +1,72 @@
+{
+  "templateName": "Color Match Memory",
+  "description": "A memory card matching game using the brand's color palette. Players flip face-down cards to find matching color pairs before time runs out. Premium card design with smooth 3D flip animations.",
+  "sections": {
+    "colors": {
+      "description": "Brand color palette for all visuals",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "primary":    { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Main brand color for UI, card backs, and accents" },
+        "secondary":  { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Text and secondary UI elements" },
+        "accent":     { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Highlights, sparkles, match feedback" },
+        "background": { "type": "string", "required": true, "pattern": "^#[0-9A-Fa-f]{6}$", "description": "Scene background base color" }
+      }
+    },
+    "texts": {
+      "description": "All user-facing text strings",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "title":          { "type": "string", "required": true, "maxLength": 30, "description": "Game title on splash screen" },
+        "subtitle":       { "type": "string", "maxLength": 50, "description": "Subtitle or tagline on splash screen" },
+        "cta":            { "type": "string", "required": true, "maxLength": 20, "description": "CTA button text on end screen" },
+        "scoreLabel":     { "type": "string", "maxLength": 15, "description": "Label above score number" },
+        "matchMessage":   { "type": "array", "maxItems": 5, "description": "Random messages shown on successful match" },
+        "noMatchMessage": { "type": "string", "maxLength": 20, "description": "Brief message on mismatch" },
+        "winMessage":     { "type": "string", "maxLength": 30, "description": "Headline when all pairs matched" },
+        "timeUpMessage":  { "type": "string", "maxLength": 30, "description": "Headline when time runs out" },
+        "playAgain":      { "type": "string", "maxLength": 15, "description": "Play again button text" }
+      }
+    },
+    "gameplay": {
+      "description": "Core gameplay tuning parameters",
+      "type": "object",
+      "required": true,
+      "properties": {
+        "duration":          { "type": "number", "required": true, "min": 20, "max": 180, "description": "Game duration in seconds" },
+        "gridCols":          { "type": "number", "min": 2, "max": 6, "description": "Number of columns in the card grid" },
+        "gridRows":          { "type": "number", "min": 2, "max": 6, "description": "Number of rows in the card grid" },
+        "pointsPerMatch":    { "type": "number", "min": 1, "max": 100, "description": "Points awarded per matched pair" },
+        "flipBackDelay":     { "type": "number", "min": 200, "max": 3000, "description": "Milliseconds to show mismatched cards before flipping back" },
+        "bonusTimePerMatch": { "type": "number", "min": 0, "max": 10, "description": "Bonus seconds added per successful match (0 = disabled)" }
+      }
+    },
+    "assets": {
+      "description": "Mapping of brand assets to game roles",
+      "type": "object",
+      "properties": {
+        "logo":     { "type": "string", "description": "Asset key for brand logo on splash/end screen" },
+        "cardBack": { "type": "string", "description": "Asset key for card back image (overrides default pattern)" }
+      }
+    },
+    "difficulty": {
+      "description": "Difficulty parameters",
+      "type": "object",
+      "properties": {
+        "previewDuration":  { "type": "number", "min": 0, "max": 5000, "description": "ms to briefly reveal all cards at game start (0 = disabled)" },
+        "maxSimultaneous":  { "type": "number", "min": 2, "max": 2, "description": "Max cards that can be flipped at once (always 2)" },
+        "penaltyOnMiss":    { "type": "number", "min": 0, "max": 50, "description": "Points deducted on mismatch (0 = no penalty)" }
+      }
+    },
+    "theme": {
+      "description": "Visual theme options",
+      "type": "object",
+      "properties": {
+        "backgroundStyle":  { "type": "string", "enum": ["gradient_shift", "floating_shapes", "parallax", "solid"], "description": "Background animation style" },
+        "particleDensity":  { "type": "string", "enum": ["low", "medium", "high"], "description": "Ambient particle density" },
+        "transitionStyle":  { "type": "string", "enum": ["cinematic_fade", "wipe", "zoom", "flash"], "description": "Scene transition style" }
+      }
+    }
+  }
+}

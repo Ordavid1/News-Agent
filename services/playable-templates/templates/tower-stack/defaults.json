@@ -1,0 +1,41 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Stack the Tower!",
+    "subtitle": "Tap to drop — don't miss!",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "heightLabel": "Height",
+    "perfectMessage": "PERFECT!",
+    "gameOver": "Tower Fell!",
+    "encouragement": ["Nice!", "Solid!", "Rising!", "Skyscraper!", "Legendary!"],
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "blockWidth": 220,
+    "blockHeight": 44,
+    "initialSpeed": 260,
+    "maxSpeed": 520,
+    "perfectThreshold": 3,
+    "pointsPerBlock": 10,
+    "perfectBonus": 25
+  },
+  "assets": {
+    "logo": "logo_0"
+  },
+  "difficulty": {
+    "speedIncrease": 12,
+    "speedIncreaseInterval": 3
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade",
+    "blockStyle": "rounded"
+  }
+}

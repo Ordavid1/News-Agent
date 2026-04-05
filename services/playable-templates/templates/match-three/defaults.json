@@ -1,0 +1,39 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Match 3 to Win!",
+    "subtitle": "Swap gems to match 3 or more",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "targetLabel": "Target",
+    "comboMessage": "Combo x{x}!",
+    "winMessage": "You Won!",
+    "loseMessage": "So Close!",
+    "encouragement": ["Nice!", "Sweet!", "Amazing!", "Combo!", "Wow!"],
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "gridCols": 6,
+    "gridRows": 6,
+    "gemTypes": 5,
+    "duration": 60,
+    "targetScore": 1000,
+    "pointsPer3": 30,
+    "pointsPer4": 60,
+    "pointsPer5": 120,
+    "comboMultiplier": 1.5
+  },
+  "assets": {
+    "logo": "logo_0"
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}

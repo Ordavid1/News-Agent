@@ -1,0 +1,41 @@
+{
+  "colors": {
+    "primary": "#6366F1",
+    "secondary": "#1E293B",
+    "accent": "#F59E0B",
+    "background": "#F8FAFC"
+  },
+  "texts": {
+    "title": "Color Match!",
+    "subtitle": "Find the matching pairs",
+    "cta": "Learn More",
+    "scoreLabel": "Score",
+    "matchMessage": ["Nice!", "Great!", "Perfect!", "Brilliant!", "Spot On!"],
+    "noMatchMessage": "Try Again",
+    "winMessage": "You Did It!",
+    "timeUpMessage": "Time's Up!",
+    "playAgain": "Play Again"
+  },
+  "gameplay": {
+    "duration": 60,
+    "gridCols": 4,
+    "gridRows": 3,
+    "pointsPerMatch": 20,
+    "flipBackDelay": 800,
+    "bonusTimePerMatch": 2
+  },
+  "assets": {
+    "logo": "logo_0",
+    "cardBack": ""
+  },
+  "difficulty": {
+    "previewDuration": 1500,
+    "maxSimultaneous": 2,
+    "penaltyOnMiss": 0
+  },
+  "theme": {
+    "backgroundStyle": "gradient_shift",
+    "particleDensity": "medium",
+    "transitionStyle": "cinematic_fade"
+  }
+}
