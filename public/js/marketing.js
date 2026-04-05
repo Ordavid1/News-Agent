@@ -100,6 +100,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('input[name="budgetType"]').forEach(radio => {
         radio.addEventListener('change', updateBoostCostSummary);
     });
+
+    // Mount Ad Accounts selector into the initially-active sub-tab's title row
+    const initialContent = document.querySelector('.mkt-tab-content:not(.hidden)');
+    if (initialContent) mountAdAccountsInActiveTitleRow(initialContent);
 });
 
 // ============================================
@@ -646,6 +650,52 @@ document.addEventListener('click', (e) => {
 // TAB NAVIGATION
 // ============================================
 
+// Moves the Ad Accounts dropdown into the active sub-tab's title row (rightmost action).
+// Falls back to leaving it in its default container if no title row is found.
+function mountAdAccountsInActiveTitleRow(activeContent) {
+    const wrapper = document.getElementById('adAccountDropdownWrapper');
+    if (!wrapper || !activeContent) return;
+
+    // Each sub-tab's title row is the first direct-child flex row with justify-between.
+    const titleRow = activeContent.querySelector(':scope > div.flex.justify-between, :scope > div.sm\\:justify-between, :scope > div[class*="justify-between"]');
+    if (!titleRow) return;
+
+    // Ensure wrapper sits inline within the title row's right-aligned action group
+    wrapper.classList.remove('absolute', 'top-0', 'right-0', 'z-10');
+    wrapper.classList.add('relative', 'flex-shrink-0');
+
+    // Locate or create an action group (flex container) on the right side of the title row,
+    // then append Ad Accounts as its rightmost child.
+    const directChildren = Array.from(titleRow.children).filter(el => el !== wrapper);
+    let actionGroup = null;
+    if (directChildren.length >= 2) {
+        const last = directChildren[directChildren.length - 1];
+        // An action group must be a DIV container (not a button/link with flex layout classes)
+        if (last && last.tagName === 'DIV' && last.classList.contains('flex')) {
+            // Existing flex action group — reuse it
+            actionGroup = last;
+        } else {
+            // Wrap the last child (single button/element) + Ad Accounts in a new flex group
+            // Reuse a previously-created wrapper if present
+            const existing = titleRow.querySelector(':scope > [data-ad-account-action-group="1"]');
+            if (existing) {
+                actionGroup = existing;
+            } else {
+                actionGroup = document.createElement('div');
+                actionGroup.className = 'flex items-center gap-2 flex-shrink-0';
+                actionGroup.setAttribute('data-ad-account-action-group', '1');
+                titleRow.insertBefore(actionGroup, last);
+                actionGroup.appendChild(last);
+            }
+        }
+    }
+    if (actionGroup) {
+        actionGroup.appendChild(wrapper);
+    } else {
+        titleRow.appendChild(wrapper);
+    }
+}
+
 function showMarketingTab(tabName) {
     // Scoped to marketing sub-tabs only (uses mkt- prefixed classes)
     document.querySelectorAll('.mkt-tab-content').forEach(content => {
@@ -663,6 +713,9 @@ function showMarketingTab(tabName) {
     // Add active class to selected tab
     const selectedTab = document.getElementById(`mkt-tab-${tabName}`);
     if (selectedTab) selectedTab.classList.add('tab-active');
+
+    // Relocate Ad Accounts selector into the active tab's title row as the rightmost action
+    mountAdAccountsInActiveTitleRow(selectedContent);
 
     // Zero-trust: if no ad account selected, don't load data.
     // The adAccountBanner (shown by loadAdAccounts) handles the prompt.
