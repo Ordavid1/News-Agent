@@ -576,25 +576,24 @@ class VideoGenerationService {
       aspectRatio = '9:16'
     } = options;
 
-    // Veo 3.1 Standard (Preview) — supports lastFrame + cameraControl.
-    // GA version (veo-3.1-generate-001) may not support lastFrame yet.
-    const modelId = 'veo-3.1-generate-preview';
+    // Veo 3.1 Standard (GA) — supports lastFrame + cameraControl.
+    const modelId = 'veo-3.1-generate-001';
     const endpoint = `https://${this.gcpLocation}-aiplatform.googleapis.com/v1/projects/${this.gcpProjectId}/locations/${this.gcpLocation}/publishers/google/models/${modelId}:predictLongRunning`;
 
-    // Download + base64-encode first frame (convert WebP→JPEG if needed — Veo only accepts JPEG/PNG)
-    logger.info(`Veo 3.1 Standard: downloading first frame...`);
-    const firstImage = await this._downloadImageAsJpegForVeo(firstImageUrl);
+    // Build instance — supports first-frame, text-only, or both first+last frame
+    const instance = { prompt };
 
-    // Build instance
-    const instance = {
-      prompt,
-      image: { bytesBase64Encoded: firstImage.base64, mimeType: firstImage.mimeType }
-    };
+    if (firstImageUrl) {
+      logger.info(`Veo 3.1 Standard: downloading first frame...`);
+      const firstImage = await this._downloadImageAsJpegForVeo(firstImageUrl);
+      instance.image = { bytesBase64Encoded: firstImage.base64, mimeType: firstImage.mimeType };
+    } else {
+      logger.info(`Veo 3.1 Standard: text-only mode (no first frame)`);
+    }
 
     // Veo constraint: lastFrame + cameraControl CANNOT be combined.
-    // When we have lastFrame (shots 1-2), the model interpolates motion naturally between panels.
-    // When we DON'T have lastFrame (shot 3, the final shot), cameraControl can guide the motion.
-    if (lastImageUrl) {
+    // lastFrame only valid when image (first frame) is provided.
+    if (lastImageUrl && instance.image) {
       logger.info(`Veo 3.1 Standard: downloading last frame...`);
       const lastImage = await this._downloadImageAsJpegForVeo(lastImageUrl);
       instance.lastFrame = { bytesBase64Encoded: lastImage.base64, mimeType: lastImage.mimeType };

@@ -2690,7 +2690,7 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         shot.mood ? `Mood: ${shot.mood}` : ''
       ].filter(Boolean).join('. ');
       const prompt = `${condensedStyle}. ${shotContent}`.slice(0, 512);
-      return { prompt, duration: Math.min(Math.max(shot.duration_seconds || 5, 3), 15) };
+      return { prompt, duration: 15 }; // Max out Kling shot duration (15s per shot)
     });
 
     logger.info(`Kling multi-shot: ${multiPrompt.length} shots, ${refs.length} refs, start frame: ${startImageUrl.slice(0, 60)}...`);
@@ -2746,17 +2746,52 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       // Map camera notes to Veo's cameraControl enum
       const cameraControl = VideoGenerationService.mapCameraControl(shot.camera_notes);
 
-      const duration = Math.min(Math.max(shot.duration_seconds || 6, 4), 8);
+      // Veo image-to-video only supports 4, 6, or 8 seconds — always use max (8s)
+      const duration = 8;
 
       logger.info(`Veo fallback shot ${i + 1}/${shots.length}: first_frame=${firstImageUrl ? 'yes' : 'no'}, last_frame=${lastImageUrl ? 'yes' : 'no'}, camera=${cameraControl || 'auto'}, ${duration}s`);
 
-      const result = await videoGenerationService.generateWithFirstLastFrame({
-        firstImageUrl,
-        lastImageUrl,
-        prompt,
-        cameraControl,
-        options: { durationSeconds: duration, aspectRatio: '9:16' }
-      });
+      let result;
+      try {
+        result = await videoGenerationService.generateWithFirstLastFrame({
+          firstImageUrl,
+          lastImageUrl,
+          prompt,
+          cameraControl,
+          options: { durationSeconds: duration, aspectRatio: '9:16' }
+        });
+      } catch (shotErr) {
+        // If content filter rejects the image, retry without lastFrame
+        // (the flagged image might be the lastFrame panel)
+        if (shotErr.message?.includes('usage guidelines') || shotErr.message?.includes('content filter') || shotErr.isContentFilter) {
+          logger.warn(`Veo shot ${i + 1} content-filtered — retrying without lastFrame...`);
+          try {
+            result = await videoGenerationService.generateWithFirstLastFrame({
+              firstImageUrl,
+              lastImageUrl: null, // drop lastFrame
+              prompt,
+              cameraControl,
+              options: { durationSeconds: duration, aspectRatio: '9:16' }
+            });
+          } catch (retryErr) {
+            // If firstFrame is also flagged, try with just prompt (text-to-video)
+            if (retryErr.message?.includes('usage guidelines') || retryErr.isContentFilter) {
+              logger.warn(`Veo shot ${i + 1} firstFrame also filtered — falling back to text-only...`);
+              result = await videoGenerationService.generateWithFirstLastFrame({
+                firstImageUrl: null,
+                lastImageUrl: null,
+                prompt,
+                cameraControl: null,
+                options: { durationSeconds: duration, aspectRatio: '9:16' }
+              });
+            } else {
+              throw retryErr;
+            }
+          }
+        } else {
+          throw shotErr;
+        }
+      }
 
       generatedShots.push({
         index: i,
