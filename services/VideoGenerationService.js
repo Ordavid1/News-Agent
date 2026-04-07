@@ -591,20 +591,14 @@ class VideoGenerationService {
       logger.info(`Veo 3.1 Standard: text-only mode (no first frame)`);
     }
 
-    // Veo constraint: lastFrame + cameraControl CANNOT be combined.
-    // lastFrame only valid when image (first frame) is provided.
+    // Add lastFrame if provided (only valid when image/first frame is also provided)
     if (lastImageUrl && instance.image) {
       logger.info(`Veo 3.1 Standard: downloading last frame...`);
       const lastImage = await this._downloadImageAsJpegForVeo(lastImageUrl);
       instance.lastFrame = { bytesBase64Encoded: lastImage.base64, mimeType: lastImage.mimeType };
-      // cameraControl intentionally omitted — incompatible with lastFrame
-      if (cameraControl) {
-        logger.info(`Veo 3.1 Standard: dropping cameraControl=${cameraControl} (incompatible with lastFrame)`);
-      }
-    } else if (cameraControl) {
-      // No lastFrame — safe to use cameraControl
-      instance.cameraControl = cameraControl;
     }
+    // NOTE: cameraControl is NOT supported by veo-3.1-generate-001 on Vertex AI.
+    // Camera motion is driven by the prompt text instead (e.g. "slow push-in" in the prompt).
 
     const parameters = {
       aspectRatio,
