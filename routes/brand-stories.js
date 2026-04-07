@@ -276,6 +276,32 @@ router.get('/subjects/brand-kit', async (req, res) => {
 });
 
 /**
+ * POST /api/brand-stories/personas/auto-generate
+ * Auto-generate persona(s) from Brand Kit context.
+ * Uses Gemini to design the character, Flux 2 Max to generate a portrait.
+ * Body: { brand_kit_job_id, count: 1-3, story_focus }
+ */
+router.post('/personas/auto-generate', csrfProtection, async (req, res) => {
+  try {
+    const { brand_kit_job_id, count = 1, story_focus = 'product' } = req.body;
+    if (!brand_kit_job_id) {
+      return res.status(400).json({ success: false, error: 'brand_kit_job_id is required' });
+    }
+
+    const personas = await brandStoryService.generatePersonaFromBrandKit(
+      brand_kit_job_id,
+      req.user.id,
+      { count: Math.min(Math.max(count, 1), 3), storyFocus: story_focus }
+    );
+
+    res.json({ success: true, personas });
+  } catch (error) {
+    logger.error('Error auto-generating persona:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate persona' });
+  }
+});
+
+/**
  * POST /api/brand-stories/personas/upload
  * Upload face photos for a persona (uploaded persona type).
  * Accepts multipart form-data with "images" field (1-5 photos).
@@ -465,20 +491,21 @@ router.post('/', csrfProtection, async (req, res) => {
       });
     }
 
-    if (!['described', 'selected', 'uploaded', 'brand_kit'].includes(persona_type)) {
+    if (!['described', 'selected', 'uploaded', 'brand_kit', 'brand_kit_auto'].includes(persona_type)) {
       return res.status(400).json({
         success: false,
-        error: 'persona_type must be described, selected, uploaded, or brand_kit'
+        error: 'persona_type must be described, selected, uploaded, brand_kit, or brand_kit_auto'
       });
     }
 
-    // Enforce focus↔persona_type mapping — prevents invalid combinations.
+    // Enforce focus↔persona_type mapping.
+    // V3 cinematic pipeline allows all persona types for all focuses.
     const allowedByFocus = {
-      person:    ['uploaded', 'brand_kit'],
-      product:   ['selected'],
-      landscape: ['selected']
+      person:    ['described', 'selected', 'uploaded', 'brand_kit', 'brand_kit_auto'],
+      product:   ['described', 'selected', 'uploaded', 'brand_kit', 'brand_kit_auto'],
+      landscape: ['described', 'selected', 'uploaded', 'brand_kit', 'brand_kit_auto']
     };
-    if (!allowedByFocus[story_focus].includes(persona_type)) {
+    if (!(allowedByFocus[story_focus] || allowedByFocus.product).includes(persona_type)) {
       return res.status(400).json({
         success: false,
         error: `persona_type "${persona_type}" is not valid for story_focus "${story_focus}"`
@@ -660,6 +687,12 @@ router.delete('/:id/episodes/:episodeId', csrfProtection, async (req, res) => {
       logger.error('Error deleting episode:', error);
       return res.status(500).json({ success: false, error: 'Failed to delete episode' });
     }
+
+    // Update total_episodes count on the story to stay in sync
+    const remainingEpisodes = await getBrandStoryEpisodes(req.params.id, req.user.id);
+    await updateBrandStory(req.params.id, req.user.id, {
+      total_episodes: remainingEpisodes.length
+    });
 
     res.json({ success: true });
   } catch (error) {

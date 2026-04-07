@@ -1,0 +1,65 @@
+# Capability: Audio & Speech for Video Production
+
+name: Audio & Speech
+description: >
+  Audio generation capabilities for video production including text-to-speech (TTS),
+  lip-sync, voice cloning, sound effects, and audio-video synchronization.
+
+subcapabilities:
+
+  - name: Text-to-Speech (TTS)
+    description: "Convert text scripts into natural-sounding voiceover audio"
+    recommended_models:
+      - id: elevenlabs-v3
+        provider: ElevenLabs
+        endpoint: "fal-ai/elevenlabs/tts/eleven-v3 (on fal.ai)"
+        notes: "Industry-leading naturalness, voice cloning, 29+ languages"
+      - id: heygen-tts
+        provider: HeyGen
+        notes: "175+ languages, integrated with avatar platform"
+    used_in_workflows:
+      - "fal.ai Documentary (narration)"
+      - "n8n Automated Video (voiceover)"
+
+  - name: Lip-Sync / Talking Head
+    description: "Animate a portrait to speak with synchronized lip movements"
+    recommended_models:
+      - id: omnihuman-1.5
+        provider: ByteDance
+        notes: "Best lip-sync + natural gestures from single photo"
+        vendor_docs: "https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman1_5overview"
+      - id: heygen-avatar
+        provider: HeyGen
+        notes: "Professional avatars, enterprise-grade"
+        vendor_docs: "https://docs.heygen.com/"
+      - id: runway-add-dialogue
+        provider: Runway
+        notes: "Integrated into Runway — turn portraits into talking characters"
+        vendor_docs: "https://docs.dev.runwayml.com/"
+    used_in_workflows:
+      - "HeyGen enterprise content"
+      - "Runway Add Dialogue feature"
+
+  - name: Native Video Audio
+    description: "Generate synchronized audio (dialogue, SFX, ambient) directly with video"
+    recommended_models:
+      - id: veo-3.1
+        provider: Google DeepMind
+        notes: "Only model with native audio generation in video"
+
+  - name: Voice Cloning
+    description: "Clone a specific voice for consistent brand narration"
+    recommended_models:
+      - id: elevenlabs-voice-clone
+        provider: ElevenLabs
+        notes: "Professional voice cloning from short samples"
+      - id: heygen-voice-clone
+        provider: HeyGen
+        notes: "Integrated with avatar system"
+
+  - name: Audio-Video Sync
+    description: "Synchronize separate audio track with generated video"
+    tools:
+      - "fal-ai/ffmpeg-api/merge-audio-video"
+      - "LTX Studio Audio-to-Video feature"
+      - "Creatomate (template-based assembly)"

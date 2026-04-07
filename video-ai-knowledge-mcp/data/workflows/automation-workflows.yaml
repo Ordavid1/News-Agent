@@ -1,0 +1,169 @@
+# Automation & End-to-End Video Production Workflows
+# Sources: n8n.io, LTX Studio blog
+
+# ─── n8n: Fully Automated AI Video Generation + Multi-Platform Publishing ────
+
+- name: "n8n: Automated Short-Form Video Generation & Publishing"
+  source: custom
+  platform: n8n (workflow automation)
+  description: >
+    Fully automated pipeline from Google Sheets ideas → AI-generated short-form videos →
+    multi-platform publishing. Uses OpenAI for scripting, Flux for images via PiAPI,
+    Kling for video via PiAPI, ElevenLabs for voiceover, Creatomate for assembly,
+    and upload-post.com for multi-platform distribution.
+  category: automated-production
+  estimated_cost: "$2.80 per video (approx.)"
+  complexity: advanced
+  reference_url: "https://n8n.io/workflows/3442"
+
+  steps:
+    - name: "1. Idea Input (Google Sheets)"
+      type: input
+      model: null
+      description: "Video ideas stored in Google Sheets. Each row = one video concept."
+      cost: "free"
+
+    - name: "2. Caption Generation (OpenAI)"
+      type: llm-processing
+      model: OpenAI GPT-4
+      description: "Generates 5 Flux image prompts based on captions from the video idea."
+      cost: "$0.0035"
+
+    - name: "3. Image Generation (Flux via PiAPI)"
+      type: image-generation
+      model: Flux (via PiAPI)
+      description: >
+        Generates images from each prompt using Flux through PiAPI API.
+        Model can be changed by editing the API call.
+      cost: "$0.0948 (5 images)"
+
+    - name: "4. Video Generation (Kling via PiAPI)"
+      type: video-generation
+      model: Kling (via PiAPI)
+      description: >
+        Image-to-video with Kling. Pro mode: $0.46/5s, Standard: $0.26/5s.
+        5 videos generated from 5 images.
+      cost: "$2.30 (5 videos, Pro mode)"
+
+    - name: "5. Script Generation (OpenAI)"
+      type: llm-processing
+      model: OpenAI GPT-4
+      description: "Generates a funny/engaging script that relates to the video captions."
+
+    - name: "6. Voiceover Generation (ElevenLabs)"
+      type: audio-generation
+      model: ElevenLabs TTS
+      description: >
+        Generates voiceover from script. Audio uploaded to Google Drive for access
+        in next step. Voice can be customized with ElevenLabs voice ID.
+      cost: "varies by plan"
+
+    - name: "7. Video Assembly (Creatomate)"
+      type: video-assembly
+      model: Creatomate
+      description: >
+        Combines videos, captions, and voiceover using a Creatomate template.
+        Template defines layout, captions overlay, audio sync.
+        Final video uploaded to Google Drive.
+      cost: "$0.38"
+
+    - name: "8. Multi-Platform Publishing (upload-post.com)"
+      type: distribution
+      model: null
+      description: >
+        Publishes final video to multiple platforms simultaneously:
+        TikTok, Instagram, YouTube, Facebook. Uses upload-post.com API
+        with per-platform description generation (OpenAI extracts audio
+        transcription for platform-optimized descriptions).
+      platforms:
+        - TikTok
+        - Instagram
+        - YouTube
+        - Facebook
+        - Discord (webhook notification)
+
+  required_api_keys:
+    - "OpenAI API Key"
+    - "PiAPI Key (for Flux + Kling)"
+    - "ElevenLabs API Key"
+    - "Creatomate API Key"
+    - "Google Drive connection"
+    - "upload-post.com tokens (per platform)"
+
+  key_techniques:
+    - "Google Sheets as idea database/trigger"
+    - "PiAPI as unified API for multiple AI models"
+    - "Template-based assembly with Creatomate"
+    - "Auto-generated platform-specific descriptions"
+    - "Discord webhook for completion notifications"
+    - "Cost tracking per generation step"
+
+---
+
+# ─── LTX Studio: AI Video Workflow ──────────────────────────────────────────
+
+- name: "LTX Studio: Full AI Video Production Workflow"
+  source: custom
+  platform: LTX Studio
+  description: >
+    Six-stage AI video production workflow within LTX Studio's integrated platform.
+    Covers visual development → storyboarding → video generation → audio → editing → delivery.
+    Multi-model access allows choosing the best model per shot. Reports 5-10x content
+    production increase with same resources.
+  category: studio-production
+  estimated_cost: "subscription-based (LTX Studio plans)"
+  complexity: intermediate
+  reference_url: "https://ltx.studio/blog/ai-video-workflow"
+
+  steps:
+    - name: "1. Visual Development (Gen Space)"
+      type: image-generation
+      model: "FLUX.2 Pro / Nano Banana 2 / Z-Image"
+      description: >
+        Create images and reusable assets ('Elements') in Gen Space.
+        Elements can be reused across projects for brand consistency.
+
+    - name: "2. AI Storyboarding"
+      type: storyboarding
+      model: LTX AI Storyboard
+      description: "AI-assisted storyboard creation from text or image inputs"
+
+    - name: "3. Video Generation (Multi-Model)"
+      type: video-generation
+      model: "LTX-2.3 / Kling 3.0 Pro / Veo 3.1 / Motion Control (Kling 2.6)"
+      description: >
+        Choose the best model per shot. LTX-2.3 for speed, Kling 3.0 Pro for quality,
+        Veo 3.1 for audio-integrated shots, Motion Control for camera precision.
+
+    - name: "4. Audio Integration"
+      type: audio-generation
+      model: "Audio-to-Video sync / ElevenLabs"
+      description: "Synchronize voiceover and music with generated video"
+
+    - name: "5. Timeline Editing"
+      type: editing
+      model: LTX Timeline Editor
+      description: >
+        Sequence clips, evaluate continuity, add transitions.
+        Can also export to Premiere Pro or DaVinci Resolve for advanced editing.
+
+    - name: "6. Export & Delivery"
+      type: delivery
+      model: null
+      description: >
+        Pitch deck generator for stakeholder presentations.
+        Multi-language versioning from single production session.
+        Direct export to distribution channels.
+
+  key_techniques:
+    - "Multi-model access in single workspace"
+    - "Reusable Elements for brand consistency"
+    - "Audio-to-Video synchronization"
+    - "Integrated pitch deck generation"
+    - "Multi-language versioning"
+    - "Seamless transition to professional NLE (Premiere/DaVinci)"
+
+  statistics:
+    - "Teams report 5-10x more content with same resources"
+    - "Average creators now use 3.4 tools (up from 1.2)"
+    - "Bottleneck shifts from production capacity to decision-making speed"

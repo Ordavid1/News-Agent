@@ -1,0 +1,236 @@
+# Runway Workflow: Storyboard to Film
+# Source: https://app.runwayml.com/video-tools/workflows (featured-workflow-id=661)
+
+name: Storyboard to Film
+source: runway
+platform: Runway Workflows
+description: >
+  Transforms a story input (logline, synopsis, or script) into a cohesive multi-shot film.
+  Uses LLM to create an 8-shot storyboard with character sheets, generates images for each shot,
+  then produces video for each panel with consistent characters and style.
+category: narrative-production
+estimated_cost: "~200-400 credits on Runway"
+complexity: advanced
+
+steps:
+  - name: Story Input
+    type: input
+    model: null
+    description: "User provides logline (1-3 sentences), synopsis (1-3 paragraphs), or full script"
+
+  - name: Storyboard System Prompt (LLM)
+    type: llm-processing
+    model: Runway Built-in LLM
+    description: >
+      AI storyboard architect transforms input into 8-shot visual sequence with narrative arc.
+      Detects input type and structures: Logline → Setup(2) + Journey(4) + Resolution(2).
+      Extracts brand elements, key props, setting anchors, and visual motifs.
+      Preserves screenplay shot types (WIDE, CU, OTS, POV) and camera movements (PAN, DOLLY, CRANE).
+    output: "JSON with 8 shot descriptions + character sheet (ID:1)"
+
+  - name: Character Sheet Generation
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates character reference sheet from shot ID:1 description for consistency"
+
+  - name: Shot Image Generation (×8)
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates key frame image for each of the 8 shots using character reference"
+
+  - name: Video Generation (×8)
+    type: video-generation
+    model: Runway Gen 4.5
+    description: "Converts each shot image into 5-10s video clip with specified camera movement"
+
+  - name: Video Assembly
+    type: concatenation
+    model: null
+    description: "Sequences all 8 clips into final film with transitions"
+
+key_techniques:
+  - "8-shot narrative structure with clear arc"
+  - "Character sheet ensures visual consistency"
+  - "Shot type variety (wide, medium, close-up, aerial)"
+  - "Camera direction extraction from screenplay notation"
+  - "Brand element priority tracking across shots"
+  - "Transition hints between consecutive shots"
+
+prompt_architecture:
+  system_prompt_role: "Storyboard architect"
+  output_format: "Structured JSON per shot"
+  shot_structure:
+    - id: "Sequential number (1=character sheet)"
+    - description: "Rich visual description"
+    - shot_type: "WIDE/MEDIUM/CU/AERIAL/etc."
+    - camera_movement: "PAN/DOLLY/CRANE/TRACKING/etc."
+    - lighting: "Time of day, mood, color temperature"
+    - action: "Character and scene dynamics"
+    - transition: "How this shot connects to next"
+
+---
+
+# Runway Workflow: Seamless Transitions
+# Source: featured-workflow-id=364
+
+name: Seamless Transitions
+source: runway
+platform: Runway Workflows
+description: >
+  Creates a multi-scene video with seamless visual transitions between shots.
+  Each scene flows naturally into the next through careful end-frame/start-frame matching.
+  Uses parallel processing tracks for different scene elements.
+category: transitions-effects
+estimated_cost: "~150-300 credits"
+complexity: advanced
+
+steps:
+  - name: Scene Planning (LLM)
+    type: llm-processing
+    model: Runway Built-in LLM
+    description: "Plans multiple scenes with transition points described in detail"
+
+  - name: Scene Image Generation (×N)
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates key frames for each scene"
+
+  - name: Transition Frame Generation
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates intermediate frames that bridge between scenes"
+
+  - name: Video Generation per Scene
+    type: video-generation
+    model: Runway Gen 4.5
+    description: "Each scene generated with end-frame matching next scene's start"
+
+  - name: Assembly with Transitions
+    type: concatenation
+    model: null
+    description: "Final assembly with seamless cross-scene transitions"
+
+key_techniques:
+  - "End-frame of scene N matches start-frame of scene N+1"
+  - "Parallel processing tracks (green=images, blue=transitions, pink=compositing)"
+  - "Multiple LLM nodes for scene description refinement"
+
+---
+
+# Runway Workflow: Story Panels
+# Source: featured-workflow-id=529
+
+name: Story Panels
+source: runway
+platform: Runway Workflows
+description: >
+  Generates a series of story panel images from a narrative input. Creates
+  consistent visual panels suitable for storyboarding, comic-style presentations,
+  or pre-visualization of video productions.
+category: storyboarding
+estimated_cost: "~50-100 credits"
+complexity: intermediate
+
+steps:
+  - name: Narrative Input
+    type: input
+    model: null
+    description: "Story text, concept, or script"
+
+  - name: Panel Planning (LLM)
+    type: llm-processing
+    model: Runway Built-in LLM
+    description: "Breaks narrative into visual panel descriptions"
+
+  - name: Panel Generation (×N)
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates each panel with consistent style and characters"
+
+key_techniques:
+  - "Consistent character appearance across panels"
+  - "Sequential visual storytelling"
+  - "Style consistency through shared prompts"
+
+---
+
+# Runway Workflow: Video to Video - Style Transfer
+# Source: featured-workflow-id=199
+
+name: Video to Video - Style Transfer
+source: runway
+platform: Runway Workflows
+description: >
+  Takes an existing video and transforms its visual style while preserving motion,
+  structure, and composition. Uses reference images for target style definition
+  and LLM for style description generation.
+category: style-transfer
+estimated_cost: "~100-200 credits"
+complexity: intermediate
+
+steps:
+  - name: Source Video Input
+    type: input
+    model: null
+    description: "Original video to restyle"
+
+  - name: Style Reference Input
+    type: input
+    model: null
+    description: "Image(s) defining target visual style"
+
+  - name: Style Description (LLM)
+    type: llm-processing
+    model: Runway Built-in LLM
+    description: "Analyzes style reference and generates detailed style prompt"
+
+  - name: Video-to-Video Generation
+    type: video-generation
+    model: Runway Gen 4.5
+    description: "Generates restyled video preserving original motion"
+
+key_techniques:
+  - "Style reference image analysis via LLM"
+  - "Motion preservation during style transfer"
+  - "Multi-pass refinement for consistent style"
+
+---
+
+# Runway Workflow: B Roll Generator
+# Source: featured-workflow-id=694
+
+name: B Roll Generator
+source: runway
+platform: Runway Workflows
+description: >
+  Generates cinematic B-roll footage from text descriptions. Ideal for supplementing
+  main footage with atmospheric, establishing, or detail shots.
+category: b-roll
+estimated_cost: "~50-150 credits"
+complexity: beginner
+
+steps:
+  - name: B-Roll Description
+    type: input
+    model: null
+    description: "Text describing needed B-roll (setting, mood, details)"
+
+  - name: Prompt Enhancement (LLM)
+    type: llm-processing
+    model: Runway Built-in LLM
+    description: "Enhances description with cinematic language and camera direction"
+
+  - name: Image Generation
+    type: image-generation
+    model: Runway Gen 4.5
+    description: "Generates key frame for B-roll shot"
+
+  - name: Video Generation
+    type: video-generation
+    model: Runway Gen 4.5
+    description: "Creates atmospheric video clip with slow camera movement"
+
+key_techniques:
+  - "Cinematic camera language for atmospheric shots"
+  - "Slow, intentional camera movements (dolly, pan, tilt)"
+  - "Mood-focused lighting descriptions"

@@ -1,0 +1,81 @@
+# Capability: Multi-Shot Video Production
+
+name: Multi-Shot Video Production
+description: >
+  Creating cohesive multi-shot video sequences where multiple clips are generated
+  individually but maintain visual continuity, narrative flow, and consistent
+  characters/environments across shots. This is the core technique for AI filmmaking.
+
+key_principles:
+  - name: Visual Continuity
+    description: >
+      The ending state of shot N must match the beginning state of shot N+1.
+      Character positions, lighting, weather, and environment must be consistent
+      unless a deliberate transition is intended.
+
+  - name: Narrative Flow
+    description: >
+      Shots must tell a story with beginning, middle, and end. Each shot builds
+      on the previous one emotionally or visually. Escalation is key.
+
+  - name: Cinematic Variety
+    description: >
+      Vary shot types (wide, medium, close-up, aerial, tracking) across the
+      sequence for dynamic visual rhythm. Avoid same camera angle in consecutive shots.
+
+recommended_approaches:
+  - name: "Runway Workflows (DAG-based)"
+    platform: Runway
+    models: ["Runway Gen 4.5"]
+    description: >
+      Visual node-based workflow editor. LLM nodes plan shots, image nodes
+      generate frames, video nodes produce clips. Featured templates available.
+    best_for: "Professional multi-step production with visual editor"
+    examples: ["Storyboard to Film", "Seamless Transitions", "Story Panels"]
+
+  - name: "fal.ai Workflows (API-based)"
+    platform: fal.ai
+    models: ["Kling 3 Pro", "Seedance", "Nano Banana Pro"]
+    description: >
+      Programmatic workflow with LLM-as-director pattern. LLM generates structured
+      JSON plan, parallel extraction, base image generation, then multi-shot video.
+    best_for: "API-driven automated production, batch workflows"
+    examples: ["Kling Multi-Shot Creator", "Documentary"]
+
+  - name: "LTX Studio (Integrated Platform)"
+    platform: LTX Studio
+    models: ["LTX-2.3", "Kling 3.0 Pro", "Veo 3.1"]
+    description: >
+      Full studio environment with storyboarding, multi-model generation,
+      timeline editing, and audio integration all in one platform.
+    best_for: "End-to-end production in single platform"
+
+  - name: "First/Last Frame Technique"
+    platform: any
+    models: ["Veo 3.1"]
+    description: >
+      Specify both the first and last frame of each shot. Last frame of shot N
+      becomes first frame of shot N+1, ensuring seamless transitions.
+    best_for: "Precise control over scene transitions"
+
+  - name: "Character Reference Sheet Technique"
+    platform: any
+    models: ["Flux 2 Pro", "Runway Gen 4.5"]
+    description: >
+      Generate a character reference sheet first (multiple angles/expressions),
+      then use it as reference input for all shots featuring that character.
+    best_for: "Character consistency across many shots"
+
+  - name: "n8n/Automation Pipeline"
+    platform: n8n, Zapier, or custom
+    models: ["Flux + Kling via PiAPI", "ElevenLabs", "Creatomate"]
+    description: >
+      Fully automated pipeline from idea sheet → images → videos → voiceover →
+      assembly → multi-platform publishing. Batch production at scale.
+    best_for: "Automated content production at scale, social media"
+
+typical_shot_counts:
+  - "3 shots: Quick social media clip (~15s)"
+  - "5 shots: Short ad/promo (~25-30s)"
+  - "8 shots: Full narrative arc (~40-60s)"
+  - "12+ shots: Documentary/short film (~60-120s)"

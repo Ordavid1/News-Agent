@@ -1,0 +1,255 @@
+# fal.ai Workflow Templates
+# Source: https://fal.ai/workflows/templates
+
+# ─── Kling Multi-Shot Creator ───────────────────────────────────────────────
+
+- name: Kling Multi-Shot Creator
+  source: fal
+  platform: fal.ai Workflows
+  description: >
+    Generates a 15-second multi-shot video with 3 shots and full visual consistency.
+    Uses LLM to plan cinematic shots, generates a base image, then produces each
+    shot as image-to-video with Kling 3 Pro, maintaining continuity across shots.
+  category: multi-shot-video
+  estimated_cost: "$1.99"
+  complexity: advanced
+  api_endpoint: "fal.stream('workflows/template/kling-multi-shot-creator', { input: { prompt: '...' } })"
+  clones: 128
+
+  steps:
+    - name: Shot Planning (LLM)
+      type: llm-processing
+      model: OpenRouter (any model)
+      description: >
+        Elite cinematic director AI designs exactly 3 shots forming a cohesive sequence.
+        Outputs JSON with shot prompts (max 512 chars each), durations (3-5s), and base_image_prompt.
+        Ensures visual continuity, narrative flow, and cinematic variety.
+      output: "JSON: {shots: [{shot_number, prompt, duration}], total_duration, base_image_prompt}"
+
+    - name: Shot Extraction (LLM ×8)
+      type: llm-processing
+      model: OpenRouter (any model)
+      description: >
+        8 parallel LLM calls extract individual fields from the planning JSON:
+        shot 1 prompt, shot 1 duration, shot 2 prompt, shot 2 duration,
+        shot 3 prompt, shot 3 duration, total_duration, base_image_prompt.
+
+    - name: Base Image Generation
+      type: image-generation
+      model: Nano Banana Pro (fal-ai/nano-banana-pro)
+      description: "Generates the first frame photograph from base_image_prompt. Sub-second generation."
+
+    - name: Image Compression
+      type: utility
+      model: workflow-utilities/compress-image
+      description: "Compresses base image for optimal Kling input size"
+
+    - name: Shot Video Generation (×3)
+      type: video-generation
+      model: Kling Video v3 Pro (fal-ai/kling-video/v3/pro/image-to-video)
+      description: >
+        Each shot generated as image-to-video using the base image (shot 1) or
+        previous shot's last frame (shots 2-3). Duration per shot from planning step.
+
+    - name: Video Concatenation
+      type: concatenation
+      model: built-in
+      description: "Stitches all 3 shot videos into final 15s output"
+
+  key_techniques:
+    - "LLM-as-director pattern: AI plans the entire cinematic sequence"
+    - "JSON structured output for precise field extraction"
+    - "512-char prompt limit per shot for optimal Kling adherence"
+    - "Base image bridges text→image→video pipeline"
+    - "Nano Banana for speed/cost-efficient frame generation"
+    - "Parallel LLM extraction for workflow efficiency"
+
+  prompt_architecture:
+    role: "Elite cinematic director and AI video prompt engineer"
+    shot_requirements:
+      - "Subject description (appearance, position, expression, action)"
+      - "Camera specifications (shot type, movement, lens feel)"
+      - "Lighting & atmosphere (time of day, direction, mood)"
+      - "Motion & action (what happens during the shot)"
+      - "Transition hint (how this shot connects to next)"
+    constraints:
+      - "Exactly 3 shots"
+      - "Each prompt under 512 characters"
+      - "Duration 3-5s per shot, max 15s total"
+      - "Visual consistency across all shots"
+
+---
+
+# ─── Documentary ─────────────────────────────────────────────────────────────
+
+- name: Documentary
+  source: fal
+  platform: fal.ai Workflows
+  description: >
+    Takes a text input (scene description) and transforms it into a full documentary-style
+    video with narration. Uses Seedream for images, Seedance for video, ElevenLabs for
+    voiceover, and ffmpeg for assembly. Full text-to-documentary pipeline.
+  category: documentary
+  estimated_cost: "$11.97"
+  complexity: advanced
+  clones: 80
+
+  steps:
+    - name: Scene Planning (LLM ×9)
+      type: llm-processing
+      model: fal-ai/any-llm
+      description: "Multiple LLM calls to plan scenes, generate narration scripts, and create image prompts"
+
+    - name: Image Generation (×6)
+      type: image-generation
+      model: bytedance/dreamina/v3.1/text-to-image (Seedream)
+      description: "Generates key frame images for each documentary scene using Seedream"
+
+    - name: Text Concatenation (×6)
+      type: utility
+      model: fal-ai/text-concat
+      description: "Combines text elements for prompts and narration"
+
+    - name: Video Generation (×12)
+      type: video-generation
+      model: bytedance/seedance/v1/pro/image-to-video
+      description: "Converts each scene image into video clips using Seedance"
+
+    - name: Frame Extraction (×8)
+      type: utility
+      model: fal-ai/ffmpeg-api/extract-frame
+      description: "Extracts key frames from generated videos for continuity"
+
+    - name: Narration Generation
+      type: audio-generation
+      model: fal-ai/elevenlabs/tts/eleven-v3
+      description: "Generates professional voiceover narration using ElevenLabs"
+
+    - name: Audio-Video Merge
+      type: utility
+      model: fal-ai/ffmpeg-api/merge-audio-video
+      description: "Combines narration audio with video clips"
+
+    - name: Final Video Merge
+      type: concatenation
+      model: fal-ai/ffmpeg-api/merge-videos
+      description: "Assembles all scenes into final documentary"
+
+  key_techniques:
+    - "Seedream→Seedance pipeline (ByteDance ecosystem)"
+    - "Frame extraction for cross-scene continuity"
+    - "ElevenLabs TTS for professional narration"
+    - "FFmpeg utilities for audio/video processing"
+    - "12 parallel video generations for speed"
+    - "9 LLM calls for comprehensive scene planning"
+
+---
+
+# ─── Born Elsewhere ──────────────────────────────────────────────────────────
+
+- name: Born Elsewhere
+  source: fal
+  platform: fal.ai Workflows
+  description: >
+    The viral "Born Elsewhere" trend — reimagines a person as if they were born in
+    a different country. Takes a portrait and country input, generates culturally
+    transformed images and video.
+  category: viral-trend
+  estimated_cost: "~$2-5"
+  clones: 17
+
+  steps:
+    - name: Portrait + Country Input
+      type: input
+      model: null
+      description: "User provides portrait photo and target country"
+
+    - name: Cultural Transformation (LLM)
+      type: llm-processing
+      model: LLM
+      description: "Generates culturally appropriate transformation prompt"
+
+    - name: Image Generation
+      type: image-generation
+      model: image model
+      description: "Generates transformed portrait"
+
+    - name: Video Generation
+      type: video-generation
+      model: video model
+      description: "Animates the transformed portrait"
+
+---
+
+# ─── Virtual Try-On (VTON) ───────────────────────────────────────────────────
+
+- name: fal VTON
+  source: fal
+  platform: fal.ai Workflows
+  description: >
+    Virtual try-on workflow. Takes garment images and model photos as inputs,
+    creates realistic try-on images and animated videos using ByteDance models.
+  category: virtual-try-on
+  estimated_cost: "~$3-8"
+  clones: 173
+
+  steps:
+    - name: Garment + Model Input
+      type: input
+      model: null
+      description: "Garment photo and model/person photo"
+
+    - name: Try-On Generation
+      type: image-generation
+      model: ByteDance VTON model
+      description: "Generates person wearing the garment"
+
+    - name: Video Animation
+      type: video-generation
+      model: ByteDance video model
+      description: "Animates the try-on result into a short video"
+
+  key_techniques:
+    - "Garment-person compositing"
+    - "Realistic fabric draping"
+    - "Animation of try-on result"
+
+---
+
+# ─── Game Assets ─────────────────────────────────────────────────────────────
+
+- name: Game Assets
+  source: fal
+  platform: fal.ai Workflows
+  description: >
+    Creates 3D game assets from text descriptions. Uses Seedream to generate object images,
+    Seedream Edit to create multi-angle views, then Rodin v2 to convert to 3D.
+  category: 3d-assets
+  estimated_cost: "~$5-10"
+  clones: 74
+
+  steps:
+    - name: Object Description
+      type: input
+      model: null
+      description: "Text describing the game asset"
+
+    - name: Object Generation
+      type: image-generation
+      model: Seedream
+      description: "Generates the object image"
+
+    - name: Multi-Angle Generation
+      type: image-editing
+      model: Seedream Edit
+      description: "Generates photos of the object from different angles"
+
+    - name: 3D Conversion
+      type: 3d-generation
+      model: Rodin v2
+      description: "Converts multi-angle images into a 3D model"
+
+  key_techniques:
+    - "Text → Image → Multi-angle → 3D pipeline"
+    - "Seedream ecosystem (generation + editing)"
+    - "Rodin v2 for image-to-3D conversion"

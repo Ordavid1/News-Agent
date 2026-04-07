@@ -6937,12 +6937,18 @@ function showCreateStoryWizard() {
  *   landscape → selected
  */
 function applyFocusToPersonaStep(focus) {
-    const allowedByFocus = {
-        person:    ['uploaded', 'brand_kit'],
-        product:   ['selected'],
-        landscape: ['selected']
-    };
-    const allowed = allowedByFocus[focus] || ['selected'];
+    // V3 cinematic pipeline: all persona types available for all focuses.
+    // HeyGen stock ('selected') is kept for v1/v2 backward compat but deprioritized.
+    const pipelineVersion = (typeof process !== 'undefined' && process.env?.BRAND_STORY_PIPELINE) || 'v2';
+    const allowedByFocus = pipelineVersion === 'v1'
+        ? { person: ['uploaded', 'brand_kit'], product: ['selected'], landscape: ['selected'] }
+        : {
+            // V2/V3: all options available for all focuses — no restrictions
+            person:    ['described', 'uploaded', 'brand_kit', 'brand_kit_auto', 'selected'],
+            product:   ['brand_kit_auto', 'described', 'uploaded', 'brand_kit', 'selected'],
+            landscape: ['brand_kit_auto', 'described', 'uploaded', 'brand_kit', 'selected']
+        };
+    const allowed = allowedByFocus[focus] || ['described'];
 
     // Hide/show each persona_type radio's parent <label>
     document.querySelectorAll('input[name="personaType"]').forEach(radio => {
@@ -6962,10 +6968,10 @@ function applyFocusToPersonaStep(focus) {
         updatePersonaFields(firstAllowedRadio.value);
     }
 
-    // Toggle Auto-Assign button — only for product/landscape (not for person)
+    // Toggle Auto-Assign button — only for HeyGen stock selection path
     const autoBtn = document.getElementById('autoAssignAvatarBtn');
     const autoHint = document.getElementById('autoAssignAvatarHint');
-    const showAutoAssign = focus !== 'person';
+    const showAutoAssign = false; // Deprecated in v3 — HeyGen auto-assign no longer primary
     if (autoBtn) autoBtn.classList.toggle('hidden', !showAutoAssign);
     if (autoHint) autoHint.classList.toggle('hidden', !showAutoAssign);
 
@@ -7035,6 +7041,7 @@ function updatePersonaFields(type) {
     document.getElementById('personaSelectFields')?.classList.toggle('hidden', type !== 'selected');
     document.getElementById('personaUploadFields')?.classList.toggle('hidden', type !== 'uploaded');
     document.getElementById('personaBrandKitFields')?.classList.toggle('hidden', type !== 'brand_kit');
+    document.getElementById('personaBrandKitAutoFields')?.classList.toggle('hidden', type !== 'brand_kit_auto');
 
     if (type === 'described') {
         renderDescribedPersonas();
@@ -7046,6 +7053,8 @@ function updatePersonaFields(type) {
     } else if (type === 'brand_kit') {
         if (!brandStoryState.brandKitPersonas) loadBrandKitPersonas();
         else renderBrandKitPersonaGrid();
+    } else if (type === 'brand_kit_auto') {
+        loadBrandKitOptionsForAutoPersona();
     }
 }
 
@@ -7061,8 +7070,137 @@ let personaSelectionState = {
     described: [],        // [{ description, personality }]
     selected: [],         // [{ heygen_avatar_id, avatar_name }]  (HeyGen avatars)
     uploaded: [],         // [{ reference_image_urls: [File] }]   (File objects, keeping them as Files for now)
-    brand_kit: []         // [{ cutout_url, description, brand_kit_job_id }]
+    brand_kit: [],        // [{ cutout_url, description, brand_kit_job_id }]
+    brand_kit_auto: []    // [{ description, personality, appearance, reference_image_urls }]
 };
+
+/**
+ * Load brand kit options into the auto-generate persona selector.
+ */
+async function loadBrandKitOptionsForAutoPersona() {
+    const select = document.getElementById('brandKitAutoSelect');
+    if (!select) return;
+
+    try {
+        const result = await apiGet('/api/brand-stories/brand-kits');
+        const kits = result.brandKits || [];
+        select.textContent = '';
+        if (kits.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No Brand Kits available — create one first';
+            select.appendChild(opt);
+            return;
+        }
+        kits.forEach(kit => {
+            const opt = document.createElement('option');
+            opt.value = kit.id;
+            opt.textContent = kit.name || kit.brand_summary?.slice(0, 50) || 'Brand Kit ' + kit.id.slice(0, 6);
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Failed to load brand kits for auto persona:', e);
+    }
+}
+
+/**
+ * Generate persona(s) from Brand Kit context via backend.
+ * Calls the new /api/brand-stories/personas/auto-generate endpoint.
+ */
+async function generateBrandKitAutoPersona() {
+    const btn = document.getElementById('brandKitAutoGenerateBtn');
+    const btnText = document.getElementById('brandKitAutoGenerateBtnText');
+    const brandKitId = document.getElementById('brandKitAutoSelect')?.value;
+    const count = parseInt(document.querySelector('input[name="brandKitAutoCount"]:checked')?.value || '1', 10);
+
+    if (!brandKitId) {
+        showToast('Please select a Brand Kit first', 'error');
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = 'Generating persona...';
+
+    try {
+        const result = await apiPost('/api/brand-stories/personas/auto-generate', {
+            brand_kit_job_id: brandKitId,
+            count,
+            story_focus: document.querySelector('input[name="storyFocus"]:checked')?.value || 'product'
+        });
+
+        if (!result.success) throw new Error(result.error || 'Failed to generate persona');
+
+        const personas = result.personas || [];
+        personaSelectionState.brand_kit_auto = personas;
+
+        // Show result cards
+        const resultEl = document.getElementById('brandKitAutoResult');
+        const cardsEl = document.getElementById('brandKitAutoPersonaCards');
+        if (resultEl) resultEl.classList.remove('hidden');
+        if (cardsEl) {
+            cardsEl.textContent = '';
+            personas.forEach((p, i) => {
+                const card = document.createElement('div');
+                card.className = 'p-3 bg-surface-50 rounded-lg border border-surface-200 flex gap-3';
+
+                // Show all character sheet views (hero, close-up, side profile)
+                if (Array.isArray(p.reference_image_urls) && p.reference_image_urls.length > 0) {
+                    const imgStrip = document.createElement('div');
+                    imgStrip.className = 'flex gap-1.5 flex-shrink-0';
+                    const viewLabels = ['Hero', 'Close-up', 'Side'];
+                    p.reference_image_urls.forEach((url, vi) => {
+                        const imgWrap = document.createElement('div');
+                        imgWrap.className = 'text-center';
+                        const img = document.createElement('img');
+                        img.src = url;
+                        img.alt = (viewLabels[vi] || 'View ' + (vi + 1));
+                        img.className = 'w-14 h-20 object-cover rounded-lg border border-surface-200 cursor-pointer hover:border-brand-400';
+                        img.onclick = () => window.open(url, '_blank');
+                        imgWrap.appendChild(img);
+                        const label = document.createElement('span');
+                        label.className = 'block text-[9px] text-ink-400 mt-0.5';
+                        label.textContent = viewLabels[vi] || '';
+                        imgWrap.appendChild(label);
+                        imgStrip.appendChild(imgWrap);
+                    });
+                    card.appendChild(imgStrip);
+                }
+
+                const info = document.createElement('div');
+                info.className = 'flex-1 min-w-0';
+
+                const nameEl = document.createElement('p');
+                nameEl.className = 'font-medium text-sm text-ink-800';
+                nameEl.textContent = p.name || 'Persona ' + (i + 1);
+                info.appendChild(nameEl);
+
+                if (p.appearance) {
+                    const appEl = document.createElement('p');
+                    appEl.className = 'text-xs text-ink-600 mt-0.5';
+                    appEl.textContent = p.appearance;
+                    info.appendChild(appEl);
+                }
+                if (p.personality) {
+                    const persEl = document.createElement('p');
+                    persEl.className = 'text-xs text-ink-500 mt-0.5 italic';
+                    persEl.textContent = p.personality;
+                    info.appendChild(persEl);
+                }
+
+                card.appendChild(info);
+                cardsEl.appendChild(card);
+            });
+        }
+
+        showToast(`${personas.length} persona(s) generated from Brand Kit!`, 'success');
+    } catch (e) {
+        showToast(e.message || 'Persona generation failed', 'error');
+        console.error('Auto persona generation error:', e);
+    } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.textContent = 'Generate Persona';
+    }
+}
 
 const MAX_PERSONAS = 3;
 
@@ -7406,9 +7544,15 @@ function resetPersonaSelectionState() {
         described: [],
         selected: [],
         uploaded: [],
-        brand_kit: []
+        brand_kit: [],
+        brand_kit_auto: []
     };
     renderDescribedPersonas();
+    // Reset auto-generate UI if present
+    const autoResult = document.getElementById('brandKitAutoResult');
+    if (autoResult) autoResult.classList.add('hidden');
+    const autoCards = document.getElementById('brandKitAutoPersonaCards');
+    if (autoCards) autoCards.textContent = '';
 }
 
 /**
@@ -7580,6 +7724,18 @@ async function createBrandStory() {
                 if (!uploadResult.success) throw new Error(uploadResult.error || 'Photo upload failed');
                 personas.push({ reference_image_urls: uploadResult.urls });
             }
+        } else if (personaType === 'brand_kit_auto') {
+            // Already generated via generateBrandKitAutoPersona() — use stored results
+            if (personaSelectionState.brand_kit_auto.length === 0) {
+                throw new Error('Please generate a persona first using the "Generate Persona" button');
+            }
+            personas = personaSelectionState.brand_kit_auto.map(p => ({
+                description: p.description,
+                personality: p.personality,
+                appearance: p.appearance,
+                reference_image_urls: p.reference_image_urls,
+                omnihuman_seed_image_url: p.omnihuman_seed_image_url
+            }));
         }
 
         if (personas.length === 0) {
@@ -7705,7 +7861,8 @@ async function showStoryDetail(storyId) {
         // This handles the case where the user navigates away, refreshes the page,
         // or reopens the story detail view while an episode is being generated.
         const inProgress = (story.episodes || []).some(ep =>
-            ['pending', 'generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing'].includes(ep.status)
+            ['pending', 'generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing',
+             'writing_script', 'generating_narration', 'post_production'].includes(ep.status)
         );
         if (inProgress) {
             if (genBtn) genBtn.disabled = true;
@@ -7778,6 +7935,9 @@ function renderStorylineDetail(story) {
             `).join('');
         }
     }
+
+    // 3b) Persona Seed Images — show the reference/seed images used for video generation
+    _renderPersonaSeedImages(story);
 
     // 4) Planned episodes (with generated vs. upcoming distinction)
     const plannedEl = document.getElementById('storyPlannedEpisodes');
@@ -7904,6 +8064,92 @@ function _narratorName(idx) {
 }
 
 /**
+ * Render persona seed images and subject reference images in the story detail view.
+ * Shows all reference material that feeds into video generation — so the user can
+ * see exactly what Kling/Flux/Seedance are working from.
+ */
+function _renderPersonaSeedImages(story) {
+    const container = document.getElementById('storyPersonaSeedImages');
+    if (!container) return;
+
+    const personas = story.persona_config?.personas || [];
+    const items = [];
+
+    // Collect persona images
+    personas.forEach((p, i) => {
+        const name = (p.description || '').slice(0, 25).trim() || p.avatar_name || ('Persona ' + (i + 1));
+        if (p.omnihuman_seed_image_url) items.push({ url: p.omnihuman_seed_image_url, label: name + ' (seed)' });
+        else if (p.cutout_url) items.push({ url: p.cutout_url, label: name + ' (cutout)' });
+        else if (p.avatar_preview_url) items.push({ url: p.avatar_preview_url, label: name + ' (avatar)' });
+        if (Array.isArray(p.reference_image_urls)) {
+            p.reference_image_urls.forEach((url, ri) => items.push({ url, label: name + ' ref ' + (ri + 1) }));
+        }
+    });
+
+    // Collect subject images
+    const subject = story.subject || {};
+    if (Array.isArray(subject.reference_image_urls)) {
+        subject.reference_image_urls.forEach((url, si) => items.push({ url, label: 'Subject ' + (si + 1) }));
+    }
+
+    if (items.length === 0) {
+        container.textContent = '';
+        return;
+    }
+
+    // Build DOM safely using createElement
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex gap-3 overflow-x-auto pb-2';
+
+    items.forEach(img => {
+        const card = document.createElement('div');
+        card.className = 'flex-shrink-0 text-center cursor-pointer';
+        card.onclick = () => window.open(img.url, '_blank');
+
+        const imgEl = document.createElement('img');
+        imgEl.src = img.url;
+        imgEl.alt = img.label;
+        imgEl.className = 'w-20 h-28 object-cover rounded-lg border border-surface-200 hover:border-brand-400 transition-colors';
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'block mt-1 text-[10px] text-ink-400 truncate max-w-[80px]';
+        labelEl.textContent = img.label;
+
+        card.appendChild(imgEl);
+        card.appendChild(labelEl);
+        wrapper.appendChild(card);
+    });
+
+    container.textContent = '';
+    container.appendChild(wrapper);
+}
+
+/**
+ * Render storyboard filmstrip for v2 cinematic episodes.
+ * Shows all Flux 2 Max panels in a horizontal row.
+ */
+function _renderStoryboardFilmstrip(ep) {
+    const panels = ep.storyboard_panels;
+    if (!Array.isArray(panels) || panels.length === 0) return '';
+
+    const scene = ep.scene_description || {};
+    const shots = scene.shots || [];
+
+    return `
+        <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
+            ${panels.map((panel, i) => {
+                const shotType = shots[i]?.shot_type || 'shot';
+                const duration = shots[i]?.duration_seconds || '?';
+                return `
+                    <div class="flex-shrink-0 relative group cursor-pointer" onclick="window.open('${escapeHtml(panel.image_url)}', '_blank')">
+                        <img src="${escapeHtml(panel.image_url)}" alt="Shot ${i + 1}" class="w-20 h-36 object-cover rounded-lg border border-surface-200 group-hover:border-brand-400 transition-colors">
+                        <span class="absolute bottom-1 left-1 text-[10px] px-1 py-0.5 rounded bg-black/60 text-white">${i + 1}. ${escapeHtml(shotType)} ${duration}s</span>
+                    </div>`;
+            }).join('')}
+        </div>`;
+}
+
+/**
  * Render the shot sequence chips for an episode card.
  * Shows the multi-shot composition Gemini planned (e.g. [broll 5s] \u2192 [dialogue 8s] \u2192 [cinematic 7s]).
  * Falls back to the single shot_type if the episode doesn't have a shots[] array.
@@ -7955,10 +8201,13 @@ function renderEpisodeTimeline(episodes) {
         const scene = ep.scene_description || {};
         const statusIcons = {
             pending: '<span class="text-ink-400">Pending</span>',
+            writing_script: '<span class="text-blue-500">Writing screenplay...</span>',
+            generating_narration: '<span class="text-blue-500">Recording narration...</span>',
             generating_scene: '<span class="text-blue-500">Writing scene...</span>',
             generating_storyboard: '<span class="text-blue-500">Creating storyboard...</span>',
             generating_avatar: '<span class="text-blue-500">Recording avatar...</span>',
             generating_video: '<span class="text-blue-500">Generating video...</span>',
+            post_production: '<span class="text-blue-500">Post-production...</span>',
             compositing: '<span class="text-blue-500">Compositing...</span>',
             ready: '<span class="text-green-600 font-medium">Ready</span>',
             publishing: '<span class="text-blue-500">Publishing...</span>',
@@ -7985,8 +8234,15 @@ function renderEpisodeTimeline(episodes) {
                     </div>
                     <p class="text-sm text-ink-500 line-clamp-2">${escapeHtml(scene.narrative_beat || scene.hook || '')}</p>
                     ${ep.error_message ? `<p class="mt-1 text-xs text-red-500">${escapeHtml(ep.error_message)}</p>` : ''}
+                    ${_renderStoryboardFilmstrip(ep)}
+                    ${ep.narration_audio_url ? `
+                    <div class="mt-1.5 flex items-center gap-2">
+                        <button onclick="this.nextElementSibling.paused ? this.nextElementSibling.play() : this.nextElementSibling.pause(); this.textContent = this.nextElementSibling.paused ? '▶ Narration' : '⏸ Narration'" class="px-2 py-1 text-xs bg-surface-100 text-ink-600 rounded hover:bg-surface-200">▶ Narration</button>
+                        <audio src="${escapeHtml(ep.narration_audio_url)}" preload="none" class="hidden"></audio>
+                    </div>` : ''}
+                    ${scene.visual_style_prefix ? `<p class="mt-1 text-xs text-ink-400 italic line-clamp-1">${escapeHtml(scene.visual_style_prefix)}</p>` : ''}
                     <div class="mt-2 flex gap-2 items-start">
-                        ${ep.storyboard_frame_url ? `<img src="${escapeHtml(ep.storyboard_frame_url)}" alt="Storyboard" class="w-20 h-auto rounded border border-surface-200">` : ''}
+                        ${ep.storyboard_frame_url && !ep.storyboard_panels?.length ? `<img src="${escapeHtml(ep.storyboard_frame_url)}" alt="Storyboard" class="w-20 h-auto rounded border border-surface-200">` : ''}
                         ${isReady && ep.final_video_url ? `
                             <div class="flex flex-col gap-1.5">
                                 <button data-action="play" class="px-3 py-1.5 text-xs bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center gap-1">

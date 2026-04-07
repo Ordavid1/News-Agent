@@ -1,0 +1,61 @@
+# Capability: Image-to-Video
+
+name: Image-to-Video
+description: >
+  Animate a static image into a video clip. The model takes a reference image
+  as the starting frame and generates motion, camera movement, and scene dynamics
+  based on the image content and optional text prompt.
+
+recommended_models:
+  - id: kling-3-pro
+    tier: premium
+    notes: "Best motion fidelity and physics, strong camera control"
+    vendor_docs: "https://klingai.com/global/dev"
+  - id: seedance-2.0
+    tier: premium
+    notes: "Excellent facial animation and character motion"
+    vendor_docs: "https://higgsfield.ai/seedance/2.0"
+  - id: runway-gen-4.5
+    tier: premium
+    notes: "Best for style consistency across clips"
+    vendor_docs: "https://docs.dev.runwayml.com/"
+  - id: veo-3.1
+    tier: premium
+    notes: "First/last frame control for transitions, native audio"
+    vendor_docs: "https://ai.google.dev/gemini-api/docs/video"
+  - id: seedance-1.5
+    tier: standard
+    notes: "Good character animation at lower cost"
+    vendor_docs: "https://higgsfield.ai/seedance-1-5"
+  - id: kling-3-omni
+    tier: standard
+    notes: "Multimodal — can add audio reference too, 4K"
+    vendor_docs: "https://klingai.com/global/dev"
+  - id: ltx-video
+    tier: standard
+    notes: "Fastest for batch workflows, open source"
+    vendor_docs: "https://ltx.io/model"
+
+common_pipeline_patterns:
+  - name: "Text → Image → Video"
+    description: "Generate image with Flux/Seedream/Nano Banana, then animate with video model"
+    typical_models: "Nano Banana Pro → Kling 3 Pro"
+
+  - name: "Multi-Shot with Shared Base Frame"
+    description: "One base image generates multiple video shots for consistency"
+    typical_models: "Nano Banana Pro → Kling 3 Pro (×3-8 shots)"
+
+  - name: "First/Last Frame Control"
+    description: "Specify both start and end frames for precise transitions"
+    typical_models: "Veo 3.1 first-last-frame-to-video"
+
+  - name: "Character Animation"
+    description: "Portrait photo → animated talking/moving person"
+    typical_models: "OmniHuman 1.5 (lip-sync) or Seedance 2.0 (full body)"
+
+selection_guide:
+  product_ads: "Kling 3 Pro (physics, product interaction)"
+  character_content: "Seedance 2.0 or OmniHuman 1.5"
+  multi_shot_continuity: "Runway Gen 4.5 (Workflows) or Veo 3.1 (first/last frame)"
+  batch_pipeline: "LTX Video or Kling 3 Omni"
+  budget_production: "Seedance 1.5"

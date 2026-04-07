@@ -1,0 +1,302 @@
+# ImagineArt Workflow Templates
+# Source: https://www.imagine.art/flow?tab=discover
+# Platform: ImagineArt (imagine.art) — AI Creative Suite
+# Integrated Models: Nano Banana 2, Nano Banana Pro, Kling 3.0, GPT, Claude
+
+# ─── Platform Overview ────────────────────────────────────────────────────────
+
+- name: "ImagineArt Workflows Platform"
+  source: imagine-art
+  platform: ImagineArt
+  description: >
+    ImagineArt is a comprehensive AI creative suite with a visual workflow builder (called "Flow").
+    Offers 39+ pre-built workflow templates across 5 categories: Cinematic, Advertising, Fashion,
+    Branding, and Editing. Integrates Nano Banana (image), Kling 3.0 (video), GPT and Claude (LLM).
+    Features include: Image, Video, Flow (workflows), Edit, Upscale, Assist (AI chat), Community,
+    AI Docs, and Slides. Also has a "Chatly" AI assistant.
+  category: platform-overview
+  integrated_models:
+    image:
+      - "Nano Banana 2 (unlimited on Creator/Scale plans)"
+      - "Nano Banana Pro (unlimited on Creator/Scale plans)"
+    video:
+      - "Kling 3.0 (25% off on Creator/Scale plans)"
+    llm:
+      - "GPT (free access)"
+      - "Claude (free access)"
+  pricing: "Free tier + Creator/Scale plans (up to 30% off)"
+
+---
+
+# ─── Cinematic Category ───────────────────────────────────────────────────────
+
+- name: "Cinematic Scenes 2.0"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: >
+    Create multi-shot cinematic video scenes with consistent characters and environments.
+    Visual DAG-based workflow with 5+ scene groups, each containing: Prompt nodes → Image
+    generation (Nano Banana Pro) → Video generation (Kling 2.5 Pro Turbo). Scenes are
+    visually grouped as colored regions in the DAG editor.
+  node_types_used:
+    - "Prompt (text input with detailed cinematic descriptions)"
+    - "Image (Nano Banana Pro — fast image generation)"
+    - "Video (Kling 2.5 Pro Turbo — image-to-video)"
+    - "Reference Image connections between nodes"
+  models_used:
+    image: "Nano Banana Pro"
+    video: "Kling 2.5 Pro Turbo"
+  structure:
+    - "5+ scene groups, each containing 3-4 parallel shot chains"
+    - "Each chain: Prompt → Image (Nano Banana Pro) → Video (Kling 2.5 Pro Turbo)"
+    - "Reference images feed across scenes for consistency"
+    - "Prompts use professional cinematography language (shot type, camera movement, lighting, aspect ratio)"
+    - "Prompts include --ar, --stylize, --v, --q parameters"
+  prompt_style: >
+    Detailed cinematic prompts with anamorphic aspect ratios (21:9), specific camera movements
+    (tracking, zoom, tilt), lighting descriptions (rim light, volumetric beams, god rays),
+    and atmosphere keywords (photorealistic, 8k, film grain, lens flares).
+  key_techniques:
+    - "Multi-shot scene composition with grouped DAG regions"
+    - "Character and environment consistency via reference image chains"
+    - "Professional cinematography prompt engineering"
+    - "Nano Banana Pro for fast/cheap base frames → Kling for video animation"
+
+- name: "Cinematic Scenes 1.0"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Original cinematic scene workflow — simpler version of 2.0"
+
+- name: "Cinematic Filters"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Apply cinematic color grading and visual filters to images/video for film-like aesthetic"
+
+- name: "Camera Movements"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Generate video with specific camera movements (dolly, pan, tilt, crane, tracking, orbit)"
+
+- name: "Camera Angle Ideation"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Explore different camera angles for a scene — generates multiple perspectives of the same subject"
+
+- name: "Storyboard Generator"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Generate a visual storyboard from text/script input with consistent style panels"
+
+- name: "Car Shots"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: cinematic
+  description: "Specialized workflow for automotive photography and video — dynamic angles, reflections, environments"
+
+---
+
+# ─── Advertising Category ─────────────────────────────────────────────────────
+
+- name: "Social Media Post"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Create social media-optimized visual content with text overlays and brand elements"
+
+- name: "Ads Placement"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Place products or ads in realistic environments and contexts"
+
+- name: "Cereal Ad"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Product advertising workflow specialized for food/FMCG — dynamic product shots with lifestyle context"
+
+- name: "UGC Ad"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Generate user-generated-content style ads — authentic, casual aesthetic for social platforms"
+
+- name: "Product Placement"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Insert products into scenes naturally — composite product into lifestyle/contextual imagery"
+
+- name: "Product Showcase"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Hero product shots with professional lighting, backgrounds, and presentation"
+
+- name: "E-Commerce Listings"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: advertising
+  description: "Generate product images optimized for e-commerce platforms with clean backgrounds and multiple angles"
+
+---
+
+# ─── Fashion Category ─────────────────────────────────────────────────────────
+
+- name: "UGC Fashion"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Generate UGC-style fashion content — models wearing outfits in casual/authentic settings"
+
+- name: "Fashion Post"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Create fashion editorial-style social media posts"
+
+- name: "Fit Variations"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Generate variations of outfits/fits on the same model — color, style, and accessory exploration"
+
+- name: "Lookbook Creator"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Create a cohesive lookbook/collection spread with consistent model and styling across looks"
+
+- name: "Virtual Try On"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Virtual garment try-on — place clothing items on model photos realistically"
+
+- name: "Winter Editorial"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Fashion editorial workflow with winter/cold weather aesthetic and styling"
+
+- name: "Model Generator"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Generate AI fashion models for product photography and lookbooks"
+
+- name: "Pose Generator"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: fashion
+  description: "Generate specific poses for fashion and lifestyle photography"
+
+---
+
+# ─── Branding Category ────────────────────────────────────────────────────────
+
+- name: "Poster Character Swap"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Swap characters in poster designs while maintaining layout, typography, and brand elements"
+
+- name: "Poster Season"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Create seasonal poster variations from a base design — adapts mood, colors, elements per season"
+
+- name: "Magazine Cover"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Generate magazine-style cover layouts with subject, typography, and design elements"
+
+- name: "Create Moodboards"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Generate cohesive moodboards for brand and creative direction planning"
+
+- name: "Apply Patterns"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Apply patterns and textures to products, surfaces, or brand materials"
+
+- name: "Cheers to World - Mascot"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Create brand mascot characters in various poses and scenarios"
+
+- name: "BTS Studio"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: branding
+  description: "Generate behind-the-scenes style studio content for brand authenticity"
+
+---
+
+# ─── Editing Category ─────────────────────────────────────────────────────────
+
+- name: "Character Design"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Design consistent character appearances with multiple views, expressions, and outfits"
+
+- name: "Add Character in Image"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Insert a character into an existing scene or background with natural compositing"
+
+- name: "Relight Video"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Change the lighting of existing video — adjust direction, color temperature, intensity, mood"
+
+- name: "Sketch to Render"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Convert rough sketches/drawings into photorealistic or stylized renders"
+
+- name: "Edit Makeup"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Add or modify makeup on portrait photos — lip color, eye shadow, contouring, etc."
+
+- name: "Modify Expressions"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Change facial expressions in portraits while maintaining identity"
+
+- name: "Transform 2D to 3D"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Convert 2D images into 3D representations or parallax animations"
+
+- name: "Image Variations"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "Generate multiple variations of an image with different styles, angles, or modifications"
+
+- name: "Virtual Photo Studio"
+  source: imagine-art
+  platform: ImagineArt Flow
+  category: editing
+  description: "AI-powered virtual photo studio — control lighting, background, and composition"

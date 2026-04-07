@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "video-ai-knowledge": {
+      "command": "node",
+      "args": ["/Users/ordavid/Downloads/Saas-standalone/video-ai-knowledge-mcp/server.js"],
+      "env": {}
+    }
+  }
+}

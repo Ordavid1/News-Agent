@@ -4434,7 +4434,11 @@ export async function createBrandStoryEpisode(storyId, userId, episodeData) {
       user_id: userId,
       episode_number: episodeData.episode_number,
       scene_description: episodeData.scene_description || {},
-      status: episodeData.status || 'pending'
+      status: episodeData.status || 'pending',
+      ...(episodeData.pipeline_version ? { pipeline_version: episodeData.pipeline_version } : {}),
+      ...(episodeData.storyboard_panels ? { storyboard_panels: episodeData.storyboard_panels } : {}),
+      ...(episodeData.narration_audio_url ? { narration_audio_url: episodeData.narration_audio_url } : {}),
+      ...(episodeData.visual_style_prefix ? { visual_style_prefix: episodeData.visual_style_prefix } : {})
     })
     .select()
     .single();

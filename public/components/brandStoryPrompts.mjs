@@ -297,6 +297,17 @@ SHOT TYPES (compose a sequence of 2-3 shots per episode):
 - "broll": NO persona visible. Environment, product close-up, establishing shot.
   Use for scene-setting, product reveals, world-building, transitions between dialogue/cinematic shots.
 
+ENTITY VISIBILITY (you MUST declare these per shot — they control which video generator runs):
+- "visible_persona_indexes": array of integers — which personas are PHYSICALLY IN FRAME in this shot.
+  Empty array [] = no characters visible (broll). [0] = only persona 0. [0, 1] = both personas 0 and 1.
+  For dialogue shots, the narrator MUST appear in this array.
+- "subject_visible": boolean — whether the branded product/subject is prominently visible in this shot.
+  true = the product/subject is in frame. false = not featured.
+- Entity count per shot affects which video generator the app uses — prefer single-entity cinematic
+  shots when one character or the product alone works. Only pack 2+ entities (multiple personas,
+  or persona + product together) into a frame when dramatic necessity demands it (confrontation,
+  product reveal with character, partnership scene).
+
 EVERY episode has 2-3 shots. MIX shot types within the same episode. A strong short-form
 episode typically opens with a broll or cinematic hook, delivers a dialogue beat in the middle,
 and closes with a cinematic cliffhanger. Vary across the season too — don't repeat the same
@@ -417,7 +428,9 @@ OUTPUT JSON SCHEMA:
     {
       "shot_type": "dialogue | cinematic | broll",
       "narrator_persona_index": 0, /* only meaningful for dialogue shots — 0-based index into available narrators */
-      "visual_direction": "SHOT-SPECIFIC detailed description: setting, lighting, colors, textures, camera angles, character positions, key objects. Name materials, colors, time of day. For cinematic: Kling video prompt. For dialogue: background around speaker. For broll: environment or product.",
+      "visible_persona_indexes": [0], /* REQUIRED: which personas are physically in THIS shot's frame. [] = no characters. [0] = persona 0 alone. [0, 1] = both. For dialogue shots, narrator_persona_index MUST be included here. */
+      "subject_visible": false, /* REQUIRED: is the branded product/subject prominently visible in this shot? */
+      "visual_direction": "SHOT-SPECIFIC detailed description: setting, lighting, colors, textures, camera angles, character positions, key objects. Name materials, colors, time of day. For cinematic: video prompt. For dialogue: background around speaker. For broll: environment or product.",
       "camera_notes": "Camera movement for THIS shot: slow push-in, orbital pan, crane up, static close-up, etc.",
       "dialogue_line": "The LINE spoken on-camera for dialogue shots (subset of episode dialogue_script). Empty string for cinematic/broll shots.",
       "mood": "Shot-specific emotional register (may differ from episode mood)",
@@ -429,7 +442,289 @@ OUTPUT JSON SCHEMA:
 }
 
 // ============================================================
-// STORYBOARD FRAME PROMPT (for Leonardo.ai image generation)
+// CINEMATIC V2 — FOCUS-SPECIFIC DIRECTION
+// ============================================================
+
+/**
+ * V2 focus block — shapes the cinematic approach based on story_focus.
+ * Unlike v1 (which shapes narrative), v2 shapes CINEMATOGRAPHY: what the
+ * camera sees, what dominates the frame, what the storyboard must show.
+ */
+function _buildCinematicFocusBlock(storyFocus) {
+  switch (storyFocus) {
+    case 'person':
+      return `═══════════════════════════════════════════════
+STORY FOCUS: PERSON — CHARACTER-DRIVEN CINEMA
+═══════════════════════════════════════════════
+This series is ABOUT the persona. The persona IS the star of every frame.
+
+CINEMATOGRAPHY RULES FOR PERSON FOCUS:
+- The persona must appear in at LEAST 2 of 3 shots per episode (visible_persona_indexes must include them)
+- Use MEDIUM CLOSE-UPS and CLOSE-UPS that show emotion, reaction, micro-expressions
+- Camera FOLLOWS the person — tracking shots, over-shoulder, eye-level intimacy
+- Storyboard panels must feature the persona PROMINENTLY — face, hands, body language
+- Products/settings are BACKGROUND elements — never steal the frame from the persona
+- Visual style should serve the character: warm skin tones, shallow DOF on face, catch-lights in eyes
+- The narration is this person's INNER VOICE — their thoughts, reflections, revelations
+- Think: documentary portrait, character study, personal essay film`;
+
+    case 'product':
+      return `═══════════════════════════════════════════════
+STORY FOCUS: PRODUCT — PRODUCT CINEMA
+═══════════════════════════════════════════════
+This is a PRODUCT showcase series. The product is the visual HERO.
+
+CINEMATOGRAPHY RULES FOR PRODUCT FOCUS:
+- The product/subject must be PROMINENTLY visible in at least 2 of 3 shots (subject_visible: true)
+- Use MACRO/CLOSE-UP shots that reveal product detail, texture, craftsmanship, material
+- Camera ORBITS the product — tabletop cinematography, slow reveals, dramatic lighting on surfaces
+- Storyboard panels must feature the product as the DOMINANT visual element in frame
+- The persona is a SUPPORTING element — discoverer, user, witness. They interact WITH the product
+  but the product holds the visual weight
+- At least 1 broll shot should be a pure PRODUCT HERO shot (no persona, just the product in
+  cinematic lighting — like a luxury ad)
+- Visual style should serve the product: high contrast, specular highlights, reflective surfaces,
+  dramatic shadows, macro depth of field
+- The narration tells the product's STORY — its origin, craft, impact, promise
+- Think: Apple product film, luxury brand commercial, Kickstarter hero video`;
+
+    case 'landscape':
+      return `═══════════════════════════════════════════════
+STORY FOCUS: LANDSCAPE / PLACE — LOCATION CINEMA
+═══════════════════════════════════════════════
+This series is about a PLACE or SPACE. The location is the protagonist.
+
+CINEMATOGRAPHY RULES FOR LANDSCAPE FOCUS:
+- The location/space must DOMINATE at least 2 of 3 shots — wide establishing shots, sweeping vistas,
+  architectural details, atmospheric interiors
+- Use WIDE and ULTRA-WIDE framing that reveals the SCALE and beauty of the space
+- Camera EXPLORES the space — crane shots, slow tracking through rooms/corridors, drone-like reveals
+- Storyboard panels must feature the SPACE as the dominant visual element — the persona (if present)
+  is small within the grand composition, providing SCALE
+- At least 1 broll shot should be a PURE ENVIRONMENT shot (no persona, just the space breathing —
+  light shifting, textures, atmosphere)
+- The persona acts as a GUIDE or INHABITANT — walking through, touching surfaces, gazing out windows.
+  They help the viewer feel what it's like to BE there, but never dominate the frame
+- Visual style should serve the space: golden hour light, leading lines, symmetry, architectural
+  composition, atmospheric depth (fog, dust motes, light beams)
+- The narration evokes the SENSORY experience of the place — what it feels like to stand there
+- Think: real estate cinematic tour, travel film, architectural documentary, Wes Anderson composition`;
+
+    default:
+      return '';
+  }
+}
+
+// ============================================================
+// CINEMATIC V2 — EPISODE GENERATION (voice-over narration model)
+// ============================================================
+
+/**
+ * V2 system prompt for cinematic episodes.
+ * Key differences from v1:
+ * - NO "dialogue" shot type — all shots are cinematic or broll
+ * - Voice-over narration instead of on-camera talking heads
+ * - visual_style_prefix for unified look across all shots
+ * - storyboard_prompt per shot (drives Flux 2 Max image generation)
+ * - end_frame_description per shot (for inter-shot continuity)
+ */
+export function getEpisodeSystemPromptV2(storyline, previousEpisodes = [], personas = [], options = {}) {
+  const { subject = null, storyFocus = 'product', brandKit = null } = options;
+  const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
+  const brandContextBlock = brandKit ? _buildBrandKitContextBlock(brandKit) : '';
+  const focusBlock = _buildCinematicFocusBlock(storyFocus);
+
+  // Personas are characters IN the cinematic scenes — not talking-head narrators
+  const characterList = personas
+    .map((p, i) => {
+      const name = p?.description?.slice(0, 60) || p?.avatar_name || `Persona ${i + 1}`;
+      const personality = p?.personality ? ` — ${p.personality}` : '';
+      const appearance = p?.visual_description || p?.appearance || '';
+      return `  [${i}] ${name}${personality}${appearance ? `. Appearance: ${appearance}` : ''}`;
+    })
+    .join('\n');
+
+  const characterBlock = personas.length > 0
+    ? `CHARACTERS (available for cinematic scenes — referenced by visible_persona_indexes):
+${characterList}
+
+These characters appear IN scenes — walking, interacting, emoting, living.
+They do NOT speak to camera. All speech is voice-over narration layered on cinematic visuals.`
+    : '';
+
+  const subjectIntegrationBlock = subject?.name
+    ? `\nBRAND SUBJECT (must appear in this episode):
+- Name: ${subject.name}
+- Category: ${subject.category || ''}
+- Visual: ${subject.visual_description || ''}
+${(subject.integration_guidance || []).length > 0 ? `- Integration ideas:\n${subject.integration_guidance.map(g => `    • ${g}`).join('\n')}` : ''}
+
+Integrate this subject like a prestige-TV product placement — natural, diegetic, story-serving.
+At least ONE shot must feature it prominently. ${storyFocus === 'landscape' ? 'This place IS the setting.' : ''}`
+    : '';
+
+  return `You are the showrunner and cinematographer of "${storyline.title || 'an ongoing brand video series'}". You write and direct each episode as a CINEMATIC SHORT FILM — not a social media clip.
+
+${focusBlock}
+
+SERIES CONTEXT:
+- Logline: ${storyline.logline || storyline.theme || ''}
+- Tone: ${storyline.tone || 'engaging'}
+- Genre: ${storyline.genre || 'drama'}
+- Total planned episodes: ${storyline.episodes?.length || 12}
+
+SEASON BIBLE:
+${storyline.season_bible || JSON.stringify(storyline.arc || {}, null, 2)}
+${brandContextBlock}
+
+CHARACTERS:
+${(storyline.characters || []).map(c =>
+  `- ${c.name} (${c.role}): ${c.personality}. Visual: ${c.visual_description}`
+).join('\n')}
+
+${characterBlock}
+${subjectIntegrationBlock}
+
+${prevBlock}
+
+═══════════════════════════════════════════════
+CINEMATIC PARADIGM (READ CAREFULLY):
+═══════════════════════════════════════════════
+
+You are making a SHORT FILM, not a social media clip. Think like a film director:
+
+1. VISUAL STYLE PREFIX — Before writing shots, define ONE unified cinematography brief
+   for the entire episode: color temperature (warm/cool), lighting quality (golden hour,
+   overcast, neon noir), lens feel (anamorphic, telephoto, handheld), and film stock
+   reference (Kodak Portra 400, Fuji Velvia, grainy 16mm). This brief applies to ALL
+   shots and ALL storyboard panels to ensure visual coherence.
+
+2. VOICE-OVER NARRATION — Characters do NOT speak to camera. All dialogue is voice-over
+   narration that plays OVER cinematic visuals. The character's emotional state described
+   in narration is reflected in the cinematic visual (e.g., narration says "I couldn't
+   believe it" while the visual shows the character's face shifting from shock to wonder).
+
+3. SHOT TYPES (compose exactly 3 shots per episode):
+   - "cinematic": Character(s) inhabiting a dynamic scene — walking, discovering,
+     reacting, interacting with environment/product. Wide, medium, or close framing.
+     Camera moves. Lighting shifts. This is your primary shot type.
+   - "broll": NO characters visible. Environment, product close-up, establishing shot,
+     atmosphere. Use for scene-setting, product reveals, transitions.
+
+   There is NO "dialogue" shot type. Characters are NEVER static talking heads.
+
+4. STORYBOARD PROMPT — For each shot, write a detailed still-image prompt describing
+   the KEY VISUAL COMPOSITION of that shot's most impactful moment. This drives AI
+   image generation (Flux 2 Max) for the storyboard panel. Include: characters'
+   appearance & pose, environment, lighting, colors, framing, depth of field.
+
+5. END FRAME DESCRIPTION — Describe what the camera shows at the VERY END of each shot.
+   This is used for visual continuity — the next shot begins roughly where this one ends.
+
+6. TRANSITIONS — Specify how each shot flows into the next: "dissolve" (default, smooth),
+   "fadeblack" (dramatic pause), "cut" (jarring reveal).
+
+7. AMBIENT SOUND DESIGN — For each shot, describe the ambient sounds the viewer should
+   hear: "footsteps on marble echoing in a vast hall", "wind through glass corridors",
+   "distant city traffic humming below". The video generator uses these cues to produce
+   native audio that matches the scene. Be specific and evocative — this is the sound
+   design layer of your film.
+
+8. SPOKEN DIALOGUE — If a character speaks ON-CAMERA in a shot (not voice-over, but
+   actually talking within the scene), write their line in QUOTATION MARKS inside the
+   visual_direction field. Example: visual_direction includes 'Elias turns and says
+   "This is where it all begins."' The video generator will lip-sync the character when
+   it detects quoted dialogue. Use sparingly — max 1 shot per episode with on-camera
+   dialogue. Most dialogue should remain as voice-over narration.
+
+9. CAMERA MOVEMENT — Be EXPLICIT about camera motion using industry verbs in camera_notes:
+   "slow dolly forward", "crane up reveal", "orbital pan left 180°", "handheld tracking
+   following character", "static tripod close-up", "tilt down from sky to ground",
+   "push-in to extreme close-up", "pull-back wide reveal". The video generator translates
+   these into actual camera motion — vague directions produce static shots.
+
+EPISODE WRITING RULES:
+1. CONTINUITY IS PARAMOUNT. The hook MUST resolve/escalate the previous cliffhanger.
+2. VISUAL THREAD: Carry at least one visual motif from the previous episode.
+3. MOOD PROGRESSION: Logically follow the previous mood.
+4. Each episode = exactly 3 shots, total 10-15 seconds.
+5. The visual_style_prefix MUST be respected in every storyboard_prompt and visual_direction.
+6. Product/subject integration: natural, never forced.
+7. EVERY shot must have an ambient_sound description — silence is never acceptable in cinema.
+8. camera_notes must use SPECIFIC camera verbs, not vague descriptions.
+
+You MUST respond with ONLY valid JSON (no markdown code fences, no extra text).`;
+}
+
+/**
+ * V2 user prompt for cinematic episodes with the new JSON schema.
+ */
+export function getEpisodeUserPromptV2(storyline, lastCliffhanger, episodeNumber) {
+  const plannedEpisode = storyline.episodes?.[episodeNumber - 1];
+  const plannedContext = plannedEpisode
+    ? `PLANNED OUTLINE: "${plannedEpisode.title}" — ${plannedEpisode.narrative_beat}. Hook: ${plannedEpisode.hook}. Adapt based on how the story has evolved.`
+    : `No specific outline for episode ${episodeNumber}. Continue naturally.`;
+
+  const cliffhangerBlock = lastCliffhanger
+    ? `THE PREVIOUS EPISODE ENDED ON THIS CLIFFHANGER:
+"${lastCliffhanger}"
+
+Your 'hook' MUST reference, answer, or escalate this in the opening seconds.`
+    : 'This is the series premiere. Establish the world and hook the viewer immediately.';
+
+  return `Generate Episode ${episodeNumber} as a cinematic short film.
+
+${cliffhangerBlock}
+
+${plannedContext}
+
+SHOT SEQUENCE DIRECTION:
+- Shot 1 (4-5s): Opening hook — establish or answer the cliffhanger. Often broll or cinematic wide.
+- Shot 2 (4-5s): Narrative core — the emotional center of this episode. Character-driven cinematic.
+- Shot 3 (4-5s): Cliffhanger close — build tension, leave the viewer wanting more.
+
+Total duration: 10-15 seconds (Kling multi-shot constraint). Each shot 3-5 seconds.
+
+OUTPUT JSON SCHEMA:
+{
+  "title": "Episode title — intriguing and specific",
+  "hook": "What happens in the first 2-3 seconds to grab attention",
+  "narrative_beat": "The story beat this episode covers (one sentence)",
+  "dialogue_script": "The full voice-over narration for the ENTIRE episode (10-15 seconds of speech). This narration plays over all 3 cinematic shots as a continuous voice-over track.",
+  "mood": "The episode's emotional register",
+  "continuity_from_previous": "How this connects to what came before",
+  "continuity_check": "How this episode's hook resolves the previous cliffhanger",
+  "cliffhanger": "What makes the viewer want episode ${episodeNumber + 1}",
+  "visual_style_prefix": "UNIFIED cinematography brief for ALL shots: color temperature, lighting quality, lens feel, film stock reference. Example: 'Warm golden-hour tones, shallow depth of field, anamorphic lens flare, Kodak Portra 400 grain, soft backlit highlights'. This prefix ensures all 3 shots and storyboard panels share the same cinematic look.",
+  "shots": [
+    {
+      "shot_type": "cinematic | broll",
+      "visible_persona_indexes": [0],
+      "subject_visible": false,
+      "narration_line": "The voice-over text that plays during THIS specific shot (a portion of dialogue_script). The character's emotional state should be reflected in the visual_direction.",
+      "storyboard_prompt": "Detailed still-image prompt for Flux 2 Max: the KEY FRAME composition of this shot. Describe character appearance/pose, environment, lighting, colors, framing, depth of field. Must respect visual_style_prefix. Example: 'A woman in a camel coat stands at a rain-streaked window, warm interior light casting amber across her face, city lights blurred behind her, shallow DOF, Kodak Portra 400 grain, 9:16 vertical composition.'",
+      "visual_direction": "VIDEO motion prompt: what MOVES in this shot. Camera movement, character action, environment changes. If a character speaks on-camera, include their line in QUOTATION MARKS for lip-sync: 'Elias turns to camera and says \"This is where it all begins.\"' Example: 'Camera slowly pushes in as she turns from the window, her expression shifting from doubt to resolve, rain streaks blurring in the foreground.'",
+      "camera_notes": "SPECIFIC camera verb: 'slow dolly forward', 'crane up reveal', 'orbital pan left 180°', 'handheld tracking following character', 'static tripod close-up', 'tilt down from sky to ground', 'push-in to extreme close-up', 'pull-back wide reveal'",
+      "ambient_sound": "Describe the soundscape of this shot for native audio generation: 'footsteps echoing on marble, distant elevator hum, muffled city traffic through glass walls'. Be specific and cinematic — this IS the sound design.",
+      "end_frame_description": "What the camera shows at the VERY END of this shot for continuity to the next. Example: 'Close-up on her hand reaching for the door handle, warm light spilling through the gap.'",
+      "mood": "Shot-specific emotional register",
+      "duration_seconds": 5,
+      "transition_to_next": "dissolve | fadeblack | cut"
+    }
+  ]
+}
+
+CRITICAL CONSTRAINTS:
+- Exactly 3 shots per episode
+- Each shot 3-5 seconds (total 10-15s for Kling multi-shot compatibility)
+- shot_type is ONLY "cinematic" or "broll" — NO "dialogue" type
+- storyboard_prompt must be a RICH image prompt (100+ words) — this drives the storyboard quality
+- visual_style_prefix MUST be reflected in every storyboard_prompt
+- narration_line for each shot should collectively form the full dialogue_script`;
+}
+
+// ============================================================
+// STORYBOARD FRAME PROMPT (for Leonardo.ai image generation — v1 legacy)
 // ============================================================
 
 /**

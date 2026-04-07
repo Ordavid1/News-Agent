@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import winston from 'winston';
+import { GoogleAuth } from 'google-auth-library';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -57,19 +58,60 @@ class VideoGenerationService {
     this.googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
     this.runwayApiKey = process.env.RUNWAY_API_KEY;
 
+    // Veo backend selector: "vertex" (GCP Vertex AI — higher quotas) or "ai_studio" (legacy).
+    // Defaults to "vertex" once GCP config is present, otherwise falls back to "ai_studio".
+    this.veoBackend = (process.env.VIDEO_GENERATION_VEO_BACKEND || 'vertex').toLowerCase();
+    if (!['vertex', 'ai_studio'].includes(this.veoBackend)) {
+      logger.warn(`Unknown VIDEO_GENERATION_VEO_BACKEND: ${this.veoBackend}, defaulting to vertex`);
+      this.veoBackend = 'vertex';
+    }
+
+    // Vertex AI config
+    this.gcpProjectId = process.env.GCP_PROJECT_ID;
+    this.gcpLocation = process.env.GCP_LOCATION || 'us-central1';
+    this.vertexAuth = null;
+
+    if (this.veoBackend === 'vertex') {
+      // Guardrail from CLAUDE.md: never operate on the crypto-coral-328619 project
+      if (this.gcpProjectId === 'crypto-coral-328619') {
+        throw new Error('Refusing to initialize VideoGenerationService against GCP project crypto-coral-328619 (wrong app per CLAUDE.md)');
+      }
+
+      try {
+        const credsRaw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        if (credsRaw && this.gcpProjectId) {
+          const credentials = JSON.parse(credsRaw);
+          this.vertexAuth = new GoogleAuth({
+            credentials,
+            scopes: ['https://www.googleapis.com/auth/cloud-platform']
+          });
+        } else {
+          logger.warn('Veo backend=vertex but GCP_PROJECT_ID or GOOGLE_APPLICATION_CREDENTIALS_JSON is missing — Vertex calls will fail at request time');
+        }
+      } catch (err) {
+        logger.warn(`Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: ${err.message} — Vertex calls will fail at request time`);
+      }
+    }
+
     // Warn if primary model's key is missing
-    if (this.model === 'veo' && !this.googleApiKey) {
-      logger.warn('VIDEO_GENERATION_MODEL=veo but GOOGLE_AI_STUDIO_API_KEY is not set');
+    if (this.model === 'veo') {
+      if (this.veoBackend === 'ai_studio' && !this.googleApiKey) {
+        logger.warn('VIDEO_GENERATION_MODEL=veo (backend=ai_studio) but GOOGLE_AI_STUDIO_API_KEY is not set');
+      } else if (this.veoBackend === 'vertex' && !this.vertexAuth) {
+        logger.warn('VIDEO_GENERATION_MODEL=veo (backend=vertex) but Vertex auth is not configured');
+      }
     } else if (this.model === 'runway' && !this.runwayApiKey) {
       logger.warn('VIDEO_GENERATION_MODEL=runway but RUNWAY_API_KEY is not set');
     }
 
-    // Determine fallback model (the other one, if its API key is configured)
+    // Determine fallback model (the other one, if its credentials are configured)
     this.fallbackModel = this.model === 'veo' ? 'runway' : 'veo';
-    const fallbackKeyAvailable = this.fallbackModel === 'veo' ? !!this.googleApiKey : !!this.runwayApiKey;
+    const veoCredsAvailable = this.veoBackend === 'vertex' ? !!this.vertexAuth : !!this.googleApiKey;
+    const fallbackKeyAvailable = this.fallbackModel === 'veo' ? veoCredsAvailable : !!this.runwayApiKey;
     this.hasFallback = fallbackKeyAvailable;
 
-    logger.info(`VideoGenerationService initialized — active model: ${this.model}${this.hasFallback ? `, fallback: ${this.fallbackModel}` : ', no fallback configured'}`);
+    const backendLabel = this.model === 'veo' ? ` (backend: ${this.veoBackend})` : '';
+    logger.info(`VideoGenerationService initialized — active model: ${this.model}${backendLabel}${this.hasFallback ? `, fallback: ${this.fallbackModel}` : ', no fallback configured'}`);
   }
 
   /**
@@ -122,32 +164,26 @@ class VideoGenerationService {
   }
 
   // ═══════════════════════════════════════════════════
-  // GOOGLE VEO 3.1 FAST (via Gemini API / AI Studio)
+  // GOOGLE VEO 3.1 FAST
+  // Supported backends: Vertex AI (GCP, higher quotas) + Google AI Studio (legacy)
   // ═══════════════════════════════════════════════════
 
   /**
-   * Generate video using Google Veo 3.1 Fast via the Gemini API (Google AI Studio).
-   * Auth is a simple API key — no GCP project or service account required.
-   * Uses image + text prompt → returns a publicly accessible video URL.
-   *
-   * NOTE: The predictLongRunning endpoint uses Vertex AI request formatting.
-   * Images must use `referenceImages` with `bytesBase64Encoded` — NOT `inlineData`.
+   * Veo model ID. Identical between Vertex AI and AI Studio backends.
    */
-  async generateWithVeo({ imageUrl, prompt, skipImage = false }) {
-    if (!this.googleApiKey) {
-      throw new Error('GOOGLE_AI_STUDIO_API_KEY env var is required for Veo video generation');
-    }
+  get veoModelId() {
+    // Vertex AI uses the GA model ID; AI Studio uses the preview ID
+    return this.veoBackend === 'vertex'
+      ? 'veo-3.1-fast-generate-001'
+      : 'veo-3.1-fast-generate-preview';
+  }
 
-    // 2. Submit video generation request via Gemini API
-    // The predictLongRunning endpoint requires Vertex AI-style formatting:
-    // - referenceImages[] with bytesBase64Encoded (NOT inlineData)
-    // - referenceType: "asset" for subject-preserving image-to-video
-    const modelId = 'veo-3.1-fast-generate-preview';
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predictLongRunning`;
-
+  /**
+   * Build the Veo request `instance` object (prompt + optional reference image).
+   * Shared between Vertex and AI Studio backends so the two can't drift.
+   */
+  async _buildVeoInstance({ imageUrl, prompt, skipImage }) {
     const instance = { prompt };
-
-    // Include reference image unless skipped (text-only fallback for content-filtered images)
     if (!skipImage && imageUrl) {
       logger.info('Downloading source image for Veo...');
       const { base64, mimeType } = await this.downloadImageForVeo(imageUrl);
@@ -159,18 +195,219 @@ class VideoGenerationService {
     } else if (skipImage) {
       logger.info('Skipping reference image — text-only video generation (content filter fallback)');
     }
+    return instance;
+  }
 
+  /**
+   * Build the Veo `parameters` object. Identical across both backends.
+   */
+  _buildVeoParameters() {
+    return {
+      aspectRatio: '9:16',
+      resolution: '1080p',
+      durationSeconds: 8,
+      personGeneration: 'allow_adult',  // Reduce false positives on adult faces
+      generateAudio: true               // Explicit — Vertex default can differ
+    };
+  }
+
+  /**
+   * Extract RAI content-filter signals from a completed Veo LRO response.
+   * Supports both Vertex AI and AI Studio response shapes.
+   * Returns a descriptive string if filtered, or null otherwise.
+   */
+  _extractVeoFilterReason(result) {
+    const response = result?.response || {};
+    const metadata = result?.metadata || {};
+
+    const blockReason = response.promptFeedback?.blockReason
+      || response.generateVideoResponse?.raiMediaFilteredCount
+      || response.raiMediaFilteredCount
+      || metadata.raiMediaFilteredCount;
+
+    if (!blockReason) return null;
+
+    const reasons = response.generateVideoResponse?.raiMediaFilteredReasons
+      || response.raiMediaFilteredReasons
+      || metadata.raiMediaFilteredReasons
+      || [];
+
+    return reasons.length > 0 ? reasons.join('; ') : String(blockReason);
+  }
+
+  /**
+   * Top-level Veo dispatcher — routes to Vertex AI or AI Studio backend.
+   */
+  async generateWithVeo({ imageUrl, prompt, skipImage = false }) {
+    if (this.veoBackend === 'vertex') {
+      return this._generateWithVeoVertex({ imageUrl, prompt, skipImage });
+    }
+    return this._generateWithVeoAIStudio({ imageUrl, prompt, skipImage });
+  }
+
+  // ───────────────────────────────────────────────────
+  // Vertex AI backend (GCP)
+  // ───────────────────────────────────────────────────
+
+  async _getVertexAccessToken() {
+    if (!this.vertexAuth) {
+      throw new Error('Vertex AI auth is not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON');
+    }
+    const client = await this.vertexAuth.getClient();
+    const { token } = await client.getAccessToken();
+    if (!token) {
+      throw new Error('Failed to obtain Vertex AI access token from service account credentials');
+    }
+    return token;
+  }
+
+  async _generateWithVeoVertex({ imageUrl, prompt, skipImage = false }) {
+    if (!this.vertexAuth || !this.gcpProjectId) {
+      throw new Error('Vertex AI not configured — GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON are required');
+    }
+
+    const modelId = this.veoModelId;
+    const endpoint = `https://${this.gcpLocation}-aiplatform.googleapis.com/v1/projects/${this.gcpProjectId}/locations/${this.gcpLocation}/publishers/google/models/${modelId}:predictLongRunning`;
+
+    const instance = await this._buildVeoInstance({ imageUrl, prompt, skipImage });
     const requestBody = {
       instances: [instance],
-      parameters: {
-        aspectRatio: '9:16',
-        resolution: '1080p',
-        durationSeconds: 8,
-        personGeneration: 'allow_adult'   // Reduce false positives on adult faces
-      }
+      parameters: this._buildVeoParameters()
     };
 
-    logger.info('Submitting Veo video generation request (Gemini API)...');
+    logger.info(`Submitting Veo video generation request (Vertex AI, project=${this.gcpProjectId}, location=${this.gcpLocation})...`);
+
+    const token = await this._getVertexAccessToken();
+
+    // Retry with exponential backoff on 429 (quota/rate limit) errors
+    let submitResponse;
+    const maxRetries = 3;
+    for (let retryAttempt = 0; retryAttempt < maxRetries; retryAttempt++) {
+      try {
+        submitResponse = await axios.post(endpoint, requestBody, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 60000
+        });
+        break;
+      } catch (err) {
+        if (err.response?.status === 429 && retryAttempt < maxRetries - 1) {
+          const backoff = (retryAttempt + 1) * 5000;
+          logger.warn(`Vertex Veo API rate limited (429) — retrying in ${backoff / 1000}s (attempt ${retryAttempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, backoff));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    const operationName = submitResponse.data.name;
+    if (!operationName) {
+      throw new Error('Vertex Veo API did not return an operation name');
+    }
+    logger.info(`Veo operation started (Vertex): ${operationName}`);
+
+    const result = await this._pollVertexOperation(operationName);
+
+    // Vertex AI returns video bytes inline as base64 in the LRO response.
+    // Response shapes observed:
+    //   result.response.videos[].bytesBase64Encoded
+    //   result.response.generateVideoResponse.generatedSamples[].video.bytesBase64Encoded
+    //   result.response.predictions[].bytesBase64Encoded
+    const videoB64 = result?.response?.videos?.[0]?.bytesBase64Encoded
+      || result?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.bytesBase64Encoded
+      || result?.response?.generatedSamples?.[0]?.video?.bytesBase64Encoded
+      || result?.response?.predictions?.[0]?.bytesBase64Encoded;
+
+    if (!videoB64) {
+      logger.error('Vertex Veo full operation result:', JSON.stringify(result, null, 2));
+      const filterReason = this._extractVeoFilterReason(result);
+      if (filterReason) {
+        logger.warn(`Vertex Veo RAI filter reasons: ${filterReason}`);
+        throw new ContentFilterError(
+          `Veo video was blocked by content filters: ${filterReason}`,
+          { originalPrompt: prompt, model: 'veo' }
+        );
+      }
+      throw new Error('Vertex Veo API did not return video bytes in the response');
+    }
+
+    const videoBuffer = Buffer.from(videoB64, 'base64');
+    logger.info(`Vertex Veo video decoded — ${(videoBuffer.length / (1024 * 1024)).toFixed(1)} MB`);
+
+    // videoUrl is diagnostic only — callers consume videoBuffer
+    return { videoUrl: `vertex-operation:${operationName}`, videoBuffer, duration: 8 };
+  }
+
+  /**
+   * Poll a Vertex AI Long Running Operation until completion.
+   * Refreshes the access token on every poll so requests spanning the token's
+   * 1-hour lifetime don't 401.
+   */
+  async _pollVertexOperation(operationName) {
+    const deadline = Date.now() + MAX_POLL_DURATION_MS;
+    let attempt = 0;
+    // Vertex AI video models use fetchPredictOperation (POST on the model endpoint)
+    // NOT the generic GET /operations/ path (which expects a numeric Long ID).
+    // operationName is the full resource path returned by predictLongRunning, e.g.:
+    //   "projects/P/locations/L/publishers/google/models/M/operations/UUID"
+    const modelId = this.veoModelId;
+    const fetchUrl = `https://${this.gcpLocation}-aiplatform.googleapis.com/v1/projects/${this.gcpProjectId}/locations/${this.gcpLocation}/publishers/google/models/${modelId}:fetchPredictOperation`;
+
+    while (Date.now() < deadline) {
+      attempt++;
+      const token = await this._getVertexAccessToken();
+      const response = await axios.post(fetchUrl, {
+        operationName
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+
+      const operation = response.data;
+      if (operation.done) {
+        if (operation.error) {
+          throw new Error(`Vertex Veo operation failed: ${operation.error.message || JSON.stringify(operation.error)}`);
+        }
+        logger.info(`Vertex Veo operation completed after ${attempt} polls`);
+        return operation;
+      }
+      logger.debug(`Vertex Veo poll #${attempt}: still processing...`);
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+
+    throw new Error(`Vertex Veo video generation timed out after ${MAX_POLL_DURATION_MS / 1000}s`);
+  }
+
+  // ───────────────────────────────────────────────────
+  // AI Studio backend (legacy — retained for rollback)
+  // ───────────────────────────────────────────────────
+
+  /**
+   * Generate video using Google Veo via the Gemini API (Google AI Studio).
+   * Auth is a simple API key — no GCP project or service account required.
+   * NOTE: Subject to strict per-project rate limits. Prefer the Vertex backend.
+   */
+  async _generateWithVeoAIStudio({ imageUrl, prompt, skipImage = false }) {
+    if (!this.googleApiKey) {
+      throw new Error('GOOGLE_AI_STUDIO_API_KEY env var is required for Veo video generation (ai_studio backend)');
+    }
+
+    const modelId = this.veoModelId;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predictLongRunning`;
+
+    const instance = await this._buildVeoInstance({ imageUrl, prompt, skipImage });
+    const requestBody = {
+      instances: [instance],
+      parameters: this._buildVeoParameters()
+    };
+
+    logger.info('Submitting Veo video generation request (Gemini API / AI Studio)...');
 
     // Retry with exponential backoff on 429 (quota/rate limit) errors
     let submitResponse;
@@ -217,28 +454,15 @@ class VideoGenerationService {
       || result?.result?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
 
     if (!videoUri) {
-      // Log the FULL operation object to discover the actual response structure
       logger.error('Veo full operation result:', JSON.stringify(result, null, 2));
-
-      // Check for content/safety filter blocks
-      const filterReason = result?.response?.promptFeedback?.blockReason
-        || result?.response?.generateVideoResponse?.raiMediaFilteredCount
-        || result?.metadata?.raiMediaFilteredCount;
-
-      // Extract detailed RAI filter reasons (enabled by includeRaiReason: true)
-      const filterReasons = result?.response?.generateVideoResponse?.raiMediaFilteredReasons
-        || result?.metadata?.raiMediaFilteredReasons
-        || [];
-
+      const filterReason = this._extractVeoFilterReason(result);
       if (filterReason) {
-        const reasonDetail = filterReasons.length > 0 ? filterReasons.join('; ') : String(filterReason);
-        logger.warn(`Veo RAI filter reasons: ${reasonDetail}`);
+        logger.warn(`Veo RAI filter reasons: ${filterReason}`);
         throw new ContentFilterError(
-          `Veo video was blocked by content filters: ${reasonDetail}`,
+          `Veo video was blocked by content filters: ${filterReason}`,
           { originalPrompt: prompt, model: 'veo' }
         );
       }
-
       throw new Error('Veo API did not return a video URI in the response');
     }
 

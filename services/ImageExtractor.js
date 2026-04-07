@@ -491,7 +491,7 @@ class ImageExtractor {
           },
           maxRedirects: 3,
           responseType: 'arraybuffer',
-          maxContentLength: 2048,
+          maxContentLength: 512000, // 512KB — servers often ignore Range header and return full image
           validateStatus: (status) => status < 400
         });
         return true;

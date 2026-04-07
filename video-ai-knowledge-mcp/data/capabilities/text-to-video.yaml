@@ -1,0 +1,52 @@
+# Capability: Text-to-Video
+
+name: Text-to-Video
+description: >
+  Generate video directly from text prompts. The model interprets natural language
+  descriptions of scenes, characters, actions, and camera movements to produce
+  video clips.
+
+recommended_models:
+  - id: kling-3-pro
+    tier: premium
+    notes: "Best overall quality and camera control"
+    vendor_docs: "https://klingai.com/global/dev"
+  - id: runway-gen-4.5
+    tier: premium
+    notes: "Best prompt understanding, Workflow integration"
+    vendor_docs: "https://docs.dev.runwayml.com/"
+  - id: veo-3.1
+    tier: premium
+    notes: "Unique native audio generation"
+    vendor_docs: "https://ai.google.dev/gemini-api/docs/video"
+  - id: seedance-2.0
+    tier: premium
+    notes: "Strong character animation, Cinema Studio"
+    vendor_docs: "https://higgsfield.ai/seedance/2.0"
+  - id: ltx-video
+    tier: standard
+    notes: "Fastest generation, full studio environment, open source"
+    vendor_docs: "https://ltx.io/model"
+  - id: kling-3-omni
+    tier: standard
+    notes: "Multimodal inputs, cost-effective, 4K"
+    vendor_docs: "https://klingai.com/global/dev"
+  - id: seedance-1.5
+    tier: budget
+    notes: "Good quality at lower cost"
+    vendor_docs: "https://higgsfield.ai/seedance-1-5"
+
+selection_guide:
+  best_quality: "Kling 3 Pro or Runway Gen 4.5"
+  best_speed: "LTX Video"
+  best_value: "Seedance 1.5 or Kling 3 Omni"
+  needs_audio: "Veo 3.1 (native audio)"
+  needs_workflow: "Runway Gen 4.5 (Workflows) or LTX (Studio)"
+
+prompt_best_practices:
+  - "Include subject, camera, lighting, and action in every prompt"
+  - "Specify shot type (wide, medium, close-up, aerial)"
+  - "Describe camera movement (dolly, pan, tilt, crane, tracking)"
+  - "Mention lighting mood (golden hour, dramatic shadows, neon)"
+  - "Keep under 512 characters for Kling, more flexible for Runway"
+  - "Use professional cinematography language"

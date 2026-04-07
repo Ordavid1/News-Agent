@@ -1,0 +1,63 @@
+# Capability: Text-to-Image
+
+name: Text-to-Image
+description: >
+  Generate images from text descriptions. Foundation capability for many video
+  production pipelines (generate base frame → animate with video model).
+
+recommended_models:
+  - id: flux-2-max
+    tier: ultra-premium
+    notes: "Highest quality, print resolution, best for hero assets"
+    vendor_docs: "https://docs.bfl.ml/"
+  - id: flux-2-pro
+    tier: premium
+    notes: "Best balance of quality, speed, and text rendering"
+    vendor_docs: "https://docs.bfl.ml/"
+  - id: imagen-4
+    tier: premium
+    notes: "DEPRECATED June 2026 — migrate to Nano Banana. Best text-in-image."
+    vendor_docs: "https://ai.google.dev/gemini-api/docs/models/imagen"
+  - id: gpt-image-1.5
+    tier: premium
+    notes: "#1 LMArena ranked, best instruction following"
+    vendor_docs: "https://platform.openai.com/docs/guides/images-vision"
+  - id: seedream-4.5
+    tier: standard
+    notes: "Strong quality, feeds into Seedance pipeline, 14-ref consistency"
+    vendor_docs: "https://seed.bytedance.com/en/seedream4_5"
+  - id: flux-2-dev-lora
+    tier: standard
+    notes: "Customizable via LoRA, Flux 2 quality base"
+    vendor_docs: "https://docs.bfl.ml/"
+  - id: flux-1.1-dev-lora
+    tier: budget
+    notes: "Largest LoRA ecosystem, cost-effective"
+    vendor_docs: "https://docs.bfl.ml/"
+  - id: nano-banana-2
+    tier: budget
+    notes: "Ultra-fast (<1s), cheapest ($0.01), ideal for pipeline input"
+    vendor_docs: "https://ai.google.dev/gemini-api/docs/image-generation"
+
+selection_guide:
+  hero_campaign_assets: "Flux 2 Max"
+  product_photography: "Flux 2 Pro"
+  text_heavy_images: "Imagen 4 or GPT Image-1"
+  brand_consistency_lora: "Flux 2 Dev + LoRA"
+  video_pipeline_input: "Nano Banana 2 Pro (fastest/cheapest) or Seedream 4.5 (best for Seedance)"
+  iterative_design: "GPT Image-1 (ChatGPT multi-turn refinement)"
+  batch_production: "Nano Banana 2 Pro"
+
+pipeline_roles:
+  - role: "Base frame for image-to-video"
+    recommended: "Nano Banana 2 Pro (speed) or Seedream 4.5 (quality)"
+    used_in: "fal.ai Kling Multi-Shot Creator, Documentary workflow"
+  - role: "Storyboard panel generation"
+    recommended: "Flux 2 Pro or Runway Gen 4.5"
+    used_in: "Runway Story Panels, Storyboard Creator"
+  - role: "Character reference sheet"
+    recommended: "Flux 2 Pro + LoRA or Seedream 4.5"
+    used_in: "Runway Character Creator, Storyboard to Film"
+  - role: "Style reference"
+    recommended: "Flux 2 Pro or Imagen 4"
+    used_in: "Runway Image Style Generator, Style Transfer"
