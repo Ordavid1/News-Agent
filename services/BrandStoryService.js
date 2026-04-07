@@ -381,96 +381,6 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * Each persona gets its OWN talking_photo_id stored in persona_config.personas[i].
    */
   async _autoSetupAvatar(storyId, userId) {
-    const isHybrid = process.env.BRAND_STORY_VIDEO_STACK === 'hybrid';
-
-    // ═══════════════════════════════════════════════════════════
-    // HYBRID MODE — skip HeyGen entirely, just persist seed image URLs for OmniHuman.
-    // OmniHuman is zero-shot: single image + audio → video. No training, no uploads.
-    // ═══════════════════════════════════════════════════════════
-    if (isHybrid) {
-      const story = await getBrandStoryById(storyId, userId);
-      if (!story) return;
-
-      const personas = Array.isArray(story.persona_config?.personas)
-        ? story.persona_config.personas
-        : [story.persona_config];
-
-      logger.info(`[HYBRID] Avatar setup for story ${storyId} (persona_type=${story.persona_type}, ${personas.length} persona(s)) — skipping HeyGen`);
-
-      try {
-        let workingPersonas = [...personas];
-
-        // For 'described': still need Leonardo to generate a face image (OmniHuman needs SOME image)
-        if (story.persona_type === 'described') {
-          await updateBrandStory(storyId, userId, {
-            persona_config: { ...(story.persona_config || {}), training_status: 'generating_persona_image' }
-          });
-
-          for (let i = 0; i < workingPersonas.length; i++) {
-            const p = workingPersonas[i];
-            if (p.reference_image_urls?.length > 0) continue;
-
-            const description = p.description || 'A professional person';
-            const personality = p.personality || '';
-            const personaPrompt = `Photorealistic portrait headshot of ${description}. ${personality}. Neutral studio background, soft natural lighting, looking directly at camera, shoulders visible, closed mouth, film grain, 50mm lens.`;
-
-            logger.info(`[P${i + 1}] Generating Leonardo face for described persona...`);
-            const imageResult = await leonardoService.generateFrame({
-              prompt: personaPrompt,
-              options: { width: 768, height: 1024, numImages: 1, presetStyle: 'CINEMATIC' }
-            });
-            workingPersonas[i] = { ...p, reference_image_urls: [imageResult.imageUrl] };
-          }
-        }
-
-        // Persist seed image URL for OmniHuman on each persona
-        for (let i = 0; i < workingPersonas.length; i++) {
-          const p = workingPersonas[i];
-          const seedUrl = story.persona_type === 'brand_kit'
-            ? p?.cutout_url
-            : story.persona_type === 'selected'
-              ? p?.preview_image_url || p?.avatar_preview_url
-              : p?.reference_image_urls?.[0];
-          if (seedUrl) {
-            workingPersonas[i] = { ...workingPersonas[i], omnihuman_seed_image_url: seedUrl };
-          }
-        }
-
-        const configuredCount = workingPersonas.filter(p => p.omnihuman_seed_image_url).length;
-        await updateBrandStory(storyId, userId, {
-          persona_config: {
-            ...(story.persona_config || {}),
-            personas: workingPersonas,
-            training_status: configuredCount > 0 ? 'completed' : 'failed'
-          }
-        });
-
-        logger.info(`[HYBRID] Avatar setup complete: ${configuredCount}/${workingPersonas.length} personas with OmniHuman seed images (no HeyGen)`);
-        return;
-      } catch (err) {
-        logger.error(`[HYBRID] Avatar setup error for story ${storyId}: ${err.message}`);
-        const fresh = await getBrandStoryById(storyId, userId);
-        if (fresh) {
-          await updateBrandStory(storyId, userId, {
-            persona_config: {
-              ...(fresh.persona_config || {}),
-              training_status: 'failed',
-              training_error: err.message
-            }
-          });
-        }
-        return;
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // LEGACY MODE — HeyGen uploadTalkingPhoto per persona
-    // ═══════════════════════════════════════════════════════════
-    if (!heyGenService.isAvailable()) {
-      logger.info(`Auto avatar setup skipped for ${storyId} — HeyGen not configured`);
-      return;
-    }
-
     const story = await getBrandStoryById(storyId, userId);
     if (!story) return;
 
@@ -478,120 +388,43 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ? story.persona_config.personas
       : [story.persona_config];
 
-    logger.info(`Auto avatar setup for story ${storyId} (persona_type=${story.persona_type}, ${personas.length} persona(s))`);
+    logger.info(`[V3] Avatar setup for story ${storyId} (persona_type=${story.persona_type}, ${personas.length} persona(s))`);
 
     try {
-      // SELECTED: personas already have stock heygen_avatar_id. Mark primary.
-      if (story.persona_type === 'selected') {
-        const primary = personas[0] || {};
-        if (!primary?.heygen_avatar_id) {
-          logger.warn(`Primary selected persona has no heygen_avatar_id for story ${storyId}`);
-          await updateBrandStory(storyId, userId, {
-            persona_config: { ...(story.persona_config || {}), training_status: 'failed' }
-          });
-          return;
-        }
-        const stockPersonas = personas.map(p => ({ ...p, is_photo_avatar: false }));
-        await updateBrandStory(storyId, userId, {
-          heygen_avatar_id: primary.heygen_avatar_id,
-          persona_config: {
-            ...(story.persona_config || {}),
-            personas: stockPersonas,
-            training_status: 'completed'
-          }
-        });
-        logger.info(`Selected stock avatars configured for ${personas.length} persona(s)`);
-        return;
-      }
-
-      // UPLOADED / BRAND_KIT / DESCRIBED: upload each persona's seed image as a talking_photo.
       await updateBrandStory(storyId, userId, {
-        persona_config: { ...(story.persona_config || {}), training_status: 'processing' }
+        persona_config: { ...(story.persona_config || {}), training_status: 'generating_persona_image' }
       });
 
       let workingPersonas = [...personas];
 
-      // For 'described': first generate a face image via Leonardo if missing.
-      if (story.persona_type === 'described') {
-        await updateBrandStory(storyId, userId, {
-          persona_config: { ...(story.persona_config || {}), training_status: 'generating_persona_image' }
-        });
+      for (let i = 0; i < workingPersonas.length; i++) {
+        const p = workingPersonas[i];
 
-        for (let i = 0; i < workingPersonas.length; i++) {
-          const p = workingPersonas[i];
-          if (p.reference_image_urls?.length > 0) continue;
-
-          const description = p.description || 'A professional person';
-          const personality = p.personality || '';
-          const personaPrompt = `Photorealistic portrait headshot of ${description}. ${personality}. Neutral studio background, soft natural lighting, looking directly at camera, shoulders visible, closed mouth, film grain, 50mm lens.`;
-
-          logger.info(`[P${i + 1}] Generating Leonardo face for described persona...`);
-          const imageResult = await leonardoService.generateFrame({
-            prompt: personaPrompt,
-            options: { width: 768, height: 1024, numImages: 1, presetStyle: 'CINEMATIC' }
-          });
-          workingPersonas[i] = { ...p, reference_image_urls: [imageResult.imageUrl] };
+        // brand_kit_auto already has a full character sheet from generatePersonaFromBrandKit()
+        if (story.persona_type === 'brand_kit_auto' && p.reference_image_urls?.length >= 3) {
+          logger.info(`[P${i + 1}] brand_kit_auto already has ${p.reference_image_urls.length} refs — skipping character sheet`);
+          continue;
         }
 
-        await updateBrandStory(storyId, userId, {
-          persona_config: {
-            ...(story.persona_config || {}),
-            personas: workingPersonas,
-            training_status: 'processing'
-          }
-        });
+        // Generate character sheet (3 views: hero, closeup, side) via Flux 2 Max
+        workingPersonas[i] = await this._generateCharacterSheet(p, i, story, userId);
       }
 
-      // Upload each persona's seed image as a HeyGen talking_photo — parallel, fast, no waiting.
-      logger.info(`Uploading ${workingPersonas.length} talking photo(s) to HeyGen...`);
-
-      await Promise.all(workingPersonas.map(async (persona, index) => {
-        if (persona.heygen_avatar_id) {
-          logger.info(`[P${index + 1}] already has avatar_id=${persona.heygen_avatar_id} — skipping`);
-          return;
-        }
-
-        // Resolve seed image URL for this persona
-        const seedImageUrl = story.persona_type === 'brand_kit'
-          ? persona?.cutout_url
-          : persona?.reference_image_urls?.[0];
-
-        if (!seedImageUrl) {
-          logger.warn(`[P${index + 1}] no image available — skipping`);
-          return;
-        }
-
-        try {
-          const { talkingPhotoId } = await heyGenService.uploadTalkingPhoto(seedImageUrl);
-          workingPersonas[index] = {
-            ...persona,
-            heygen_avatar_id: talkingPhotoId,
-            is_photo_avatar: true
-          };
-          logger.info(`[P${index + 1}] talking_photo_id=${talkingPhotoId}`);
-        } catch (uploadErr) {
-          logger.error(`[P${index + 1}] talking_photo upload failed: ${uploadErr.message}`);
-        }
-      }));
-
-      // Record the primary persona's avatar on the story (used for dialogue shots).
-      const primary = workingPersonas[0] || {};
-      const anyConfigured = workingPersonas.some(p => !!p.heygen_avatar_id);
+      const configuredCount = workingPersonas.filter(p =>
+        p.reference_image_urls?.length > 0 || p.omnihuman_seed_image_url
+      ).length;
 
       await updateBrandStory(storyId, userId, {
-        heygen_avatar_id: primary.heygen_avatar_id || null,
-        heygen_avatar_group_id: null, // no longer used with talking_photo path
         persona_config: {
           ...(story.persona_config || {}),
           personas: workingPersonas,
-          training_status: anyConfigured ? 'completed' : 'failed'
+          training_status: configuredCount > 0 ? 'completed' : 'failed'
         }
       });
 
-      const configuredCount = workingPersonas.filter(p => !!p.heygen_avatar_id).length;
-      logger.info(`Avatar setup complete for story ${storyId}: ${configuredCount}/${workingPersonas.length} personas configured`);
+      logger.info(`[V3] Avatar setup complete: ${configuredCount}/${workingPersonas.length} personas with character sheets`);
     } catch (err) {
-      logger.error(`Auto avatar setup error for story ${storyId}: ${err.message}`);
+      logger.error(`[V3] Avatar setup error for story ${storyId}: ${err.message}`);
       const fresh = await getBrandStoryById(storyId, userId);
       if (fresh) {
         await updateBrandStory(storyId, userId, {
@@ -2124,6 +1957,155 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     };
   }
   // ═══════════════════════════════════════════════════
+  // CHARACTER SHEET GENERATION (Flux 2 Max — unified for all persona types)
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Generate a 3-view character sheet for a persona via Flux 2 Max.
+   * Works for ALL persona types: described, uploaded, brand_kit, brand_kit_auto.
+   *
+   * For described: generates face + body from text description
+   * For uploaded: generates consistent additional views from user's photos
+   * For brand_kit: generates views from cutout + brand people references
+   *
+   * @param {Object} persona - Persona object with description, reference_image_urls, cutout_url, etc.
+   * @param {number} personaIndex - Index in the personas array (for logging)
+   * @param {Object} story - Story object (for brand kit context)
+   * @param {string} userId
+   * @returns {Promise<Object>} Updated persona with enriched reference_image_urls
+   */
+  async _generateCharacterSheet(persona, personaIndex, story, userId) {
+    const replicateToken = process.env.REPLICATE_API_TOKEN;
+    if (!replicateToken) throw new Error('REPLICATE_API_TOKEN not set');
+    const replicate = new Replicate({ auth: replicateToken });
+
+    const name = persona.description?.slice(0, 30) || persona.avatar_name || `Persona ${personaIndex + 1}`;
+    logger.info(`Generating character sheet for ${name} (persona_type=${story.persona_type})...`);
+
+    // 1. Collect existing persona images as Flux input_images references
+    const existingImages = [];
+    if (Array.isArray(persona.reference_image_urls)) {
+      existingImages.push(...persona.reference_image_urls);
+    }
+    if (persona.cutout_url) existingImages.push(persona.cutout_url);
+
+    // 2. Collect Brand Kit people[] images for style/appearance reference
+    let brandPeopleImages = [];
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        const brandKit = job?.brand_kit;
+        if (brandKit?.people) {
+          brandPeopleImages = brandKit.people
+            .map(p => p.image_url)
+            .filter(Boolean);
+        }
+      } catch (e) { /* no brand kit — fine */ }
+    }
+
+    // 3. Build input_images: persona's own images first, then brand people (up to 8 total)
+    const inputImages = [...existingImages, ...brandPeopleImages].slice(0, 8);
+
+    // 4. Build description for prompts
+    const description = persona.appearance || persona.description || 'A professional, camera-ready person';
+    const personality = persona.personality || '';
+    const wardrobe = persona.wardrobe_hint || '';
+
+    // Load brand style hints
+    let styleHint = '';
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        const sc = job?.brand_kit?.style_characteristics || {};
+        styleHint = [sc.overall_aesthetic, sc.photography_style, sc.mood].filter(Boolean).join(', ');
+      } catch (e) { /* fine */ }
+    }
+
+    // 5. Generate 3 views
+    const baseSeed = Math.floor(Math.random() * 2147483647);
+    const views = [
+      {
+        label: 'hero',
+        prompt: `Cinematic film still portrait, full body shot, 3/4 front view at 45 degrees. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} ${styleHint ? 'Style: ' + styleHint + '.' : ''} Hyperrealistic, soft wrap-around studio lighting, subtle rim light from behind, even full-body illumination, slight cinematic contrast. Eye-level camera, 85mm equivalent, sharp head-to-toe focus. Pure white seamless studio background, fully isolated character. 8K, sharp material textures, photographic quality. No text, no watermark.`,
+        aspect: '9:16'
+      },
+      {
+        label: 'closeup',
+        prompt: `Close-up cinematic portrait, head and shoulders, looking directly at camera. ${description}. Dramatic shallow depth of field, catch-lights in eyes, warm skin tones, fine detail on skin texture and facial features. ${styleHint ? 'Style: ' + styleHint + '.' : ''} Soft studio lighting, slight rim light. White background. Photorealistic, 8K detail. No text, no watermark.`,
+        aspect: '1:1'
+      },
+      {
+        label: 'fullbody-side',
+        prompt: `Full body pure side profile, 90 degree angle. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} Standing tall, natural relaxed posture. Sharp head-to-toe focus, even studio lighting. White seamless background. Hyperrealistic, photographic quality. No text, no watermark.`,
+        aspect: '9:16'
+      }
+    ];
+
+    const newImageUrls = [];
+    let heroInputImages = [...inputImages];
+
+    for (let v = 0; v < views.length; v++) {
+      const view = views[v];
+
+      const output = await replicate.run('black-forest-labs/flux-2-max', {
+        input: {
+          prompt: view.prompt,
+          ...(heroInputImages.length > 0 ? { input_images: heroInputImages } : {}),
+          aspect_ratio: view.aspect,
+          resolution: '2 MP',
+          output_format: 'webp',
+          output_quality: 95,
+          safety_tolerance: 5,
+          seed: baseSeed + v
+        }
+      });
+
+      const imageSource = Array.isArray(output) ? output[0] : output;
+      let imageBuffer;
+
+      if (typeof imageSource === 'string') {
+        const resp = await axios.get(imageSource, { responseType: 'arraybuffer' });
+        imageBuffer = Buffer.from(resp.data);
+      } else if (imageSource && typeof imageSource.blob === 'function') {
+        const blob = await imageSource.blob();
+        imageBuffer = Buffer.from(await blob.arrayBuffer());
+      } else {
+        logger.warn(`${name} ${view.label} view: unexpected output — skipping`);
+        continue;
+      }
+
+      const filename = `char-sheet-${Date.now()}-${personaIndex}-${view.label}.webp`;
+      const imageUrl = await this._uploadBufferToStorage(
+        imageBuffer, userId, 'personas', filename, 'image/webp'
+      );
+      newImageUrls.push(imageUrl);
+
+      // After hero shot, add it as reference for subsequent views
+      if (v === 0) {
+        heroInputImages = [imageUrl, ...inputImages].slice(0, 8);
+      }
+
+      logger.info(`  ${name} ${view.label} uploaded: ${imageUrl}`);
+    }
+
+    if (newImageUrls.length === 0) {
+      logger.warn(`Failed to generate character sheet for ${name}`);
+      return persona; // Return unchanged
+    }
+
+    // 6. Merge: keep original images + add new character sheet views
+    const allRefs = [...existingImages, ...newImageUrls];
+
+    logger.info(`Character sheet for ${name}: ${newImageUrls.length} new views + ${existingImages.length} existing = ${allRefs.length} total refs`);
+
+    return {
+      ...persona,
+      reference_image_urls: allRefs,
+      omnihuman_seed_image_url: newImageUrls[0] // hero shot
+    };
+  }
+
+  // ═══════════════════════════════════════════════════
   // AUTO-GENERATE PERSONA FROM BRAND KIT
   // ═══════════════════════════════════════════════════
 
@@ -2244,7 +2226,7 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
             resolution: '2 MP',
             output_format: 'webp',
             output_quality: 95,
-            safety_tolerance: 3,
+            safety_tolerance: 5,
             seed: baseSeed + v
           }
         });
@@ -2316,26 +2298,64 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     };
 
     try {
-      // Step 1: Gemini writes cinematic screenplay (v2 schema)
-      progress('writing_script', 'Writing cinematic screenplay...');
-      const episode = await this._generateCinematicEpisode(storyId, userId);
+      // ── RESUMABLE PIPELINE ──
+      // On failure, generated artifacts are stashed on story.pending_resume and the
+      // failed episode is deleted. Next "Generate" creates a fresh episode but reuses
+      // any saved content (screenplay, narration, storyboard, raw video).
+
+      // Check if we have resume data from a previous failed attempt
+      const storyForResume = await getBrandStoryById(storyId, userId);
+      const resume = storyForResume?.pending_resume || null;
+      if (resume) {
+        logger.info(`[CinematicV2] Found resume data from failed attempt (error: ${resume.error?.slice(0, 60)})`);
+      }
+
+      // Step 1: Gemini writes cinematic screenplay — reuse from resume if available
+      let episode;
+      if (resume?.scene_description?.shots?.length > 0) {
+        progress('writing_script', 'Resuming from previous screenplay...');
+        // Create a new episode record with the saved screenplay
+        const episodeData = {
+          episode_number: (await getBrandStoryEpisodes(storyId, userId)).length + 1,
+          scene_description: resume.scene_description,
+          status: 'generating_narration',
+          pipeline_version: 'v2'
+        };
+        episode = await createBrandStoryEpisode(storyId, userId, episodeData);
+        episode.scene_description = resume.scene_description;
+      } else {
+        progress('writing_script', 'Writing cinematic screenplay...');
+        episode = await this._generateCinematicEpisode(storyId, userId);
+      }
+
       const scene = episode.scene_description || {};
       const shots = scene.shots || [];
       progress('writing_script', `Episode ${episode.episode_number}: ${shots.length} shots, style: ${(scene.visual_style_prefix || '').slice(0, 60)}...`);
 
-      // Step 2: Generate full-episode TTS narration (parallel-safe with storyboard)
-      progress('generating_narration', 'Recording voice-over narration...');
-      const narrationPromise = this._generateFullNarration(episode, storyId, userId);
+      // Step 2: TTS narration — reuse from resume if available
+      let narrationResult;
+      if (resume?.narration_audio_url) {
+        logger.info(`[CinematicV2] Reusing saved narration: ${resume.narration_audio_url}`);
+        const narResp = await axios.get(resume.narration_audio_url, { responseType: 'arraybuffer', timeout: 30000 });
+        narrationResult = { audioBuffer: Buffer.from(narResp.data), publicUrl: resume.narration_audio_url };
+        await updateBrandStoryEpisode(episode.id, userId, { narration_audio_url: resume.narration_audio_url });
+      } else {
+        progress('generating_narration', 'Recording voice-over narration...');
+        narrationResult = await this._generateFullNarration(episode, storyId, userId);
+        await updateBrandStoryEpisode(episode.id, userId, { narration_audio_url: narrationResult.publicUrl });
+      }
 
-      // Step 3: Generate storyboard panels via Flux 2 Max (parallel with narration)
-      progress('generating_storyboard', 'Creating storyboard panels...');
-      const storyboardPromise = this._generateEpisodeStoryboard(episode, storyId, userId);
+      // Step 3: Storyboard panels — reuse from resume if available
+      let storyboardPanels;
+      if (Array.isArray(resume?.storyboard_panels) && resume.storyboard_panels.length >= shots.length) {
+        logger.info(`[CinematicV2] Reusing saved storyboard: ${resume.storyboard_panels.length} panels`);
+        storyboardPanels = resume.storyboard_panels;
+      } else {
+        progress('generating_storyboard', 'Creating storyboard panels...');
+        storyboardPanels = await this._generateEpisodeStoryboard(episode, storyId, userId);
+      }
 
-      // Wait for both parallel tasks
-      const [narrationResult, storyboardPanels] = await Promise.all([narrationPromise, storyboardPromise]);
-      progress('generating_storyboard', `${storyboardPanels.length} panels ready`);
-
-      // Save storyboard panels and narration URL to episode
+      // Save storyboard + narration + style to episode
       await updateBrandStoryEpisode(episode.id, userId, {
         storyboard_panels: storyboardPanels,
         narration_audio_url: narrationResult.publicUrl,
@@ -2344,20 +2364,31 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         status: 'generating_video'
       });
 
-      // Step 4: Generate multi-shot video via Kling 3.0 Pro
-      progress('generating_video', 'Generating cinematic video (Kling multi-shot)...');
-      const story = await getBrandStoryById(storyId, userId);
+      // Step 4: Video generation — reuse raw video from resume if available
       let videoResult;
-      try {
-        videoResult = await this._generateKlingMultiShot(shots, scene, storyboardPanels, story, userId);
-      } catch (klingErr) {
-        logger.warn(`Kling multi-shot failed, falling back to Seedance: ${klingErr.message}`);
-        progress('generating_video', 'Kling unavailable — using Seedance frame-chaining fallback...');
-        videoResult = await this._runSeedanceFallbackPipeline(shots, scene, storyboardPanels, story, episode, userId);
+      if (resume?.scene_video_url) {
+        logger.info(`[CinematicV2] Reusing saved raw video: ${resume.scene_video_url}`);
+        const vidResp = await axios.get(resume.scene_video_url, { responseType: 'arraybuffer', timeout: 120000 });
+        videoResult = { videoBuffer: Buffer.from(vidResp.data), duration: 15, model: 'reused' };
+      } else {
+        // TODO: Re-enable Kling primary path after Veo testing
+        progress('generating_video', 'Generating cinematic video (Veo 3.1 Standard)...');
+        const story = await getBrandStoryById(storyId, userId);
+        // Kling disabled for Veo testing — go straight to Veo 3.1 Standard
+        videoResult = await this._runVeoFallbackPipeline(shots, scene, storyboardPanels, story, episode, userId);
+        /* KLING PRIMARY PATH (re-enable after testing):
+        try {
+          videoResult = await this._generateKlingMultiShot(shots, scene, storyboardPanels, story, userId);
+        } catch (klingErr) {
+          logger.warn(`Kling multi-shot failed, falling back to Veo 3.1 Standard: ${klingErr.message}`);
+          progress('generating_video', 'Kling unavailable — using Veo 3.1 Standard fallback...');
+          videoResult = await this._runVeoFallbackPipeline(shots, scene, storyboardPanels, story, episode, userId);
+        }
+        */
       }
 
       // Upload raw video to Supabase
-      const rawVideoUrl = await this._uploadBufferToStorage(
+      const rawVideoUrl = resume?.scene_video_url || await this._uploadBufferToStorage(
         videoResult.videoBuffer, userId, 'videos', `ep${episode.episode_number}-raw.mp4`, 'video/mp4'
       );
 
@@ -2366,11 +2397,14 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         status: 'post_production'
       });
 
-      // Step 5: Post-production (audio mix narration over ambient)
+      // Step 5: Post-production
       progress('post_production', 'Mixing narration over cinematic audio...');
       const finalVideoUrl = await this._postProduction(
         videoResult.videoBuffer, narrationResult.audioBuffer, episode, userId
       );
+
+      // Clear resume data on success
+      await updateBrandStory(storyId, userId, { pending_resume: null });
 
       // Finalize
       await updateBrandStoryEpisode(episode.id, userId, {
@@ -2383,6 +2417,34 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
 
     } catch (error) {
       logger.error(`Cinematic v2 pipeline failed for story ${storyId}: ${error.message}`);
+      // Save generated artifacts to the STORY record for resume, then DELETE the failed episode.
+      // Next "Generate" click will create a fresh episode but reuse saved content.
+      try {
+        const allEps = await getBrandStoryEpisodes(storyId, userId);
+        const failedEp = allEps[allEps.length - 1];
+        if (failedEp && failedEp.status !== 'ready') {
+          // Stash whatever was generated so far on the story for next attempt
+          const resume = {
+            scene_description: failedEp.scene_description || null,
+            narration_audio_url: failedEp.narration_audio_url || null,
+            storyboard_panels: failedEp.storyboard_panels || null,
+            visual_style_prefix: failedEp.visual_style_prefix || null,
+            scene_video_url: failedEp.scene_video_url || null,
+            failed_at: new Date().toISOString(),
+            error: error.message
+          };
+          await updateBrandStory(storyId, userId, { pending_resume: resume });
+          // Delete the failed episode — user sees a clean slate
+          const { supabaseAdmin } = await import('./supabase.js');
+          await supabaseAdmin.from('brand_story_episodes').delete().eq('id', failedEp.id).eq('user_id', userId);
+          // Update total_episodes count
+          const remaining = await getBrandStoryEpisodes(storyId, userId);
+          await updateBrandStory(storyId, userId, { total_episodes: remaining.length });
+          logger.info(`[CinematicV2] Failed episode ${failedEp.episode_number} deleted. Resume data saved on story.`);
+        }
+      } catch (cleanupErr) {
+        logger.error(`[CinematicV2] Cleanup after failure failed: ${cleanupErr.message}`);
+      }
       throw error;
     }
   }
@@ -2550,7 +2612,7 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
           resolution: '2 MP',
           output_format: 'webp',
           output_quality: 95,
-          safety_tolerance: 3,
+          safety_tolerance: 5,
           seed: baseSeed + i
         }
       });
@@ -2651,87 +2713,66 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
    * Uses frame chaining: each shot's start frame = last frame of previous shot.
    * Storyboard panels serve as end_image_url targets for guided motion.
    */
-  async _runSeedanceFallbackPipeline(shots, scene, storyboardPanels, story, episode, userId) {
-    if (!seedanceService.isAvailable()) throw new Error('Seedance service not available');
+  /**
+   * Veo 3.1 Standard fallback pipeline — used when Kling multi-shot fails.
+   * Uses storyboard panels as first+last frame anchors for perfect shot-to-shot continuity.
+   * No fragile frame extraction — panels drive both ends of every shot.
+   *
+   * Flow: Panel1→Shot1→Panel2, Panel2→Shot2→Panel3, Panel3→Shot3→(open)
+   */
+  async _runVeoFallbackPipeline(shots, scene, storyboardPanels, story, episode, userId) {
+    const { VideoGenerationService } = await import('./VideoGenerationService.js');
 
     const stylePrefix = scene.visual_style_prefix || '';
     const generatedShots = [];
-    const tmpDir = os.tmpdir();
 
     for (let i = 0; i < shots.length; i++) {
       const shot = shots[i];
-      const prompt = `${stylePrefix}. ${shot.visual_direction || ''} ${shot.camera_notes ? `Camera: ${shot.camera_notes}` : ''} ${shot.ambient_sound ? `Sound: ${shot.ambient_sound}` : ''} Mood: ${shot.mood || 'cinematic'}. Photorealistic, cinematic lighting, 9:16 vertical.`;
 
-      // Start frame: first shot uses storyboard panel 1, subsequent use previous shot's last frame
-      let startFrameUrl;
-      if (i === 0) {
-        startFrameUrl = storyboardPanels[0]?.image_url;
-      } else {
-        // Extract last frame from previous shot
-        startFrameUrl = generatedShots[i - 1]?.lastFrameUrl || storyboardPanels[i]?.image_url;
-      }
+      // Build rich prompt (Veo allows ~1400 chars — more room than Kling's 512)
+      const prompt = [
+        stylePrefix,
+        shot.visual_direction || '',
+        shot.camera_notes ? `Camera movement: ${shot.camera_notes}` : '',
+        shot.ambient_sound ? `Ambient sound: ${shot.ambient_sound}` : '',
+        shot.mood ? `Mood: ${shot.mood}` : '',
+        'Photorealistic, cinematic lighting, 9:16 vertical short film.'
+      ].filter(Boolean).join('. ').slice(0, 1400);
 
-      // End frame: next storyboard panel (for guided motion toward that composition)
-      const endFrameUrl = (i < storyboardPanels.length - 1) ? storyboardPanels[i + 1]?.image_url : undefined;
+      // First frame = this shot's storyboard panel
+      const firstImageUrl = storyboardPanels[i]?.image_url;
+      // Last frame = next shot's storyboard panel (seamless handoff) — null for final shot
+      const lastImageUrl = (i < storyboardPanels.length - 1) ? storyboardPanels[i + 1]?.image_url : null;
+      // Map camera notes to Veo's cameraControl enum
+      const cameraControl = VideoGenerationService.mapCameraControl(shot.camera_notes);
 
-      logger.info(`Seedance fallback shot ${i + 1}/${shots.length}: start=${startFrameUrl ? 'yes' : 'no'}, end=${endFrameUrl ? 'yes' : 'no'}`);
+      const duration = Math.min(Math.max(shot.duration_seconds || 6, 4), 8);
 
-      const result = startFrameUrl
-        ? await seedanceService.generateImageToVideo({
-            prompt,
-            imageUrl: startFrameUrl,
-            options: {
-              duration: Math.min(Math.max(shot.duration_seconds || 5, 4), 15),
-              aspectRatio: '9:16',
-              generateAudio: true,
-              endImageUrl: endFrameUrl || undefined
-            }
-          })
-        : await seedanceService.generateTextToVideo({
-            prompt,
-            options: {
-              duration: Math.min(Math.max(shot.duration_seconds || 5, 4), 15),
-              aspectRatio: '9:16',
-              generateAudio: true
-            }
-          });
+      logger.info(`Veo fallback shot ${i + 1}/${shots.length}: first_frame=${firstImageUrl ? 'yes' : 'no'}, last_frame=${lastImageUrl ? 'yes' : 'no'}, camera=${cameraControl || 'auto'}, ${duration}s`);
 
-      // Extract last frame for next shot's continuity
-      let lastFrameUrl = null;
-      try {
-        const shotPath = path.join(tmpDir, `seedance-shot-${episode.episode_number}-${i}.mp4`);
-        const framePath = path.join(tmpDir, `seedance-lastframe-${episode.episode_number}-${i}.png`);
-        await fs.writeFile(shotPath, result.videoBuffer);
-        // Use png encoder (always available) instead of mjpeg (fails on some yuv420p inputs).
-        // Seek to last 0.1s of video and grab 1 frame.
-        await execFileAsync('ffmpeg', ['-y', '-sseof', '-0.1', '-i', shotPath, '-frames:v', '1', '-update', '1', framePath]);
-        const frameBuffer = await fs.readFile(framePath);
-        lastFrameUrl = await this._uploadBufferToStorage(
-          frameBuffer, userId, 'storyboard', `ep${episode.episode_number}-lastframe${i}.png`, 'image/png'
-        );
-        // Cleanup
-        await fs.unlink(shotPath).catch(() => {});
-        await fs.unlink(framePath).catch(() => {});
-      } catch (frameErr) {
-        logger.warn(`Failed to extract last frame from shot ${i + 1}: ${frameErr.message}`);
-      }
+      const result = await videoGenerationService.generateWithFirstLastFrame({
+        firstImageUrl,
+        lastImageUrl,
+        prompt,
+        cameraControl,
+        options: { durationSeconds: duration, aspectRatio: '9:16' }
+      });
 
       generatedShots.push({
         index: i,
         videoBuffer: result.videoBuffer,
-        duration: result.duration,
-        lastFrameUrl
+        duration: result.duration
       });
     }
 
-    // Assemble with xfade transitions
+    // Assemble with xfade transitions (reuse existing method)
     const transitions = shots.map(s => s.transition_to_next || 'dissolve');
     const assembledBuffer = await this._assembleWithTransitions(generatedShots, transitions, episode, userId);
 
     return {
       videoBuffer: assembledBuffer,
       duration: generatedShots.reduce((sum, s) => sum + s.duration, 0),
-      model: 'seedance-1.5-pro-frame-chained'
+      model: 'veo-3.1-standard-frame-chained'
     };
   }
 

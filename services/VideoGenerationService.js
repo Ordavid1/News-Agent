@@ -541,6 +541,256 @@ class VideoGenerationService {
   }
 
   // ═══════════════════════════════════════════════════
+  // VEO 3.1 STANDARD — FIRST + LAST FRAME (Cinematic Fallback)
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Generate a video using Veo 3.1 Standard via Vertex AI with first-frame
+   * and optional last-frame anchoring. This is the cinematic v2 fallback
+   * path — used when Kling multi-shot fails.
+   *
+   * Uses storyboard panels as first/last frames for perfect shot-to-shot
+   * continuity (Panel N = start, Panel N+1 = end).
+   *
+   * NOTE: referenceImages CANNOT be used with image/lastFrame (API constraint).
+   * We choose first+last frame over identity-lock refs because storyboard
+   * panels already contain the character.
+   *
+   * @param {Object} params
+   * @param {string} params.firstImageUrl - Start frame (storyboard panel N)
+   * @param {string} [params.lastImageUrl] - End frame (storyboard panel N+1, null for last shot)
+   * @param {string} params.prompt - Scene description with style + visual_direction + audio cues
+   * @param {string} [params.cameraControl] - Veo camera motion enum (e.g., 'push_in', 'crane_up')
+   * @param {Object} [params.options]
+   * @param {number} [params.options.durationSeconds=6] - 4-8s per shot
+   * @param {string} [params.options.aspectRatio='9:16']
+   * @returns {Promise<Object>} { videoUrl, videoBuffer, duration, model }
+   */
+  async generateWithFirstLastFrame({ firstImageUrl, lastImageUrl, prompt, cameraControl, options = {} }) {
+    if (!this.vertexAuth || !this.gcpProjectId) {
+      throw new Error('Vertex AI not configured — required for Veo 3.1 Standard first+last frame');
+    }
+
+    const {
+      durationSeconds = 6,
+      aspectRatio = '9:16'
+    } = options;
+
+    // Veo 3.1 Standard (Preview) — supports lastFrame + cameraControl.
+    // GA version (veo-3.1-generate-001) may not support lastFrame yet.
+    const modelId = 'veo-3.1-generate-preview';
+    const endpoint = `https://${this.gcpLocation}-aiplatform.googleapis.com/v1/projects/${this.gcpProjectId}/locations/${this.gcpLocation}/publishers/google/models/${modelId}:predictLongRunning`;
+
+    // Download + base64-encode first frame (convert WebP→JPEG if needed — Veo only accepts JPEG/PNG)
+    logger.info(`Veo 3.1 Standard: downloading first frame...`);
+    const firstImage = await this._downloadImageAsJpegForVeo(firstImageUrl);
+
+    // Build instance
+    const instance = {
+      prompt,
+      image: { bytesBase64Encoded: firstImage.base64, mimeType: firstImage.mimeType }
+    };
+
+    // Veo constraint: lastFrame + cameraControl CANNOT be combined.
+    // When we have lastFrame (shots 1-2), the model interpolates motion naturally between panels.
+    // When we DON'T have lastFrame (shot 3, the final shot), cameraControl can guide the motion.
+    if (lastImageUrl) {
+      logger.info(`Veo 3.1 Standard: downloading last frame...`);
+      const lastImage = await this._downloadImageAsJpegForVeo(lastImageUrl);
+      instance.lastFrame = { bytesBase64Encoded: lastImage.base64, mimeType: lastImage.mimeType };
+      // cameraControl intentionally omitted — incompatible with lastFrame
+      if (cameraControl) {
+        logger.info(`Veo 3.1 Standard: dropping cameraControl=${cameraControl} (incompatible with lastFrame)`);
+      }
+    } else if (cameraControl) {
+      // No lastFrame — safe to use cameraControl
+      instance.cameraControl = cameraControl;
+    }
+
+    const parameters = {
+      aspectRatio,
+      resolution: '1080p',
+      durationSeconds,
+      personGeneration: 'allow_adult',
+      generateAudio: true
+    };
+
+    let requestBody = { instances: [instance], parameters };
+
+    logger.info(`Veo 3.1 Standard: submitting (first_frame=yes, last_frame=${lastImageUrl ? 'yes' : 'no'}, camera=${cameraControl || 'auto'}, ${durationSeconds}s, ${aspectRatio})`);
+
+    const token = await this._getVertexAccessToken();
+
+    // Retry with exponential backoff on 429
+    let submitResponse;
+    const maxRetries = 3;
+    for (let retryAttempt = 0; retryAttempt < maxRetries; retryAttempt++) {
+      try {
+        submitResponse = await axios.post(endpoint, requestBody, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 90000 // Longer timeout for Standard tier (larger payload with 2 images)
+        });
+        break;
+      } catch (err) {
+        if (err.response?.status === 429 && retryAttempt < maxRetries - 1) {
+          const backoff = (retryAttempt + 1) * 8000;
+          logger.warn(`Veo 3.1 Standard rate limited (429) — retrying in ${backoff / 1000}s`);
+          await new Promise(resolve => setTimeout(resolve, backoff));
+        } else {
+          if (err.response) {
+            logger.error(`Veo 3.1 Standard submit error ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 500)}`);
+          }
+          throw err;
+        }
+      }
+    }
+
+    const operationName = submitResponse.data.name;
+    if (!operationName) throw new Error('Veo 3.1 Standard did not return an operation name');
+
+    logger.info(`Veo 3.1 Standard operation started: ${operationName}`);
+
+    // Poll using existing infrastructure (reuse _pollVertexOperation but with Standard model ID)
+    const result = await this._pollVertexOperationForModel(operationName, modelId);
+
+    // Extract video buffer (same response format as Fast tier)
+    const videoB64 = result?.response?.videos?.[0]?.bytesBase64Encoded
+      || result?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.bytesBase64Encoded
+      || result?.response?.generatedSamples?.[0]?.video?.bytesBase64Encoded
+      || result?.response?.predictions?.[0]?.bytesBase64Encoded;
+
+    if (!videoB64) {
+      const filterReason = this._extractVeoFilterReason(result);
+      if (filterReason) {
+        throw new ContentFilterError(
+          `Veo 3.1 Standard blocked by content filters: ${filterReason}`,
+          { originalPrompt: prompt, model: 'veo-3.1-standard' }
+        );
+      }
+      logger.error(`Veo 3.1 Standard response: ${JSON.stringify(result).slice(0, 500)}`);
+      throw new Error('Veo 3.1 Standard did not return video bytes');
+    }
+
+    const videoBuffer = Buffer.from(videoB64, 'base64');
+    logger.info(`Veo 3.1 Standard video decoded — ${(videoBuffer.length / (1024 * 1024)).toFixed(1)} MB, ${durationSeconds}s`);
+
+    return {
+      videoUrl: `vertex-operation:${operationName}`,
+      videoBuffer,
+      duration: durationSeconds,
+      model: 'veo-3.1-standard'
+    };
+  }
+
+  /**
+   * Poll a Vertex AI LRO for a specific model ID (needed because _pollVertexOperation
+   * uses the instance's veoModelId which is the Fast tier).
+   */
+  async _pollVertexOperationForModel(operationName, modelId) {
+    const deadline = Date.now() + MAX_POLL_DURATION_MS;
+    let attempt = 0;
+    const fetchUrl = `https://${this.gcpLocation}-aiplatform.googleapis.com/v1/projects/${this.gcpProjectId}/locations/${this.gcpLocation}/publishers/google/models/${modelId}:fetchPredictOperation`;
+
+    while (Date.now() < deadline) {
+      attempt++;
+      const token = await this._getVertexAccessToken();
+
+      const response = await axios.post(fetchUrl, { operationName }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      });
+
+      const operation = response.data;
+      if (operation.done) {
+        if (operation.error) {
+          throw new Error(`Veo 3.1 Standard operation failed: ${operation.error.message || JSON.stringify(operation.error)}`);
+        }
+        logger.info(`Veo 3.1 Standard operation completed after ${attempt} polls`);
+        return operation;
+      }
+
+      logger.info(`Veo 3.1 Standard poll #${attempt}: still processing...`);
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+
+    throw new Error(`Veo 3.1 Standard timed out after ${MAX_POLL_DURATION_MS / 1000}s`);
+  }
+
+  /**
+   * Map free-form camera_notes from Gemini to Veo's cameraControl enum values.
+   * Returns null if no clear mapping (Veo will use prompt-guided motion instead).
+   */
+  static mapCameraControl(cameraNotes) {
+    if (!cameraNotes) return null;
+    const lower = cameraNotes.toLowerCase();
+
+    const mappings = [
+      { keywords: ['push in', 'push-in', 'dolly forward', 'dolly in', 'move forward'], value: 'push_in' },
+      { keywords: ['pull out', 'pull-out', 'pull back', 'pull-back', 'dolly back', 'dolly out', 'move back'], value: 'pull_out' },
+      { keywords: ['pan left', 'pan-left'], value: 'pan_left' },
+      { keywords: ['pan right', 'pan-right'], value: 'pan_right' },
+      { keywords: ['tilt up', 'tilt-up'], value: 'tilt_up' },
+      { keywords: ['tilt down', 'tilt-down'], value: 'tilt_down' },
+      { keywords: ['orbit left', 'orbit-left', 'orbital left'], value: 'orbit_left' },
+      { keywords: ['orbit right', 'orbit-right', 'orbital right'], value: 'orbit_right' },
+      { keywords: ['crane up', 'crane-up', 'crane up reveal'], value: 'crane_up' },
+      { keywords: ['crane down', 'crane-down'], value: 'crane_down' }
+    ];
+
+    for (const { keywords, value } of mappings) {
+      if (keywords.some(kw => lower.includes(kw))) return value;
+    }
+
+    return null; // No match — Veo uses prompt text for motion guidance
+  }
+
+  /**
+   * Download an image and ensure it's JPEG or PNG for Veo (which rejects WebP/GIF).
+   * If the source is WebP, converts to JPEG via ffmpeg.
+   */
+  async _downloadImageAsJpegForVeo(imageUrl) {
+    const downloaded = await this.downloadImageForVeo(imageUrl);
+
+    // Veo accepts JPEG and PNG — if it's already one of those, return as-is
+    if (downloaded.mimeType === 'image/jpeg' || downloaded.mimeType === 'image/png') {
+      return downloaded;
+    }
+
+    // Convert WebP/GIF/other to JPEG via ffmpeg
+    logger.info(`Converting ${downloaded.mimeType} → image/jpeg for Veo compatibility`);
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const os = await import('os');
+    const execFileAsync = promisify(execFile);
+
+    const tmpDir = os.default.tmpdir();
+    const ext = downloaded.mimeType.includes('webp') ? 'webp' : downloaded.mimeType.includes('gif') ? 'gif' : 'bin';
+    const inputPath = path.default.join(tmpDir, `veo-convert-${Date.now()}.${ext}`);
+    const outputPath = path.default.join(tmpDir, `veo-convert-${Date.now()}.jpg`);
+
+    await fs.default.writeFile(inputPath, Buffer.from(downloaded.base64, 'base64'));
+    await execFileAsync('ffmpeg', ['-y', '-i', inputPath, '-q:v', '2', outputPath]);
+    const jpegBuffer = await fs.default.readFile(outputPath);
+
+    // Cleanup
+    await fs.default.unlink(inputPath).catch(() => {});
+    await fs.default.unlink(outputPath).catch(() => {});
+
+    return {
+      base64: jpegBuffer.toString('base64'),
+      mimeType: 'image/jpeg'
+    };
+  }
+
+  // ═══════════════════════════════════════════════════
   // RUNWAY 4.5 (Gen-4.5)
   // ═══════════════════════════════════════════════════
 

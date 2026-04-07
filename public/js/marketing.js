@@ -6943,10 +6943,10 @@ function applyFocusToPersonaStep(focus) {
     const allowedByFocus = pipelineVersion === 'v1'
         ? { person: ['uploaded', 'brand_kit'], product: ['selected'], landscape: ['selected'] }
         : {
-            // V2/V3: all options available for all focuses — no restrictions
-            person:    ['described', 'uploaded', 'brand_kit', 'brand_kit_auto', 'selected'],
-            product:   ['brand_kit_auto', 'described', 'uploaded', 'brand_kit', 'selected'],
-            landscape: ['brand_kit_auto', 'described', 'uploaded', 'brand_kit', 'selected']
+            // V3: all options available for all focuses. HeyGen 'selected' removed.
+            person:    ['described', 'uploaded', 'brand_kit', 'brand_kit_auto'],
+            product:   ['brand_kit_auto', 'described', 'uploaded', 'brand_kit'],
+            landscape: ['brand_kit_auto', 'described', 'uploaded', 'brand_kit']
         };
     const allowed = allowedByFocus[focus] || ['described'];
 
