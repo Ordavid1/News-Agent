@@ -2532,6 +2532,14 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
    * Generate full-episode TTS narration via ElevenLabs.
    * Concatenates all shots' narration_lines into one continuous script.
    */
+  // Video provider max duration per shot — used to calculate target narration length
+  static get VIDEO_DURATION_CONFIG() {
+    return {
+      kling: { maxPerShot: 15, numShots: 3 },   // Kling Omni 3: 15s × 3 = 45s
+      veo: { maxPerShot: 8, numShots: 3 }        // Veo 3.1 Standard I2V: 8s × 3 = 24s
+    };
+  }
+
   async _generateFullNarration(episode, storyId, userId) {
     const scene = episode.scene_description || {};
     const shots = scene.shots || [];
@@ -2547,14 +2555,37 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       return { audioBuffer: null, publicUrl: null };
     }
 
+    // Calculate target narration duration based on video provider
+    // Primary = Kling, fallback = Veo. Target the PRIMARY provider's length.
+    const isKlingDisabled = false; // TODO: flip when Kling is re-enabled
+    const provider = isKlingDisabled ? 'veo' : 'kling';
+    const config = BrandStoryService.VIDEO_DURATION_CONFIG[provider];
+    const targetDurationSec = config.maxPerShot * config.numShots;
+
+    // Estimate natural speech duration (avg ~2.5 words/sec at speed=1.0)
+    const wordCount = fullScript.split(/\s+/).length;
+    const naturalDurationSec = wordCount / 2.5;
+
+    // Calculate TTS speed to match target video length
+    // speed < 1.0 = slower (stretches), speed > 1.0 = faster (compresses)
+    // Clamp between 0.5 (very slow) and 2.0 (very fast)
+    let ttsSpeed = naturalDurationSec / targetDurationSec;
+    ttsSpeed = Math.min(Math.max(ttsSpeed, 0.5), 2.0);
+
+    logger.info(`Narration target: ${targetDurationSec}s (${provider}: ${config.maxPerShot}s × ${config.numShots} shots). Script: ${wordCount} words, natural ~${naturalDurationSec.toFixed(0)}s, TTS speed=${ttsSpeed.toFixed(2)}`);
+
     // Determine voice from persona config
     const story = await getBrandStoryById(storyId, userId);
     const personas = story?.persona_config?.personas || [];
-    const voiceId = personas[0]?.elevenlabs_voice_id || undefined; // TTSService has a default
+    const voiceId = personas[0]?.elevenlabs_voice_id || undefined;
 
     const ttsResult = await ttsService.synthesize({
       text: fullScript,
-      options: { voiceId, language: personas[0]?.language || 'en' }
+      options: {
+        voiceId,
+        language: personas[0]?.language || 'en',
+        speed: ttsSpeed
+      }
     });
 
     // Upload narration to Supabase
@@ -2562,7 +2593,7 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       ttsResult.audioBuffer, userId, 'audio', `ep${episode.episode_number}-narration.mp3`, 'audio/mpeg'
     );
 
-    logger.info(`Narration generated: ~${ttsResult.durationEstimate}s, uploaded to ${publicUrl}`);
+    logger.info(`Narration generated: ~${ttsResult.durationEstimate}s (target: ${targetDurationSec}s), uploaded to ${publicUrl}`);
     return { audioBuffer: ttsResult.audioBuffer, publicUrl };
   }
 
@@ -2726,10 +2757,26 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     const stylePrefix = scene.visual_style_prefix || '';
     const generatedShots = [];
 
+    // Check for previously generated shots from resume data (per-shot resume)
+    const storyForResume = await getBrandStoryById(story.id, userId);
+    const resumeShots = storyForResume?.pending_resume?.generated_shots || [];
+
     for (let i = 0; i < shots.length; i++) {
+      // Per-shot resume: if this shot was already generated, reuse it
+      if (resumeShots[i]?.video_url) {
+        logger.info(`Veo shot ${i + 1}/${shots.length}: reusing saved shot from resume (${resumeShots[i].video_url.slice(-40)})`);
+        const vidResp = await axios.get(resumeShots[i].video_url, { responseType: 'arraybuffer', timeout: 60000 });
+        generatedShots.push({
+          index: i,
+          videoBuffer: Buffer.from(vidResp.data),
+          duration: resumeShots[i].duration || 8
+        });
+        continue;
+      }
+
       const shot = shots[i];
 
-      // Build rich prompt (Veo allows ~1400 chars — more room than Kling's 512)
+      // Build rich prompt (Veo allows ~1400 chars)
       const prompt = [
         stylePrefix,
         shot.visual_direction || '',
@@ -2739,14 +2786,9 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         'Photorealistic, cinematic lighting, 9:16 vertical short film.'
       ].filter(Boolean).join('. ').slice(0, 1400);
 
-      // First frame = this shot's storyboard panel
       const firstImageUrl = storyboardPanels[i]?.image_url;
-      // Last frame = next shot's storyboard panel (seamless handoff) — null for final shot
       const lastImageUrl = (i < storyboardPanels.length - 1) ? storyboardPanels[i + 1]?.image_url : null;
-      // Map camera notes to Veo's cameraControl enum
       const cameraControl = VideoGenerationService.mapCameraControl(shot.camera_notes);
-
-      // Veo image-to-video only supports 4, 6, or 8 seconds — always use max (8s)
       const duration = 8;
 
       logger.info(`Veo fallback shot ${i + 1}/${shots.length}: first_frame=${firstImageUrl ? 'yes' : 'no'}, last_frame=${lastImageUrl ? 'yes' : 'no'}, camera=${cameraControl || 'auto'}, ${duration}s`);
@@ -2761,20 +2803,17 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
           options: { durationSeconds: duration, aspectRatio: '9:16' }
         });
       } catch (shotErr) {
-        // If content filter rejects the image, retry without lastFrame
-        // (the flagged image might be the lastFrame panel)
         if (shotErr.message?.includes('usage guidelines') || shotErr.message?.includes('content filter') || shotErr.isContentFilter) {
           logger.warn(`Veo shot ${i + 1} content-filtered — retrying without lastFrame...`);
           try {
             result = await videoGenerationService.generateWithFirstLastFrame({
               firstImageUrl,
-              lastImageUrl: null, // drop lastFrame
+              lastImageUrl: null,
               prompt,
               cameraControl,
               options: { durationSeconds: duration, aspectRatio: '9:16' }
             });
           } catch (retryErr) {
-            // If firstFrame is also flagged, try with just prompt (text-to-video)
             if (retryErr.message?.includes('usage guidelines') || retryErr.isContentFilter) {
               logger.warn(`Veo shot ${i + 1} firstFrame also filtered — falling back to text-only...`);
               result = await videoGenerationService.generateWithFirstLastFrame({
@@ -2793,11 +2832,27 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         }
       }
 
+      // Upload this shot immediately so it's saved for per-shot resume
+      const shotUrl = await this._uploadBufferToStorage(
+        result.videoBuffer, userId, 'videos',
+        `ep${episode.episode_number}-veo-shot${i + 1}-${Date.now()}.mp4`, 'video/mp4'
+      );
+
+      // Save per-shot progress to story.pending_resume.generated_shots
+      const currentResume = (await getBrandStoryById(story.id, userId))?.pending_resume || {};
+      const savedShots = currentResume.generated_shots || [];
+      savedShots[i] = { video_url: shotUrl, duration: result.duration };
+      await updateBrandStory(story.id, userId, {
+        pending_resume: { ...currentResume, generated_shots: savedShots }
+      });
+
       generatedShots.push({
         index: i,
         videoBuffer: result.videoBuffer,
         duration: result.duration
       });
+
+      logger.info(`Veo shot ${i + 1} saved for resume: ${shotUrl}`);
     }
 
     // Assemble with xfade transitions (reuse existing method)
@@ -2927,31 +2982,32 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     await fs.writeFile(narrationPath, narrationBuffer);
 
     try {
-      // Mix: narration at 85% volume, ambient at 12% volume
+      // Mix: narration at 85% volume over video ambient at 12% volume.
+      // Use duration=first (video length) — narration plays over the beginning,
+      // ambient continues for the full video duration even after narration ends.
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', videoPath,
         '-i', narrationPath,
         '-filter_complex',
-        '[0:a]volume=0.12[ambient];[1:a]volume=0.85[narr];[ambient][narr]amix=inputs=2:duration=shortest[aout]',
+        '[0:a]volume=0.12[ambient];[1:a]volume=0.85,apad[narr];[ambient][narr]amix=inputs=2:duration=first[aout]',
         '-map', '0:v',
         '-map', '[aout]',
         '-c:v', 'copy',
         '-c:a', 'aac', '-b:a', '256k', '-ar', '48000',
         '-movflags', '+faststart',
-        '-shortest',
         outputPath
       ]);
     } catch (mixErr) {
-      logger.warn(`Audio mix failed, using narration-only: ${mixErr.message}`);
-      // Fallback: replace video audio with narration only
+      logger.warn(`Audio mix failed, using video with narration overlay: ${mixErr.message}`);
+      // Fallback: keep video audio, overlay narration
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', videoPath,
         '-i', narrationPath,
-        '-map', '0:v', '-map', '1:a',
+        '-map', '0:v', '-map', '0:a',
         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k',
-        '-shortest', '-movflags', '+faststart',
+        '-movflags', '+faststart',
         outputPath
       ]);
     }

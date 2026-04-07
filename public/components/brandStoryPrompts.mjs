@@ -647,7 +647,7 @@ EPISODE WRITING RULES:
 1. CONTINUITY IS PARAMOUNT. The hook MUST resolve/escalate the previous cliffhanger.
 2. VISUAL THREAD: Carry at least one visual motif from the previous episode.
 3. MOOD PROGRESSION: Logically follow the previous mood.
-4. Each episode = exactly 3 shots, total 10-15 seconds.
+4. Each episode = exactly 3 shots, total 24-45 seconds (8-15s per shot depending on video provider).
 5. The visual_style_prefix MUST be respected in every storyboard_prompt and visual_direction.
 6. Product/subject integration: natural, never forced.
 7. EVERY shot must have an ambient_sound description — silence is never acceptable in cinema.
@@ -683,14 +683,14 @@ SHOT SEQUENCE DIRECTION:
 - Shot 2 (4-5s): Narrative core — the emotional center of this episode. Character-driven cinematic.
 - Shot 3 (4-5s): Cliffhanger close — build tension, leave the viewer wanting more.
 
-Total duration: 10-15 seconds (Kling multi-shot constraint). Each shot 3-5 seconds.
+Total duration: 24-45 seconds (8-15s per shot). Write narration and visual direction to fill this duration.
 
 OUTPUT JSON SCHEMA:
 {
   "title": "Episode title — intriguing and specific",
   "hook": "What happens in the first 2-3 seconds to grab attention",
   "narrative_beat": "The story beat this episode covers (one sentence)",
-  "dialogue_script": "The full voice-over narration for the ENTIRE episode (10-15 seconds of speech). This narration plays over all 3 cinematic shots as a continuous voice-over track.",
+  "dialogue_script": "The full voice-over narration for the ENTIRE episode (30-45 seconds of speech — this must fill the full video duration). Write narration that matches the pacing of a cinematic film: deliberate pauses, atmospheric beats, emotionally weighted delivery. At ~2.5 words per second, aim for 75-110 words total.",
   "mood": "The episode's emotional register",
   "continuity_from_previous": "How this connects to what came before",
   "continuity_check": "How this episode's hook resolves the previous cliffhanger",
@@ -716,7 +716,7 @@ OUTPUT JSON SCHEMA:
 
 CRITICAL CONSTRAINTS:
 - Exactly 3 shots per episode
-- Each shot 3-5 seconds (total 10-15s for Kling multi-shot compatibility)
+- Each shot 8-15 seconds (total 24-45s per episode)
 - shot_type is ONLY "cinematic" or "broll" — NO "dialogue" type
 - storyboard_prompt must be a RICH image prompt (100+ words) — this drives the storyboard quality
 - visual_style_prefix MUST be reflected in every storyboard_prompt
