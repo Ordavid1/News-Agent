@@ -294,7 +294,9 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ? story.persona_config.personas
       : [story.persona_config]; // legacy fallback
 
-    const systemPrompt = getStorylineSystemPrompt(brandKit);
+    const systemPrompt = getStorylineSystemPrompt(brandKit, {
+      directorsNotes: story.subject?.directors_notes || ''
+    });
     const userPrompt = getStorylineUserPrompt(
       personas,
       story.subject,
@@ -302,7 +304,9 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       {
         tone: story.subject?.tone || 'engaging',
         genre: story.subject?.genre || 'drama',
-        storyFocus: story.story_focus || 'product'
+        targetAudience: story.subject?.target_audience || 'young professionals',
+        storyFocus: story.story_focus || 'product',
+        directorsNotes: story.subject?.directors_notes || ''
       }
     );
 
@@ -480,12 +484,21 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       if (job?.brand_kit) brandKit = job.brand_kit;
     }
 
+    // Extract visual style and emotional state from the most recent completed episode
+    // to maintain cross-episode continuity.
+    const lastCompletedEp = previousEpisodes[previousEpisodes.length - 1];
+    const previousVisualStyle = lastCompletedEp?.scene_description?.visual_style_prefix || '';
+    const previousEmotionalState = lastCompletedEp?.scene_description?.emotional_state || '';
+
     // Build prompts — pass subject + storyFocus + brandKit so each episode's shots
     // integrate the subject naturally AND respect the brand identity.
     const systemPrompt = getEpisodeSystemPrompt(story.storyline, prevScenes, storyPersonas, {
       subject: story.subject,
       storyFocus: story.story_focus || 'product',
-      brandKit
+      brandKit,
+      previousVisualStyle,
+      previousEmotionalState,
+      directorsNotes: story.subject?.directors_notes || ''
     });
     const userPrompt = getEpisodeUserPrompt(story.storyline, lastCliffhanger, episodeNumber);
 
@@ -1153,10 +1166,14 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
 
     // Cinematic via Kling (preferred — identity-locked with both persona AND subject refs)
     if (shot.shot_type === 'cinematic' && klingService.isAvailable()) {
-      const combinedRefs = this._buildKlingReferenceImages(story);
+      // Identity refs first (persona + subject), then storyboard panel fills remaining slots.
+      // Storyboard panels carry baked-in identity from Seedream generation AND guide composition.
+      // Same pattern as _generateKlingMultiShot — Kling supports up to 7 reference images.
+      const identityRefs = this._buildKlingReferenceImages(story);
+      const combinedRefs = [...identityRefs, ...(storyboardUrl && !identityRefs.includes(storyboardUrl) ? [storyboardUrl] : [])].slice(0, 7);
       if (combinedRefs.length > 0) {
         const focus = story.story_focus || 'product';
-        logger.info(`[Shot ${shotIdx + 1}] Kling cinematic (focus=${focus}) with ${combinedRefs.length} combined ref(s)`);
+        logger.info(`[Shot ${shotIdx + 1}] Kling cinematic (focus=${focus}) with ${combinedRefs.length} ref(s) (${identityRefs.length} identity + ${combinedRefs.length - identityRefs.length} storyboard)`);
         try {
           const klingDuration = shot.duration_seconds >= 8 ? 10 : 5;
           result = await klingService.generateReferenceVideo({
@@ -1745,6 +1762,14 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       progress('composite', 'Finalizing...');
       await this.compositeVideo(episode.id, userId);
 
+      // Update story-so-far appendix for continuity
+      try {
+        const finalEp = await getBrandStoryEpisodeById(episode.id, userId);
+        await this._updateStorySoFar(storyId, userId, finalEp);
+      } catch (soFarErr) {
+        logger.warn(`story_so_far update failed (non-fatal): ${soFarErr.message}`);
+      }
+
       progress('complete', `Episode ${episode.episode_number} ready!`);
 
       return getBrandStoryEpisodeById(episode.id, userId);
@@ -2106,6 +2131,78 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
   }
 
   // ═══════════════════════════════════════════════════
+  // DIRECTOR'S HINTS AUTO-GENERATION
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Generate a director's creative brief using all available story context.
+   * Each variation (1-5) focuses on a different creative angle.
+   */
+  async generateDirectorsHint(userId, options = {}) {
+    const {
+      storyFocus = 'product', genre = 'drama', tone = 'engaging',
+      targetAudience = 'young professionals', brandKitJobId,
+      subject, personas = [], variation = 1
+    } = options;
+
+    let brandContext = '';
+    if (brandKitJobId) {
+      try {
+        const job = await getMediaTrainingJobById(brandKitJobId, userId);
+        if (job?.brand_kit) brandContext = _buildBrandKitContextBlock(job.brand_kit);
+      } catch (e) { /* fine */ }
+    }
+
+    const subjectContext = subject?.name
+      ? `SUBJECT: "${subject.name}" (${subject.category || ''}). ${subject.description || ''} Visual: ${subject.visual_description || ''}`
+      : '';
+
+    const personaContext = personas.length > 0
+      ? `CHARACTERS: ${personas.join('; ')}`
+      : '';
+
+    const angles = {
+      1: 'Focus on CINEMATOGRAPHY: Describe the lens, lighting setup, color grading, camera movements, and film stock. Reference specific cinematographers (Roger Deakins, Bradford Young). Be technical and visual.',
+      2: 'Focus on EMOTION & PACING: Describe the emotional rhythm, tension curve, silence vs intensity. Reference pacing styles (Thelma Schoonmaker jump cuts, Terrence Malick contemplative, Edgar Wright kinetic).',
+      3: 'Focus on FILM REFERENCES: Name 2-3 specific films or directors whose style should inspire this. Describe what to borrow from each — the specific visual/tonal quality.',
+      4: 'Focus on SENSORY EXPERIENCE: Describe textures, sounds, temperature of each frame. Reference sensory-rich filmmakers (Wong Kar-Wai, Sofia Coppola, Denis Villeneuve).',
+      5: 'WILDCARD — find an unexpected creative angle. Maybe a musical analogy, an architectural principle, a painting movement. Surprise the user.'
+    };
+
+    const prompt = `You are an Oscar-winning film director writing a 2-3 sentence creative brief for a branded short film series.
+
+STORY CONTEXT:
+- Focus: ${storyFocus} (${storyFocus === 'person' ? 'character-driven' : storyFocus === 'landscape' ? 'location cinema' : 'product showcase'})
+- Genre: ${genre}
+- Tone: ${tone}
+- Target audience: ${targetAudience}
+${subjectContext ? '\n' + subjectContext : ''}
+${personaContext ? '\n' + personaContext : ''}
+${brandContext}
+
+YOUR CREATIVE ANGLE:
+${angles[variation] || angles[1]}
+
+Write a vivid, specific, 2-3 sentence director's creative brief. It should read like a director pitching their vision to a cinematographer — precise, evocative, referencing specific techniques, films, or visual languages. NO generic advice. NO lists. Just a concentrated cinematic vision statement.
+
+Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
+
+    const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+    if (!apiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY not set');
+
+    const response = await axios.post(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 512, temperature: 1.0 }
+    }, { timeout: 15000 });
+
+    const hint = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!hint) throw new Error('Gemini returned empty hint');
+
+    logger.info(`Director's hint (variation ${variation}): ${hint.slice(0, 80)}...`);
+    return hint;
+  }
+
+  // ═══════════════════════════════════════════════════
   // AUTO-GENERATE PERSONA FROM BRAND KIT
   // ═══════════════════════════════════════════════════
 
@@ -2129,9 +2226,15 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     const brandKit = job.brand_kit;
     const brandContext = _buildBrandKitContextBlock(brandKit);
 
-    // Step 1: Gemini 3 Flash generates persona descriptions that fit the brand
+    // Step 1: Gemini 3 Flash generates persona descriptions that fit the brand.
+    // If the Brand Kit has real people photos, Gemini describes each one so the
+    // generated persona LOOKS LIKE the actual brand person (not a random face).
     const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
     if (!apiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY not set');
+
+    // Collect real people from Brand Kit extracted assets + descriptions
+    const extractedPeople = (brandKit.extracted_assets || []).filter(a => a.type === 'person');
+    const peopleDescriptions = brandKit.people || [];
 
     const focusGuidance = storyFocus === 'person'
       ? 'This persona IS the star — a compelling, camera-ready individual whose face and presence will anchor every episode. Design someone who looks like a lead actor in a prestige TV series.'
@@ -2139,15 +2242,35 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         ? 'This persona is a GUIDE through a beautiful space — think travel host, architecture narrator, or real estate presenter. They should look approachable, expressive, and photogenic but not steal focus from the environment.'
         : 'This persona interacts with a PRODUCT — think lifestyle model, product reviewer, or brand ambassador. They should look authentic, relatable to the target audience, and complement the product aesthetically.';
 
+    // If the brand has real people, tell Gemini to design personas BASED ON them
+    // — each person photo is a DIFFERENT individual.
+    const realPeopleBlock = extractedPeople.length > 0
+      ? `\nREAL BRAND PEOPLE (${extractedPeople.length} distinct individuals found in brand assets):
+${extractedPeople.map((p, i) => {
+  const desc = peopleDescriptions[i]?.description || p.description || '';
+  const role = peopleDescriptions[i]?.role || '';
+  return `  Person ${i + 1}: ${desc}${role ? ` (role: ${role})` : ''}`;
+}).join('\n')}
+
+CRITICAL: Each person above is a DIFFERENT real individual from the brand's own photos.
+Your generated persona(s) must closely MATCH these real people — describe their ACTUAL
+appearance as seen in the brand photos (skin tone, hair color/style, approximate age,
+build, facial features). The AI portrait generator will use the real person's photo as
+a reference image, so your text description must align with what's in that photo.
+Do NOT invent a completely different-looking person — describe the real person you see,
+then add personality, wardrobe, and character depth on top.
+${count <= extractedPeople.length ? `Generate exactly ${count} persona(s), one for each of the first ${count} brand person(s) above.` : `Generate ${count} persona(s) — use the ${extractedPeople.length} real brand person(s) first, then create additional character(s) that complement them.`}\n`
+      : '';
+
     const systemPrompt = `You are a casting director for a premium branded short-film series. Design ${count} fictional character(s) whose appearance, vibe, and energy perfectly match the brand identity below.
 
 ${brandContext}
-
+${realPeopleBlock}
 ${focusGuidance}
 
 For each character, provide:
 - "name": A fitting first name
-- "appearance": Detailed physical description for AI image generation (age range, ethnicity, build, hair, facial features, expression, clothing style). Be SPECIFIC — this drives a portrait generator. 100+ words.
+- "appearance": Detailed physical description for AI image generation (age range, ethnicity, build, hair, facial features, expression, clothing style). Be SPECIFIC — this drives a portrait generator. 100+ words.${extractedPeople.length > 0 ? ' For personas based on real brand people, describe what you see in their photos — the generator will use their actual photo as input.' : ''}
 - "personality": 2-3 personality traits that fit the brand's tone
 - "wardrobe_hint": What they'd wear in the first episode (matches brand aesthetic)
 
@@ -2177,10 +2300,11 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     if (!replicateToken) throw new Error('REPLICATE_API_TOKEN not set');
     const replicate = new Replicate({ auth: replicateToken });
 
-    // Collect brand reference images for style consistency
-    const brandPeople = (brandKit.people || []).map(p => p.image_url).filter(Boolean);
-    const brandLogos = (brandKit.logos || []).map(l => l.image_url).filter(Boolean);
-    const inputImages = [...brandPeople, ...brandLogos].slice(0, 4);
+    // Build per-persona reference image arrays.
+    // Priority: the matching real person's cutout (strongest identity signal) first,
+    // then other brand people photos (style/ethnicity context), NO logos (waste slots).
+    // Flux 2 Max accepts up to 8 input_images — use all available.
+    const allPersonCutouts = extractedPeople.map(p => p.url).filter(Boolean);
 
     const sc = brandKit.style_characteristics || {};
     const styleHint = [sc.overall_aesthetic, sc.photography_style, sc.mood].filter(Boolean).join(', ');
@@ -2189,6 +2313,19 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     for (let i = 0; i < Math.min(geminiPersonas.length, count); i++) {
       const p = geminiPersonas[i];
       const baseSeed = Math.floor(Math.random() * 2147483647);
+
+      // Build input_images for THIS persona:
+      // 1st: this persona's own brand person cutout (if exists) — strongest identity anchor
+      // 2nd-Nth: other brand person cutouts (for style/demographic context, not identity)
+      // This ensures Flux generates a face that matches the real brand person.
+      const thisPersonCutout = allPersonCutouts[i] || null;
+      const otherPeopleCutouts = allPersonCutouts.filter((_, idx) => idx !== i);
+      const personaInputImages = [
+        thisPersonCutout,
+        ...otherPeopleCutouts
+      ].filter(Boolean).slice(0, 8);
+
+      logger.info(`[Persona ${i + 1}] input_images: ${thisPersonCutout ? '1 primary cutout' : 'no cutout'} + ${Math.max(0, personaInputImages.length - (thisPersonCutout ? 1 : 0))} other refs = ${personaInputImages.length} total`);
 
       // Character sheet views — inspired by Imagine.art's character design workflow.
       // Multiple views of the same character give Kling's @Element stronger identity data.
@@ -2213,7 +2350,7 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       logger.info(`Generating character sheet for ${p.name} (${views.length} views)...`);
 
       const personaImageUrls = [];
-      let heroInputImages = [...inputImages]; // Start with brand refs
+      let heroInputImages = [...personaInputImages]; // Start with this persona's brand person refs
 
       for (let v = 0; v < views.length; v++) {
         const view = views[v];
@@ -2251,9 +2388,10 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         );
         personaImageUrls.push(imageUrl);
 
-        // After hero shot, add it as a reference for subsequent views (identity lock)
+        // After hero shot, prepend it as the strongest identity anchor for subsequent views.
+        // The generated hero IS this persona — subsequent views must match it exactly.
         if (v === 0) {
-          heroInputImages = [imageUrl, ...inputImages].slice(0, 8);
+          heroInputImages = [imageUrl, ...personaInputImages].slice(0, 8);
         }
 
         logger.info(`  ${p.name} ${view.label} uploaded: ${imageUrl}`);
@@ -2271,7 +2409,10 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         appearance: p.appearance,
         wardrobe_hint: p.wardrobe_hint,
         reference_image_urls: personaImageUrls,
-        omnihuman_seed_image_url: personaImageUrls[0] // hero shot
+        omnihuman_seed_image_url: personaImageUrls[0], // hero shot
+        // Store the original brand person cutout URL so downstream (storyboard, Kling)
+        // can use the REAL person photo alongside the generated character sheet
+        brand_person_source_url: thisPersonCutout || null
       });
 
       logger.info(`Character sheet for ${p.name}: ${personaImageUrls.length} views ready`);
@@ -2397,10 +2538,26 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         status: 'post_production'
       });
 
-      // Step 5: Post-production
+      // Step 4.5: Align narration duration to actual video duration.
+      // When Kling fails and Veo fallback runs, the video may be significantly
+      // shorter/longer than the TTS narration (Kling does 3-15s shots, Veo does 4-8s).
+      // Use atempo to stretch/compress narration so it fills the video naturally.
+      let alignedNarrationBuffer = narrationResult.audioBuffer;
+      if (alignedNarrationBuffer) {
+        try {
+          alignedNarrationBuffer = await this._alignNarrationToVideo(
+            videoResult.videoBuffer, narrationResult.audioBuffer, episode
+          );
+        } catch (alignErr) {
+          logger.warn(`Narration alignment failed (non-fatal): ${alignErr.message}`);
+        }
+      }
+
+      // Step 5: Post-production (with title card + end card)
       progress('post_production', 'Mixing narration over cinematic audio...');
+      const storyForPostProd = await getBrandStoryById(storyId, userId);
       const finalVideoUrl = await this._postProduction(
-        videoResult.videoBuffer, narrationResult.audioBuffer, episode, userId
+        videoResult.videoBuffer, alignedNarrationBuffer, episode, userId, storyForPostProd
       );
 
       // Clear resume data on success
@@ -2411,6 +2568,15 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         final_video_url: finalVideoUrl,
         status: 'ready'
       });
+
+      // Update the season bible with a running "story so far" appendix.
+      // This prevents late-episode amnesia by keeping a compressed record of
+      // key events, unresolved threads, and character state changes.
+      try {
+        await this._updateStorySoFar(storyId, userId, episode);
+      } catch (soFarErr) {
+        logger.warn(`story_so_far update failed (non-fatal): ${soFarErr.message}`);
+      }
 
       progress('complete', `Episode ${episode.episode_number} ready!`);
       return getBrandStoryEpisodeById(episode.id, userId);
@@ -2480,10 +2646,18 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       } catch (e) { /* no brand kit — fine */ }
     }
 
+    // Extract visual style and emotional state from the most recent completed episode
+    const lastCompletedEp = previousEpisodes[previousEpisodes.length - 1];
+    const previousVisualStyle = lastCompletedEp?.scene_description?.visual_style_prefix || '';
+    const previousEmotionalState = lastCompletedEp?.scene_description?.emotional_state || '';
+
     const systemPrompt = getEpisodeSystemPromptV2(story.storyline, prevScenes, storyPersonas, {
       subject: story.subject,
       storyFocus: story.story_focus || 'product',
-      brandKit
+      brandKit,
+      previousVisualStyle,
+      previousEmotionalState,
+      directorsNotes: story.subject?.directors_notes || ''
     });
     const userPrompt = getEpisodeUserPromptV2(story.storyline, lastCliffhanger, episodeNumber);
 
@@ -2506,7 +2680,18 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!raw) throw new Error('Gemini returned empty response for cinematic episode');
 
-    const sceneDescription = this._parseGeminiJson(raw);
+    let sceneDescription = this._parseGeminiJson(raw);
+
+    // Gemini sometimes wraps the episode in an array. Unwrap it.
+    if (Array.isArray(sceneDescription)) {
+      logger.warn(`Gemini returned array instead of object — unwrapping first element`);
+      sceneDescription = sceneDescription[0] || {};
+    }
+    // Sometimes Gemini nests it under episode/response/data keys
+    if (!sceneDescription.shots && sceneDescription.episode?.shots) {
+      sceneDescription = sceneDescription.episode;
+    }
+
     logger.info(`Gemini cinematic response keys: ${Object.keys(sceneDescription).join(', ')}`);
     if (!sceneDescription.shots || sceneDescription.shots.length === 0) {
       logger.error(`Gemini cinematic response (no shots): ${JSON.stringify(sceneDescription).slice(0, 500)}`);
@@ -2598,9 +2783,12 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
   }
 
   /**
-   * Generate episode storyboard panels via Replicate Flux 2 Max.
+   * Generate episode storyboard panels via Replicate Seedream 5 Lite.
    * Produces one panel per shot (3 total) with style coherence via
-   * shared visual_style_prefix, character references, and seed proximity.
+   * shared visual_style_prefix, up to 14 character/subject references,
+   * seed proximity, and sequential generation for inter-panel coherence.
+   * Uses 3K resolution (3072px) for maximum detail — these panels serve
+   * as first/last frames for Kling/Veo video generation.
    */
   async _generateEpisodeStoryboard(episode, storyId, userId) {
     const scene = episode.scene_description || {};
@@ -2608,24 +2796,30 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     const stylePrefix = scene.visual_style_prefix || '';
     const story = await getBrandStoryById(storyId, userId);
 
-    // Collect reference images for Flux 2 Max input_images — ordered by story focus.
+    // Collect reference images for Seedream 5 Lite image_input — ordered by story focus.
+    // Seedream supports up to 14 refs (vs Flux's 8) for stronger identity lock.
     // Person focus: persona refs first (character is the star of every frame)
     // Product/landscape focus: subject refs first (product/place dominates the storyboard)
     const personaRefs = this._collectPersonaReferenceImages(story);
     const subjectRefs = this._collectSubjectReferenceImages(story);
     const focus = story.story_focus || 'product';
     const inputImages = focus === 'person'
-      ? [...personaRefs, ...subjectRefs].slice(0, 8)
-      : [...subjectRefs, ...personaRefs].slice(0, 8);
+      ? [...personaRefs, ...subjectRefs].slice(0, 14)
+      : [...subjectRefs, ...personaRefs].slice(0, 14);
 
     // Initialize Replicate client
     const replicateToken = process.env.REPLICATE_API_TOKEN;
     if (!replicateToken) throw new Error('REPLICATE_API_TOKEN not set — cannot generate storyboard');
     const replicate = new Replicate({ auth: replicateToken });
 
-    const baseSeed = Math.floor(Math.random() * 2147483647);
+    // Use deterministic seed for cross-episode visual consistency.
+    // Same story always uses the same seed family, with episode/shot offsets.
+    const baseSeed = this._getStoryboardSeed(story, episode.episode_number, 0);
     const panels = [];
 
+    // Generate first panel with sequential_image_generation enabled.
+    // This primes Seedream's internal coherence model so subsequent panels
+    // (sharing the same seed family + reference images) maintain visual continuity.
     for (let i = 0; i < shots.length; i++) {
       const shot = shots[i];
       const storyboardPrompt = shot.storyboard_prompt || shot.visual_direction || '';
@@ -2635,20 +2829,18 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
 
       logger.info(`Generating storyboard panel ${i + 1}/${shots.length}: ${fullPrompt.slice(0, 100)}...`);
 
-      const output = await replicate.run('black-forest-labs/flux-2-max', {
+      const output = await replicate.run('bytedance/seedream-5-lite', {
         input: {
           prompt: fullPrompt,
-          ...(inputImages.length > 0 ? { input_images: inputImages } : {}),
+          ...(inputImages.length > 0 ? { image_input: inputImages } : {}),
           aspect_ratio: '9:16',
-          resolution: '2 MP',
-          output_format: 'webp',
-          output_quality: 95,
-          safety_tolerance: 5,
+          size: '3K',
+          sequential_image_generation: 'auto',
           seed: baseSeed + i
         }
       });
 
-      // Flux 2 Max returns a single FileOutput or URL
+      // Seedream 5 Lite returns a single FileOutput or URL
       const imageSource = Array.isArray(output) ? output[0] : output;
       let imageBuffer;
 
@@ -2664,9 +2856,9 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       }
 
       // Upload to Supabase
-      const filename = `ep${episode.episode_number}-panel${i + 1}-${Date.now()}.webp`;
+      const filename = `ep${episode.episode_number}-panel${i + 1}-${Date.now()}.png`;
       const imageUrl = await this._uploadBufferToStorage(
-        imageBuffer, userId, 'storyboard', filename, 'image/webp'
+        imageBuffer, userId, 'storyboard', filename, 'image/png'
       );
 
       panels.push({
@@ -2693,14 +2885,24 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
     const stylePrefix = scene.visual_style_prefix || '';
 
     // Build reference images — Replicate Kling Omni 3 supports up to 7 refs.
-    // More refs = stronger identity lock. Order by focus priority.
+    // More refs = stronger identity lock. Order by focus priority:
+    //   1. Persona/subject source photos (identity anchors)
+    //   2. Storyboard panels (composition + identity reinforcement — panels were
+    //      generated WITH the same persona/subject refs, so they carry baked-in
+    //      identity data while also guiding Kling on scene composition)
     const personaRefs = this._collectPersonaReferenceImages(story);
     const subjectRefs = this._collectSubjectReferenceImages(story);
     const focus = story.story_focus || 'product';
-    const referenceImages = focus === 'person'
+    const identityRefs = focus === 'person'
       ? [...personaRefs, ...subjectRefs]
       : [...subjectRefs, ...personaRefs];
-    const refs = [...new Set(referenceImages)].slice(0, 7);
+    const uniqueIdentityRefs = [...new Set(identityRefs)];
+
+    // Fill remaining Kling ref slots (up to 7) with storyboard panels
+    const panelUrls = storyboardPanels
+      .map(p => p.image_url)
+      .filter(url => url && !uniqueIdentityRefs.includes(url));
+    const refs = [...uniqueIdentityRefs, ...panelUrls].slice(0, 7);
 
     // Start frame = first storyboard panel
     const startImageUrl = storyboardPanels[0]?.image_url;
@@ -2776,10 +2978,27 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
 
       const shot = shots[i];
 
-      // Build rich prompt (Veo allows ~1400 chars)
+      // Build rich prompt (Veo allows ~1400 chars).
+      // Include storyboard_prompt — it describes the KEY FRAME composition (characters,
+      // poses, lighting, framing, colors) in 100+ words. Even when first/last frame images
+      // are provided, this text gives Veo richer guidance about WHAT to animate.
       const prompt = [
         stylePrefix,
+        shot.storyboard_prompt || '',
         shot.visual_direction || '',
+        shot.camera_notes ? `Camera movement: ${shot.camera_notes}` : '',
+        shot.ambient_sound ? `Ambient sound: ${shot.ambient_sound}` : '',
+        shot.mood ? `Mood: ${shot.mood}` : '',
+        'Photorealistic, cinematic lighting, 9:16 vertical short film.'
+      ].filter(Boolean).join('. ').slice(0, 1400);
+
+      // Enriched prompts for fallback tiers — when image anchors are stripped,
+      // maximize the textual composition guidance to compensate.
+      const promptWithEndFrame = [
+        stylePrefix,
+        shot.storyboard_prompt || '',
+        shot.visual_direction || '',
+        shot.end_frame_description ? `The shot ends on: ${shot.end_frame_description}` : '',
         shot.camera_notes ? `Camera movement: ${shot.camera_notes}` : '',
         shot.ambient_sound ? `Ambient sound: ${shot.ambient_sound}` : '',
         shot.mood ? `Mood: ${shot.mood}` : '',
@@ -2804,22 +3023,26 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         });
       } catch (shotErr) {
         if (shotErr.message?.includes('usage guidelines') || shotErr.message?.includes('content filter') || shotErr.isContentFilter) {
-          logger.warn(`Veo shot ${i + 1} content-filtered — retrying without lastFrame...`);
+          // Tier 2: drop last frame, keep first. Use enriched prompt with end_frame_description
+          // since we lost the visual end target.
+          logger.warn(`Veo shot ${i + 1} content-filtered — retrying without lastFrame (enriched prompt)...`);
           try {
             result = await videoGenerationService.generateWithFirstLastFrame({
               firstImageUrl,
               lastImageUrl: null,
-              prompt,
+              prompt: promptWithEndFrame,
               cameraControl,
               options: { durationSeconds: duration, aspectRatio: '9:16' }
             });
           } catch (retryErr) {
             if (retryErr.message?.includes('usage guidelines') || retryErr.isContentFilter) {
-              logger.warn(`Veo shot ${i + 1} firstFrame also filtered — falling back to text-only...`);
+              // Tier 3: pure text-only. Use maximum enriched prompt — the storyboard_prompt
+              // text is now the ONLY composition guidance Veo has.
+              logger.warn(`Veo shot ${i + 1} firstFrame also filtered — text-only with full storyboard prompt...`);
               result = await videoGenerationService.generateWithFirstLastFrame({
                 firstImageUrl: null,
                 lastImageUrl: null,
-                prompt,
+                prompt: promptWithEndFrame,
                 cameraControl: null,
                 options: { durationSeconds: duration, aspectRatio: '9:16' }
               });
@@ -2960,70 +3183,713 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
   }
 
   /**
-   * Post-production: mix TTS narration over the cinematic video's ambient audio.
-   * Narration at foreground level, native video audio as quiet ambient bed.
+   * Post-production: mix TTS narration over the cinematic video's ambient audio,
+   * add opening title card and end card with cliffhanger text.
+   *
+   * @param {Buffer} videoBuffer - Raw cinematic video
+   * @param {Buffer|null} narrationBuffer - TTS narration audio
+   * @param {Object} episode - Episode record with scene_description
+   * @param {string} userId
+   * @param {Object} [story] - Story record (for title card text). Optional for backward compat.
    */
-  async _postProduction(videoBuffer, narrationBuffer, episode, userId) {
+  async _postProduction(videoBuffer, narrationBuffer, episode, userId, story = null) {
     const tmpDir = os.tmpdir();
-    const videoPath = path.join(tmpDir, `postprod-video-${episode.episode_number}.mp4`);
-    const outputPath = path.join(tmpDir, `postprod-final-${episode.episode_number}.mp4`);
+    const epNum = episode.episode_number;
+    const videoPath = path.join(tmpDir, `postprod-video-${epNum}.mp4`);
+    const mixedPath = path.join(tmpDir, `postprod-mixed-${epNum}.mp4`);
+    const outputPath = path.join(tmpDir, `postprod-final-${epNum}.mp4`);
     await fs.writeFile(videoPath, videoBuffer);
 
     if (!narrationBuffer) {
-      // No narration — just upload the video as-is
+      // No narration — just add title/end cards to the raw video
+      const withCards = await this._addTitleAndEndCards(videoPath, outputPath, episode, story);
+      const finalBuffer = await fs.readFile(withCards);
       const publicUrl = await this._uploadBufferToStorage(
-        videoBuffer, userId, 'videos', `ep${episode.episode_number}-final.mp4`, 'video/mp4'
+        finalBuffer, userId, 'videos', `ep${epNum}-final.mp4`, 'video/mp4'
       );
       await fs.unlink(videoPath).catch(() => {});
+      await fs.unlink(withCards).catch(() => {});
       return publicUrl;
     }
 
-    const narrationPath = path.join(tmpDir, `postprod-narration-${episode.episode_number}.mp3`);
+    const narrationPath = path.join(tmpDir, `postprod-narration-${epNum}.mp3`);
     await fs.writeFile(narrationPath, narrationBuffer);
 
     try {
-      // Mix: narration at 85% volume over video ambient at 12% volume.
-      // Use duration=first (video length) — narration plays over the beginning,
-      // ambient continues for the full video duration even after narration ends.
+      // Build narration volume expression with ducking at shot transitions.
+      // At each visual cut point, the narration dips briefly (J/L cut feel).
+      // Ambient audio rises slightly at those points for a "breathing" effect.
+      const narrationVolExpr = this._buildDuckingVolumeExpr(episode, 0.85);
+      const ambientVolExpr = this._buildAmbientSwellExpr(episode, 0.12);
+
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', videoPath,
         '-i', narrationPath,
         '-filter_complex',
-        '[0:a]volume=0.12[ambient];[1:a]volume=0.85,apad[narr];[ambient][narr]amix=inputs=2:duration=first[aout]',
+        `[0:a]volume='${ambientVolExpr}':eval=frame[ambient];[1:a]volume='${narrationVolExpr}':eval=frame,apad[narr];[ambient][narr]amix=inputs=2:duration=first[aout]`,
         '-map', '0:v',
         '-map', '[aout]',
-        '-c:v', 'copy',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
         '-c:a', 'aac', '-b:a', '256k', '-ar', '48000',
         '-movflags', '+faststart',
-        outputPath
+        mixedPath
       ]);
     } catch (mixErr) {
-      logger.warn(`Audio mix failed, using video with narration overlay: ${mixErr.message}`);
-      // Fallback: keep video audio, overlay narration
-      await execFileAsync('ffmpeg', [
-        '-y',
-        '-i', videoPath,
-        '-i', narrationPath,
-        '-map', '0:v', '-map', '0:a',
-        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k',
-        '-movflags', '+faststart',
-        outputPath
-      ]);
+      logger.warn(`Audio mix with ducking failed, trying flat mix: ${mixErr.message}`);
+      try {
+        // Fallback: flat mix without ducking expressions
+        await execFileAsync('ffmpeg', [
+          '-y',
+          '-i', videoPath,
+          '-i', narrationPath,
+          '-filter_complex',
+          '[0:a]volume=0.12[ambient];[1:a]volume=0.85,apad[narr];[ambient][narr]amix=inputs=2:duration=first[aout]',
+          '-map', '0:v',
+          '-map', '[aout]',
+          '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+          '-c:a', 'aac', '-b:a', '256k', '-ar', '48000',
+          '-movflags', '+faststart',
+          mixedPath
+        ]);
+      } catch (flatMixErr) {
+        logger.warn(`Flat audio mix also failed, using narration only: ${flatMixErr.message}`);
+        await execFileAsync('ffmpeg', [
+          '-y',
+          '-i', videoPath,
+          '-i', narrationPath,
+          '-map', '0:v', '-map', '1:a',
+          '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k',
+          '-shortest', '-movflags', '+faststart',
+          mixedPath
+        ]);
+      }
     }
 
-    const finalBuffer = await fs.readFile(outputPath);
+    // Add title card + end card overlays
+    const cardSource = await this._addTitleAndEndCards(mixedPath, outputPath, episode, story);
+
+    // Generate and burn subtitles
+    const subtitledPath = path.join(tmpDir, `postprod-subtitled-${epNum}.mp4`);
+    let finalSource = cardSource;
+    try {
+      const { srtPath, srtUrl } = await this._generateSubtitles(cardSource, episode, userId);
+      if (srtPath) {
+        finalSource = await this._burnSubtitles(cardSource, srtPath, subtitledPath);
+        // Store SRT URL on the episode for user download
+        await updateBrandStoryEpisode(episode.id, userId, { subtitle_url: srtUrl });
+        await fs.unlink(srtPath).catch(() => {});
+      }
+    } catch (subErr) {
+      logger.warn(`Subtitle generation failed (non-fatal): ${subErr.message}`);
+    }
+
+    const finalBuffer = await fs.readFile(finalSource);
     const publicUrl = await this._uploadBufferToStorage(
-      finalBuffer, userId, 'videos', `ep${episode.episode_number}-final.mp4`, 'video/mp4'
+      finalBuffer, userId, 'videos', `ep${epNum}-final.mp4`, 'video/mp4'
     );
 
     // Cleanup
-    await fs.unlink(videoPath).catch(() => {});
-    await fs.unlink(narrationPath).catch(() => {});
-    await fs.unlink(outputPath).catch(() => {});
+    await Promise.allSettled([
+      fs.unlink(videoPath),
+      fs.unlink(narrationPath),
+      fs.unlink(mixedPath),
+      fs.unlink(outputPath),
+      fs.unlink(subtitledPath)
+    ]);
 
     logger.info(`Post-production complete: ${publicUrl}`);
     return publicUrl;
+  }
+
+  /**
+   * Add title card (first 2.8s) and end card (last 2.5s) text overlays to a video.
+   * Title card: series title + "Episode N: Title" centered on screen.
+   * End card: cliffhanger text + "Next episode..." over a dark scrim at bottom.
+   *
+   * Uses sharp to render text as transparent PNG overlays, then ffmpeg overlay filter
+   * to composite them. This avoids drawtext (requires --enable-libfreetype) and
+   * subtitles (requires --enable-libass) — neither is available in this ffmpeg build.
+   *
+   * @returns {string} Path to the output file with overlays applied
+   */
+  async _addTitleAndEndCards(inputPath, outputPath, episode, story) {
+    const scene = episode.scene_description || {};
+    const seriesTitle = story?.storyline?.title || story?.name || '';
+    const epTitle = `Episode ${episode.episode_number}: ${scene.title || 'Untitled'}`;
+    const cliffhanger = scene.cliffhanger || '';
+
+    if (!seriesTitle && !cliffhanger) {
+      return inputPath;
+    }
+
+    const tmpDir = os.tmpdir();
+    const tmpFiles = [];
+
+    try {
+      const sharp = (await import('sharp')).default;
+
+      // Get video dimensions and duration
+      const probeResult = await execFileAsync('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-show_entries', 'stream=width,height',
+        '-of', 'json', inputPath
+      ]);
+      const probeJson = JSON.parse(probeResult.stdout);
+      const duration = parseFloat(probeJson.format?.duration) || 15;
+      const videoStream = (probeJson.streams || []).find(s => s.width);
+      const W = videoStream?.width || 1080;
+      const H = videoStream?.height || 1920;
+      const endCardStart = Math.max(duration - 2.5, duration * 0.7);
+
+      // Helper: render text as transparent PNG via sharp SVG
+      const escXml = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+      const renderTextOverlay = async (texts, bgColor = null) => {
+        // texts: [{ text, fontSize, color, y }]
+        const svgLines = texts.map(t =>
+          `<text x="50%" y="${t.y}" font-family="Arial, Helvetica, sans-serif" font-size="${t.fontSize}" fill="${t.color}" text-anchor="middle" dominant-baseline="middle">${escXml(t.text)}</text>`
+        ).join('\n');
+
+        const bgRect = bgColor
+          ? `<rect x="0" y="0" width="${W}" height="${H}" fill="${bgColor}"/>`
+          : '';
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+          ${bgRect}
+          ${svgLines}
+        </svg>`;
+
+        return sharp(Buffer.from(svg)).png().toBuffer();
+      };
+
+      // Generate title card overlay (centered text on transparent bg)
+      let titleOverlayPath = null;
+      if (seriesTitle) {
+        const titlePng = await renderTextOverlay([
+          { text: seriesTitle, fontSize: 42, color: 'white', y: Math.round(H / 2) - 40 },
+          { text: epTitle, fontSize: 24, color: 'rgba(255,255,255,0.85)', y: Math.round(H / 2) + 20 }
+        ]);
+        titleOverlayPath = path.join(tmpDir, `title-overlay-${episode.episode_number}.png`);
+        await fs.writeFile(titleOverlayPath, titlePng);
+        tmpFiles.push(titleOverlayPath);
+      }
+
+      // Generate end card overlay (dark scrim at bottom + text)
+      let endOverlayPath = null;
+      if (cliffhanger) {
+        const cliffText = cliffhanger.length > 70 ? cliffhanger.slice(0, 67) + '...' : cliffhanger;
+        const endPng = await renderTextOverlay([
+          { text: cliffText, fontSize: 22, color: 'white', y: Math.round(H * 0.82) },
+          { text: 'Next episode...', fontSize: 18, color: 'rgba(255,255,255,0.7)', y: Math.round(H * 0.90) }
+        ], 'rgba(0,0,0,0.55)');
+        endOverlayPath = path.join(tmpDir, `end-overlay-${episode.episode_number}.png`);
+        await fs.writeFile(endOverlayPath, endPng);
+        tmpFiles.push(endOverlayPath);
+      }
+
+      // Build ffmpeg filter_complex using overlay filter (always available, no libfreetype needed)
+      const inputs = ['-i', inputPath];
+      const filterParts = [];
+      let currentLabel = '[0:v]';
+      let inputIdx = 1;
+
+      if (titleOverlayPath) {
+        inputs.push('-loop', '1', '-t', '3', '-i', titleOverlayPath);
+        // Fade in 0.3-0.8s, hold, fade out 2.3-2.8s
+        filterParts.push(
+          `[${inputIdx}:v]format=rgba,fade=in:st=0.3:d=0.5:alpha=1,fade=out:st=2.3:d=0.5:alpha=1[title]`
+        );
+        filterParts.push(
+          `${currentLabel}[title]overlay=0:0:enable='between(t,0.3,2.8)'[v${inputIdx}]`
+        );
+        currentLabel = `[v${inputIdx}]`;
+        inputIdx++;
+      }
+
+      if (endOverlayPath) {
+        inputs.push('-loop', '1', '-t', '3', '-i', endOverlayPath);
+        filterParts.push(
+          `[${inputIdx}:v]format=rgba,fade=in:st=0:d=0.5:alpha=1[endcard]`
+        );
+        filterParts.push(
+          `${currentLabel}[endcard]overlay=0:0:enable='gte(t,${endCardStart.toFixed(2)})'[vfinal]`
+        );
+        currentLabel = '[vfinal]';
+        inputIdx++;
+      }
+
+      if (filterParts.length === 0) return inputPath;
+
+      const filterComplex = filterParts.join(';');
+
+      await execFileAsync('ffmpeg', [
+        '-y',
+        ...inputs,
+        '-filter_complex', filterComplex,
+        '-map', currentLabel,
+        '-map', '0:a',
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+        '-c:a', 'copy',
+        '-movflags', '+faststart',
+        '-shortest',
+        outputPath
+      ], { timeout: 120000 });
+
+      return outputPath;
+    } catch (cardErr) {
+      logger.warn(`Title/end card overlay failed (non-fatal): ${cardErr.message}`);
+      return inputPath;
+    } finally {
+      await Promise.allSettled(tmpFiles.map(f => fs.unlink(f)));
+    }
+  }
+
+  // ═══════════════════════════════════════════════════
+  // SUBTITLE / CAPTION GENERATION
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Generate an SRT subtitle file from the episode's dialogue and burn it into the video.
+   * Short-form platforms heavily favor captioned content — this increases engagement.
+   *
+   * Timing strategy: distribute narration lines proportionally across the episode duration,
+   * using shot durations as guides. Each line is split into segments of ~8 words for readability.
+   *
+   * @param {string} videoPath - Path to the video file (for duration probing)
+   * @param {Object} episode - Episode record with scene_description.shots
+   * @param {string} userId
+   * @returns {Promise<{srtPath: string, srtUrl: string}>} Path to local SRT and public URL
+   */
+  async _generateSubtitles(videoPath, episode, userId) {
+    const scene = episode.scene_description || {};
+    const shots = scene.shots || [];
+
+    // Collect narration text with timing info from shots
+    const dialogueScript = scene.dialogue_script || '';
+    if (!dialogueScript || dialogueScript.trim().length === 0) {
+      return { srtPath: null, srtUrl: null };
+    }
+
+    // Get actual video duration
+    let videoDuration = 15;
+    try {
+      const probeResult = await execFileAsync('ffprobe', [
+        '-v', 'error', '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1', videoPath
+      ]);
+      videoDuration = parseFloat(probeResult.stdout) || 15;
+    } catch (e) {
+      // Use sum of shot durations as fallback
+      videoDuration = shots.reduce((sum, s) => sum + (s.duration_seconds || 5), 0) || 15;
+    }
+
+    // Split dialogue into word chunks (max ~8 words per subtitle line for readability)
+    const words = dialogueScript.trim().split(/\s+/);
+    const WORDS_PER_LINE = 7;
+    const segments = [];
+    for (let i = 0; i < words.length; i += WORDS_PER_LINE) {
+      segments.push(words.slice(i, i + WORDS_PER_LINE).join(' '));
+    }
+
+    if (segments.length === 0) return { srtPath: null, srtUrl: null };
+
+    // Distribute segments evenly across the video duration (leaving 0.5s buffer at start/end)
+    const startOffset = 0.5;
+    const endBuffer = 0.5;
+    const totalTextDuration = videoDuration - startOffset - endBuffer;
+    const segDuration = totalTextDuration / segments.length;
+
+    // Build SRT content
+    let srt = '';
+    segments.forEach((text, i) => {
+      const start = startOffset + (i * segDuration);
+      const end = start + segDuration - 0.05; // tiny gap between subtitles
+      srt += `${i + 1}\n`;
+      srt += `${this._formatSrtTime(start)} --> ${this._formatSrtTime(end)}\n`;
+      srt += `${text}\n\n`;
+    });
+
+    // Write SRT to temp file
+    const tmpDir = os.tmpdir();
+    const srtPath = path.join(tmpDir, `ep${episode.episode_number}-subs.srt`);
+    await fs.writeFile(srtPath, srt, 'utf-8');
+
+    // Upload SRT to Supabase for user download
+    const srtBuffer = Buffer.from(srt, 'utf-8');
+    const srtUrl = await this._uploadBufferToStorage(
+      srtBuffer, userId, 'subtitles', `ep${episode.episode_number}-subtitles.srt`, 'text/plain'
+    );
+
+    logger.info(`Subtitles generated: ${segments.length} segments, SRT: ${srtUrl}`);
+    return { srtPath, srtUrl };
+  }
+
+  /**
+   * Align narration duration to the actual video duration using ffmpeg atempo.
+   * When the video model falls back (e.g. Kling → Veo), the actual video duration
+   * may differ significantly from the planned duration the TTS was generated for.
+   *
+   * If the ratio is within 0.85-1.15 (±15%), skip — the difference is negligible.
+   * If outside that range, stretch/compress the narration using atempo.
+   * atempo supports 0.5-2.0 range; for larger ratios, chain multiple atempo filters.
+   *
+   * @param {Buffer} videoBuffer - The actual generated video
+   * @param {Buffer} narrationBuffer - Original TTS narration
+   * @param {Object} episode - Episode record
+   * @returns {Promise<Buffer>} Aligned narration buffer (or original if no change needed)
+   */
+  async _alignNarrationToVideo(videoBuffer, narrationBuffer, episode) {
+    const tmpDir = os.tmpdir();
+    const epNum = episode.episode_number;
+    const videoTmp = path.join(tmpDir, `align-video-${epNum}.mp4`);
+    const narTmp = path.join(tmpDir, `align-nar-${epNum}.mp3`);
+    const outTmp = path.join(tmpDir, `align-out-${epNum}.mp3`);
+
+    try {
+      await fs.writeFile(videoTmp, videoBuffer);
+      await fs.writeFile(narTmp, narrationBuffer);
+
+      // Probe both durations
+      const [videoProbe, narProbe] = await Promise.all([
+        execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', videoTmp]),
+        execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', narTmp])
+      ]);
+
+      const videoDur = parseFloat(videoProbe.stdout) || 0;
+      const narDur = parseFloat(narProbe.stdout) || 0;
+
+      if (!videoDur || !narDur) return narrationBuffer;
+
+      const ratio = narDur / videoDur;
+      logger.info(`Narration alignment: video=${videoDur.toFixed(1)}s, narration=${narDur.toFixed(1)}s, ratio=${ratio.toFixed(2)}`);
+
+      // Skip if within ±15% — close enough
+      if (ratio >= 0.85 && ratio <= 1.15) {
+        logger.info(`Narration alignment: ratio ${ratio.toFixed(2)} within tolerance — no adjustment needed`);
+        return narrationBuffer;
+      }
+
+      // Build atempo filter chain. atempo supports 0.5-2.0 per instance.
+      // For ratios outside that range, chain multiple atempos.
+      // ratio > 1 means narration is longer → speed it up (atempo > 1)
+      // ratio < 1 means narration is shorter → slow it down (atempo < 1)
+      const tempoFilters = [];
+      let remaining = ratio;
+      while (remaining > 2.0) {
+        tempoFilters.push('atempo=2.0');
+        remaining /= 2.0;
+      }
+      while (remaining < 0.5) {
+        tempoFilters.push('atempo=0.5');
+        remaining /= 0.5;
+      }
+      tempoFilters.push(`atempo=${remaining.toFixed(4)}`);
+
+      const filterStr = tempoFilters.join(',');
+      logger.info(`Narration alignment: applying ${filterStr} to match video duration`);
+
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-i', narTmp,
+        '-af', filterStr,
+        '-c:a', 'libmp3lame', '-q:a', '2',
+        outTmp
+      ], { timeout: 30000 });
+
+      const aligned = await fs.readFile(outTmp);
+      return aligned;
+    } finally {
+      await Promise.allSettled([
+        fs.unlink(videoTmp),
+        fs.unlink(narTmp),
+        fs.unlink(outTmp)
+      ]);
+    }
+  }
+
+  /**
+   * Build an ffmpeg volume expression for narration that dips at shot transition points.
+   * Creates a J/L cut feel — the narration breathes at each visual transition.
+   *
+   * At each transition timestamp, volume drops from baseVol to baseVol*0.3 over 0.2s,
+   * then recovers over 0.3s. This creates a natural editorial rhythm.
+   *
+   * @param {Object} episode - Episode with scene_description.shots[]
+   * @param {number} baseVol - Base narration volume (e.g. 0.85)
+   * @returns {string} ffmpeg volume expression (for eval=frame mode)
+   */
+  _buildDuckingVolumeExpr(episode, baseVol) {
+    const shots = episode.scene_description?.shots || [];
+    if (shots.length <= 1) return String(baseVol);
+
+    // Calculate cumulative timestamps where visual transitions occur
+    const transitionDuration = 0.5; // matches xfade duration in _assembleWithTransitions
+    const transitionPoints = [];
+    let cumulative = 0;
+    for (let i = 0; i < shots.length - 1; i++) {
+      cumulative += (shots[i].duration_seconds || 5) - transitionDuration;
+      transitionPoints.push(cumulative);
+    }
+
+    if (transitionPoints.length === 0) return String(baseVol);
+
+    // Build nested if() expression that dips volume around each transition point.
+    // Duck shape: ramp down 0.2s before transition, hold low for 0.1s, ramp up 0.3s after.
+    const duckLow = baseVol * 0.35;
+    const duckHalf = 0.2; // seconds before transition to start ducking
+    const duckHold = 0.1; // seconds at minimum
+    const duckRecover = 0.3; // seconds to recover after transition
+
+    // For each transition, add a piecewise expression
+    // The general form: if(between(t, T-0.2, T+0.4), <duck_curve>, <else>)
+    // Duck curve: ramp_down from T-0.2 to T, hold from T to T+0.1, ramp_up from T+0.1 to T+0.4
+    const parts = transitionPoints.map(T => {
+      const start = (T - duckHalf).toFixed(3);
+      const holdEnd = (T + duckHold).toFixed(3);
+      const end = (T + duckHold + duckRecover).toFixed(3);
+      // Piecewise: if in range, compute duck; else pass through
+      return `if(between(t,${start},${end}),` +
+        `if(lt(t,${T.toFixed(3)}),${baseVol}-(${baseVol}-${duckLow})*(t-${start})/${duckHalf},` +
+        `if(lt(t,${holdEnd}),${duckLow},` +
+        `${duckLow}+(${baseVol}-${duckLow})*(t-${holdEnd})/${duckRecover}))`;
+    });
+
+    // Chain parts: if duck1 applies, use it; else if duck2 applies, use it; else baseVol
+    // Build from innermost out
+    let expr = String(baseVol);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      expr = `${parts[i]},${expr})`;
+    }
+
+    return expr;
+  }
+
+  /**
+   * Build ambient audio volume expression that swells slightly at transitions.
+   * The inverse of narration ducking — ambient rises when narration dips,
+   * creating a natural soundscape shift at visual cuts.
+   */
+  _buildAmbientSwellExpr(episode, baseVol) {
+    const shots = episode.scene_description?.shots || [];
+    if (shots.length <= 1) return String(baseVol);
+
+    const transitionDuration = 0.5;
+    const transitionPoints = [];
+    let cumulative = 0;
+    for (let i = 0; i < shots.length - 1; i++) {
+      cumulative += (shots[i].duration_seconds || 5) - transitionDuration;
+      transitionPoints.push(cumulative);
+    }
+
+    if (transitionPoints.length === 0) return String(baseVol);
+
+    // Ambient swells to ~3x base at transitions (e.g. 0.12 → 0.35)
+    const swellPeak = Math.min(baseVol * 3, 0.4);
+
+    const parts = transitionPoints.map(T => {
+      const start = (T - 0.2).toFixed(3);
+      const end = (T + 0.4).toFixed(3);
+      return `if(between(t,${start},${end}),` +
+        `${baseVol}+(${swellPeak}-${baseVol})*` +
+        `if(lt(t,${T.toFixed(3)}),(t-${start})/0.2,1.0-(t-${T.toFixed(3)})/0.4)`;
+    });
+
+    let expr = String(baseVol);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      expr = `${parts[i]},${expr})`;
+    }
+
+    return expr;
+  }
+
+  /**
+   * Format seconds to SRT time format: HH:MM:SS,mmm
+   */
+  _formatSrtTime(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  }
+
+  /**
+   * Burn subtitles into a video using drawtext filter_script.
+   * Avoids the libass-dependent `subtitles` filter (not available on all ffmpeg builds).
+   * Instead, parses the SRT and generates drawtext filters per segment written to a
+   * filter_script file (sidesteps all escaping issues).
+   */
+  /**
+   * Burn subtitles into a video using sharp-rendered PNG overlays + ffmpeg overlay filter.
+   * Each subtitle segment becomes a transparent PNG with white text + black outline,
+   * composited at the correct time range via ffmpeg overlay enable expressions.
+   *
+   * For episodes with many segments (typical: 10-15), we batch into groups of 4
+   * to avoid ffmpeg filter_complex input limits, doing multiple overlay passes.
+   */
+  async _burnSubtitles(videoPath, srtPath, outputPath) {
+    if (!srtPath) return videoPath;
+
+    const tmpDir = os.tmpdir();
+    const tmpFiles = [];
+
+    try {
+      const sharp = (await import('sharp')).default;
+
+      // Parse SRT into timed segments
+      const srtContent = await fs.readFile(srtPath, 'utf-8');
+      const segments = this._parseSrt(srtContent);
+      if (segments.length === 0) return videoPath;
+
+      // Get video dimensions
+      const probeResult = await execFileAsync('ffprobe', [
+        '-v', 'error', '-show_entries', 'stream=width,height',
+        '-of', 'json', videoPath
+      ]);
+      const probeJson = JSON.parse(probeResult.stdout);
+      const videoStream = (probeJson.streams || []).find(s => s.width);
+      const W = videoStream?.width || 1080;
+      const H = videoStream?.height || 1920;
+
+      const escXml = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+      // Render each subtitle segment as a transparent PNG
+      const segmentPngs = [];
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const yPos = Math.round(H * 0.88);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+          <text x="50%" y="${yPos}" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="bold"
+                fill="white" stroke="black" stroke-width="2" paint-order="stroke"
+                text-anchor="middle" dominant-baseline="middle">${escXml(seg.text)}</text>
+        </svg>`;
+        const pngBuf = await sharp(Buffer.from(svg)).png().toBuffer();
+        const pngPath = path.join(tmpDir, `sub-${i}.png`);
+        await fs.writeFile(pngPath, pngBuf);
+        tmpFiles.push(pngPath);
+        segmentPngs.push({ path: pngPath, start: seg.start, end: seg.end });
+      }
+
+      // Apply overlays in batches of 4 (ffmpeg handles many inputs but gets slow with 15+)
+      let currentVideoPath = videoPath;
+      const BATCH_SIZE = 4;
+      for (let batch = 0; batch < segmentPngs.length; batch += BATCH_SIZE) {
+        const batchSegs = segmentPngs.slice(batch, batch + BATCH_SIZE);
+        const batchOutput = batch + BATCH_SIZE >= segmentPngs.length
+          ? outputPath
+          : path.join(tmpDir, `sub-batch-${batch}.mp4`);
+        if (batchOutput !== outputPath) tmpFiles.push(batchOutput);
+
+        const inputs = ['-i', currentVideoPath];
+        const filterParts = [];
+        let currentLabel = '[0:v]';
+
+        for (let j = 0; j < batchSegs.length; j++) {
+          const seg = batchSegs[j];
+          const inputIdx = j + 1;
+          inputs.push('-loop', '1', '-t', (seg.end - seg.start + 0.1).toFixed(2), '-i', seg.path);
+          const outLabel = j === batchSegs.length - 1 ? '[vout]' : `[vs${batch + j}]`;
+          filterParts.push(
+            `${currentLabel}[${inputIdx}:v]overlay=0:0:enable='between(t,${seg.start.toFixed(3)},${seg.end.toFixed(3)})'${outLabel}`
+          );
+          currentLabel = outLabel;
+        }
+
+        await execFileAsync('ffmpeg', [
+          '-y', ...inputs,
+          '-filter_complex', filterParts.join(';'),
+          '-map', '[vout]', '-map', '0:a',
+          '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+          '-c:a', 'copy', '-movflags', '+faststart', '-shortest',
+          batchOutput
+        ], { timeout: 180000 });
+
+        currentVideoPath = batchOutput;
+      }
+
+      return outputPath;
+    } catch (subErr) {
+      logger.warn(`Subtitle burn failed (non-fatal): ${subErr.message}`);
+      return videoPath;
+    } finally {
+      await Promise.allSettled(tmpFiles.map(f => fs.unlink(f)));
+    }
+  }
+
+  /**
+   * Parse SRT content into an array of { start, end, text } segments.
+   * Times are in seconds (float).
+   */
+  _parseSrt(srtContent) {
+    const segments = [];
+    const blocks = srtContent.trim().split(/\n\n+/);
+    for (const block of blocks) {
+      const lines = block.trim().split('\n');
+      if (lines.length < 3) continue;
+      const timeLine = lines[1];
+      const match = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+      if (!match) continue;
+      const start = parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]) + parseInt(match[4]) / 1000;
+      const end = parseInt(match[5]) * 3600 + parseInt(match[6]) * 60 + parseInt(match[7]) + parseInt(match[8]) / 1000;
+      const text = lines.slice(2).join(' ');
+      segments.push({ start, end, text });
+    }
+    return segments;
+  }
+
+  // ═══════════════════════════════════════════════════
+  // STORY-SO-FAR APPENDIX (running continuity memory)
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * After each episode is finalized, append a compressed summary to the storyline's
+   * season_bible. This prevents late-episode amnesia — by Episode 8+, the "previously on"
+   * block compresses early episodes to one-liners, but key narrative threads (planted in
+   * Ep 2, payoff in Ep 10) would be forgotten. The story_so_far keeps the writer's room
+   * memory fresh without bloating the prompt.
+   */
+  async _updateStorySoFar(storyId, userId, episode) {
+    const story = await getBrandStoryById(storyId, userId);
+    if (!story?.storyline) return;
+
+    const scene = episode.scene_description || {};
+    const epSummary = `Ep${episode.episode_number} "${scene.title || ''}": ${scene.narrative_beat || ''}. Mood: ${scene.mood || ''}. Cliffhanger: ${scene.cliffhanger || ''}. Emotional state: ${scene.emotional_state || 'not recorded'}.`;
+
+    // Build or append to the running story_so_far
+    const existingSoFar = story.storyline.story_so_far || '';
+    const updatedSoFar = existingSoFar
+      ? `${existingSoFar}\n${epSummary}`
+      : `STORY SO FAR:\n${epSummary}`;
+
+    // Also track the latest visual_style_prefix for cross-episode continuity
+    const updatedStoryline = {
+      ...story.storyline,
+      story_so_far: updatedSoFar,
+      last_visual_style_prefix: scene.visual_style_prefix || story.storyline.last_visual_style_prefix || '',
+      last_emotional_state: scene.emotional_state || ''
+    };
+
+    await updateBrandStory(storyId, userId, { storyline: updatedStoryline });
+    logger.info(`Story-so-far updated for story ${storyId} after episode ${episode.episode_number}`);
+  }
+
+  // ═══════════════════════════════════════════════════
+  // CROSS-EPISODE STORYBOARD SEED CONTINUITY
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Get a deterministic base seed for storyboard generation that maintains
+   * visual consistency across episodes. Uses the story ID hash as a stable
+   * root, with episode and shot offsets for variation within consistency.
+   */
+  _getStoryboardSeed(story, episodeNumber, shotIndex) {
+    // Deterministic hash from story ID — same story always gets same visual family
+    const hash = [...story.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+    const baseSeed = Math.abs(hash) % 2147483647;
+    // Offset by episode * 100 + shot to get variation within the same visual family
+    return baseSeed + (episodeNumber * 100) + shotIndex;
   }
 }
 

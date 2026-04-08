@@ -281,6 +281,33 @@ router.get('/subjects/brand-kit', async (req, res) => {
  * Uses Gemini to design the character, Flux 2 Max to generate a portrait.
  * Body: { brand_kit_job_id, count: 1-3, story_focus }
  */
+/**
+ * POST /api/brand-stories/generate-directors-hint
+ * Auto-generate a director's creative brief using all available story context.
+ * Each call produces a different creative angle (variation 1-5).
+ */
+router.post('/generate-directors-hint', csrfProtection, async (req, res) => {
+  try {
+    const { story_focus, genre, tone, target_audience, brand_kit_job_id, subject, personas, variation } = req.body;
+
+    const hint = await brandStoryService.generateDirectorsHint(req.user.id, {
+      storyFocus: story_focus || 'product',
+      genre: genre || 'drama',
+      tone: tone || 'engaging',
+      targetAudience: target_audience || 'young professionals',
+      brandKitJobId: brand_kit_job_id,
+      subject,
+      personas: personas || [],
+      variation: variation || 1
+    });
+
+    res.json({ success: true, hint });
+  } catch (error) {
+    logger.error('Error generating directors hint:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate hint' });
+  }
+});
+
 router.post('/personas/auto-generate', csrfProtection, async (req, res) => {
   try {
     const { brand_kit_job_id, count = 1, story_focus = 'product' } = req.body;

@@ -13,10 +13,19 @@ import { isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs'
  * The LLM creates a narrative framework that drives an ongoing video series.
  *
  * @param {Object} brandKit - Brand Kit data (color_palette, style_characteristics, brand_summary, people, logos)
+ * @param {Object} [options] - { directorsNotes }
  * @returns {string} System prompt
  */
-export function getStorylineSystemPrompt(brandKit = {}) {
+export function getStorylineSystemPrompt(brandKit = {}, options = {}) {
+  const { directorsNotes = '' } = options;
   const brandContextBlock = _buildBrandKitContextBlock(brandKit);
+
+  const directorsBlock = directorsNotes
+    ? `\nDIRECTOR'S CREATIVE VISION (from the brand owner — treat as your primary artistic brief):
+"${directorsNotes}"
+Interpret this as your cinematic north star. Let it shape the visual style, emotional register,
+color palette choices, camera language, and narrative voice throughout the entire season.\n`
+    : '';
 
   return `You are an award-winning screenwriter and brand storyteller who creates compelling short-form video series for social media (Reels, Stories, TikTok). You specialize in serialized brand narratives that hook viewers episode after episode.
 
@@ -29,7 +38,9 @@ STORYTELLING PRINCIPLES:
 - Characters must feel real — they have desires, flaws, and growth
 - The product/subject is woven into the narrative as a natural element, never forced
 - Visual storytelling: show, don't tell. Each scene must be visually distinct and cinematic
-${brandContextBlock}
+- Every series has an EMOTIONAL RHYTHM — not every episode is the same intensity. Plan the emotional arc deliberately: intrigue, warmth, tension, relief, heartbreak, triumph
+- Establish RECURRING VISUAL MOTIFS — specific objects, colors, lighting patterns, or compositions that appear across episodes as visual signatures of the series
+${directorsBlock}${brandContextBlock}
 You MUST respond with ONLY valid JSON (no markdown code fences, no extra text). The JSON must conform to the schema described in the user prompt.`;
 }
 
@@ -90,7 +101,8 @@ export function getStorylineUserPrompt(personas, subject, brandKit = {}, options
     genre = 'drama',
     targetAudience = 'young professionals',
     episodeCount = 12,
-    storyFocus = 'product'
+    storyFocus = 'product',
+    directorsNotes = ''
   } = options;
 
   const focusBlock = _buildFocusBlock(storyFocus);
@@ -136,10 +148,15 @@ The viewer should finish the season remembering this specific subject.
     ? `EXISTING BRAND PERSONAS (from brand assets): ${brandKit.people.map(p => p.description).join('; ')}`
     : '';
 
+  const directorsBlock = directorsNotes
+    ? `\nDIRECTOR'S CREATIVE VISION: "${directorsNotes}"
+Use this as the cinematic north star for visual style, pacing, and emotional register.\n`
+    : '';
+
   return `Create a complete story bible for a ${episodeCount}-episode short-form video series.
 
 ${focusBlock}
-
+${directorsBlock}
 ${personaBlock}
 ${subjectBlock}
 ${brandPeople}
@@ -173,7 +190,32 @@ OUTPUT JSON SCHEMA:
       "personality": "3-4 defining traits",
       "visual_description": "Specific physical appearance for consistent image generation",
       "arc": "How this character changes across the series",
-      "relationship_to_product": "How they connect to the brand subject"
+      "relationship_to_product": "How they connect to the brand subject",
+      "relationships": "Key dynamics with other characters — who they conflict with, support, love, or distrust"
+    }
+  ],
+  "emotional_arc": [
+    {
+      "episode": 1,
+      "primary_emotion": "curiosity|warmth|tension|relief|heartbreak|triumph|mystery|intimacy|excitement|melancholy",
+      "intensity": 7,
+      "turning_point": "What emotional shift happens in this episode"
+    }
+  ],
+  "visual_motifs": [
+    {
+      "motif": "Name of the recurring visual element (e.g. 'the red door', 'rain on glass', 'golden light through curtains')",
+      "meaning": "What it symbolizes in the story",
+      "first_appearance": 1,
+      "recurrence_pattern": "When/how it reappears (e.g. 'every time the protagonist faces a choice', 'in establishing shots of the location')"
+    }
+  ],
+  "subplots": [
+    {
+      "name": "Subplot title",
+      "description": "What this secondary thread is about",
+      "episodes_active": [2, 4, 7, 10],
+      "resolution_hint": "How it might resolve"
     }
   ],
   "episodes": [
@@ -185,10 +227,11 @@ OUTPUT JSON SCHEMA:
       "visual_direction": "Key visual elements, setting, lighting mood",
       "dialogue_script": "What the narrator/character says (10-15 seconds of speech)",
       "cliffhanger": "What makes the viewer want the next episode",
-      "mood": "Emotional tone of this specific episode"
+      "mood": "Emotional tone of this specific episode",
+      "target_emotion": "The primary emotion viewers should feel (from emotional_arc)"
     }
   ],
-  "season_bible": "Comprehensive narrative context document (500+ words) that captures EVERYTHING a writer would need to continue this story: world rules, character relationships, running themes, visual motifs, tone guidelines, product integration approach, and unresolved threads"
+  "season_bible": "Comprehensive narrative context document (500+ words) that captures EVERYTHING a writer would need to continue this story: world rules, character relationships, running themes, visual motifs, tone guidelines, product integration approach, and unresolved threads. Include the director's vision interpretation and how it shapes the series' visual language."
 }`;
 }
 
@@ -222,9 +265,40 @@ function _buildFocusBlock(storyFocus) {
  * @returns {string} System prompt
  */
 export function getEpisodeSystemPrompt(storyline, previousEpisodes = [], personas = [], options = {}) {
-  const { subject = null, storyFocus = 'product', brandKit = null } = options;
+  const { subject = null, storyFocus = 'product', brandKit = null, previousVisualStyle = '', previousEmotionalState = '', directorsNotes = '' } = options;
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
   const brandContextBlock = brandKit ? _buildBrandKitContextBlock(brandKit) : '';
+
+  // Emotional arc awareness — inject the planned emotion for the next episode
+  const nextEpNumber = previousEpisodes.length + 1;
+  const emotionalArc = storyline.emotional_arc || [];
+  const targetEmotion = emotionalArc.find(e => e.episode === nextEpNumber);
+  const emotionalBlock = targetEmotion
+    ? `\nEMOTIONAL TARGET FOR THIS EPISODE:
+- Primary emotion: ${targetEmotion.primary_emotion} (intensity: ${targetEmotion.intensity}/10)
+- Turning point: ${targetEmotion.turning_point}
+The viewer's emotional state from the last episode was: ${previousEmotionalState || 'fresh (series premiere)'}
+Plan this episode's pacing and intensity to serve this emotional target.\n`
+    : '';
+
+  // Visual continuity from previous episode
+  const visualContinuityBlock = previousVisualStyle
+    ? `\nVISUAL CONTINUITY:
+Previous episode's visual style: "${previousVisualStyle}"
+Maintain this as the series' baseline look. Only deviate if the story demands a deliberate tonal shift, and explain any shift in visual_direction.\n`
+    : '';
+
+  // Visual motifs awareness
+  const motifs = storyline.visual_motifs || [];
+  const motifsBlock = motifs.length > 0
+    ? `\nRECURRING VISUAL MOTIFS (weave at least one into this episode):
+${motifs.map(m => `- "${m.motif}" — symbolizes ${m.meaning}. Pattern: ${m.recurrence_pattern}`).join('\n')}\n`
+    : '';
+
+  // Director's notes
+  const directorsBlock = directorsNotes
+    ? `\nDIRECTOR'S VISION: "${directorsNotes}"\n`
+    : '';
 
   // Personas with trained HeyGen avatars (narrator candidates for dialogue shots)
   const narratorList = personas
@@ -271,14 +345,13 @@ SERIES CONTEXT:
 - Tone: ${storyline.tone || 'engaging'}
 - Genre: ${storyline.genre || 'drama'}
 - Total planned episodes: ${storyline.episodes?.length || 12}
-
+${directorsBlock}
 SEASON BIBLE:
 ${storyline.season_bible || JSON.stringify(storyline.arc || {}, null, 2)}
-${brandContextBlock}
-
+${brandContextBlock}${emotionalBlock}${visualContinuityBlock}${motifsBlock}
 CHARACTERS:
 ${(storyline.characters || []).map(c =>
-  `- ${c.name} (${c.role}): ${c.personality}. Visual: ${c.visual_description}`
+  `- ${c.name} (${c.role}): ${c.personality}. Visual: ${c.visual_description}${c.relationships ? `. Relationships: ${c.relationships}` : ''}`
 ).join('\n')}
 
 ${narratorBlock}
@@ -371,7 +444,13 @@ function _buildPreviousEpisodesBlock(storyline, previousEpisodes) {
     Cliffhanger ending: ${last.cliffhanger || ''}`;
 
   const earlierBlock = earlier ? `${earlier}\n` : '';
-  return `PREVIOUSLY ON "${storyline.title || 'the series'}":\n${earlierBlock}${lastDetail}`;
+
+  // Include the running story-so-far appendix if available (prevents late-episode amnesia)
+  const storySoFar = storyline.story_so_far
+    ? `\n${storyline.story_so_far}\n`
+    : '';
+
+  return `PREVIOUSLY ON "${storyline.title || 'the series'}":\n${storySoFar}${earlierBlock}${lastDetail}`;
 }
 
 /**
@@ -424,6 +503,8 @@ OUTPUT JSON SCHEMA:
   "continuity_from_previous": "One sentence summarizing how this connects to what came before",
   "continuity_check": "One sentence explaining specifically how this episode's hook resolves the previous cliffhanger AND which visual/dialogue thread it carries forward. If this is episode 1, write 'N/A — series premiere'.",
   "cliffhanger": "What makes the viewer want episode ${episodeNumber + 1}",
+  "emotional_state": "Where the viewer's emotional journey stands at the END of this episode (e.g. 'relieved but anxious about what's coming', 'deeply moved, craving resolution'). This state is fed into the next episode for emotional continuity.",
+  "visual_motif_used": "Which recurring visual motif (from the season bible) appears in this episode and how",
   "shots": [
     {
       "shot_type": "dialogue | cinematic | broll",
@@ -529,10 +610,42 @@ CINEMATOGRAPHY RULES FOR LANDSCAPE FOCUS:
  * - end_frame_description per shot (for inter-shot continuity)
  */
 export function getEpisodeSystemPromptV2(storyline, previousEpisodes = [], personas = [], options = {}) {
-  const { subject = null, storyFocus = 'product', brandKit = null } = options;
+  const { subject = null, storyFocus = 'product', brandKit = null, previousVisualStyle = '', previousEmotionalState = '', directorsNotes = '' } = options;
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
   const brandContextBlock = brandKit ? _buildBrandKitContextBlock(brandKit) : '';
   const focusBlock = _buildCinematicFocusBlock(storyFocus);
+
+  // Emotional arc awareness
+  const nextEpNumber = previousEpisodes.length + 1;
+  const emotionalArc = storyline.emotional_arc || [];
+  const targetEmotion = emotionalArc.find(e => e.episode === nextEpNumber);
+  const emotionalBlock = targetEmotion
+    ? `\nEMOTIONAL TARGET FOR THIS EPISODE:
+- Primary emotion: ${targetEmotion.primary_emotion} (intensity: ${targetEmotion.intensity}/10)
+- Turning point: ${targetEmotion.turning_point}
+- Viewer's current state: ${previousEmotionalState || 'fresh (series premiere)'}
+Shape the pacing, lighting, and camera language to serve this emotional target.\n`
+    : '';
+
+  // Visual continuity from previous episode
+  const visualContinuityBlock = previousVisualStyle
+    ? `\nVISUAL CONTINUITY FROM PREVIOUS EPISODE:
+Previous visual style: "${previousVisualStyle}"
+Your visual_style_prefix should evolve FROM this — maintain the series' established look.
+Only deviate for deliberate tonal shifts demanded by the narrative.\n`
+    : '';
+
+  // Visual motifs
+  const motifs = storyline.visual_motifs || [];
+  const motifsBlock = motifs.length > 0
+    ? `\nRECURRING VISUAL MOTIFS (weave at least one into this episode):
+${motifs.map(m => `- "${m.motif}" — symbolizes ${m.meaning}. Pattern: ${m.recurrence_pattern}`).join('\n')}\n`
+    : '';
+
+  // Director's notes
+  const directorsBlock = directorsNotes
+    ? `\nDIRECTOR'S VISION: "${directorsNotes}"\n`
+    : '';
 
   // Personas are characters IN the cinematic scenes — not talking-head narrators
   const characterList = personas
@@ -566,12 +679,13 @@ At least ONE shot must feature it prominently. ${storyFocus === 'landscape' ? 'T
   return `You are the showrunner and cinematographer of "${storyline.title || 'an ongoing brand video series'}". You write and direct each episode as a CINEMATIC SHORT FILM — not a social media clip.
 
 ${focusBlock}
-
+${directorsBlock}
 SERIES CONTEXT:
 - Logline: ${storyline.logline || storyline.theme || ''}
 - Tone: ${storyline.tone || 'engaging'}
 - Genre: ${storyline.genre || 'drama'}
 - Total planned episodes: ${storyline.episodes?.length || 12}
+${emotionalBlock}${visualContinuityBlock}${motifsBlock}
 
 SEASON BIBLE:
 ${storyline.season_bible || JSON.stringify(storyline.arc || {}, null, 2)}
@@ -695,6 +809,8 @@ OUTPUT JSON SCHEMA:
   "continuity_from_previous": "How this connects to what came before",
   "continuity_check": "How this episode's hook resolves the previous cliffhanger",
   "cliffhanger": "What makes the viewer want episode ${episodeNumber + 1}",
+  "emotional_state": "Where the viewer's emotional journey stands at the END of this episode (e.g. 'relieved but anxious', 'deeply moved, craving resolution'). Fed into the next episode for emotional continuity.",
+  "visual_motif_used": "Which recurring visual motif (from the season bible) appears in this episode and how it manifests visually",
   "visual_style_prefix": "UNIFIED cinematography brief for ALL shots: color temperature, lighting quality, lens feel, film stock reference. Example: 'Warm golden-hour tones, shallow depth of field, anamorphic lens flare, Kodak Portra 400 grain, soft backlit highlights'. This prefix ensures all 3 shots and storyboard panels share the same cinematic look.",
   "shots": [
     {

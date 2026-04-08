@@ -2860,6 +2860,71 @@
                                     <label class="block text-sm font-medium text-ink-700 mb-1">Story Name</label>
                                     <input type="text" id="storyName" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500" placeholder="The Scent of Tomorrow">
                                 </div>
+
+                                <!-- Creative Direction -->
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Genre</label>
+                                        <select id="storyGenre" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="drama" selected>Drama</option>
+                                            <option value="comedy">Comedy</option>
+                                            <option value="thriller">Thriller / Suspense</option>
+                                            <option value="romance">Romance</option>
+                                            <option value="sci-fi">Sci-Fi / Futuristic</option>
+                                            <option value="documentary">Documentary</option>
+                                            <option value="noir">Noir / Mystery</option>
+                                            <option value="inspirational">Inspirational</option>
+                                            <option value="adventure">Adventure</option>
+                                            <option value="slice-of-life">Slice of Life</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Tone</label>
+                                        <select id="storyTone" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="engaging" selected>Engaging</option>
+                                            <option value="dramatic">Dramatic</option>
+                                            <option value="intimate">Intimate / Personal</option>
+                                            <option value="energetic">Energetic / Bold</option>
+                                            <option value="mysterious">Mysterious</option>
+                                            <option value="warm">Warm / Uplifting</option>
+                                            <option value="edgy">Edgy / Provocative</option>
+                                            <option value="elegant">Elegant / Refined</option>
+                                            <option value="playful">Playful / Whimsical</option>
+                                            <option value="cinematic">Cinematic / Epic</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Target Audience</label>
+                                        <select id="storyAudience" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="young professionals" selected>Young Professionals</option>
+                                            <option value="gen-z consumers">Gen-Z Consumers</option>
+                                            <option value="luxury buyers">Luxury Buyers</option>
+                                            <option value="parents and families">Parents & Families</option>
+                                            <option value="tech enthusiasts">Tech Enthusiasts</option>
+                                            <option value="creative professionals">Creative Professionals</option>
+                                            <option value="health and wellness seekers">Health & Wellness</option>
+                                            <option value="entrepreneurs">Entrepreneurs</option>
+                                            <option value="general audience">General Audience</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-ink-700 mb-1">Director's Notes <span class="text-ink-400 font-normal">(optional)</span></label>
+                                    <textarea id="storyDirectorsNotes" rows="3" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500" placeholder="e.g. &quot;Think Wong Kar-Wai — moody neon lighting, fragmented memories&quot; or &quot;Wes Anderson symmetry, pastel palette, deadpan humor&quot;"></textarea>
+                                    <p class="text-xs text-ink-400 mt-1">Describe the cinematic feel, reference films, or aesthetic keywords to shape the visual style</p>
+                                    <div class="mt-2 flex items-center gap-2">
+                                        <button type="button" onclick="generateDirectorsHint()" id="directorsHintBtn" class="btn-secondary px-4 py-2 text-sm font-medium rounded-lg inline-flex items-center gap-2">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            <span id="directorsHintBtnText">Suggest Director's Hints</span>
+                                        </button>
+                                        <span id="directorsHintCounter" class="text-xs text-ink-400">0/5</span>
+                                    </div>
+                                    <div id="directorsHintCards" class="mt-3 space-y-2 hidden">
+                                        <!-- Generated hint cards appear here -->
+                                    </div>
+                                </div>
+
                                 <div>
                                     <label class="block text-sm font-medium text-ink-700 mb-2">Target Platforms</label>
                                     <div class="flex flex-wrap gap-3">

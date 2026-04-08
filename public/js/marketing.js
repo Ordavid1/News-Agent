@@ -7555,6 +7555,117 @@ function resetPersonaSelectionState() {
     if (autoCards) autoCards.textContent = '';
 }
 
+// ─────────────────────────────────────────────────────
+// DIRECTOR'S HINTS AUTO-GENERATION
+// ─────────────────────────────────────────────────────
+
+let directorsHintCount = 0;
+const MAX_DIRECTORS_HINTS = 5;
+
+/**
+ * Generate a director's hint using AI, leveraging all available context
+ * from the wizard (focus, genre, tone, audience, brand kit, subject, personas).
+ * Each click generates a different creative angle (up to 5 total).
+ */
+async function generateDirectorsHint() {
+    if (directorsHintCount >= MAX_DIRECTORS_HINTS) return;
+
+    const btn = document.getElementById('directorsHintBtn');
+    const btnText = document.getElementById('directorsHintBtnText');
+    const counter = document.getElementById('directorsHintCounter');
+    const cardsContainer = document.getElementById('directorsHintCards');
+
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = 'Generating...';
+
+    try {
+        // Collect all available context from the wizard
+        const storyFocus = document.querySelector('input[name="storyFocus"]:checked')?.value || 'product';
+        const genre = document.getElementById('storyGenre')?.value || 'drama';
+        const tone = document.getElementById('storyTone')?.value || 'engaging';
+        const targetAudience = document.getElementById('storyAudience')?.value || 'young professionals';
+        const brandKitJobId = document.getElementById('storyBrandKit')?.value || null;
+
+        // Subject data from Step 3
+        let subject = null;
+        try {
+            const subjectJson = document.getElementById('subjectAnalyzedJson')?.value;
+            if (subjectJson) subject = JSON.parse(subjectJson);
+        } catch (e) { /* no subject yet */ }
+
+        // Persona descriptions from Step 2
+        const personaType = document.querySelector('input[name="personaType"]:checked')?.value || 'described';
+        const personas = (personaSelectionState[personaType] || [])
+            .map(p => p.description || p.avatar_name || p.appearance || '')
+            .filter(Boolean);
+
+        const result = await apiPost('/api/brand-stories/generate-directors-hint', {
+            story_focus: storyFocus,
+            genre,
+            tone,
+            target_audience: targetAudience,
+            brand_kit_job_id: brandKitJobId,
+            subject,
+            personas,
+            variation: directorsHintCount + 1
+        });
+
+        if (!result.success) throw new Error(result.error || 'Failed to generate hint');
+
+        directorsHintCount++;
+        if (counter) counter.textContent = `${directorsHintCount}/${MAX_DIRECTORS_HINTS}`;
+
+        // Show cards container
+        if (cardsContainer) cardsContainer.classList.remove('hidden');
+
+        // Create hint card
+        const card = document.createElement('label');
+        card.className = 'flex items-start gap-3 p-3 border border-surface-200 rounded-lg cursor-pointer hover:border-brand-300 transition-colors has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'directorsHintChoice';
+        radio.value = directorsHintCount;
+        radio.className = 'mt-1 text-brand-600 focus:ring-brand-500';
+        radio.checked = true; // auto-select latest
+        radio.addEventListener('change', () => {
+            document.getElementById('storyDirectorsNotes').value = result.hint;
+        });
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'flex-1';
+
+        const badge = document.createElement('span');
+        badge.className = 'text-[10px] text-ink-400 uppercase tracking-wider';
+        badge.textContent = ['Cinematography', 'Emotion & Pacing', 'Film References', 'Sensory & Atmosphere', 'Wildcard'][directorsHintCount - 1] || 'Variation';
+
+        const text = document.createElement('p');
+        text.className = 'text-sm text-ink-700 mt-0.5';
+        text.textContent = result.hint;
+
+        textDiv.appendChild(badge);
+        textDiv.appendChild(text);
+        card.appendChild(radio);
+        card.appendChild(textDiv);
+        cardsContainer.appendChild(card);
+
+        // Auto-populate textarea with this hint
+        document.getElementById('storyDirectorsNotes').value = result.hint;
+
+        if (directorsHintCount >= MAX_DIRECTORS_HINTS) {
+            if (btn) btn.disabled = true;
+            if (btnText) btnText.textContent = 'Max hints reached';
+            return;
+        }
+
+    } catch (e) {
+        showToast(e.message || 'Failed to generate hint', 'error');
+    } finally {
+        if (btn && directorsHintCount < MAX_DIRECTORS_HINTS) btn.disabled = false;
+        if (btnText && directorsHintCount < MAX_DIRECTORS_HINTS) btnText.textContent = 'Suggest Director\'s Hints';
+    }
+}
+
 /**
  * Load Brand Kit model options for the wizard's step 3 dropdown.
  * Fetches all of the user's completed Brand Kits across all ad accounts.
@@ -7650,7 +7761,6 @@ function populateWizardReview() {
     const storyFocus = document.querySelector('input[name="storyFocus"]:checked')?.value || 'person';
     const personaType = document.querySelector('input[name="personaType"]:checked')?.value || 'described';
     const storyName = document.getElementById('storyName')?.value || 'Untitled';
-    // Subject name comes from the analyzed JSON (Step 3)
     let subjectName = 'Not specified';
     try {
         const analyzed = document.getElementById('subjectAnalyzedJson')?.value;
@@ -7658,19 +7768,63 @@ function populateWizardReview() {
     } catch (e) { /* ignore */ }
     const frequency = document.getElementById('storyFrequency')?.value || 'daily';
     const platforms = [...document.querySelectorAll('input[name="storyPlatforms"]:checked')].map(c => c.value);
+    const genre = document.getElementById('storyGenre')?.value || 'drama';
+    const tone = document.getElementById('storyTone')?.value || 'engaging';
+    const audience = document.getElementById('storyAudience')?.value || 'young professionals';
+    const directorsNotes = document.getElementById('storyDirectorsNotes')?.value || '';
 
-    summary.innerHTML = `
-        <div class="p-3 bg-surface-50 rounded-lg">
-            <div class="grid grid-cols-2 gap-3 text-sm">
-                <div><span class="text-ink-400">Focus:</span> <span class="font-medium text-ink-800 capitalize">${storyFocus}</span></div>
-                <div><span class="text-ink-400">Story Name:</span> <span class="font-medium text-ink-800">${escapeHtml(storyName)}</span></div>
-                <div><span class="text-ink-400">Persona:</span> <span class="font-medium text-ink-800">${personaType}</span></div>
-                <div><span class="text-ink-400">Subject:</span> <span class="font-medium text-ink-800">${escapeHtml(subjectName)}</span></div>
-                <div><span class="text-ink-400">Frequency:</span> <span class="font-medium text-ink-800">${frequency.replace(/_/g, ' ')}</span></div>
-                <div class="col-span-2"><span class="text-ink-400">Platforms:</span> <span class="font-medium text-ink-800">${platforms.join(', ') || 'none selected'}</span></div>
-            </div>
-        </div>
-    `;
+    const container = document.createElement('div');
+    container.className = 'p-3 bg-surface-50 rounded-lg';
+    const grid = document.createElement('div');
+    grid.className = 'grid grid-cols-2 gap-3 text-sm';
+    const items = [
+        ['Focus', storyFocus],
+        ['Story Name', storyName],
+        ['Genre', genre.replace(/-/g, ' ')],
+        ['Tone', tone.replace(/-/g, ' ')],
+        ['Audience', audience],
+        ['Persona', personaType],
+        ['Subject', subjectName],
+        ['Frequency', frequency.replace(/_/g, ' ')]
+    ];
+    items.forEach(([label, value]) => {
+        const div = document.createElement('div');
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'text-ink-400';
+        labelSpan.textContent = label + ':';
+        const valueSpan = document.createElement('span');
+        valueSpan.className = 'font-medium text-ink-800 capitalize';
+        valueSpan.textContent = ' ' + value;
+        div.appendChild(labelSpan);
+        div.appendChild(valueSpan);
+        grid.appendChild(div);
+    });
+    const platformDiv = document.createElement('div');
+    platformDiv.className = 'col-span-2';
+    const pLabel = document.createElement('span');
+    pLabel.className = 'text-ink-400';
+    pLabel.textContent = 'Platforms:';
+    const pValue = document.createElement('span');
+    pValue.className = 'font-medium text-ink-800';
+    pValue.textContent = ' ' + (platforms.join(', ') || 'none selected');
+    platformDiv.appendChild(pLabel);
+    platformDiv.appendChild(pValue);
+    grid.appendChild(platformDiv);
+    if (directorsNotes) {
+        const notesDiv = document.createElement('div');
+        notesDiv.className = 'col-span-2';
+        const nLabel = document.createElement('span');
+        nLabel.className = 'text-ink-400';
+        nLabel.textContent = "Director's Notes:";
+        const nValue = document.createElement('span');
+        nValue.className = 'font-medium text-ink-800';
+        nValue.textContent = ' ' + directorsNotes;
+        notesDiv.appendChild(nLabel);
+        notesDiv.appendChild(nValue);
+        grid.appendChild(notesDiv);
+    }
+    container.appendChild(grid);
+    summary.replaceChildren(container);
 }
 
 /**
@@ -7763,12 +7917,21 @@ async function createBrandStory() {
 
         const platforms = [...document.querySelectorAll('input[name="storyPlatforms"]:checked')].map(c => c.value);
 
+        // Merge creative settings into the subject so the storyline prompt can access them
+        const creativeSettings = {
+            tone: document.getElementById('storyTone')?.value || 'engaging',
+            genre: document.getElementById('storyGenre')?.value || 'drama',
+            target_audience: document.getElementById('storyAudience')?.value || 'young professionals',
+            directors_notes: document.getElementById('storyDirectorsNotes')?.value || ''
+        };
+        const enrichedSubject = { ...subject, ...creativeSettings };
+
         const payload = {
             name: document.getElementById('storyName')?.value || 'Untitled Story',
             story_focus: document.querySelector('input[name="storyFocus"]:checked')?.value || 'person',
             persona_type: personaType,
             persona_config: personaConfig,
-            subject,
+            subject: enrichedSubject,
             brand_kit_job_id: document.getElementById('storyBrandKit')?.value || null,
             target_platforms: platforms,
             publish_frequency: document.getElementById('storyFrequency')?.value || 'daily'
