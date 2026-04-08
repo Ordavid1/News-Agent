@@ -696,6 +696,40 @@ function mountAdAccountsInActiveTitleRow(activeContent) {
     }
 }
 
+/**
+ * Brand Story is exclusive to the Business subscription tier ($250/month) — the same plan
+ * that unlocks unlimited Autonomous News Agents. When a non-Business user lands on the
+ * Brand Story sub-tab, render an upgrade gate in place of the normal content and short-circuit
+ * any data loading. The backend (`routes/brand-stories.js`) enforces the same tier check, so
+ * this is purely UX — defense in depth, not the source of truth.
+ *
+ * Returns true when the user is allowed; false when the gate has been shown.
+ */
+function enforceBrandStoryTierAccess() {
+    const tier = (window.currentUser && window.currentUser.subscription && window.currentUser.subscription.tier) || 'free';
+    const gate = document.getElementById('brandStoryTierGate');
+    const header = document.getElementById('brandStoryHeader');
+    const listEl = document.getElementById('brandStoryList');
+    const emptyEl = document.getElementById('brandStoryEmpty');
+    const wizardEl = document.getElementById('brandStoryWizard');
+    const detailEl = document.getElementById('brandStoryDetail');
+
+    if (tier !== 'business') {
+        if (gate) gate.classList.remove('hidden');
+        if (header) header.classList.add('hidden');
+        if (listEl) listEl.classList.add('hidden');
+        if (emptyEl) emptyEl.classList.add('hidden');
+        if (wizardEl) wizardEl.classList.add('hidden');
+        if (detailEl) detailEl.classList.add('hidden');
+        return false;
+    }
+
+    // Business-tier user: hide the gate and let loadBrandStories() manage list/empty/wizard/detail visibility.
+    if (gate) gate.classList.add('hidden');
+    if (header) header.classList.remove('hidden');
+    return true;
+}
+
 function showMarketingTab(tabName) {
     // Scoped to marketing sub-tabs only (uses mkt- prefixed classes)
     document.querySelectorAll('.mkt-tab-content').forEach(content => {
@@ -716,6 +750,12 @@ function showMarketingTab(tabName) {
 
     // Relocate Ad Accounts selector into the active tab's title row as the rightmost action
     mountAdAccountsInActiveTitleRow(selectedContent);
+
+    // Brand Story is gated to Business-tier users only — enforce *before* the ad-account
+    // check so non-Business users always see the upgrade gate, regardless of ad-account state.
+    if (tabName === 'brandstory' && !enforceBrandStoryTierAccess()) {
+        return;
+    }
 
     // Zero-trust: if no ad account selected, don't load data.
     // The adAccountBanner (shown by loadAdAccounts) handles the prompt.

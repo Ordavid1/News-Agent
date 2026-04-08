@@ -2521,8 +2521,30 @@
 
                 <!-- ===== BRAND STORY TAB ===== -->
                 <div id="mkt-content-brandstory" class="mkt-tab-content hidden">
+                    <!-- Tier Gate (shown to non-Business users; toggled by enforceBrandStoryTierAccess in marketing.js) -->
+                    <div id="brandStoryTierGate" class="hidden card-gradient p-10 text-center">
+                        <div class="max-w-xl mx-auto">
+                            <div class="w-16 h-16 mx-auto mb-5 rounded-full bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                                </svg>
+                            </div>
+                            <h3 class="text-2xl font-semibold mb-2" style="font-family: 'Satoshi', sans-serif;">Brand Story is a Business-plan feature</h3>
+                            <p class="text-ink-500 text-base mb-6">
+                                Brand Story produces fully automated AI video series — storyline, episodes, voice and publishing — and is available exclusively on the
+                                <span class="font-semibold text-ink-700">Business plan ($250/month)</span>, the same plan that unlocks unlimited Autonomous News Agents.
+                            </p>
+                            <button onclick="showTab('subscription')" class="btn-primary px-6 py-3 text-base font-medium rounded-lg inline-flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                                </svg>
+                                Upgrade to Business
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Header -->
-                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+                    <div id="brandStoryHeader" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                         <div>
                             <h3 class="text-2xl font-semibold mb-1" style="font-family: 'Satoshi', sans-serif;">Brand Story</h3>
                             <p class="text-ink-500 text-base">Create automated short-form video series with AI-powered storytelling</p>

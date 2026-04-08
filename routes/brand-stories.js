@@ -12,6 +12,7 @@
 import express from 'express';
 import multer from 'multer';
 import { authenticateToken } from '../middleware/auth.js';
+import { requireTier } from '../middleware/subscription.js';
 import { csrfProtection } from '../middleware/csrf.js';
 import brandStoryService from '../services/BrandStoryService.js';
 import {
@@ -66,8 +67,11 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
-// All brand story routes require authentication
+// All brand story routes require authentication AND the Business subscription tier ($250/mo).
+// Brand Story is an exclusive Business-tier feature — gate every endpoint here so the tier
+// check is enforced uniformly regardless of which sub-route the client hits.
 router.use(authenticateToken);
+router.use(requireTier('business'));
 
 // ============================================================
 // HEYGEN AVATAR MANAGEMENT (must be before /:id routes)
