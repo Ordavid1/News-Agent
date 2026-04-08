@@ -1,4 +1,11 @@
 // server.js
+// Load env vars BEFORE any other import runs. ESM hoists all imports and
+// evaluates them top-to-bottom before top-level code executes, so a later
+// `dotenv.config()` call would not populate env for singletons constructed
+// during import evaluation (e.g., VideoGenerationService reading
+// GOOGLE_APPLICATION_CREDENTIALS_JSON in its constructor).
+import 'dotenv/config';
+
 console.log('[STARTUP] Beginning server initialization...');
 console.log('[STARTUP] Node version:', process.version);
 console.log('[STARTUP] PORT:', process.env.PORT || '3000 (default)');
