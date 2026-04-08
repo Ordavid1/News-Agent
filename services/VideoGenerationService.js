@@ -77,19 +77,40 @@ class VideoGenerationService {
         throw new Error('Refusing to initialize VideoGenerationService against GCP project crypto-coral-328619 (wrong app per CLAUDE.md)');
       }
 
+      // Credential resolution order (most explicit → most ambient):
+      //   1. GOOGLE_APPLICATION_CREDENTIALS_JSON — inline service-account JSON
+      //      (useful for local dev, CI, or env-var-only deployments)
+      //   2. Application Default Credentials (ADC) — auto-resolved by google-auth-library from:
+      //      a. GOOGLE_APPLICATION_CREDENTIALS pointing to a key file on disk
+      //         (Render "Secret Files" mount this at /etc/secrets/<name>)
+      //      b. gcloud user credentials (~/.config/gcloud/application_default_credentials.json)
+      //      c. GCE/GKE/Cloud Run metadata server
       try {
-        const credsRaw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-        if (credsRaw && this.gcpProjectId) {
-          const credentials = JSON.parse(credsRaw);
-          this.vertexAuth = new GoogleAuth({
-            credentials,
-            scopes: ['https://www.googleapis.com/auth/cloud-platform']
-          });
+        if (!this.gcpProjectId) {
+          logger.warn('Veo backend=vertex but GCP_PROJECT_ID is missing — Vertex calls will fail at request time');
         } else {
-          logger.warn('Veo backend=vertex but GCP_PROJECT_ID or GOOGLE_APPLICATION_CREDENTIALS_JSON is missing — Vertex calls will fail at request time');
+          const credsRaw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+          if (credsRaw) {
+            const credentials = JSON.parse(credsRaw);
+            this.vertexAuth = new GoogleAuth({
+              credentials,
+              scopes: ['https://www.googleapis.com/auth/cloud-platform']
+            });
+            logger.info('Vertex AI auth: using inline GOOGLE_APPLICATION_CREDENTIALS_JSON');
+          } else {
+            // Fall back to ADC — picks up GOOGLE_APPLICATION_CREDENTIALS file path,
+            // gcloud default creds, or metadata server automatically.
+            this.vertexAuth = new GoogleAuth({
+              scopes: ['https://www.googleapis.com/auth/cloud-platform']
+            });
+            const adcHint = process.env.GOOGLE_APPLICATION_CREDENTIALS
+              ? `file: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`
+              : 'ADC (gcloud / metadata server)';
+            logger.info(`Vertex AI auth: using Application Default Credentials (${adcHint})`);
+          }
         }
       } catch (err) {
-        logger.warn(`Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: ${err.message} — Vertex calls will fail at request time`);
+        logger.warn(`Failed to initialize Vertex AI auth: ${err.message} — Vertex calls will fail at request time`);
       }
     }
 
