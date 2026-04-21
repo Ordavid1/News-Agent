@@ -2,8 +2,14 @@
   "mcpServers": {
     "video-ai-knowledge": {
       "command": "node",
-      "args": ["/Users/ordavid/Downloads/Saas-standalone/video-ai-knowledge-mcp/server.js"],
+      "args": [
+        "/Users/ordavid/Downloads/Saas-standalone/video-ai-knowledge-mcp/server.js"
+      ],
       "env": {}
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=yxsgbkrcptqchdhitcpq"
     }
   }
 }

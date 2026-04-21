@@ -7015,8 +7015,18 @@ function applyFocusToPersonaStep(focus) {
     if (autoBtn) autoBtn.classList.toggle('hidden', !showAutoAssign);
     if (autoHint) autoHint.classList.toggle('hidden', !showAutoAssign);
 
-    // Reset persona selection state to prevent stale data from previous focus
-    resetPersonaSelectionState();
+    // NOTE: do NOT reset persona state here. The wizard intentionally keeps
+    // generated personas when the user navigates back-and-forth or toggles
+    // the Focus radio. All persona_types (described/uploaded/brand_kit/
+    // brand_kit_auto) are allowed for all 3 focuses, so there is no stale-
+    // data risk to defend against. A blanket reset here caused the
+    // "Please generate a persona first" error on Submit when the user:
+    //   1. Picked a focus, generated a Brand Kit Auto persona
+    //   2. Went back to Step 1 to double-check something
+    //   3. Came forward again — the focus-radio change event fired and
+    //      wiped personaSelectionState.brand_kit_auto
+    // State is still correctly reset on wizard OPEN at showCreateStoryWizard().
+    // Caught 2026-04-12.
 
     // Lazy-load HeyGen voices into the voice picker (first time the Persona step is shown)
     loadVoices();
@@ -7924,6 +7934,7 @@ async function createBrandStory() {
                 throw new Error('Please generate a persona first using the "Generate Persona" button');
             }
             personas = personaSelectionState.brand_kit_auto.map(p => ({
+                name: p.name,
                 description: p.description,
                 personality: p.personality,
                 appearance: p.appearance,
@@ -8353,6 +8364,85 @@ function _renderStoryboardFilmstrip(ep) {
 }
 
 /**
+ * V4 minimum observability: render the scene-graph for a V4 episode.
+ * Shows scenes as horizontal cards, with beat counts and per-beat type chips.
+ * Phase 1a — just enough for the user to see what V4 produced. The rich
+ * Director's Panel (per-beat regen, model override, prompt edit) is Phase 1b.
+ */
+function _renderV4SceneGraph(ep) {
+    const scene = ep.scene_description || {};
+    const scenes = Array.isArray(scene.scenes) ? scene.scenes : [];
+    if (scenes.length === 0) return '';
+
+    // Beat type → emoji icon (compact visual cue for the type)
+    const beatTypeIcon = {
+        TALKING_HEAD_CLOSEUP: '\uD83C\uDFAD',  // 🎭
+        DIALOGUE_IN_SCENE: '\uD83D\uDDE3',     // 🗣
+        GROUP_DIALOGUE_TWOSHOT: '\uD83D\uDC65', // 👥
+        SHOT_REVERSE_SHOT: '\uD83D\uDD04',     // 🔄
+        SILENT_STARE: '\uD83D\uDC41',          // 👁
+        REACTION: '\uD83D\uDE32',              // 😲
+        INSERT_SHOT: '\uD83C\uDFAF',           // 🎯
+        ACTION_NO_DIALOGUE: '\u26A1',          // ⚡
+        MONTAGE_SEQUENCE: '\uD83C\uDFAC',      // 🎬
+        B_ROLL_ESTABLISHING: '\uD83C\uDFD9',   // 🏙
+        VOICEOVER_OVER_BROLL: '\uD83C\uDFA4',  // 🎤
+        TEXT_OVERLAY_CARD: '\uD83D\uDCDD',     // 📝
+        SPEED_RAMP_TRANSITION: '\u23E9'        // ⏩
+    };
+
+    const beatStatusColor = {
+        pending: 'bg-surface-100 text-ink-500',
+        generating: 'bg-blue-100 text-blue-700 animate-pulse',
+        generated: 'bg-green-100 text-green-700',
+        failed: 'bg-red-100 text-red-700'
+    };
+
+    const totalBeats = scenes.reduce((n, s) => n + (s.beats?.length || 0), 0);
+    const totalCost = scenes.reduce((sum, s) =>
+        sum + (s.beats || []).reduce((bs, b) => bs + (b.cost_usd || b.estimated_cost_usd || 0), 0)
+    , 0);
+
+    return `
+        <div class="mt-2">
+            <div class="flex items-center gap-3 text-xs text-ink-500 mb-1.5">
+                <span class="font-semibold text-ink-700">V4 Scene-Graph</span>
+                <span>${scenes.length} scene${scenes.length !== 1 ? 's' : ''}</span>
+                <span>${totalBeats} beat${totalBeats !== 1 ? 's' : ''}</span>
+                ${totalCost > 0 ? `<span class="text-green-700">~$${totalCost.toFixed(2)}</span>` : ''}
+                ${ep.lut_id ? `<span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono text-[10px]">${escapeHtml(ep.lut_id)}</span>` : ''}
+            </div>
+            <div class="space-y-1.5">
+                ${scenes.map((scn, sceneIdx) => {
+                    const beats = scn.beats || [];
+                    const sceneType = scn.type === 'montage' ? '\uD83C\uDFAC montage' : '';
+                    return `
+                        <div class="border border-surface-200 rounded px-2 py-1.5 bg-surface-50">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[10px] font-mono text-ink-400">scene ${sceneIdx + 1}</span>
+                                <span class="text-xs text-ink-700 truncate flex-1">${escapeHtml(scn.location || scn.scene_synopsis || '')}</span>
+                                ${sceneType ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">${sceneType}</span>` : ''}
+                                ${scn.scene_master_url ? `<a href="${escapeHtml(scn.scene_master_url)}" target="_blank" class="text-[10px] text-brand-600 hover:underline">scene master</a>` : ''}
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                ${beats.map(beat => {
+                                    const icon = beatTypeIcon[beat.type] || '\u2753';
+                                    const statusClass = beatStatusColor[beat.status] || beatStatusColor.pending;
+                                    const dur = beat.actual_duration_sec || beat.duration_seconds;
+                                    const durStr = dur ? `\u00B7${typeof dur === 'number' ? dur.toFixed(0) : dur}s` : '';
+                                    const tooltip = beat.dialogue || beat.action_prompt || beat.subject_focus || beat.location || beat.text || beat.type;
+                                    return `<span class="px-1.5 py-0.5 text-[10px] rounded ${statusClass} cursor-help" title="${escapeHtml(beat.beat_id + ': ' + tooltip)}">${icon}\u00A0${escapeHtml(beat.type.split('_').join(' ').toLowerCase())}${durStr}</span>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+/**
  * Render the shot sequence chips for an episode card.
  * Shows the multi-shot composition Gemini planned (e.g. [broll 5s] \u2192 [dialogue 8s] \u2192 [cinematic 7s]).
  * Falls back to the single shot_type if the episode doesn't have a shots[] array.
@@ -8421,23 +8511,36 @@ function renderEpisodeTimeline(episodes) {
         const isReady = ep.status === 'ready' || ep.status === 'published';
         const videoPlayable = ep.final_video_url && ep.final_video_url.includes('supabase');
         const title = scene.title || 'Episode ' + ep.episode_number;
+        const isV4 = ep.pipeline_version === 'v4';
+
+        // V4 status icon overlay (extends the v2/v3 statusIcons map with V4-specific stages)
+        const v4StatusIcons = {
+            brand_safety_check: '<span class="text-blue-500">Brand safety check...</span>',
+            generating_scene_masters: '<span class="text-blue-500">Generating Scene Masters...</span>',
+            generating_beats: '<span class="text-blue-500">Generating beats...</span>',
+            assembling: '<span class="text-blue-500">Assembling episode...</span>',
+            applying_lut: '<span class="text-blue-500">Applying color grade...</span>'
+        };
+        const statusHtml = v4StatusIcons[ep.status] || statusIcons[ep.status] || statusIcons.pending;
 
         return `
-            <div class="card-gradient p-4 flex gap-4" data-episode-id="${ep.id}" data-video-url="${escapeHtml(ep.final_video_url || '')}" data-video-title="${escapeHtml(title)}">
+            <div class="card-gradient p-4 flex gap-4" data-episode-id="${ep.id}" data-story-id="${escapeHtml(ep.story_id || '')}" data-video-url="${escapeHtml(ep.final_video_url || '')}" data-video-title="${escapeHtml(title)}">
                 <div class="flex-shrink-0 w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-sm">
                     ${ep.episode_number}
                 </div>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 mb-1 flex-wrap">
                         <h5 class="font-semibold text-ink-800 truncate">${escapeHtml(title)}</h5>
-                        ${statusIcons[ep.status] || statusIcons.pending}
+                        ${statusHtml}
+                        ${isV4 ? '<span class="px-1.5 py-0.5 text-[10px] rounded bg-brand-600 text-white font-mono">V4</span>' : ''}
                     </div>
+                    ${isV4 ? '' : `
                     <div class="flex items-center gap-1.5 flex-wrap mb-1">
                         ${_renderShotChips(scene)}
-                    </div>
+                    </div>`}
                     <p class="text-sm text-ink-500 line-clamp-2">${escapeHtml(scene.narrative_beat || scene.hook || '')}</p>
                     ${ep.error_message ? `<p class="mt-1 text-xs text-red-500">${escapeHtml(ep.error_message)}</p>` : ''}
-                    ${_renderStoryboardFilmstrip(ep)}
+                    ${isV4 ? _renderV4SceneGraph(ep) : _renderStoryboardFilmstrip(ep)}
                     ${ep.narration_audio_url ? `
                     <div class="mt-1.5 flex items-center gap-2">
                         <button onclick="this.nextElementSibling.paused ? this.nextElementSibling.play() : this.nextElementSibling.pause(); this.textContent = this.nextElementSibling.paused ? '▶ Narration' : '⏸ Narration'" class="px-2 py-1 text-xs bg-surface-100 text-ink-600 rounded hover:bg-surface-200">▶ Narration</button>
@@ -8457,6 +8560,12 @@ function renderEpisodeTimeline(episodes) {
                                     Download
                                 </a>
                             </div>
+                        ` : ''}
+                        ${isV4 ? `
+                            <button data-action="director" class="px-3 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                Direct
+                            </button>
                         ` : ''}
                     </div>
                 </div>
@@ -8492,6 +8601,13 @@ function renderEpisodeTimeline(episodes) {
             openEpisodeVideo(videoUrl, videoTitle);
         } else if (action === 'delete') {
             deleteEpisode(episodeId);
+        } else if (action === 'director') {
+            const storyId = card.dataset.storyId;
+            if (typeof window.openDirectorPanel === 'function') {
+                window.openDirectorPanel(episodeId, storyId);
+            } else {
+                console.warn('Director\'s Panel not loaded');
+            }
         }
     };
 }

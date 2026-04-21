@@ -4438,7 +4438,9 @@ export async function createBrandStoryEpisode(storyId, userId, episodeData) {
       ...(episodeData.pipeline_version ? { pipeline_version: episodeData.pipeline_version } : {}),
       ...(episodeData.storyboard_panels ? { storyboard_panels: episodeData.storyboard_panels } : {}),
       ...(episodeData.narration_audio_url ? { narration_audio_url: episodeData.narration_audio_url } : {}),
-      ...(episodeData.visual_style_prefix ? { visual_style_prefix: episodeData.visual_style_prefix } : {})
+      ...(episodeData.visual_style_prefix ? { visual_style_prefix: episodeData.visual_style_prefix } : {}),
+      ...(Number.isFinite(episodeData.cost_cap_usd) ? { cost_cap_usd: episodeData.cost_cap_usd } : {}),
+      ...(episodeData.quality_report ? { quality_report: episodeData.quality_report } : {})
     })
     .select()
     .single();

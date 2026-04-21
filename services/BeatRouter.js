@@ -1,0 +1,277 @@
+// services/BeatRouter.js
+// V4 BeatRouter — the traffic cop that maps every beat to the right generator.
+//
+// Given a scene-graph from Gemini, the BeatRouter walks every beat, determines
+// which generator class to use, and validates the total estimated cost against
+// the episode's cost cap BEFORE any generation happens.
+//
+// This is the single source of truth for V4 routing decisions. Every beat
+// type maps to exactly one generator. Edge cases (text rendering, emotional
+// peaks, Mode A vs Mode B) are handled inline via flags and options.
+//
+// Phase 1a: hardcoded routing table.
+// Phase 4 (future): delegates to mcp__video-ai-knowledge__suggest_pipeline for
+// dynamic MCP-driven routing. Leaving the door open via a clean interface.
+
+import winston from 'winston';
+import {
+  TalkingHeadCloseupGenerator,
+  CinematicDialogueGenerator,
+  GroupTwoShotGenerator,
+  SilentStareGenerator,
+  ReactionGenerator,
+  InsertShotGenerator,
+  ActionGenerator,
+  MontageSequenceGenerator,
+  BRollGenerator,
+  VoiceoverBRollGenerator,
+  TextOverlayCardGenerator,
+  ShotReverseShotCompiler
+} from './beat-generators/index.js';
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.colorize(),
+    winston.format.timestamp(),
+    winston.format.printf(({ timestamp, level, message }) => `[BeatRouter] ${timestamp} [${level}]: ${message}`)
+  ),
+  transports: [new winston.transports.Console()]
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Cost cap (runaway guard only — NOT a billing limit)
+// ─────────────────────────────────────────────────────────────────────
+// Simplified from tier-based map (free/starter/growth/business/enterprise)
+// to a flat $20 ceiling on 2026-04-21. Rationale from the user:
+//   1. The platform only exposes 3 product tiers, not 5, so the old map
+//      referenced tier names that don't exist in the subscription system.
+//   2. The Brand Story feature is gated to the Business tier only — there
+//      is no "free episode" to protect with a lower cap.
+//   3. The cap's only job is to stop runaway Gemini output from burning
+//      through the budget if the screenplay pass goes off the rails. $20
+//      comfortably covers a normal 10-15 beat episode with margin.
+//
+// `resolveCostCap({ episodeOverride })` retains the per-episode override
+// path so a director can opt a specific story into a higher ceiling if
+// a premium campaign needs it, without re-editing this file.
+export const COST_CAP_DEFAULT_USD = 20.00;
+
+export function resolveCostCap({ episodeOverride } = {}) {
+  if (typeof episodeOverride === 'number' && episodeOverride > 0) return episodeOverride;
+  return COST_CAP_DEFAULT_USD;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 ROUTING TABLE (the hardcoded map)
+// ─────────────────────────────────────────────────────────────────────
+
+const ROUTING = {
+  // Mode B primary — Kling O3 Omni → Sync Lipsync v3 chain
+  TALKING_HEAD_CLOSEUP: { generator: CinematicDialogueGenerator, mode: 'B' },
+  DIALOGUE_IN_SCENE:    { generator: CinematicDialogueGenerator, mode: 'B' },
+  GROUP_DIALOGUE_TWOSHOT: { generator: GroupTwoShotGenerator },
+
+  // Silent / reaction — Kling O3 Omni (for silent stare) or Veo 3.1 (for reaction)
+  SILENT_STARE: { generator: SilentStareGenerator },
+  REACTION:     { generator: ReactionGenerator },
+
+  // Product hero — Veo 3.1 with first/last frame anchor
+  INSERT_SHOT: { generator: InsertShotGenerator },
+
+  // Action / montage — Kling V3 Pro (prompt-first)
+  ACTION_NO_DIALOGUE: { generator: ActionGenerator },
+  MONTAGE_SEQUENCE:   { generator: MontageSequenceGenerator },  // scene-type, handled separately
+
+  // Atmospheric — Veo 3.1 Standard with native ambient
+  B_ROLL_ESTABLISHING: { generator: BRollGenerator },
+
+  // Opt-in voice-over beat
+  VOICEOVER_OVER_BROLL: { generator: VoiceoverBRollGenerator },
+
+  // Post-production (ffmpeg only, no API cost)
+  TEXT_OVERLAY_CARD:     { generator: TextOverlayCardGenerator, noApiCost: true },
+  SPEED_RAMP_TRANSITION: { generator: null, noApiCost: true, assemblerOnly: true }
+  // SPEED_RAMP_TRANSITION is applied by the assembler between beats,
+  // not generated as its own clip.
+};
+
+class BeatRouter {
+  /**
+   * @param {Object} deps - the same dep bag passed to beat generators
+   *   (falServices, tts, ffmpeg)
+   */
+  constructor(deps = {}) {
+    this.deps = deps;
+    this.generatorCache = new Map();
+  }
+
+  /**
+   * Get (and cache) an instance of a generator class with the shared deps.
+   */
+  _getGenerator(GeneratorClass) {
+    if (!GeneratorClass) return null;
+    if (!this.generatorCache.has(GeneratorClass)) {
+      this.generatorCache.set(GeneratorClass, new GeneratorClass(this.deps));
+    }
+    return this.generatorCache.get(GeneratorClass);
+  }
+
+  /**
+   * Pre-flight: validate + expand + cost-cap a scene-graph BEFORE any
+   * generation runs.
+   *
+   * Steps:
+   *   1. Expand SHOT_REVERSE_SHOT beats into alternating TALKING_HEAD_CLOSEUP beats
+   *   2. Walk every beat, resolve its generator
+   *   3. Sum estimated cost + compare against the cap
+   *   4. Apply requires_text_rendering override (routes to Kling V3 Pro via ActionGenerator with text-rendering flag)
+   *
+   * @param {Object} params
+   * @param {Object[]} params.scenes - scene_description.scenes[] (mutated in place)
+   * @param {number} params.costCapUsd
+   * @returns {{expanded: Object[], totalEstimatedCost: number, beatCount: number, withinCap: boolean}}
+   */
+  preflight({ scenes, costCapUsd }) {
+    if (!Array.isArray(scenes)) throw new Error('BeatRouter.preflight: scenes array required');
+    if (typeof costCapUsd !== 'number' || costCapUsd <= 0) {
+      throw new Error('BeatRouter.preflight: costCapUsd must be a positive number');
+    }
+
+    // 1. Expand SHOT_REVERSE_SHOT in every scene
+    for (const scene of scenes) {
+      if (!Array.isArray(scene.beats)) continue;
+      scene.beats = ShotReverseShotCompiler.expandScene(scene.beats);
+    }
+
+    // 2+3. Resolve generators + sum cost
+    let totalEstimatedCost = 0;
+    let beatCount = 0;
+
+    for (const scene of scenes) {
+      if (!Array.isArray(scene.beats)) continue;
+      for (const beat of scene.beats) {
+        beatCount++;
+        const routing = this.route(beat);
+        if (!routing) {
+          logger.warn(`beat ${beat.beat_id} has unknown type "${beat.type}" — skipping cost estimate`);
+          continue;
+        }
+        if (routing.noApiCost) continue;
+        const cost = routing.GeneratorClass.estimateCost
+          ? routing.GeneratorClass.estimateCost(beat)
+          : 0.50;
+        beat.estimated_cost_usd = cost;
+        totalEstimatedCost += cost;
+      }
+    }
+
+    const withinCap = totalEstimatedCost <= costCapUsd;
+
+    logger.info(
+      `preflight: ${beatCount} beats, estimated $${totalEstimatedCost.toFixed(2)} vs cap $${costCapUsd.toFixed(2)} — ${withinCap ? 'OK' : 'EXCEEDS CAP'}`
+    );
+
+    return {
+      expanded: scenes,
+      totalEstimatedCost,
+      beatCount,
+      withinCap
+    };
+  }
+
+  /**
+   * Route ONE beat to its generator class.
+   *
+   * @param {Object} beat
+   * @returns {{GeneratorClass: Function, mode?: string, noApiCost?: boolean, assemblerOnly?: boolean} | null}
+   */
+  route(beat) {
+    if (!beat || !beat.type) return null;
+
+    // Text-rendering override: any beat with requires_text_rendering: true
+    // routes to the Action generator (Kling V3 Pro — best in class text rendering).
+    //
+    // EXCEPTIONS (these beat types DO NOT honor the override):
+    //   - TEXT_OVERLAY_CARD — ffmpeg-rendered, doesn't need a video model at all
+    //   - INSERT_SHOT — the subject IS the product, branding is already on
+    //     the subject reference image that Veo uses as its first frame. Veo
+    //     just animates the existing pixels instead of synthesizing the label
+    //     from scratch — which preserves brand text PERFECTLY while keeping
+    //     Veo's first/last-frame macro-push-in feel. Sending an INSERT_SHOT
+    //     to Kling V3 Pro throws away the subject ref anchor and forces the
+    //     model to hallucinate the product from the prompt.
+    //   - VOICEOVER_OVER_BROLL / TALKING_HEAD_CLOSEUP / DIALOGUE_IN_SCENE /
+    //     GROUP_DIALOGUE_TWOSHOT — ALL speech-bearing beats. The text-override
+    //     path doesn't invoke TTS + Sync Lipsync v3 + VO mixing — it just
+    //     runs Kling V3 Pro's text-to-video, which produces silent visuals
+    //     (Kling's native audio is a 20%-ducked afterthought, NOT a scripted
+    //     voice/dialogue track). Routing a speech beat through the override
+    //     silently drops the spoken content. If Gemini needs brand text AND
+    //     speech on the same beat, the speech wins — we lose the in-frame
+    //     text rendering, not the dialogue. Caught 2026-04-21 on the first
+    //     Action-genre run: the register (which leans on VO for kinetic
+    //     montage) produced a speechless episode because Gemini flagged
+    //     every VO beat with visible brand signage as requires_text_rendering.
+    //
+    // Caught on 2026-04-11 first real V4 run: Gemini flagged a MacBook Pro
+    // product hero as requires_text_rendering → routed to ActionGenerator →
+    // came out as text-only Kling V3 Pro without the MacBook reference. Fix:
+    // let INSERT_SHOT always flow through InsertShotGenerator regardless of
+    // the flag. In-scene text (storefront signs, billboards, caption cards)
+    // still correctly routes through the override on other beat types.
+    const TEXT_OVERRIDE_EXEMPT_TYPES = new Set([
+      'TEXT_OVERLAY_CARD',
+      'INSERT_SHOT',
+      'VOICEOVER_OVER_BROLL',
+      'TALKING_HEAD_CLOSEUP',
+      'DIALOGUE_IN_SCENE',
+      'GROUP_DIALOGUE_TWOSHOT'
+    ]);
+    if (
+      beat.requires_text_rendering &&
+      !TEXT_OVERRIDE_EXEMPT_TYPES.has(beat.type)
+    ) {
+      return {
+        GeneratorClass: ActionGenerator,
+        mode: 'text_override',
+        originalType: beat.type
+      };
+    }
+
+    const entry = ROUTING[beat.type];
+    if (!entry) return null;
+
+    return {
+      GeneratorClass: entry.generator,
+      mode: entry.mode,
+      noApiCost: !!entry.noApiCost,
+      assemblerOnly: !!entry.assemblerOnly
+    };
+  }
+
+  /**
+   * Generate a single beat through its routed generator.
+   *
+   * @param {Object} args - forwarded to BaseBeatGenerator.generate()
+   * @returns {Promise<Object>}
+   */
+  async generate(args) {
+    const { beat } = args;
+    const routing = this.route(beat);
+    if (!routing) throw new Error(`BeatRouter.generate: no route for beat type "${beat.type}"`);
+    if (routing.assemblerOnly) {
+      throw new Error(`BeatRouter.generate: beat type "${beat.type}" is assembler-only, not a standalone generator`);
+    }
+
+    const generator = this._getGenerator(routing.GeneratorClass);
+    if (!generator) throw new Error(`BeatRouter.generate: generator not available for beat type "${beat.type}"`);
+
+    // Pass routing metadata to the generator in case it needs to adjust
+    // behavior (e.g. text-rendering override, Mode A vs Mode B).
+    return generator.generate({ ...args, routingMetadata: routing });
+  }
+}
+
+export default BeatRouter;
+export { BeatRouter };

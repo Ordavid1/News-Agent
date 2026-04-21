@@ -220,6 +220,28 @@ class VideoGenerationService {
   }
 
   /**
+   * Snap a requested clip duration to the nearest Vertex Veo 3.1 supported
+   * value. Vertex only accepts {4, 6, 8} for both image_to_video and
+   * text_to_video modes. Any other value returns a 400.
+   *
+   * Rounding strategy: ROUND UP to the nearest allowed bin so callers get
+   * at LEAST the duration they asked for — it's cheaper for post-production
+   * to trim than to re-generate. A requested 3s becomes 4s, 5s becomes 6s,
+   * 7s becomes 8s. Values below 4 are clamped to 4; values above 8 are
+   * clamped to 8.
+   *
+   * Caught on 2026-04-11 first real V4 run when ReactionGenerator requested
+   * duration=3 and Vertex rejected the submission.
+   */
+  _snapVeoDuration(requested) {
+    const n = Number(requested);
+    if (!Number.isFinite(n) || n <= 0) return 4;
+    if (n <= 4) return 4;
+    if (n <= 6) return 6;
+    return 8;
+  }
+
+  /**
    * Build the Veo `parameters` object. Identical across both backends.
    */
   _buildVeoParameters() {
@@ -593,9 +615,25 @@ class VideoGenerationService {
     }
 
     const {
-      durationSeconds = 6,
+      durationSeconds: rawDurationSeconds = 6,
       aspectRatio = '9:16'
     } = options;
+
+    // Vertex Veo 3.1 Standard accepts ONLY {4, 6, 8} seconds for both
+    // image_to_video and text_to_video modes. Any other value returns:
+    //   "Unsupported output video duration N seconds, supported durations
+    //    are [8,4,6] for feature image_to_video."
+    // Callers (e.g. ReactionGenerator requesting 2-4s) may ask for values
+    // outside the supported set — round UP to the nearest valid value so the
+    // beat is never shorter than intended. Minimum 4s, maximum 8s.
+    // The actually-used duration is returned in `.duration` so post-production
+    // can trim back to the target if needed.
+    const durationSeconds = this._snapVeoDuration(rawDurationSeconds);
+    if (durationSeconds !== rawDurationSeconds) {
+      logger.info(
+        `Veo 3.1 Standard: snapping requested ${rawDurationSeconds}s → ${durationSeconds}s (supported: {4,6,8})`
+      );
+    }
 
     // Veo 3.1 Standard (GA) — supports lastFrame + cameraControl.
     const modelId = 'veo-3.1-generate-001';

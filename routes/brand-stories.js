@@ -28,6 +28,17 @@ import {
 } from '../services/database-wrapper.js';
 import winston from 'winston';
 
+// V4 imports
+import { getProgressEmitter } from '../services/v4/ProgressEmitter.js';
+import { getVoiceLibrary } from '../services/v4/VoiceAcquisition.js';
+import { resolveEpisodeLut } from '../services/v4/BrandKitLutMatcher.js';
+import {
+  v4RegenerateLimiter,
+  v4ReassembleLimiter,
+  v4PatchLimiter,
+  v4DeleteLimiter
+} from '../middleware/v4RateLimiter.js';
+
 const router = express.Router();
 
 // Multer config for subject image uploads (1-3 images, memory storage)
@@ -855,6 +866,359 @@ router.post('/:id/setup-avatar', csrfProtection, async (req, res) => {
   } catch (error) {
     logger.error('Error setting up avatar:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to set up avatar' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// V4 ROUTES — Director's Panel + SSE + beat-level controls
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/brand-stories/:id/episodes/:episodeId/stream
+ * SSE endpoint — streams V4 pipeline progress events to the Director's Panel.
+ *
+ * The client opens an EventSource and receives events as they fire from
+ * BrandStoryService.runV4Pipeline (via ProgressEmitter). Replays history on
+ * connect so late subscribers catch up to current state.
+ *
+ * Event format:
+ *   data: {"ts": 1712345678901, "episode_id": "...", "stage": "beats", "detail": "beat b1 generated", "beat_id": "b1"}
+ *
+ * Stream closes automatically 60s after the episode reaches 'complete' or 'failed'.
+ */
+router.get('/:id/episodes/:episodeId/stream', async (req, res) => {
+  try {
+    // Validate the user owns this episode before opening the stream
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) {
+      return res.status(404).json({ success: false, error: 'Episode not found' });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // disable nginx proxy buffering
+    res.flushHeaders();
+
+    // Send an initial comment to keep some proxies from closing the stream
+    res.write(': v4-progress-stream\n\n');
+
+    const emitter = getProgressEmitter(req.params.episodeId);
+    if (!emitter) {
+      // No active pipeline for this episode — send the current DB state once
+      // and close. Useful when the user opens the panel for an already-completed
+      // episode.
+      res.write(`data: ${JSON.stringify({
+        episode_id: req.params.episodeId,
+        stage: episode.status === 'ready' || episode.status === 'published' ? 'complete' : episode.status,
+        detail: 'no active pipeline; sending DB snapshot',
+        snapshot: {
+          status: episode.status,
+          final_video_url: episode.final_video_url,
+          subtitle_url: episode.subtitle_url,
+          error_message: episode.error_message
+        }
+      })}\n\n`);
+      res.write('event: done\ndata: {}\n\n');
+      res.end();
+      return;
+    }
+
+    // Subscribe and forward events
+    const unsubscribe = emitter.subscribe((event) => {
+      try {
+        if (event.stage === '__terminal__') {
+          res.write('event: done\ndata: {}\n\n');
+          res.end();
+          return;
+        }
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (writeErr) {
+        logger.warn(`SSE write failed for episode ${req.params.episodeId}: ${writeErr.message}`);
+      }
+    });
+
+    // Heartbeat every 25s so proxies don't kill the connection during quiet stretches
+    const heartbeat = setInterval(() => {
+      try { res.write(': heartbeat\n\n'); } catch {}
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  } catch (error) {
+    logger.error('Error in V4 SSE stream:', error);
+    res.status(500).end();
+  }
+});
+
+/**
+ * POST /api/brand-stories/:id/episodes/:episodeId/beats/:beatId/regenerate
+ * Regenerate a single beat without touching the rest of the episode.
+ *
+ * Delegates to brandStoryService.regenerateBeatInEpisode() which:
+ *   1. Loads the existing episode + scene_description (NO fresh Gemini call)
+ *   2. Runs the target beat through BeatRouter with optional field overrides
+ *   3. Downloads the other beats' existing generated_video_urls and reuses them
+ *   4. Re-runs full post-production (assembly + LUT + music + overlays)
+ *   5. Updates the SAME episode row's final_video_url (no duplicate INSERT)
+ *
+ * Replaced the Phase 1b stub that invoked runV4Pipeline() and hit a
+ * duplicate-key error on brand_story_episodes_story_id_episode_number_key
+ * because the source episode was no longer in `ready` status when the full
+ * pipeline tried to compute `episode_number = previousReady.length + 1`.
+ */
+router.post('/:id/episodes/:episodeId/beats/:beatId/regenerate', v4RegenerateLimiter, csrfProtection, async (req, res) => {
+  try {
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) return res.status(404).json({ success: false, error: 'Episode not found' });
+
+    // Validate the beat exists before kicking off the async job so the user
+    // gets a 404 instead of an opaque SSE error 30s later.
+    const sceneGraph = episode.scene_description || {};
+    let foundBeat = null;
+    for (const scene of (sceneGraph.scenes || [])) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.beat_id === req.params.beatId) {
+          foundBeat = beat;
+          break;
+        }
+      }
+      if (foundBeat) break;
+    }
+    if (!foundBeat) {
+      return res.status(404).json({ success: false, error: `Beat ${req.params.beatId} not found in episode` });
+    }
+
+    // Return 202 immediately — the actual work runs in the background and
+    // streams progress via the SSE endpoint at
+    //   GET /api/brand-stories/:id/episodes/:episodeId/stream
+    res.status(202).json({ success: true, beat_id: req.params.beatId, message: 'Beat regeneration started' });
+
+    brandStoryService.regenerateBeatInEpisode(
+      req.params.id,
+      req.user.id,
+      req.params.episodeId,
+      req.params.beatId,
+      req.body || {}
+    ).catch(err => {
+      logger.error(`V4 beat regenerate failed: ${err.message}`);
+      // Mark the episode as failed so the UI shows a red state instead of
+      // hanging on 'regenerating_beat' forever.
+      updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
+        status: 'failed',
+        error_message: `Beat regeneration failed: ${err.message}`
+      }).catch(() => {});
+    });
+  } catch (error) {
+    logger.error('Error regenerating beat:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to regenerate beat' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/episodes/:episodeId/beats/:beatId
+ * Update a beat's editable fields without regenerating.
+ * The user clicks "Save edits" then separately clicks "Regenerate" if needed.
+ */
+router.patch('/:id/episodes/:episodeId/beats/:beatId', v4PatchLimiter, csrfProtection, async (req, res) => {
+  try {
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) return res.status(404).json({ success: false, error: 'Episode not found' });
+
+    const sceneGraph = episode.scene_description || {};
+    let foundBeat = null;
+    for (const scene of (sceneGraph.scenes || [])) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.beat_id === req.params.beatId) {
+          foundBeat = beat;
+          break;
+        }
+      }
+      if (foundBeat) break;
+    }
+    if (!foundBeat) return res.status(404).json({ success: false, error: 'Beat not found' });
+
+    const allowedFields = ['dialogue', 'expression_notes', 'action_prompt', 'lens', 'emotion', 'duration_seconds', 'subject_focus', 'lighting_intent', 'camera_move', 'ambient_sound', 'voiceover_text', 'model_override'];
+    let edited = false;
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        foundBeat[key] = req.body[key];
+        edited = true;
+      }
+    }
+
+    if (edited) {
+      await updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
+        scene_description: sceneGraph
+      });
+    }
+
+    res.json({ success: true, beat: foundBeat, edited });
+  } catch (error) {
+    logger.error('Error patching beat:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to patch beat' });
+  }
+});
+
+/**
+ * DELETE /api/brand-stories/:id/episodes/:episodeId/beats/:beatId
+ * Remove a beat from a scene. Power-user editing.
+ */
+router.delete('/:id/episodes/:episodeId/beats/:beatId', v4DeleteLimiter, csrfProtection, async (req, res) => {
+  try {
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) return res.status(404).json({ success: false, error: 'Episode not found' });
+
+    const sceneGraph = episode.scene_description || {};
+    let removed = false;
+    for (const scene of (sceneGraph.scenes || [])) {
+      const beforeLen = (scene.beats || []).length;
+      scene.beats = (scene.beats || []).filter(b => b.beat_id !== req.params.beatId);
+      if (scene.beats.length < beforeLen) {
+        removed = true;
+        break;
+      }
+    }
+
+    if (!removed) return res.status(404).json({ success: false, error: 'Beat not found' });
+
+    await updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
+      scene_description: sceneGraph
+    });
+
+    res.json({ success: true, beat_id: req.params.beatId });
+  } catch (error) {
+    logger.error('Error deleting beat:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to delete beat' });
+  }
+});
+
+/**
+ * POST /api/brand-stories/:id/episodes/:episodeId/reassemble
+ * Re-run post-production (assembly + LUT + music + SFX + cards + subtitles)
+ * WITHOUT regenerating any beats and WITHOUT calling Gemini/Seedream/Veo/Kling.
+ *
+ * Use cases:
+ *   - A post-production stage had a transient upstream failure (e.g. fal.ai
+ *     SFX 400, libass missing) and you've fixed the cause — retry at $0 cost.
+ *   - User edited the episode's LUT in the Director's Panel.
+ *   - New correction/creative .cube files were dropped onto disk.
+ *
+ * Delegates to brandStoryService.reassembleEpisode() which:
+ *   1. Downloads every beat's existing generated_video_url
+ *   2. Reuses the cached music_bed_url (or regenerates if missing)
+ *   3. Re-runs the full post-production pipeline
+ *   4. Updates the SAME episode row's final_video_url (no INSERT)
+ *
+ * Replaces the Phase 1b stub that invoked runV4Pipeline() and hit a
+ * duplicate-key error on brand_story_episodes_story_id_episode_number_key.
+ */
+router.post('/:id/episodes/:episodeId/reassemble', v4ReassembleLimiter, csrfProtection, async (req, res) => {
+  try {
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) return res.status(404).json({ success: false, error: 'Episode not found' });
+
+    // Return 202 immediately — the reassembly runs in the background and
+    // streams progress via GET /api/brand-stories/:id/episodes/:episodeId/stream
+    res.status(202).json({ success: true, message: 'Reassembly started' });
+
+    brandStoryService.reassembleEpisode(
+      req.params.id,
+      req.user.id,
+      req.params.episodeId
+    ).catch(err => {
+      logger.error(`V4 reassemble failed: ${err.message}`);
+      // Mark the episode as failed so the UI doesn't hang on 'regenerating_beat'
+      updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
+        status: 'failed',
+        error_message: `Reassembly failed: ${err.message}`
+      }).catch(() => {});
+    });
+  } catch (error) {
+    logger.error('Error reassembling episode:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to reassemble' });
+  }
+});
+
+/**
+ * GET /api/brand-stories/personas/voice-library
+ * Return the curated ElevenLabs preset voice library for the Director's Panel
+ * persona override picker.
+ */
+router.get('/personas/voice-library', async (req, res) => {
+  try {
+    const voices = getVoiceLibrary();
+    res.json({ success: true, voices });
+  } catch (error) {
+    logger.error('Error fetching voice library:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to fetch voice library' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/personas/:personaIndex/voice
+ * Override the ElevenLabs voice_id for a persona. The Director's Panel calls
+ * this when the user picks a different voice from the library.
+ */
+router.patch('/:id/personas/:personaIndex/voice', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const idx = parseInt(req.params.personaIndex, 10);
+    const personas = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : [story.persona_config];
+
+    if (!personas[idx]) {
+      return res.status(404).json({ success: false, error: `Persona ${idx} not found` });
+    }
+
+    const { voice_id, voice_name } = req.body;
+    if (!voice_id) return res.status(400).json({ success: false, error: 'voice_id required' });
+
+    personas[idx].elevenlabs_voice_id = voice_id;
+    if (voice_name) personas[idx].elevenlabs_voice_name = voice_name;
+    personas[idx].elevenlabs_voice_brief = `User-overridden voice (${voice_name || voice_id})`;
+    personas[idx].elevenlabs_voice_justification = 'Manually selected via Director\'s Panel';
+    // Invalidate any prior Kling clone — the user may want a fresh clone next gen
+    personas[idx].kling_voice_id = null;
+
+    await updateBrandStory(req.params.id, req.user.id, {
+      persona_config: { ...(story.persona_config || {}), personas }
+    });
+
+    res.json({ success: true, persona: personas[idx] });
+  } catch (error) {
+    logger.error('Error overriding persona voice:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to override voice' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/lut
+ * Lock or clear a story-level LUT override.
+ * Body: { locked_lut_id: "bs_warm_cinematic" } or { locked_lut_id: null }
+ */
+router.patch('/:id/lut', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const { locked_lut_id } = req.body;
+    await updateBrandStory(req.params.id, req.user.id, { locked_lut_id: locked_lut_id || null });
+
+    res.json({
+      success: true,
+      locked_lut_id: locked_lut_id || null,
+      // Show the user what the resolved LUT would be on the next episode
+      resolved_lut: resolveEpisodeLut({ ...story, locked_lut_id }, {})
+    });
+  } catch (error) {
+    logger.error('Error setting LUT lock:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to set LUT lock' });
   }
 });
 

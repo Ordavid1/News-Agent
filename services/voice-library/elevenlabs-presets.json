@@ -1,0 +1,279 @@
+{
+  "_meta": {
+    "description": "Curated ElevenLabs premade voices for V4 persona voice acquisition. Premade voices work on all ElevenLabs tiers including free. Library voices (like Rachel) require a paid plan. Each entry has voice_id, display name, and descriptive tags that Gemini matches against persona briefs.",
+    "source": "https://elevenlabs-sdk.mintlify.app/voices/premade-voices",
+    "updated": "2026-04-08"
+  },
+  "voices": [
+    {
+      "voice_id": "nPczCjzI2devNBz1zQrb",
+      "name": "Brian",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "american",
+      "descriptor": "deep, resonant, narrative-friendly",
+      "best_for": ["narrator", "confident male lead", "business executive", "dramatic male role"],
+      "tags": ["warm", "deep", "resonant", "authoritative", "calm"]
+    },
+    {
+      "voice_id": "21m00Tcm4TlvDq8ikWAM",
+      "name": "Rachel",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "calm, measured, professional",
+      "best_for": ["narrator", "professional female", "educator", "brand voice"],
+      "tags": ["calm", "measured", "professional", "clear", "neutral"]
+    },
+    {
+      "voice_id": "AZnzlk1XvdvUeBnXmlld",
+      "name": "Domi",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "strong, confident, energetic",
+      "best_for": ["young female lead", "entrepreneur", "athlete", "high-energy character"],
+      "tags": ["strong", "confident", "energetic", "bright", "dynamic"]
+    },
+    {
+      "voice_id": "EXAVITQu4vr4xnSDxMaL",
+      "name": "Bella",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "soft, gentle, warm",
+      "best_for": ["romantic lead", "wellness brand", "intimate storytelling", "lifestyle"],
+      "tags": ["soft", "gentle", "warm", "intimate", "calming"]
+    },
+    {
+      "voice_id": "ErXwobaYiN019PkySvjV",
+      "name": "Antoni",
+      "gender": "male",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "well-rounded, youthful, friendly",
+      "best_for": ["young male lead", "friendly character", "casual brand voice", "vlogger"],
+      "tags": ["friendly", "youthful", "casual", "warm", "approachable"]
+    },
+    {
+      "voice_id": "VR6AewLTigWG4xSOukaG",
+      "name": "Arnold",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "american",
+      "descriptor": "crisp, commanding, authoritative",
+      "best_for": ["executive", "mentor figure", "authority role", "documentary narrator"],
+      "tags": ["crisp", "commanding", "authoritative", "serious", "trustworthy"]
+    },
+    {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "name": "Adam",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "american",
+      "descriptor": "deep, measured, trustworthy",
+      "best_for": ["trusted advisor", "expert interviewee", "serious narrator"],
+      "tags": ["deep", "measured", "trustworthy", "grounded", "thoughtful"]
+    },
+    {
+      "voice_id": "yoZ06aMxZJJ28mfd3POQ",
+      "name": "Sam",
+      "gender": "male",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "raspy, casual, relaxed",
+      "best_for": ["indie character", "artist", "streetwear brand", "edgy lead"],
+      "tags": ["raspy", "casual", "relaxed", "edgy", "cool"]
+    },
+    {
+      "voice_id": "TxGEqnHWrfWFTfGW9XjX",
+      "name": "Josh",
+      "gender": "male",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "deep, youthful, relatable",
+      "best_for": ["everyman lead", "relatable protagonist", "casual narration"],
+      "tags": ["deep", "youthful", "relatable", "casual", "friendly"]
+    },
+    {
+      "voice_id": "MF3mGyEYCl7XYWbV9V6O",
+      "name": "Elli",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "emotional, expressive, energetic",
+      "best_for": ["teen character", "emotional lead", "Gen Z brand", "storyteller"],
+      "tags": ["emotional", "expressive", "energetic", "bright", "young"]
+    },
+    {
+      "voice_id": "ThT5KcBeYPX3keUQqHPh",
+      "name": "Dorothy",
+      "gender": "female",
+      "age": "middle_aged",
+      "accent": "british",
+      "descriptor": "pleasant, mature, refined",
+      "best_for": ["British female lead", "luxury brand", "heritage brand", "sophisticated voice"],
+      "tags": ["british", "pleasant", "mature", "refined", "sophisticated"]
+    },
+    {
+      "voice_id": "CYw3kZ02Hs0563khs1Fj",
+      "name": "Dave",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "british",
+      "descriptor": "conversational, warm, British",
+      "best_for": ["British male lead", "documentary narrator", "travel host"],
+      "tags": ["british", "warm", "conversational", "gentlemanly"]
+    },
+    {
+      "voice_id": "jBpfuIE2acCO8z3wKNLl",
+      "name": "Gigi",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "childish, enthusiastic, playful",
+      "best_for": ["playful character", "childlike tone", "fun brand voice"],
+      "tags": ["playful", "enthusiastic", "childlike", "bubbly"]
+    },
+    {
+      "voice_id": "jsCqWAovK2LkecY7zXl4",
+      "name": "Freya",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "expressive, adaptive, bright",
+      "best_for": ["range-heavy lead", "character work", "emotional arcs"],
+      "tags": ["expressive", "bright", "adaptive", "versatile"]
+    },
+    {
+      "voice_id": "LcfcDJNUP1GQjkzn1xUU",
+      "name": "Emily",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "calm, meditative, soothing",
+      "best_for": ["meditation brand", "wellness voice", "ASMR", "gentle narrator"],
+      "tags": ["calm", "meditative", "soothing", "gentle", "soft"]
+    },
+    {
+      "voice_id": "XB0fDUnXU5powFXDhCwa",
+      "name": "Charlotte",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "swedish",
+      "descriptor": "seductive, sultry, mysterious",
+      "best_for": ["mysterious female lead", "perfume brand", "noir thriller"],
+      "tags": ["seductive", "sultry", "mysterious", "european"]
+    },
+    {
+      "voice_id": "IKne3meq5aSn9XLyUdCD",
+      "name": "Charlie",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "australian",
+      "descriptor": "casual, down-to-earth, friendly",
+      "best_for": ["Australian male lead", "adventure brand", "surf/outdoor"],
+      "tags": ["australian", "casual", "friendly", "grounded"]
+    },
+    {
+      "voice_id": "XrExE9yKIg1WjnnlVkGX",
+      "name": "Matilda",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "warm, friendly, pleasant",
+      "best_for": ["friendly female lead", "family brand", "accessible narrator"],
+      "tags": ["warm", "friendly", "pleasant", "accessible"]
+    },
+    {
+      "voice_id": "bVMeCyTHy58xNoL34h3p",
+      "name": "Jeremy",
+      "gender": "male",
+      "age": "young_adult",
+      "accent": "american-irish",
+      "descriptor": "excited, energetic, upbeat",
+      "best_for": ["energetic male lead", "adventurer", "motivational"],
+      "tags": ["excited", "upbeat", "energetic", "dynamic"]
+    },
+    {
+      "voice_id": "z9fAnlkpzviPz146aGWa",
+      "name": "Glinda",
+      "gender": "female",
+      "age": "middle_aged",
+      "accent": "american",
+      "descriptor": "witchy, theatrical, dramatic",
+      "best_for": ["dramatic female character", "theatrical role", "stylized storytelling"],
+      "tags": ["theatrical", "dramatic", "stylized", "bold"]
+    },
+    {
+      "voice_id": "oWAxZDx7w5VEj9dCyTzz",
+      "name": "Grace",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "us-southern",
+      "descriptor": "southern, gentle, graceful",
+      "best_for": ["southern female lead", "heritage brand", "hospitality"],
+      "tags": ["southern", "gentle", "graceful", "warm"]
+    },
+    {
+      "voice_id": "t0jbNlBVZ17f02VDIeMI",
+      "name": "Jessie",
+      "gender": "male",
+      "age": "old",
+      "accent": "american",
+      "descriptor": "older, raspy, world-weary",
+      "best_for": ["older male mentor", "grizzled character", "wise elder"],
+      "tags": ["older", "raspy", "wise", "weathered"]
+    },
+    {
+      "voice_id": "flq6f7yk4E4fJM5XTYuZ",
+      "name": "Michael",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "american",
+      "descriptor": "orotund, deliberate, distinguished",
+      "best_for": ["distinguished male lead", "luxury brand narrator", "serious authority"],
+      "tags": ["distinguished", "deliberate", "orotund", "refined"]
+    },
+    {
+      "voice_id": "piTKgcLEGmPE4e6mEKli",
+      "name": "Nicole",
+      "gender": "female",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "whispery, intimate, ASMR-friendly",
+      "best_for": ["intimate scenes", "whispered narration", "ASMR brand"],
+      "tags": ["whispery", "intimate", "soft", "close"]
+    },
+    {
+      "voice_id": "XrExE9yKIg1WjnnlVkGX",
+      "name": "Daniel",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "british",
+      "descriptor": "deep, British, authoritative",
+      "best_for": ["British male lead", "news anchor tone", "prestige drama"],
+      "tags": ["british", "deep", "authoritative", "prestigious"]
+    },
+    {
+      "voice_id": "onwK4e9ZLuTAKqWW03F9",
+      "name": "Callum",
+      "gender": "male",
+      "age": "middle_aged",
+      "accent": "british",
+      "descriptor": "hoarse, gritty, intense",
+      "best_for": ["gritty male character", "antihero", "thriller lead"],
+      "tags": ["gritty", "hoarse", "intense", "dark"]
+    },
+    {
+      "voice_id": "g5CIjZEefAph4nQFvHAz",
+      "name": "Ethan",
+      "gender": "male",
+      "age": "young_adult",
+      "accent": "american",
+      "descriptor": "soft, whispered, boyish",
+      "best_for": ["young male lead", "intimate tone", "sensitive character"],
+      "tags": ["soft", "whispered", "boyish", "vulnerable"]
+    }
+  ]
+}

@@ -40,6 +40,15 @@ STORYTELLING PRINCIPLES:
 - Visual storytelling: show, don't tell. Each scene must be visually distinct and cinematic
 - Every series has an EMOTIONAL RHYTHM — not every episode is the same intensity. Plan the emotional arc deliberately: intrigue, warmth, tension, relief, heartbreak, triumph
 - Establish RECURRING VISUAL MOTIFS — specific objects, colors, lighting patterns, or compositions that appear across episodes as visual signatures of the series
+
+SHOWRUNNING PRINCIPLES (non-negotiable, genre-agnostic — apply before you draft any episode):
+- Lock a CENTRAL DRAMATIC QUESTION the viewer will want answered by the finale. One sentence. This is the engine that pulls the audience through all episodes.
+- Lock a THEMATIC ARGUMENT — the ONE claim this series is making about the world. Prestige TV always argues something: *The Bear* argues grief can coexist with growth; *Severance* argues the work-self and home-self are both incomplete; *Succession* argues legacy corrodes love. Without a thematic argument, episodes wander.
+- Every episode must have a NARRATIVE_PURPOSE (why this episode exists for the SEASON) distinct from its NARRATIVE_BEAT (what happens in it). If you cannot name why an episode exists, cut it or combine it.
+- Every episode must raise a DRAMATIC_QUESTION and end with that question *tilted* — not answered, not untouched. A tilted question is a cliffhanger done right.
+- The ANTAGONIST_CURVE escalates: intensity rises on average across episodes, non-monotonically. A drop is allowed ONLY if it sets up the next escalation.
+- Characters with similar archetypes in the same season MUST have different voices (vocabulary, sentence rhythm, tics, avoidance lists). Distinctness is a writing rule, not a hope.
+- Genre is a container, not a content directive. Drama, Action, Comedy, Thriller, Mystery, Warm-Heart, Horror — they all obey the same rules above, just with different emotional registers.
 ${directorsBlock}${brandContextBlock}
 You MUST respond with ONLY valid JSON (no markdown code fences, no extra text). The JSON must conform to the schema described in the user prompt.`;
 }
@@ -176,6 +185,12 @@ OUTPUT JSON SCHEMA:
   "tone": "${tone}",
   "target_audience": "${targetAudience}",
   "logline": "One-sentence pitch that captures the entire series",
+  "central_dramatic_question": "ONE sentence the viewer wants answered by the finale (e.g. 'Will Maya keep the shop or let it go?'). Drives every episode's narrative_purpose.",
+  "thematic_argument": "ONE sentence arguing something about the world. Shapes tone and what lines MEAN beyond plot.",
+  "antagonist_curve": [
+    { "episode": 1, "pressure": "what the opposing force does this episode", "intensity": 3 },
+    { "episode": 2, "pressure": "...", "intensity": 4 }
+  ],
   "arc": {
     "premise": "The setup — what world are we in, what's the status quo",
     "inciting_incident": "What disrupts the status quo and kicks off the story",
@@ -223,15 +238,25 @@ OUTPUT JSON SCHEMA:
       "episode_number": 1,
       "title": "Episode title",
       "hook": "Opening 2-3 seconds — what grabs the viewer",
-      "narrative_beat": "What story beat this episode covers",
+      "narrative_beat": "What story beat this episode covers (WHAT happens)",
+      "narrative_purpose": "WHY this episode exists in the season (the season-level job it does — e.g. 'force Maya to choose between the shop and the partnership; reveal Daniel's loyalty is conditional')",
+      "dramatic_question": "The ONE question THIS episode raises ('Is Daniel lying?'). The cliffhanger should leave the answer tilted but unconfirmed.",
+      "protagonist_pressure": "What force drives the protagonist to act this episode",
+      "stakes_external": "What's at risk in the world",
+      "stakes_internal": "What's at risk inside the protagonist's self-image",
+      "scenes_plan": [
+        { "purpose": "Establish the protagonist's state through action, no dialogue", "beats_count_hint": 3 },
+        { "purpose": "The central ask — the refusal — the counter-offer", "beats_count_hint": 6 },
+        { "purpose": "Cliffhanger: the phone call changes everything", "beats_count_hint": 3 }
+      ],
       "visual_direction": "Key visual elements, setting, lighting mood",
-      "dialogue_script": "What the narrator/character says (10-15 seconds of speech)",
+      "dialogue_script": "What the narrator/character says (10-15 seconds of speech) — NOTE: V4 overrides this per-beat; still useful as a v3 fallback summary",
       "cliffhanger": "What makes the viewer want the next episode",
       "mood": "Emotional tone of this specific episode",
       "target_emotion": "The primary emotion viewers should feel (from emotional_arc)"
     }
   ],
-  "season_bible": "Comprehensive narrative context document (500+ words) that captures EVERYTHING a writer would need to continue this story: world rules, character relationships, running themes, visual motifs, tone guidelines, product integration approach, and unresolved threads. Include the director's vision interpretation and how it shapes the series' visual language."
+  "season_bible": "Comprehensive narrative context document (500+ words) that captures EVERYTHING a writer would need to continue this story: world rules, character relationships, running themes, visual motifs, tone guidelines, product integration approach, and unresolved threads. Include the director's vision interpretation and how it shapes the series' visual language. END the document with 'THEMATIC ARGUMENT: <one sentence>' and 'CENTRAL DRAMATIC QUESTION: <one sentence>' so a reader can lock onto both engines immediately."
 }`;
 }
 
@@ -413,7 +438,7 @@ You MUST respond with ONLY valid JSON (no markdown code fences, no extra text).`
  * - Most recent episode: full expansion (all key fields) — this is what the LLM
  *   most needs to maintain continuity against.
  */
-function _buildPreviousEpisodesBlock(storyline, previousEpisodes) {
+export function _buildPreviousEpisodesBlock(storyline, previousEpisodes) {
   if (!previousEpisodes || previousEpisodes.length === 0) {
     return 'This is the FIRST episode of the series. Establish the world and hook the viewer.';
   }
@@ -450,7 +475,41 @@ function _buildPreviousEpisodesBlock(storyline, previousEpisodes) {
     ? `\n${storyline.story_so_far}\n`
     : '';
 
-  return `PREVIOUSLY ON "${storyline.title || 'the series'}":\n${storySoFar}${earlierBlock}${lastDetail}`;
+  // ─── V4 cross-episode memory streams ───
+  // Rendered only when present (populated by BrandStoryService._updateStorySoFar
+  // after each V4 episode). Preserves voice continuity + emotional escalation across eps.
+
+  const keyframes = Array.isArray(storyline.previously_on_keyframes) && storyline.previously_on_keyframes.length > 0
+    ? `\nKEYFRAMES (concrete anchors — ref these in this episode's opening beats):\n${storyline.previously_on_keyframes.slice(-12).map(k => `  • ${k}`).join('\n')}\n`
+    : '';
+
+  const voiceSamples = storyline.character_voice_samples && typeof storyline.character_voice_samples === 'object' && Object.keys(storyline.character_voice_samples).length > 0
+    ? `\nCHARACTER VOICE SAMPLES (recent lines — maintain each character's voice continuity; do not drift, do not reset):\n${Object.entries(storyline.character_voice_samples).map(([idx, lines]) => {
+        const linesArr = Array.isArray(lines) ? lines : [];
+        if (linesArr.length === 0) return '';
+        const personaName = storyline.characters?.[Number(idx)]?.name || `Persona ${Number(idx) + 1}`;
+        const rendered = linesArr.map(l => `"${l}"`).join(' | ');
+        return `  [${idx}] ${personaName}: ${rendered}`;
+      }).filter(Boolean).join('\n')}\n`
+    : '';
+
+  const ledger = storyline.emotional_intensity_ledger && typeof storyline.emotional_intensity_ledger === 'object' && Object.keys(storyline.emotional_intensity_ledger).length > 0
+    ? (() => {
+        const entries = Object.entries(storyline.emotional_intensity_ledger)
+          .sort((a, b) => Number(a[0]) - Number(b[0]));
+        const last = entries[entries.length - 1];
+        const prev = entries[entries.length - 2];
+        const ramp = entries.map(([ep, intensity]) => `Ep${ep}:${intensity}`).join(' → ');
+        const escalationHint = last
+          ? `  ESCALATION RULE: This episode opens at intensity ≥ ${Math.max(1, Number(last[1]) - 1)}/10 and rises from there. The previous episode closed at ${last[1]}/10${prev ? ` (prior was ${prev[1]}/10)` : ''}. Never open lower — the viewer is already calibrated there.`
+          : '';
+        return `\nEMOTIONAL INTENSITY LEDGER (1-10): ${ramp}\n${escalationHint}\n`;
+      })()
+    : '';
+
+  const continuityMemory = `${storySoFar}${keyframes}${voiceSamples}${ledger}`;
+
+  return `PREVIOUSLY ON "${storyline.title || 'the series'}":\n${continuityMemory}${earlierBlock}${lastDetail}`;
 }
 
 /**
@@ -531,7 +590,7 @@ OUTPUT JSON SCHEMA:
  * Unlike v1 (which shapes narrative), v2 shapes CINEMATOGRAPHY: what the
  * camera sees, what dominates the frame, what the storyboard must show.
  */
-function _buildCinematicFocusBlock(storyFocus) {
+export function _buildCinematicFocusBlock(storyFocus) {
   switch (storyFocus) {
     case 'person':
       return `═══════════════════════════════════════════════

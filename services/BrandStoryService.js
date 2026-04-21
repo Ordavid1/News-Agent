@@ -44,6 +44,47 @@ import {
   _buildBrandKitContextBlock
 } from '../public/components/brandStoryPrompts.mjs';
 
+// V4 imports — pipeline, prompts, helpers
+import {
+  getEpisodeSystemPromptV4,
+  getEpisodeUserPromptV4
+} from '../public/components/brandStoryPromptsV4.mjs';
+import klingFalService from './KlingFalService.js';
+import veoService from './VeoService.js';
+import syncLipsyncFalService from './SyncLipsyncFalService.js';
+import seedreamFalService from './SeedreamFalService.js';
+import fluxFalService from './FluxFalService.js';
+import musicService from './MusicService.js';
+import BeatRouter, { resolveCostCap } from './BeatRouter.js';
+import MontageSequenceGenerator from './beat-generators/MontageSequenceGenerator.js';
+import {
+  generateSceneMasters,
+  buildBeatRefStack,
+  extractBeatEndframe
+} from './v4/StoryboardHelpers.js';
+import {
+  acquirePersonaVoicesForStory
+} from './v4/VoiceAcquisition.js';
+import {
+  matchBrandKitToLut,
+  resolveEpisodeLut
+} from './v4/BrandKitLutMatcher.js';
+import {
+  runPostProduction,
+  estimateEpisodeDuration
+} from './v4/PostProduction.js';
+import { getOrCreateProgressEmitter } from './v4/ProgressEmitter.js';
+import { generateLutFromBrandKit } from './v4/GenerativeLut.js';
+import { validateScreenplay } from './v4/ScreenplayValidator.js';
+import { punchUpScreenplay } from './v4/ScreenplayDoctor.js';
+import { parseGeminiJson } from './v4/GeminiJsonRepair.js';
+import {
+  callVertexGeminiJson,
+  callVertexGeminiText,
+  callVertexGeminiRaw,
+  isVertexGeminiConfigured
+} from './v4/VertexGemini.js';
+
 import Replicate from 'replicate';
 
 const execFileAsync = promisify(execFile);
@@ -64,10 +105,13 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 
 class BrandStoryService {
   constructor() {
+    // this.googleApiKey is ONLY used by the v1 legacy path (generateNextEpisode)
+    // and the v2/v3 _generateCinematicEpisode helper. V4 uses Vertex AI Gemini
+    // via services/v4/VertexGemini.js (GCP service-account auth, not an API key).
     this.googleApiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
 
     if (!this.googleApiKey) {
-      logger.warn('GOOGLE_AI_STUDIO_API_KEY not set — storyline generation will not be available');
+      logger.warn('GOOGLE_AI_STUDIO_API_KEY not set — legacy v1/v2 paths unavailable (V4 uses Vertex AI)');
     }
   }
 
@@ -147,7 +191,11 @@ class BrandStoryService {
    * @returns {Promise<Object>} Structured subject: { name, category, description, key_features, visual_description }
    */
   async analyzeSubject({ images, brandKit = null, storyFocus = 'product' }) {
-    if (!this.googleApiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY is required for subject analysis');
+    // V4 uses Vertex AI Gemini (not AI Studio). Subject analysis is shared
+    // with the V4 pipeline, so it needs Vertex credentials.
+    if (!isVertexGeminiConfigured()) {
+      throw new Error('Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or ADC)');
+    }
     if (!images || images.length === 0) throw new Error('At least one image is required');
     if (images.length > 3) throw new Error('Maximum 3 images allowed');
 
@@ -226,26 +274,23 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
 
     const parts = [...imageParts, { text: prompt }];
 
-    const response = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent',
-      {
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 2000,
-          responseMimeType: 'application/json'
-        }
+    // Call Vertex Gemini with the multimodal contents (image parts + text).
+    // Uses callVertexGeminiText (not callVertexGeminiJson) because we need
+    // custom parsing below that strips code fences + unwraps arrays.
+    // Token budget: 8192 (was 2000). Gemini 3 Flash thinking tokens + a
+    // multi-field JSON response need headroom; 2000 was borderline.
+    // See Day 0 2026-04-11 fix notes in services/v4/VoiceAcquisition.js.
+    const rawText = (await callVertexGeminiText({
+      systemPrompt: '', // subject analysis pushes everything into the user contents
+      contents: [{ role: 'user', parts }],
+      config: {
+        temperature: 0.4,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json'
       },
-      {
-        headers: {
-          'x-goog-api-key': this.googleApiKey,
-          'Content-Type': 'application/json'
-        },
-        timeout: 60000
-      }
-    );
+      timeoutMs: 90000
+    }))?.trim();
 
-    const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!rawText) throw new Error('Subject analysis returned empty response');
 
     let subject;
@@ -273,7 +318,10 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * @returns {Promise<Object>} The updated story with storyline
    */
   async generateStoryline(storyId, userId) {
-    if (!this.googleApiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY is required for storyline generation');
+    // V4 uses Vertex AI Gemini (not AI Studio).
+    if (!isVertexGeminiConfigured()) {
+      throw new Error('Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or ADC)');
+    }
 
     const story = await getBrandStoryById(storyId, userId);
     if (!story) throw new Error('Story not found');
@@ -310,29 +358,21 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       }
     );
 
-    // Call Gemini 3 Flash
-    const response = await axios.post(GEMINI_ENDPOINT, {
-      systemInstruction: {
-        parts: [{ text: systemPrompt }]
-      },
-      contents: [{
-        role: 'user',
-        parts: [{ text: userPrompt }]
-      }],
-      generationConfig: {
+    // Call Vertex AI Gemini (V4 uses Vertex, not AI Studio).
+    // Using callVertexGeminiRaw so we can inspect finishReason for
+    // MAX_TOKENS truncation detection below.
+    const vertexResponse = await callVertexGeminiRaw({
+      systemPrompt,
+      userPrompt,
+      config: {
         maxOutputTokens: 32000,
         temperature: 0.85,
         responseMimeType: 'application/json'
-      }
-    }, {
-      headers: {
-        'x-goog-api-key': this.googleApiKey,
-        'Content-Type': 'application/json'
       },
-      timeout: 120000
+      timeoutMs: 120000
     });
 
-    const candidate = response.data?.candidates?.[0];
+    const candidate = vertexResponse?.candidates?.[0];
     const rawText = candidate?.content?.parts?.[0]?.text?.trim();
     const finishReason = candidate?.finishReason;
 
@@ -1363,41 +1403,10 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    *   - Leading/trailing whitespace
    */
   _parseGeminiJson(raw) {
-    let text = (raw || '').trim();
-
-    // Strip markdown code fences if present
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-
-    // Try parsing as-is first
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      // Repair: find the matching closing brace by counting nesting depth
-      // and truncate anything after it.
-      const startChar = text[0];
-      if (startChar !== '{' && startChar !== '[') throw err;
-      const openChar = startChar;
-      const closeChar = startChar === '{' ? '}' : ']';
-      let depth = 0;
-      let inString = false;
-      let escape = false;
-      let endIdx = -1;
-      for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (escape) { escape = false; continue; }
-        if (c === '\\') { escape = true; continue; }
-        if (c === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (c === openChar) depth++;
-        else if (c === closeChar) {
-          depth--;
-          if (depth === 0) { endIdx = i; break; }
-        }
-      }
-      if (endIdx === -1) throw err;
-      const trimmed = text.slice(0, endIdx + 1);
-      return JSON.parse(trimmed);
-    }
+    // Delegates to the shared repair chain in services/v4/GeminiJsonRepair.js
+    // so BrandStoryService and VertexGemini.callVertexGeminiJson speak the
+    // same defect-recovery contract. See that module for the full rationale.
+    return parseGeminiJson(raw);
   }
 
   /**
@@ -1726,8 +1735,14 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * @returns {Promise<Object>} The completed episode record
    */
   async runEpisodePipeline(storyId, userId, onProgress) {
-    // Pipeline version routing — v2 uses the cinematic pipeline
+    // Pipeline version routing.
+    //   - 'v4' (new V4 scene→beat pipeline)
+    //   - 'v2' (legacy cinematic / v3 in mental model)
+    //   - else  (v1 legacy hybrid)
     const pipelineVersion = process.env.BRAND_STORY_PIPELINE || 'v2';
+    if (pipelineVersion === 'v4') {
+      return this.runV4Pipeline(storyId, userId, onProgress);
+    }
     if (pipelineVersion === 'v2') {
       return this.runCinematicPipeline(storyId, userId, onProgress);
     }
@@ -2000,12 +2015,17 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * @returns {Promise<Object>} Updated persona with enriched reference_image_urls
    */
   async _generateCharacterSheet(persona, personaIndex, story, userId) {
-    const replicateToken = process.env.REPLICATE_API_TOKEN;
-    if (!replicateToken) throw new Error('REPLICATE_API_TOKEN not set');
-    const replicate = new Replicate({ auth: replicateToken });
+    // V4: character sheets now go through fal.ai Flux 2 Max (via FAL_GCS_API_KEY)
+    // instead of Replicate. Same model (black-forest-labs/flux-2-max → fal-ai/flux-2-max/edit
+    // for reference-image runs, fal-ai/flux-2-max for text-only runs). Consolidates
+    // V4's vendor surface to fal.ai + Google + ElevenLabs.
+    // Migrated 2026-04-11.
+    if (!fluxFalService.isAvailable()) {
+      throw new Error('FAL_GCS_API_KEY not set — required for V4 character sheet generation via Flux 2 Max');
+    }
 
     const name = persona.description?.slice(0, 30) || persona.avatar_name || `Persona ${personaIndex + 1}`;
-    logger.info(`Generating character sheet for ${name} (persona_type=${story.persona_type})...`);
+    logger.info(`Generating character sheet for ${name} (persona_type=${story.persona_type}) via fal.ai Flux 2 Max...`);
 
     // 1. Collect existing persona images as Flux input_images references
     const existingImages = [];
@@ -2072,30 +2092,22 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     for (let v = 0; v < views.length; v++) {
       const view = views[v];
 
-      const output = await replicate.run('black-forest-labs/flux-2-max', {
-        input: {
-          prompt: view.prompt,
-          ...(heroInputImages.length > 0 ? { input_images: heroInputImages } : {}),
-          aspect_ratio: view.aspect,
-          resolution: '2 MP',
-          output_format: 'webp',
-          output_quality: 95,
-          safety_tolerance: 5,
-          seed: baseSeed + v
-        }
-      });
-
-      const imageSource = Array.isArray(output) ? output[0] : output;
+      // fal.ai Flux 2 Max via FluxFalService — handles both text-only and
+      // reference-image paths internally (switches between fal-ai/flux-2-max
+      // and fal-ai/flux-2-max/edit based on whether referenceImages is empty).
       let imageBuffer;
-
-      if (typeof imageSource === 'string') {
-        const resp = await axios.get(imageSource, { responseType: 'arraybuffer' });
-        imageBuffer = Buffer.from(resp.data);
-      } else if (imageSource && typeof imageSource.blob === 'function') {
-        const blob = await imageSource.blob();
-        imageBuffer = Buffer.from(await blob.arrayBuffer());
-      } else {
-        logger.warn(`${name} ${view.label} view: unexpected output — skipping`);
+      try {
+        const portraitResult = await fluxFalService.generatePortrait({
+          prompt: view.prompt,
+          referenceImages: heroInputImages,
+          options: {
+            aspectRatio: view.aspect,
+            seed: baseSeed + v
+          }
+        });
+        imageBuffer = portraitResult.imageBuffer;
+      } catch (err) {
+        logger.warn(`${name} ${view.label} view: fal.ai Flux 2 Max failed — ${err.message} — skipping`);
         continue;
       }
 
@@ -2187,15 +2199,23 @@ Write a vivid, specific, 2-3 sentence director's creative brief. It should read 
 
 Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
 
-    const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY not set');
+    // V4 uses Vertex AI Gemini (not AI Studio).
+    if (!isVertexGeminiConfigured()) {
+      throw new Error('Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or ADC)');
+    }
 
-    const response = await axios.post(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: 512, temperature: 1.0 }
-    }, { timeout: 15000 });
+    // Token budget: 4096 (was 512). Gemini 3 Flash Preview uses thinking
+    // tokens before the visible output; 512 truncates even short prompts.
+    // See Day 0 2026-04-11 fix notes in services/v4/VoiceAcquisition.js.
+    const hint = (await callVertexGeminiText({
+      userPrompt: prompt,
+      config: {
+        maxOutputTokens: 4096,
+        temperature: 1.0
+      },
+      timeoutMs: 30000
+    }))?.trim();
 
-    const hint = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!hint) throw new Error('Gemini returned empty hint');
 
     logger.info(`Director's hint (variation ${variation}): ${hint.slice(0, 80)}...`);
@@ -2226,11 +2246,12 @@ Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
     const brandKit = job.brand_kit;
     const brandContext = _buildBrandKitContextBlock(brandKit);
 
-    // Step 1: Gemini 3 Flash generates persona descriptions that fit the brand.
+    // Step 1: Vertex AI Gemini generates persona descriptions that fit the brand.
     // If the Brand Kit has real people photos, Gemini describes each one so the
     // generated persona LOOKS LIKE the actual brand person (not a random face).
-    const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_AI_STUDIO_API_KEY not set');
+    if (!isVertexGeminiConfigured()) {
+      throw new Error('Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or ADC)');
+    }
 
     // Collect real people from Brand Kit extracted assets + descriptions
     const extractedPeople = (brandKit.extracted_assets || []).filter(a => a.type === 'person');
@@ -2262,43 +2283,71 @@ then add personality, wardrobe, and character depth on top.
 ${count <= extractedPeople.length ? `Generate exactly ${count} persona(s), one for each of the first ${count} brand person(s) above.` : `Generate ${count} persona(s) — use the ${extractedPeople.length} real brand person(s) first, then create additional character(s) that complement them.`}\n`
       : '';
 
-    const systemPrompt = `You are a casting director for a premium branded short-film series. Design ${count} fictional character(s) whose appearance, vibe, and energy perfectly match the brand identity below.
+    const systemPrompt = `You are the show-runner casting the leads of a prestige limited series. You are not writing ad copy. You are building CHARACTERS — the kind an Emmy-nominated actor would sign on to play. Each character must have interiority, contradiction, a voice you can hear in one line, and a specific reason to exist in THIS brand's world.
+
+Design ${count} character(s) whose appearance, vibe, voice, and interior life match the brand below. The characters will speak on camera across 8-12 episodes. They must be able to sustain conflict, comedy, revelation, and escalation — not just say one tagline.
 
 ${brandContext}
 ${realPeopleBlock}
 ${focusGuidance}
 
-For each character, provide:
-- "name": A fitting first name
-- "appearance": Detailed physical description for AI image generation (age range, ethnicity, build, hair, facial features, expression, clothing style). Be SPECIFIC — this drives a portrait generator. 100+ words.${extractedPeople.length > 0 ? ' For personas based on real brand people, describe what you see in their photos — the generator will use their actual photo as input.' : ''}
-- "personality": 2-3 personality traits that fit the brand's tone
-- "wardrobe_hint": What they'd wear in the first episode (matches brand aesthetic)
+For each character produce a full character bible. Every field is load-bearing — none are decoration.
 
-CRITICAL: The appearance must feel AUTHENTIC to the brand's target audience and aesthetic. A luxury brand gets refined, elegant personas. A streetwear brand gets edgy, urban personas. A wellness brand gets serene, natural personas.
+1. name — fitting first name (cultural fit with brand).
+2. appearance — Detailed physical description for AI image generation (age range, ethnicity, build, hair, facial features, expression, clothing style). Be SPECIFIC — this drives a portrait generator. 100+ words.${extractedPeople.length > 0 ? ' For personas based on real brand people, describe what you see in their photos — the generator will use their actual photo as input.' : ''}
+3. wardrobe_hint — One-line wardrobe for the first episode (matches brand aesthetic).
+4. personality — Three adjectives, each paired with a behavioural specific (NOT "charming" but "charming — disarms hostility with unexpected honesty").
+5. dramatic_archetype — choose ONE of: HERO | ANTIHERO | MENTOR | TRICKSTER | SKEPTIC | ZEALOT | INGENUE | OUTSIDER | AUTHORITY | REBEL | WOUNDED_HEALER | GATEKEEPER.
+6. want — What they pursue consciously. One sentence. Must be visible on screen within the first two episodes.
+7. need — What they actually require to grow, usually at odds with the want. One sentence. The secret engine of their arc.
+8. wound — One past fact, never a vague "trauma". Must be a sentence containing a SPECIFIC NOUN (a person, a place, a date, an object). This is the pressure point that shapes their subtext.
+9. flaw — The mistake they repeat under pressure. One sentence.
+10. core_contradiction — The productive tension inside them (e.g. "an optimist who keeps their bags packed", "a cynic who cannot stop hoping").
+11. moral_code — One sentence. The line they CLAIM they won't cross, or actually won't.
+12. relationship_to_subject — 1-2 sentences tying them to the brand's subject / product / place in a STORY-BEARING way. Not "enjoys the product"; something like "inherited the shop from her grandmother and is one bad quarter away from closing it".
+13. relationships — If other characters exist, one entry per pairing: { other_persona_index, dynamic: "sibling rivalry with love underneath", unresolved: "the thing they never said aloud" }. The unresolved line drives subtext.
+14. speech_patterns — the character's voice as a craft weapon:
+    - vocabulary: register (e.g. "precise corporate", "working-class Dublin", "academic hedged", "street laconic", "theatrical baroque")
+    - sentence_length: rhythm (e.g. "clipped 3-6 word fragments", "long unfurling sentences", "starts long, snaps short when cornered")
+    - tics: array of 2-4 recurring verbal habits — a filler, a deflection, a sign-off, a metaphor family
+    - avoids: array of 2-3 linguistic moves they never do (e.g. "never says I love you", "never swears", "never uses first names — only titles")
+    - signature_line: ONE example line only THEY would say, in their own voice. This is a tuning-fork the screenwriter matches against.
+15. voice_brief — delivery direction for the synthesis layer:
+    - emotional_default (e.g. "quietly amused", "coiled patience", "brittle cheer")
+    - pace: slow | medium | fast | variable
+    - warmth: cold | neutral | warm
+    - power: low-status | equal | high-status
+    - vocal_color: breathy | resonant | nasal | gravelly
 
-Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personality", "wardrobe_hint" } ] }`;
+HARD RULES:
+- Two characters in the same cast MUST have distinct vocabularies, sentence rhythms, archetypes, AND avoidance lists. If two characters sound alike, rewrite one.
+- Characters derived from real brand people keep their PHYSICAL likeness; interiority is invented to FIT what's visible in the photo.
+- No "quirky" for quirky's sake. Every tic must be justifiable as a defence mechanism, a power move, a class marker, or a wound symptom.
+- Genre-neutral fields. Do not assume drama — the same schema serves action, comedy, thriller, mystery, warm-heart, horror. Tone sits in the brand context, not in the character.
+- The appearance must feel AUTHENTIC to the brand's target audience. A luxury brand gets refined, elegant personas. A streetwear brand gets edgy, urban personas. A wellness brand gets serene, natural personas.
 
-    const response = await axios.post(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      contents: [
-        { role: 'user', parts: [{ text: systemPrompt }] }
-      ],
-      generationConfig: {
+Respond with ONLY valid JSON:
+{ "personas": [ { "name", "appearance", "wardrobe_hint", "personality", "dramatic_archetype", "want", "need", "wound", "flaw", "core_contradiction", "moral_code", "relationship_to_subject", "relationships", "speech_patterns", "voice_brief" } ] }`;
+
+    const raw = await callVertexGeminiText({
+      userPrompt: systemPrompt,
+      config: {
         maxOutputTokens: 4096,
         temperature: 0.9,
         responseMimeType: 'application/json'
-      }
-    }, { timeout: 30000 });
-
-    const raw = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      },
+      timeoutMs: 30000
+    });
     if (!raw) throw new Error('Gemini returned empty response for persona generation');
 
     const parsed = this._parseGeminiJson(raw);
     const geminiPersonas = parsed.personas || [parsed];
 
-    // Step 2: Generate a portrait for each persona via Flux 2 Max
-    const replicateToken = process.env.REPLICATE_API_TOKEN;
-    if (!replicateToken) throw new Error('REPLICATE_API_TOKEN not set');
-    const replicate = new Replicate({ auth: replicateToken });
+    // Step 2: Generate a portrait for each persona via fal.ai Flux 2 Max
+    // (migrated from Replicate on 2026-04-11 — same model, unified vendor surface).
+    if (!fluxFalService.isAvailable()) {
+      throw new Error('FAL_GCS_API_KEY not set — required for V4 auto-persona character sheet generation via Flux 2 Max');
+    }
 
     // Build per-persona reference image arrays.
     // Priority: the matching real person's cutout (strongest identity signal) first,
@@ -2355,30 +2404,22 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       for (let v = 0; v < views.length; v++) {
         const view = views[v];
 
-        const output = await replicate.run('black-forest-labs/flux-2-max', {
-          input: {
-            prompt: view.prompt,
-            ...(heroInputImages.length > 0 ? { input_images: heroInputImages } : {}),
-            aspect_ratio: view.aspect,
-            resolution: '2 MP',
-            output_format: 'webp',
-            output_quality: 95,
-            safety_tolerance: 5,
-            seed: baseSeed + v
-          }
-        });
-
-        const imageSource = Array.isArray(output) ? output[0] : output;
+        // V4 migration 2026-04-11: auto-persona character sheets now go through
+        // fal.ai Flux 2 Max via FluxFalService (FAL_GCS_API_KEY) instead of
+        // Replicate. Same model, unified vendor surface with the rest of V4.
         let imageBuffer;
-
-        if (typeof imageSource === 'string') {
-          const resp = await axios.get(imageSource, { responseType: 'arraybuffer' });
-          imageBuffer = Buffer.from(resp.data);
-        } else if (imageSource && typeof imageSource.blob === 'function') {
-          const blob = await imageSource.blob();
-          imageBuffer = Buffer.from(await blob.arrayBuffer());
-        } else {
-          logger.warn(`${p.name} ${view.label} view: unexpected output — skipping`);
+        try {
+          const portraitResult = await fluxFalService.generatePortrait({
+            prompt: view.prompt,
+            referenceImages: heroInputImages,
+            options: {
+              aspectRatio: view.aspect,
+              seed: baseSeed + v
+            }
+          });
+          imageBuffer = portraitResult.imageBuffer;
+        } catch (err) {
+          logger.warn(`${p.name} ${view.label} view: fal.ai Flux 2 Max failed — ${err.message} — skipping`);
           continue;
         }
 
@@ -2412,7 +2453,22 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
         omnihuman_seed_image_url: personaImageUrls[0], // hero shot
         // Store the original brand person cutout URL so downstream (storyboard, Kling)
         // can use the REAL person photo alongside the generated character sheet
-        brand_person_source_url: thisPersonCutout || null
+        brand_person_source_url: thisPersonCutout || null,
+
+        // V4 character-bible fields — optional, consumed by the screenplay cheat-sheet
+        // and downstream (VoiceAcquisition, validator). All fields fall back to null
+        // for legacy personas where Gemini returns only the old schema.
+        dramatic_archetype: p.dramatic_archetype || null,
+        want: p.want || null,
+        need: p.need || null,
+        wound: p.wound || null,
+        flaw: p.flaw || null,
+        core_contradiction: p.core_contradiction || null,
+        moral_code: p.moral_code || null,
+        relationship_to_subject: p.relationship_to_subject || null,
+        relationships: Array.isArray(p.relationships) ? p.relationships : [],
+        speech_patterns: p.speech_patterns || null,
+        voice_brief: p.voice_brief || null
       });
 
       logger.info(`Character sheet for ${p.name}: ${personaImageUrls.length} views ready`);
@@ -2420,6 +2476,1290 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
 
     if (results.length === 0) throw new Error('Failed to generate any persona character sheets');
     return results;
+  }
+
+  // ═══════════════════════════════════════════════════
+  // V4 PIPELINE (scene → beat architecture)
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * V4 episode generation pipeline.
+   *
+   * The full sequence:
+   *   1. Acquire persona voices (Gemini brief → ElevenLabs preset, idempotent)
+   *   2. Match Brand Kit → LUT (cached on story.brand_kit_lut_id, idempotent)
+   *   3. Gemini scene-graph generation (per-scene, per-beat)
+   *   4. Brand safety filter (validate generated dialogue lines)
+   *   5. BeatRouter preflight (expand SHOT_REVERSE_SHOT, sum cost, enforce cap)
+   *   6. Generate Scene Master panels (Seedream 5 Lite × scenes, parallel)
+   *   7. Generate beats sequentially within each scene (endframe chaining for continuity)
+   *   8. Generate music bed (ElevenLabs Music sized to assembled duration)
+   *   9. Run post-production (correction LUTs → assembly → creative LUT → music mix)
+   *   10. Upload final episode video, mark ready, update story_so_far
+   *
+   * Beat-level resume: every successful beat persists its generated_video_url
+   * and endframe_url onto episode.scene_description so partial failures can
+   * resume from the next beat instead of restarting the episode.
+   *
+   * @param {string} storyId
+   * @param {string} userId
+   * @param {Function} [onProgress] - optional progress callback (stage, detail)
+   * @returns {Promise<Object>} the completed episode record
+   */
+  async runV4Pipeline(storyId, userId, onProgress) {
+    // SSE emitter is created lazily once we know the episode_id (after the
+    // first DB insert). For pre-episode-creation stages we still log + call
+    // the legacy callback, but the SSE stream starts at the moment the
+    // episode record exists. This matches the natural URL shape:
+    // /api/brand-stories/:id/episodes/:episodeId/stream
+    let emitter = null;
+
+    const progress = (stage, detail, extras = {}) => {
+      logger.info(`[V4Pipeline] ${stage}: ${detail}`);
+      if (typeof onProgress === 'function') {
+        try { onProgress(stage, detail); } catch {}
+      }
+      if (emitter) {
+        try { emitter.emit(stage, detail, extras); } catch {}
+      }
+    };
+
+    progress('start', `V4 pipeline starting for story ${storyId}`);
+
+    // ─── Load story + validate ───
+    const story = await getBrandStoryById(storyId, userId);
+    if (!story) throw new Error(`V4: story ${storyId} not found`);
+    if (!story.storyline) throw new Error(`V4: story ${storyId} has no storyline (run generateStoryline first)`);
+
+    // Persist persona_config mutations from voice acquisition / LUT matching
+    let personas = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : (story.persona_config ? [story.persona_config] : []);
+
+    // Default placeholder names for personas that didn't carry one through
+    // the wizard. Only the brand_kit_auto path generates a real name via
+    // Gemini; the described/uploaded/brand_kit paths have no name field at
+    // all. Without this, every log line about the persona says "unnamed"
+    // which makes multi-persona runs nearly unreadable. Assigns "Persona 1",
+    // "Persona 2", etc. in the order personas were added to the story.
+    // Caught 2026-04-21 — cosmetic only, no downstream dependency on .name.
+    personas.forEach((p, i) => {
+      if (!p.name || !String(p.name).trim()) p.name = `Persona ${i + 1}`;
+    });
+
+    // ─── Step 1: Persona voice acquisition (idempotent) ───
+    progress('voices', `acquiring ${personas.length} persona voice(s)`);
+    const voiceResult = await acquirePersonaVoicesForStory(personas);
+    progress('voices', `acquired=${voiceResult.acquired}, skipped=${voiceResult.skipped}, failed=${voiceResult.failed}`);
+    if (voiceResult.acquired > 0) {
+      // Persist newly-acquired voices back to the story
+      await updateBrandStory(storyId, userId, {
+        persona_config: { ...(story.persona_config || {}), personas }
+      });
+    }
+
+    // ─── Step 2: Brand Kit → LUT (cached, idempotent) ───
+    let brandKit = null;
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        brandKit = job?.brand_kit || null;
+      } catch (err) {
+        logger.warn(`V4: brand kit load failed: ${err.message}`);
+      }
+    }
+
+    if (brandKit && !story.brand_kit_lut_id && !story.locked_lut_id) {
+      // Phase 2: opt-in generative LUT. When BRAND_STORY_LUT_GENERATIVE=true,
+      // synthesize a custom .cube file directly from the brand's hex palette.
+      // Otherwise fall back to the curated 8-LUT library match.
+      const generativeMode = process.env.BRAND_STORY_LUT_GENERATIVE === 'true';
+      if (generativeMode) {
+        try {
+          progress('lut', `generating custom LUT from brand palette`);
+          const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
+          if (generated?.lutId) {
+            await updateBrandStory(storyId, userId, { brand_kit_lut_id: generated.lutId });
+            story.brand_kit_lut_id = generated.lutId;
+            progress('lut', `generated → ${generated.lutId}`);
+          } else {
+            progress('lut', `no palette in brand kit — falling back to library match`);
+            const lutMatch = await matchBrandKitToLut(brandKit);
+            await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
+            story.brand_kit_lut_id = lutMatch.lutId;
+            progress('lut', `matched → ${lutMatch.lutId}`);
+          }
+        } catch (err) {
+          logger.warn(`V4: generative LUT failed (${err.message}) — falling back to library match`);
+          const lutMatch = await matchBrandKitToLut(brandKit);
+          await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
+          story.brand_kit_lut_id = lutMatch.lutId;
+          progress('lut', `matched → ${lutMatch.lutId}`);
+        }
+      } else {
+        progress('lut', `matching brand kit → LUT (library)`);
+        const lutMatch = await matchBrandKitToLut(brandKit);
+        await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
+        story.brand_kit_lut_id = lutMatch.lutId;
+        progress('lut', `matched → ${lutMatch.lutId}`);
+      }
+    }
+
+    // ─── Step 3: Gemini V4 scene-graph generation ───
+    progress('screenplay', 'generating V4 scene-graph via Gemini');
+    const previousEpisodes = await getBrandStoryEpisodes(storyId, userId);
+    const previousReady = previousEpisodes.filter(e => e.status === 'ready' || e.status === 'published');
+    const previousVisualStyle = story.storyline?.visual_style_prefix || '';
+    const lastEpisode = previousReady[previousReady.length - 1];
+    const previousEmotionalState = lastEpisode?.scene_description?.emotional_state || '';
+    const lastCliffhanger = lastEpisode?.scene_description?.cliffhanger || '';
+    const directorsNotes = story.subject?.directors_notes || '';
+
+    // Cost cap is now a flat $20 ceiling (not tier-based) since Brand Story
+    // is Business-tier-only. The episodeOverride path is kept so a specific
+    // story can opt into a higher cap for a premium campaign.
+    const costCapUsd = resolveCostCap({
+      episodeOverride: story.episode_cost_cap_usd_override || null
+    });
+
+    // episode_number must use ALL existing episodes (regardless of status), not
+    // just ready/published ones. Using previousReady.length caused duplicate-key
+    // collisions when an earlier episode was stuck in a non-ready status
+    // (e.g. 'regenerating_beat' or 'failed') — it wasn't counted, so the new
+    // episode got episode_number=1 and collided with the existing row.
+    // Caught 2026-04-11: Episode 1 stuck in 'regenerating_beat' → Generate
+    // Episode 2 → previousReady=[] → episode_number=1 → UNIQUE violation.
+    const nextEpisodeNumber = previousEpisodes.length + 1;
+
+    let sceneGraph = await this._generateV4Screenplay({
+      story,
+      personas,
+      previousEpisodes: previousReady.slice(-3), // last 3 READY episodes for continuity
+      brandKit,
+      previousVisualStyle,
+      previousEmotionalState,
+      lastCliffhanger,
+      directorsNotes,
+      costCapUsd,
+      hasBrandKitLut: !!story.brand_kit_lut_id || !!story.locked_lut_id,
+      episodeNumber: nextEpisodeNumber
+    });
+
+    progress('screenplay', `episode "${sceneGraph.title}" — ${sceneGraph.scenes?.length || 0} scenes`);
+
+    // ─── Step 3b: Screenplay quality gate (Layer 1 validator + optional Doctor) ───
+    // Layer 1: deterministic checks on the scene graph. Auto-repairs beat sizing.
+    // Layer 2 (gated by env flag): Gemini script-doctor minimal-patch punch-up.
+    // On any failure the pipeline proceeds with the best scene graph we have —
+    // we never loop, we never block. The quality_report is persisted so the
+    // Director's Panel can surface Layer-1 issues and Layer-2 edits for review.
+    const storyFocus = story.story_focus || 'product';
+    let qualityReport = { validator: null, doctor: null };
+    try {
+      const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
+      qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
+      sceneGraph = layer1.repaired;
+      const blockers = layer1.issues.filter(i => i.severity === 'blocker').length;
+      const warnings = layer1.issues.filter(i => i.severity === 'warning').length;
+      progress('screenplay_qa', `Layer-1: ${blockers} blocker${blockers === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'}`, {
+        blockers, warnings, stats: layer1.stats
+      });
+
+      if (layer1.needsPunchUp) {
+        progress('screenplay_qa', 'Layer-2 Doctor pass triggered');
+        const layer2 = await punchUpScreenplay(sceneGraph, personas, layer1.issues);
+        qualityReport.doctor = {
+          applied: layer2.applied,
+          rejected: layer2.rejected,
+          notes: layer2.notes,
+          skipped: layer2.skipped
+        };
+        if (layer2.skipped) {
+          progress('screenplay_qa', `Doctor skipped: ${layer2.skipped}`);
+        } else {
+          sceneGraph = layer2.patched;
+          progress('screenplay_qa', `Doctor applied ${layer2.applied.length} edits`);
+          // Re-run Layer 1 once to capture post-doctor state in the report.
+          // We do NOT loop — a second blocker list just gets logged.
+          const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
+          qualityReport.validator_post_doctor = { issues: layer1b.issues, stats: layer1b.stats };
+          sceneGraph = layer1b.repaired;
+        }
+      }
+    } catch (err) {
+      logger.warn(`V4 screenplay quality gate failed (${err.message}) — proceeding with original scene graph`);
+      qualityReport.validator = qualityReport.validator || { issues: [], stats: {} };
+      qualityReport.error = err.message;
+    }
+
+    // ─── Step 4: Brand safety filter (lightweight validation pass) ───
+    this._brandSafetyFilter(sceneGraph);
+
+    // ─── Step 5: Create episode record + run BeatRouter preflight ───
+    const newEpisode = await createBrandStoryEpisode(storyId, userId, {
+      episode_number: nextEpisodeNumber,
+      scene_description: sceneGraph,
+      pipeline_version: 'v4',
+      status: 'generating_scene_masters',
+      cost_cap_usd: costCapUsd,
+      quality_report: qualityReport
+    });
+
+    // Activate SSE emitter now that we have the episode_id. From this point
+    // onward every progress(...) call also broadcasts to any connected
+    // SSE clients via /api/brand-stories/:id/episodes/:episodeId/stream
+    emitter = getOrCreateProgressEmitter(newEpisode.id);
+    progress('episode_created', `episode_id=${newEpisode.id}`, { episode_id: newEpisode.id });
+
+    const router = new BeatRouter({
+      falServices: {
+        kling: klingFalService,
+        veo: veoService, // Vertex AI backend (free under GCP quota), NOT fal.ai
+        syncLipsync: syncLipsyncFalService,
+        seedream: seedreamFalService,
+        flux: fluxFalService,
+        omniHuman: omniHumanService
+      },
+      tts: ttsService
+    });
+
+    const preflight = router.preflight({
+      scenes: sceneGraph.scenes,
+      costCapUsd
+    });
+
+    progress('preflight', `${preflight.beatCount} beats, est $${preflight.totalEstimatedCost.toFixed(2)} / cap $${costCapUsd.toFixed(2)}`);
+
+    if (!preflight.withinCap) {
+      await updateBrandStoryEpisode(newEpisode.id, userId, {
+        status: 'failed',
+        error_message: `Cost cap exceeded: estimated $${preflight.totalEstimatedCost.toFixed(2)} > cap $${costCapUsd.toFixed(2)}`
+      });
+      throw new Error(`V4: cost cap exceeded ($${preflight.totalEstimatedCost.toFixed(2)} > $${costCapUsd.toFixed(2)})`);
+    }
+
+    // ─── Step 6: Scene Master generation ───
+    progress('scene_masters', `generating ${sceneGraph.scenes.length} Scene Master panel(s)`);
+    const subjectReferenceImages = (story.subject?.reference_image_urls || []).filter(Boolean);
+    const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
+      this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
+
+    await generateSceneMasters({
+      scenes: sceneGraph.scenes,
+      visualStylePrefix: sceneGraph.visual_style_prefix,
+      personas,
+      subjectReferenceImages,
+      storyFocus: story.story_focus || 'product',
+      userId,
+      uploadBuffer: uploadBufferToStorage,
+      baseSeed: previousReady.length * 100 // varies per episode, deterministic across retries
+    });
+
+    // Persist scene master URLs to the episode
+    await updateBrandStoryEpisode(newEpisode.id, userId, {
+      scene_description: sceneGraph,
+      status: 'generating_beats'
+    });
+
+    // ─── Step 7: Beat generation (sequential within scene for endframe chaining) ───
+    progress('beats', `generating beats sequentially within each scene`);
+    const beatVideoBuffers = [];
+    const beatMetadata = [];
+
+    // Episode context shared across all beat generators
+    const episodeContext = {
+      visual_style_prefix: sceneGraph.visual_style_prefix || '',
+      storyId,
+      episodeId: newEpisode.id,
+      userId,
+      subjectReferenceImages,
+      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id || 'nPczCjzI2devNBz1zQrb',
+      // Audio uploader injected so beat generators can stash TTS to a public URL
+      uploadAudio: async ({ buffer, filename, mimeType }) => {
+        return this._uploadBufferToStorage(buffer, userId, 'audio/v4', filename, mimeType);
+      }
+    };
+
+    // Sequential generation within scenes to support endframe chaining,
+    // parallel between scenes for speed.
+    for (const scene of sceneGraph.scenes) {
+      let previousBeat = null;
+
+      // MONTAGE_SEQUENCE handling: scenes flagged as 'montage' are generated
+      // as a single Kling V3 Pro multi-shot call instead of per-beat.
+      if (scene.type === 'montage') {
+        progress('beats', `scene ${scene.scene_id} → MONTAGE (single multi-shot call)`);
+        const montageGen = new MontageSequenceGenerator({
+          falServices: {
+            kling: klingFalService,
+            veo: veoService, // Vertex AI (free under GCP quota), NOT fal.ai
+            syncLipsync: syncLipsyncFalService,
+            omniHuman: omniHumanService
+          },
+          tts: ttsService
+        });
+
+        try {
+          const result = await montageGen.generateScene({
+            scene,
+            personas,
+            episodeContext,
+            previousScene: null
+          });
+
+          // Upload the montage video and treat it as ONE virtual beat
+          const publicUrl = await uploadBufferToStorage(
+            result.videoBuffer,
+            'videos/v4-beats',
+            `montage-${scene.scene_id}.mp4`,
+            'video/mp4'
+          );
+
+          // Extract endframe for the next scene's anchoring
+          let endframeUrl = null;
+          try {
+            const endframeBuffer = await extractBeatEndframe(result.videoBuffer);
+            endframeUrl = await uploadBufferToStorage(
+              endframeBuffer,
+              'videos/v4-endframes',
+              `montage-${scene.scene_id}-end.jpg`,
+              'image/jpeg'
+            );
+          } catch (err) {
+            logger.warn(`montage endframe extraction failed: ${err.message}`);
+          }
+
+          // Mark all child beats as satisfied via this single call
+          for (const beat of scene.beats) {
+            beat.generated_video_url = publicUrl;
+            beat.endframe_url = endframeUrl;
+          }
+          beatVideoBuffers.push(result.videoBuffer);
+          beatMetadata.push({
+            beat_id: `${scene.scene_id}_montage`,
+            model_used: result.modelUsed,
+            duration_seconds: result.durationSec,
+            actual_duration_sec: result.durationSec
+          });
+          previousBeat = { endframe_url: endframeUrl };
+        } catch (err) {
+          logger.error(`montage scene ${scene.scene_id} failed: ${err.message}`);
+          for (const beat of scene.beats) {
+            beat.status = 'failed';
+            beat.error_message = err.message;
+          }
+        }
+        continue; // skip per-beat loop for this scene
+      }
+
+      // Standard scene: generate beats sequentially with endframe chaining
+      for (const beat of scene.beats) {
+        // Skip non-generative beat types (text overlays, speed ramps) — handled in post
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+
+        // Resume check: if this beat already has a generated_video_url from a
+        // prior failed run, fetch the buffer and skip generation.
+        if (beat.generated_video_url && beat.status === 'generated') {
+          progress('beats', `beat ${beat.beat_id} → reusing prior generated_video_url`);
+          try {
+            const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+            const cachedBuffer = Buffer.from(cached.data);
+            beatVideoBuffers.push(cachedBuffer);
+            beatMetadata.push({
+              beat_id: beat.beat_id,
+              model_used: beat.model_used,
+              duration_seconds: beat.duration_seconds,
+              actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+            });
+            previousBeat = { endframe_url: beat.endframe_url };
+            continue;
+          } catch (err) {
+            logger.warn(`beat ${beat.beat_id} cached fetch failed, regenerating: ${err.message}`);
+          }
+        }
+
+        // Build the reference stack for this beat
+        const refStack = buildBeatRefStack({ beat, scene, previousBeat, personas });
+
+        // Route + generate
+        try {
+          const result = await router.generate({
+            beat,
+            scene,
+            refStack,
+            personas,
+            episodeContext,
+            previousBeat
+          });
+
+          // Upload the generated video buffer
+          const publicUrl = await uploadBufferToStorage(
+            result.videoBuffer,
+            'videos/v4-beats',
+            `${beat.beat_id}.mp4`,
+            'video/mp4'
+          );
+          beat.generated_video_url = publicUrl;
+
+          // Extract endframe for next-beat continuity
+          try {
+            const endframeBuffer = await extractBeatEndframe(result.videoBuffer);
+            const endframeUrl = await uploadBufferToStorage(
+              endframeBuffer,
+              'videos/v4-endframes',
+              `${beat.beat_id}-end.jpg`,
+              'image/jpeg'
+            );
+            beat.endframe_url = endframeUrl;
+          } catch (err) {
+            logger.warn(`beat ${beat.beat_id} endframe extraction failed: ${err.message}`);
+          }
+
+          beatVideoBuffers.push(result.videoBuffer);
+          beatMetadata.push({
+            beat_id: beat.beat_id,
+            model_used: result.modelUsed,
+            duration_seconds: beat.duration_seconds,
+            actual_duration_sec: result.durationSec
+          });
+          previousBeat = beat;
+
+          // Persist beat-level progress so partial failures can resume
+          await updateBrandStoryEpisode(newEpisode.id, userId, {
+            scene_description: sceneGraph
+          });
+        } catch (err) {
+          logger.error(`beat ${beat.beat_id} failed: ${err.message}`);
+          beat.status = 'failed';
+          beat.error_message = err.message;
+          await updateBrandStoryEpisode(newEpisode.id, userId, {
+            scene_description: sceneGraph
+          });
+        }
+      }
+    }
+
+    if (beatVideoBuffers.length === 0) {
+      await updateBrandStoryEpisode(newEpisode.id, userId, {
+        status: 'failed',
+        error_message: 'no beats generated successfully'
+      });
+      throw new Error('V4: no beats generated successfully');
+    }
+
+    // ─── Step 8: Music bed (ElevenLabs Music sized to assembled duration) ───
+    let musicBedBuffer = null;
+    let musicBedUrl = null;
+    if (sceneGraph.music_bed_intent && musicService.isAvailable()) {
+      const totalDuration = estimateEpisodeDuration(beatMetadata);
+      progress('music', `generating music bed (${totalDuration.toFixed(0)}s)`);
+      try {
+        const musicResult = await musicService.generateMusicBed({
+          musicBedIntent: sceneGraph.music_bed_intent,
+          durationSec: totalDuration
+        });
+        musicBedBuffer = musicResult.audioBuffer;
+        musicBedUrl = await uploadBufferToStorage(
+          musicResult.audioBuffer,
+          'audio/v4-music',
+          `episode-${newEpisode.id}-music.mp3`,
+          'audio/mpeg'
+        );
+      } catch (err) {
+        logger.warn(`V4: music generation failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 9: Post-production (assembly + 2-pass LUT + music mix) ───
+    progress('post_production', `assembly + 2-pass LUT grade${musicBedBuffer ? ' + music mix' : ''}`);
+    await updateBrandStoryEpisode(newEpisode.id, userId, {
+      status: 'applying_lut',
+      music_bed_url: musicBedUrl
+    });
+
+    const episodeLutId = resolveEpisodeLut(story, { ...newEpisode, scene_description: sceneGraph });
+    progress('post_production', `resolved LUT → ${episodeLutId}`);
+
+    // Build beatMetadata with dialogue fields so the subtitle burn-in + music
+    // ducking can use them. beatMetadata is currently a thin object, but the
+    // scene-graph beats (inside sceneGraph.scenes[].beats) carry the dialogue.
+    // Match index-for-index because beat generation iterated scenes in order.
+    const enrichedBeatMetadata = [];
+    let idx = 0;
+    for (const scene of sceneGraph.scenes) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        if (!beat.generated_video_url) continue;
+        const base = beatMetadata[idx] || {};
+        enrichedBeatMetadata.push({
+          ...base,
+          beat_id: beat.beat_id,
+          dialogue: beat.dialogue || null,
+          dialogues: beat.dialogues || null,
+          exchanges: beat.exchanges || null,
+          voiceover_text: beat.voiceover_text || null,
+          ambient_sound: beat.ambient_sound || null
+        });
+        idx++;
+      }
+    }
+
+    const episodeMeta = {
+      series_title: story.storyline?.title || story.name || 'Untitled Series',
+      episode_title: sceneGraph.title || `Episode ${newEpisode.episode_number}`,
+      cliffhanger: sceneGraph.cliffhanger || ''
+    };
+
+    const postProductionResult = await runPostProduction({
+      beatVideoBuffers,
+      beatMetadata: enrichedBeatMetadata,
+      episodeLutId,
+      musicBedBuffer,
+      sceneGraph: sceneGraph.scenes,
+      episodeMeta,
+      burnSubtitles: true
+    });
+    const finalVideoBuffer = postProductionResult.finalBuffer;
+
+    // Upload the SRT separately so the UI can expose it as a download
+    let subtitleUrl = null;
+    if (postProductionResult.srtContent) {
+      try {
+        subtitleUrl = await uploadBufferToStorage(
+          Buffer.from(postProductionResult.srtContent, 'utf-8'),
+          'srt/v4',
+          `episode-${newEpisode.episode_number}.srt`,
+          'text/plain'
+        );
+      } catch (err) {
+        logger.warn(`V4: SRT upload failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 10: Upload final + mark ready ───
+    progress('upload', 'uploading final episode video');
+    const finalVideoUrl = await uploadBufferToStorage(
+      finalVideoBuffer,
+      'videos/v4-final',
+      `episode-${newEpisode.episode_number}-final.mp4`,
+      'video/mp4'
+    );
+
+    const completedEpisode = await updateBrandStoryEpisode(newEpisode.id, userId, {
+      scene_description: sceneGraph,
+      final_video_url: finalVideoUrl,
+      subtitle_url: subtitleUrl,
+      status: 'ready',
+      lut_id: episodeLutId
+    });
+
+    progress('complete', `Episode ${newEpisode.episode_number} ready: ${finalVideoUrl}`);
+
+    // ─── Step 11: Update story_so_far appendix for continuity ───
+    try {
+      await this._updateStorySoFar(storyId, userId, completedEpisode);
+    } catch (soFarErr) {
+      logger.warn(`V4: story_so_far update failed (non-fatal): ${soFarErr.message}`);
+    }
+
+    return completedEpisode;
+  }
+
+  /**
+   * V4: Regenerate a single beat inside an existing episode WITHOUT
+   * regenerating the screenplay, Scene Masters, or creating a new episode row.
+   *
+   * Flow:
+   *   1. Load the story + episode + personas
+   *   2. For EVERY beat in scene order:
+   *        - If beat.beat_id === target: run it fresh through the router
+   *        - Otherwise: download its existing generated_video_url and reuse
+   *   3. Re-run full post-production (assembly + LUT + music mix + overlays)
+   *   4. Upload new final_video_url, mark episode ready
+   *
+   * This method is the correct endpoint for the Director's Panel "Regenerate
+   * beat" button. It replaces the Phase 1b stub that incorrectly invoked
+   * runV4Pipeline() — which always tries to INSERT a new episode row and
+   * fails on `brand_story_episodes_story_id_episode_number_key` the moment
+   * the source episode isn't in `ready` status.
+   *
+   * Caught on 2026-04-11 first Director's Panel test: both s2b3 and s3b2
+   * regenerate attempts hit duplicate-key errors because runV4Pipeline's
+   * previousReady filter excluded the in-progress source episode, making
+   * it compute episode_number = 1 and collide with itself.
+   *
+   * @param {string} storyId
+   * @param {string} userId
+   * @param {string} episodeId
+   * @param {string} beatId
+   * @param {Object} [overrides] - editable beat fields from req.body
+   * @param {Function} [onProgress] - SSE-style progress callback
+   * @returns {Promise<Object>} the updated episode record
+   */
+  async regenerateBeatInEpisode(storyId, userId, episodeId, beatId, overrides = {}, onProgress) {
+    let emitter = null;
+    try {
+      emitter = getOrCreateProgressEmitter(episodeId);
+    } catch {}
+
+    const progress = (stage, detail, extras = {}) => {
+      logger.info(`[V4Regenerate] ${stage}: ${detail}`);
+      if (typeof onProgress === 'function') {
+        try { onProgress(stage, detail); } catch {}
+      }
+      if (emitter) {
+        try { emitter.emit(stage, detail, extras); } catch {}
+      }
+    };
+
+    progress('regenerate_start', `beat=${beatId} episode=${episodeId}`);
+
+    // ─── Step 1: load story + episode + personas ───
+    const story = await getBrandStoryById(storyId, userId);
+    if (!story) throw new Error(`V4 regen: story ${storyId} not found`);
+
+    const episode = await getBrandStoryEpisodeById(episodeId, userId);
+    if (!episode) throw new Error(`V4 regen: episode ${episodeId} not found`);
+
+    const sceneGraph = episode.scene_description || {};
+    if (!Array.isArray(sceneGraph.scenes)) throw new Error(`V4 regen: episode has no scene-graph`);
+
+    const personas = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : (story.persona_config ? [story.persona_config] : []);
+
+    // Find the target beat (mutated in place below)
+    let targetBeat = null;
+    for (const scene of sceneGraph.scenes) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.beat_id === beatId) {
+          targetBeat = beat;
+          break;
+        }
+      }
+      if (targetBeat) break;
+    }
+    if (!targetBeat) throw new Error(`V4 regen: beat ${beatId} not found in episode`);
+
+    // Apply allowed field overrides from the Director's Panel edit form
+    const ALLOWED_OVERRIDES = [
+      'dialogue', 'expression_notes', 'action_prompt', 'lens', 'emotion',
+      'duration_seconds', 'subject_focus', 'lighting_intent', 'camera_move',
+      'ambient_sound', 'location', 'atmosphere', 'gaze_direction',
+      'voiceover_text'
+    ];
+    for (const k of ALLOWED_OVERRIDES) {
+      if (overrides[k] !== undefined) targetBeat[k] = overrides[k];
+    }
+    // Clear the generated state so downstream code knows to actually generate
+    targetBeat.generated_video_url = null;
+    targetBeat.endframe_url = null;
+    targetBeat.status = 'generating';
+    targetBeat.error_message = null;
+
+    // ─── Step 2: mark episode status ───
+    await updateBrandStoryEpisode(episodeId, userId, {
+      status: 'regenerating_beat',
+      scene_description: sceneGraph
+    });
+
+    // ─── Step 3: build the BeatRouter with shared deps ───
+    const router = new BeatRouter({
+      falServices: {
+        kling: klingFalService,
+        veo: veoService,
+        syncLipsync: syncLipsyncFalService,
+        seedream: seedreamFalService,
+        flux: fluxFalService,
+        omniHuman: omniHumanService
+      },
+      tts: ttsService
+    });
+
+    const subjectReferenceImages = (story.subject?.reference_image_urls || []).filter(Boolean);
+    const episodeContext = {
+      visual_style_prefix: sceneGraph.visual_style_prefix || '',
+      storyId,
+      episodeId,
+      userId,
+      subjectReferenceImages,
+      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id || 'nPczCjzI2devNBz1zQrb',
+      uploadAudio: async ({ buffer, filename, mimeType }) => {
+        return this._uploadBufferToStorage(buffer, userId, 'audio/v4', filename, mimeType);
+      }
+    };
+
+    // ─── Step 4: assemble beatVideoBuffers in canonical scene order ───
+    // For every beat in the scene-graph: if it's the target, run it fresh;
+    // otherwise, fetch its existing Supabase URL and reuse the buffer.
+    // This preserves beat order and previousBeat chaining for endframes.
+    const beatVideoBuffers = [];
+    const beatMetadata = [];
+    const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
+      this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
+
+    for (const scene of sceneGraph.scenes) {
+      let previousBeat = null;
+
+      // MONTAGE_SEQUENCE scenes are atomic — they don't support per-beat
+      // regen in Phase 1b because the whole scene is one multi-shot call.
+      // If the target beat is inside a montage scene, throw a clear error
+      // rather than silently regenerating the whole montage.
+      if (scene.type === 'montage') {
+        for (const beat of (scene.beats || [])) {
+          if (beat.beat_id === beatId) {
+            throw new Error(`V4 regen: beat ${beatId} is inside a MONTAGE scene — montage scenes regenerate as a unit, not per-beat`);
+          }
+          // Pull the existing montage video for non-target beats
+          if (beat.generated_video_url) {
+            const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+            beatVideoBuffers.push(Buffer.from(cached.data));
+            beatMetadata.push({
+              beat_id: beat.beat_id,
+              model_used: beat.model_used,
+              duration_seconds: beat.duration_seconds,
+              actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+            });
+            previousBeat = { endframe_url: beat.endframe_url };
+            break; // montage is one beat-equivalent, skip the rest
+          }
+        }
+        continue;
+      }
+
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+
+        if (beat.beat_id === beatId) {
+          // ─── This IS the target: regenerate ───
+          progress('regenerating_beat', `beat ${beatId} [${beat.type}]`);
+          const refStack = buildBeatRefStack({ beat, scene, previousBeat, personas });
+
+          const result = await router.generate({
+            beat,
+            scene,
+            refStack,
+            personas,
+            episodeContext,
+            previousBeat
+          });
+
+          const publicUrl = await uploadBufferToStorage(
+            result.videoBuffer,
+            'videos/v4-beats',
+            `${beat.beat_id}-regen-${Date.now()}.mp4`,
+            'video/mp4'
+          );
+          beat.generated_video_url = publicUrl;
+
+          // Extract + upload a fresh endframe (the next beat's previousBeat
+          // chain isn't used on regen, but we keep the endframe field
+          // consistent so future regens of the NEXT beat can chain correctly).
+          try {
+            const endframeBuffer = await extractBeatEndframe(result.videoBuffer);
+            const endframeUrl = await uploadBufferToStorage(
+              endframeBuffer,
+              'videos/v4-endframes',
+              `${beat.beat_id}-regen-${Date.now()}-end.jpg`,
+              'image/jpeg'
+            );
+            beat.endframe_url = endframeUrl;
+          } catch (err) {
+            logger.warn(`V4 regen: endframe extraction failed for ${beat.beat_id}: ${err.message}`);
+          }
+
+          beatVideoBuffers.push(result.videoBuffer);
+          beatMetadata.push({
+            beat_id: beat.beat_id,
+            model_used: result.modelUsed,
+            duration_seconds: beat.duration_seconds,
+            actual_duration_sec: result.durationSec
+          });
+          previousBeat = beat;
+          continue;
+        }
+
+        // ─── Not the target: reuse the existing generated video ───
+        if (!beat.generated_video_url) {
+          // This beat failed on the original run and is missing — skip.
+          // Post-production will assemble without it, which matches the
+          // original episode's shape.
+          logger.warn(`V4 regen: beat ${beat.beat_id} has no generated_video_url — skipping`);
+          continue;
+        }
+        try {
+          const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+          beatVideoBuffers.push(Buffer.from(cached.data));
+          beatMetadata.push({
+            beat_id: beat.beat_id,
+            model_used: beat.model_used,
+            duration_seconds: beat.duration_seconds,
+            actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+          });
+          previousBeat = { endframe_url: beat.endframe_url };
+        } catch (err) {
+          logger.warn(`V4 regen: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
+        }
+      }
+    }
+
+    if (beatVideoBuffers.length === 0) {
+      throw new Error('V4 regen: no beat buffers assembled — cannot re-run post-production');
+    }
+
+    // Persist the regenerated beat URL before heading into post-production
+    await updateBrandStoryEpisode(episodeId, userId, {
+      scene_description: sceneGraph
+    });
+
+    // ─── Step 5: music bed — reuse if already generated on the original run ───
+    let musicBedBuffer = null;
+    let musicBedUrl = episode.music_bed_url || null;
+    if (musicBedUrl) {
+      try {
+        const cached = await axios.get(musicBedUrl, { responseType: 'arraybuffer', timeout: 60000 });
+        musicBedBuffer = Buffer.from(cached.data);
+      } catch (err) {
+        logger.warn(`V4 regen: failed to fetch cached music bed: ${err.message}`);
+      }
+    }
+    if (!musicBedBuffer && sceneGraph.music_bed_intent && musicService.isAvailable()) {
+      const totalDuration = estimateEpisodeDuration(beatMetadata);
+      progress('music', `generating music bed (${totalDuration.toFixed(0)}s)`);
+      try {
+        const musicResult = await musicService.generateMusicBed({
+          musicBedIntent: sceneGraph.music_bed_intent,
+          durationSec: totalDuration
+        });
+        musicBedBuffer = musicResult.audioBuffer;
+        musicBedUrl = await uploadBufferToStorage(
+          musicResult.audioBuffer,
+          'audio/v4-music',
+          `episode-${episodeId}-music-regen-${Date.now()}.mp3`,
+          'audio/mpeg'
+        );
+      } catch (err) {
+        logger.warn(`V4 regen: music gen failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 6: enrich metadata for subtitles/ducking + re-run post-prod ───
+    progress('post_production', 'reassembling episode with regenerated beat');
+    await updateBrandStoryEpisode(episodeId, userId, {
+      status: 'applying_lut',
+      music_bed_url: musicBedUrl
+    });
+
+    const episodeLutId = resolveEpisodeLut(story, { ...episode, scene_description: sceneGraph });
+    progress('post_production', `resolved LUT → ${episodeLutId}`);
+
+    const enrichedBeatMetadata = [];
+    let idx = 0;
+    for (const scene of sceneGraph.scenes) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        if (!beat.generated_video_url) continue;
+        const base = beatMetadata[idx] || {};
+        enrichedBeatMetadata.push({
+          ...base,
+          beat_id: beat.beat_id,
+          dialogue: beat.dialogue || null,
+          dialogues: beat.dialogues || null,
+          exchanges: beat.exchanges || null,
+          voiceover_text: beat.voiceover_text || null,
+          ambient_sound: beat.ambient_sound || null
+        });
+        idx++;
+      }
+    }
+
+    const episodeMeta = {
+      series_title: story.storyline?.title || story.name || 'Untitled Series',
+      episode_title: sceneGraph.title || `Episode ${episode.episode_number}`,
+      cliffhanger: sceneGraph.cliffhanger || ''
+    };
+
+    const postProductionResult = await runPostProduction({
+      beatVideoBuffers,
+      beatMetadata: enrichedBeatMetadata,
+      episodeLutId,
+      musicBedBuffer,
+      sceneGraph: sceneGraph.scenes,
+      episodeMeta,
+      burnSubtitles: true
+    });
+    const finalVideoBuffer = postProductionResult.finalBuffer;
+
+    let subtitleUrl = null;
+    if (postProductionResult.srtContent) {
+      try {
+        subtitleUrl = await uploadBufferToStorage(
+          Buffer.from(postProductionResult.srtContent, 'utf-8'),
+          'srt/v4',
+          `episode-${episode.episode_number}-regen-${Date.now()}.srt`,
+          'text/plain'
+        );
+      } catch (err) {
+        logger.warn(`V4 regen: SRT upload failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 7: upload final video, mark ready ───
+    progress('upload', 'uploading regenerated final episode video');
+    const finalVideoUrl = await uploadBufferToStorage(
+      finalVideoBuffer,
+      'videos/v4-final',
+      `episode-${episode.episode_number}-regen-${Date.now()}.mp4`,
+      'video/mp4'
+    );
+
+    const completedEpisode = await updateBrandStoryEpisode(episodeId, userId, {
+      scene_description: sceneGraph,
+      final_video_url: finalVideoUrl,
+      subtitle_url: subtitleUrl,
+      status: 'ready',
+      lut_id: episodeLutId
+    });
+
+    progress('complete', `Beat ${beatId} regenerated: ${finalVideoUrl}`);
+    return completedEpisode;
+  }
+
+  /**
+   * V4: Re-run post-production on an existing episode WITHOUT regenerating
+   * any beats and WITHOUT calling Gemini/Seedream/Veo/Kling.
+   *
+   * This is the Director's Panel "Reassemble" button. Use cases:
+   *   - A post-production stage (SFX, LUT, subtitles, music mix) had a
+   *     transient failure, you've fixed the underlying issue, and want to
+   *     retry WITHOUT paying for beat generation again.
+   *   - You changed the episode's LUT in the Director's Panel and want the
+   *     new grade applied.
+   *   - You dropped new correction/creative .cube files onto disk and want
+   *     the existing episode to benefit from them.
+   *
+   * Flow:
+   *   1. Load the existing episode + story + personas
+   *   2. Download every beat's existing generated_video_url from Supabase
+   *   3. Reuse existing music_bed_url if present (skip regeneration)
+   *   4. Re-run the full post-production pipeline
+   *   5. Upload a new final_video_url (with -reassemble-{timestamp} suffix)
+   *   6. Update the SAME episode row — never creates a new one
+   *
+   * Replaces the Phase 1b stub that invoked runV4Pipeline() which tried to
+   * INSERT a new brand_story_episodes row and collided on
+   * UNIQUE(story_id, episode_number).
+   *
+   * Cost: $0 beat generation + whatever post-production API calls retry
+   * (SFX via fal.ai ElevenLabs at ~$0.03/beat and music bed regen only if
+   * the cached music_bed_url is missing).
+   *
+   * @param {string} storyId
+   * @param {string} userId
+   * @param {string} episodeId
+   * @param {Function} [onProgress] - SSE-style progress callback
+   * @returns {Promise<Object>} the updated episode record
+   */
+  async reassembleEpisode(storyId, userId, episodeId, onProgress) {
+    let emitter = null;
+    try {
+      emitter = getOrCreateProgressEmitter(episodeId);
+    } catch {}
+
+    const progress = (stage, detail, extras = {}) => {
+      logger.info(`[V4Reassemble] ${stage}: ${detail}`);
+      if (typeof onProgress === 'function') {
+        try { onProgress(stage, detail); } catch {}
+      }
+      if (emitter) {
+        try { emitter.emit(stage, detail, extras); } catch {}
+      }
+    };
+
+    progress('reassemble_start', `episode=${episodeId}`);
+
+    // ─── Step 1: load story + episode ───
+    const story = await getBrandStoryById(storyId, userId);
+    if (!story) throw new Error(`V4 reassemble: story ${storyId} not found`);
+
+    const episode = await getBrandStoryEpisodeById(episodeId, userId);
+    if (!episode) throw new Error(`V4 reassemble: episode ${episodeId} not found`);
+
+    const sceneGraph = episode.scene_description || {};
+    if (!Array.isArray(sceneGraph.scenes)) throw new Error(`V4 reassemble: episode has no scene-graph`);
+
+    // Mark episode as regenerating_beat (closest existing status — means
+    // "some in-place mutation is happening on this episode"). We could add
+    // a dedicated 'reassembling' status but that requires a DB migration
+    // and this state is transient anyway.
+    await updateBrandStoryEpisode(episodeId, userId, {
+      status: 'regenerating_beat',
+      error_message: null
+    });
+
+    // ─── Step 2: download every beat's existing video ───
+    // Walk the scene-graph in canonical order, fetch each beat's buffer from
+    // its generated_video_url. We also collect beat metadata for the
+    // subtitle/SFX/ducking pipeline to consume.
+    progress('loading_beats', `fetching ${sceneGraph.scenes.length} scene(s) of existing beats`);
+
+    const beatVideoBuffers = [];
+    const beatMetadata = [];
+
+    for (const scene of sceneGraph.scenes) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        if (!beat.generated_video_url) {
+          logger.warn(`V4 reassemble: beat ${beat.beat_id} has no generated_video_url — skipping`);
+          continue;
+        }
+        try {
+          const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+          beatVideoBuffers.push(Buffer.from(cached.data));
+          beatMetadata.push({
+            beat_id: beat.beat_id,
+            model_used: beat.model_used,
+            duration_seconds: beat.duration_seconds,
+            actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+          });
+        } catch (err) {
+          logger.warn(`V4 reassemble: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
+        }
+      }
+    }
+
+    if (beatVideoBuffers.length === 0) {
+      throw new Error('V4 reassemble: no beat buffers downloaded — episode may have no successful beats');
+    }
+
+    progress('loading_beats', `loaded ${beatVideoBuffers.length} beat video(s)`);
+
+    // ─── Step 3: music bed — reuse cached URL if present ───
+    let musicBedBuffer = null;
+    let musicBedUrl = episode.music_bed_url || null;
+    if (musicBedUrl) {
+      try {
+        const cached = await axios.get(musicBedUrl, { responseType: 'arraybuffer', timeout: 60000 });
+        musicBedBuffer = Buffer.from(cached.data);
+        progress('music', `reusing cached music bed`);
+      } catch (err) {
+        logger.warn(`V4 reassemble: failed to fetch cached music bed: ${err.message} — regenerating`);
+      }
+    }
+    const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
+      this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
+
+    if (!musicBedBuffer && sceneGraph.music_bed_intent && musicService.isAvailable()) {
+      const totalDuration = estimateEpisodeDuration(beatMetadata);
+      progress('music', `regenerating music bed (${totalDuration.toFixed(0)}s)`);
+      try {
+        const musicResult = await musicService.generateMusicBed({
+          musicBedIntent: sceneGraph.music_bed_intent,
+          durationSec: totalDuration
+        });
+        musicBedBuffer = musicResult.audioBuffer;
+        musicBedUrl = await uploadBufferToStorage(
+          musicResult.audioBuffer,
+          'audio/v4-music',
+          `episode-${episodeId}-music-reassemble-${Date.now()}.mp3`,
+          'audio/mpeg'
+        );
+      } catch (err) {
+        logger.warn(`V4 reassemble: music gen failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 4: resolve LUT + enrich metadata for subtitles/ducking ───
+    progress('post_production', 'reassembling episode');
+    await updateBrandStoryEpisode(episodeId, userId, {
+      status: 'applying_lut',
+      music_bed_url: musicBedUrl
+    });
+
+    const episodeLutId = resolveEpisodeLut(story, { ...episode, scene_description: sceneGraph });
+    progress('post_production', `resolved LUT → ${episodeLutId}`);
+
+    const enrichedBeatMetadata = [];
+    let idx = 0;
+    for (const scene of sceneGraph.scenes) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        if (!beat.generated_video_url) continue;
+        const base = beatMetadata[idx] || {};
+        enrichedBeatMetadata.push({
+          ...base,
+          beat_id: beat.beat_id,
+          dialogue: beat.dialogue || null,
+          dialogues: beat.dialogues || null,
+          exchanges: beat.exchanges || null,
+          voiceover_text: beat.voiceover_text || null,
+          ambient_sound: beat.ambient_sound || null
+        });
+        idx++;
+      }
+    }
+
+    const episodeMeta = {
+      series_title: story.storyline?.title || story.name || 'Untitled Series',
+      episode_title: sceneGraph.title || `Episode ${episode.episode_number}`,
+      cliffhanger: sceneGraph.cliffhanger || ''
+    };
+
+    const postProductionResult = await runPostProduction({
+      beatVideoBuffers,
+      beatMetadata: enrichedBeatMetadata,
+      episodeLutId,
+      musicBedBuffer,
+      sceneGraph: sceneGraph.scenes,
+      episodeMeta,
+      burnSubtitles: true
+    });
+    const finalVideoBuffer = postProductionResult.finalBuffer;
+
+    let subtitleUrl = episode.subtitle_url || null;
+    if (postProductionResult.srtContent) {
+      try {
+        subtitleUrl = await uploadBufferToStorage(
+          Buffer.from(postProductionResult.srtContent, 'utf-8'),
+          'srt/v4',
+          `episode-${episode.episode_number}-reassemble-${Date.now()}.srt`,
+          'text/plain'
+        );
+      } catch (err) {
+        logger.warn(`V4 reassemble: SRT upload failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // ─── Step 5: upload fresh final video, mark ready ───
+    progress('upload', 'uploading reassembled final episode video');
+    const finalVideoUrl = await uploadBufferToStorage(
+      finalVideoBuffer,
+      'videos/v4-final',
+      `episode-${episode.episode_number}-reassemble-${Date.now()}.mp4`,
+      'video/mp4'
+    );
+
+    const completedEpisode = await updateBrandStoryEpisode(episodeId, userId, {
+      final_video_url: finalVideoUrl,
+      subtitle_url: subtitleUrl,
+      status: 'ready',
+      lut_id: episodeLutId
+    });
+
+    progress('complete', `Episode ${episode.episode_number} reassembled: ${finalVideoUrl}`);
+    return completedEpisode;
+  }
+
+  /**
+   * V4: Generate the scene-graph screenplay via Gemini using brandStoryPromptsV4.
+   * Returns the parsed JSON scene-graph that the rest of the V4 pipeline consumes.
+   *
+   * @private
+   */
+  async _generateV4Screenplay({
+    story,
+    personas,
+    previousEpisodes,
+    brandKit,
+    previousVisualStyle,
+    previousEmotionalState,
+    lastCliffhanger,
+    directorsNotes,
+    costCapUsd,
+    hasBrandKitLut,
+    episodeNumber
+  }) {
+    // V4 uses Vertex AI for Gemini (NOT AI Studio). Require Vertex creds
+    // (GCP_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON or ADC) at call time.
+    if (!isVertexGeminiConfigured()) {
+      throw new Error('V4: Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or use ADC)');
+    }
+
+    const systemPrompt = getEpisodeSystemPromptV4(story.storyline, previousEpisodes, personas, {
+      subject: story.subject,
+      storyFocus: story.story_focus || 'product',
+      brandKit,
+      previousVisualStyle,
+      previousEmotionalState,
+      directorsNotes,
+      costCapUsd,
+      hasBrandKitLut
+    });
+
+    const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {
+      hasBrandKitLut
+    });
+
+    const parsed = await callVertexGeminiJson({
+      systemPrompt,
+      userPrompt,
+      config: {
+        temperature: 0.85,
+        maxOutputTokens: 8192
+      },
+      timeoutMs: 90000
+    });
+
+    if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {
+      throw new Error('V4: Gemini returned no scenes');
+    }
+
+    for (const scene of parsed.scenes) {
+      if (!Array.isArray(scene.beats)) scene.beats = [];
+      for (const beat of scene.beats) {
+        if (!beat.status) beat.status = 'pending';
+        if (beat.generated_video_url == null) beat.generated_video_url = null;
+        if (beat.endframe_url == null) beat.endframe_url = null;
+        if (beat.model_used == null) beat.model_used = null;
+        if (beat.cost_usd == null) beat.cost_usd = null;
+      }
+    }
+
+    return parsed;
+  }
+
+  /**
+   * V4: Lightweight in-process brand safety filter.
+   * Phase 1a: simple keyword block list as a safety rail.
+   * Phase 2 upgrade: Gemini semantic safety check.
+   *
+   * @private
+   */
+  _brandSafetyFilter(sceneGraph) {
+    const blockedPatterns = [
+      /\bf[u\*]ck/i,
+      /\bsh[i\*]t/i,
+      /\bb[i\*]tch/i,
+      /\bn[i\*]gg/i,
+      /\bc[u\*]nt/i
+    ];
+
+    let flagged = 0;
+    for (const scene of sceneGraph.scenes || []) {
+      for (const beat of scene.beats || []) {
+        const lines = [];
+        if (beat.dialogue) lines.push(beat.dialogue);
+        if (Array.isArray(beat.dialogues)) lines.push(...beat.dialogues);
+        if (Array.isArray(beat.exchanges)) {
+          for (const ex of beat.exchanges) if (ex.dialogue) lines.push(ex.dialogue);
+        }
+        if (beat.voiceover_text) lines.push(beat.voiceover_text);
+
+        for (const line of lines) {
+          for (const pattern of blockedPatterns) {
+            if (pattern.test(line)) {
+              logger.warn(`V4 brand safety: flagged dialogue in beat ${beat.beat_id}: "${line.slice(0, 60)}..."`);
+              flagged++;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (flagged > 0) {
+      logger.warn(`V4 brand safety: ${flagged} dialogue line(s) flagged (warning only — Phase 2 will replace with semantic Gemini check)`);
+    }
   }
 
   // ═══════════════════════════════════════════════════
@@ -3863,16 +5203,155 @@ Respond with ONLY valid JSON: { "personas": [ { "name", "appearance", "personali
       ? `${existingSoFar}\n${epSummary}`
       : `STORY SO FAR:\n${epSummary}`;
 
+    // ─── V4 cross-episode memory streams ───
+    // When the episode is a V4 scene-graph (scenes[]→beats[]), extract:
+    //   1. previously_on_keyframes — one structured anchor per episode
+    //   2. character_voice_samples — rolling cap of 6 characteristic lines per persona
+    //   3. emotional_intensity_ledger — 1-10 closing intensity per episode
+    // For legacy v2/v3 episodes these fields just carry forward untouched.
+    const existingKeyframes = Array.isArray(story.storyline.previously_on_keyframes)
+      ? story.storyline.previously_on_keyframes
+      : [];
+    const existingVoiceSamples = story.storyline.character_voice_samples && typeof story.storyline.character_voice_samples === 'object'
+      ? { ...story.storyline.character_voice_samples }
+      : {};
+    const existingLedger = story.storyline.emotional_intensity_ledger && typeof story.storyline.emotional_intensity_ledger === 'object'
+      ? { ...story.storyline.emotional_intensity_ledger }
+      : {};
+
+    const updatedKeyframes = [...existingKeyframes];
+    const updatedVoiceSamples = existingVoiceSamples;
+    const updatedLedger = existingLedger;
+
+    const v4Scenes = Array.isArray(scene.scenes) ? scene.scenes : null;
+
+    if (v4Scenes && v4Scenes.length > 0) {
+      // Keyframe: prefer the episode's own cliffhanger line or a standout dialogue line
+      const allDialogueBeats = [];
+      for (const sc of v4Scenes) {
+        for (const beat of sc.beats || []) {
+          if (beat.dialogue && typeof beat.dialogue === 'string' && beat.dialogue.trim()) {
+            allDialogueBeats.push({
+              persona_index: Number.isInteger(beat.persona_index) ? beat.persona_index : null,
+              dialogue: beat.dialogue.trim(),
+              subtext: beat.subtext || null,
+              emotion: beat.emotion || null,
+              words: beat.dialogue.trim().split(/\s+/).length
+            });
+          }
+          if (Array.isArray(beat.exchanges)) {
+            for (const ex of beat.exchanges) {
+              if (ex.dialogue && typeof ex.dialogue === 'string' && ex.dialogue.trim()) {
+                allDialogueBeats.push({
+                  persona_index: Number.isInteger(ex.persona_index) ? ex.persona_index : null,
+                  dialogue: ex.dialogue.trim(),
+                  subtext: ex.subtext || null,
+                  emotion: ex.emotion || null,
+                  words: ex.dialogue.trim().split(/\s+/).length
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Keyframe: use the cliffhanger if provided, else the last dialogue line of the episode
+      const keyframeAnchor = scene.cliffhanger
+        ? `Ep${episode.episode_number}: ${scene.cliffhanger}`
+        : allDialogueBeats.length > 0
+          ? `Ep${episode.episode_number}: "${allDialogueBeats[allDialogueBeats.length - 1].dialogue}"`
+          : `Ep${episode.episode_number}: ${scene.narrative_beat || scene.title || ''}`;
+      updatedKeyframes.push(keyframeAnchor);
+
+      // Voice samples: per persona, pick 2-3 characteristic lines
+      //   heuristic: longest line + shortest line + one line with subtext (if any)
+      const byPersona = {};
+      for (const d of allDialogueBeats) {
+        if (d.persona_index === null) continue;
+        const key = String(d.persona_index);
+        if (!byPersona[key]) byPersona[key] = [];
+        byPersona[key].push(d);
+      }
+
+      for (const [idxKey, lines] of Object.entries(byPersona)) {
+        if (lines.length === 0) continue;
+        const sorted = [...lines].sort((a, b) => b.words - a.words);
+        const longest = sorted[0];
+        const shortest = sorted[sorted.length - 1];
+        const withSubtext = lines.find(l => l.subtext && l.subtext.length > 0);
+        const picks = [longest, shortest, withSubtext].filter(Boolean);
+        const uniquePicks = [];
+        const seen = new Set();
+        for (const p of picks) {
+          if (!seen.has(p.dialogue)) {
+            seen.add(p.dialogue);
+            uniquePicks.push(p.dialogue);
+          }
+        }
+        const prior = Array.isArray(updatedVoiceSamples[idxKey]) ? updatedVoiceSamples[idxKey] : [];
+        const combined = [...prior, ...uniquePicks];
+        // Rolling cap: keep the 6 most recent per persona
+        updatedVoiceSamples[idxKey] = combined.slice(-6);
+      }
+    } else if (scene.dialogue_script) {
+      // Legacy v2/v3 episode — one narration block. Store as persona 0's sample if the
+      // story has personas. This preserves *some* voice continuity for older flows.
+      updatedKeyframes.push(`Ep${episode.episode_number}: ${scene.cliffhanger || scene.narrative_beat || scene.title || ''}`);
+    } else {
+      updatedKeyframes.push(`Ep${episode.episode_number}: ${scene.narrative_beat || scene.title || ''}`);
+    }
+
+    // Intensity ledger: extract a rough 1-10 signal from emotional_state keywords.
+    // Intentionally simple and genre-agnostic — the screenplay prompt can override
+    // with explicit closing_intensity when the bible starts emitting it.
+    const closingIntensity = this._estimateEmotionalIntensity(scene.emotional_state || scene.mood || '');
+    if (closingIntensity !== null) {
+      updatedLedger[String(episode.episode_number)] = closingIntensity;
+    }
+
     // Also track the latest visual_style_prefix for cross-episode continuity
     const updatedStoryline = {
       ...story.storyline,
       story_so_far: updatedSoFar,
       last_visual_style_prefix: scene.visual_style_prefix || story.storyline.last_visual_style_prefix || '',
-      last_emotional_state: scene.emotional_state || ''
+      last_emotional_state: scene.emotional_state || '',
+      previously_on_keyframes: updatedKeyframes,
+      character_voice_samples: updatedVoiceSamples,
+      emotional_intensity_ledger: updatedLedger
     };
 
     await updateBrandStory(storyId, userId, { storyline: updatedStoryline });
-    logger.info(`Story-so-far updated for story ${storyId} after episode ${episode.episode_number}`);
+    logger.info(`Story-so-far updated for story ${storyId} after episode ${episode.episode_number} (${updatedKeyframes.length} keyframes, ${Object.keys(updatedVoiceSamples).length} personas with voice samples)`);
+  }
+
+  /**
+   * Rough 1-10 intensity estimate from a free-text emotional_state string.
+   * Genre-agnostic keyword map. Returns null if nothing matches — caller treats
+   * null as "no signal recorded for this episode" and the validator skips the ramp
+   * check for that datapoint.
+   */
+  _estimateEmotionalIntensity(text) {
+    if (!text || typeof text !== 'string') return null;
+    const t = text.toLowerCase();
+    // Descending severity — first match wins
+    const buckets = [
+      { score: 10, keys: ['devastat', 'catastroph', 'ruined', 'shatter', 'annihilat'] },
+      { score: 9,  keys: ['reelin', 'breakdown', 'crushed', 'unravel', 'heartbroken'] },
+      { score: 8,  keys: ['furious', 'terror', 'despair', 'horrified', 'betrayed'] },
+      { score: 7,  keys: ['stunned', 'tense', 'bracing', 'anxious', 'urgent', 'dread', 'panicked'] },
+      { score: 6,  keys: ['suspicious', 'wary', 'uneasy', 'apprehensive', 'brittle', 'heartbreak'] },
+      { score: 5,  keys: ['ambivalent', 'unsettled', 'uncertain', 'melanchol', 'bittersweet', 'guarded'] },
+      { score: 4,  keys: ['reflective', 'quiet', 'subdued', 'contempl'] },
+      { score: 3,  keys: ['curious', 'intrig', 'hopeful', 'calm'] },
+      { score: 2,  keys: ['warm', 'relieved', 'content', 'gentle', 'tender'] },
+      { score: 1,  keys: ['serene', 'peaceful', 'settled', 'resolved'] }
+    ];
+    for (const b of buckets) {
+      for (const k of b.keys) {
+        if (t.includes(k)) return b.score;
+      }
+    }
+    return null;
   }
 
   // ═══════════════════════════════════════════════════

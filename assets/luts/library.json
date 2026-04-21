@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "description": "V4 Brand Story LUT library. 8 creative LUTs (applied per episode) + 3 per-model correction LUTs (applied per beat before the creative pass). Free sources: FreshLUTs, RocketStock community packs. Per-model corrections neutralize each AI video model's inherent color science so the unified creative LUT can be applied cleanly on top.",
+    "strategy": "2-pass grade: [per-model correction LUT keyed off beat.model_used] → [unified creative LUT keyed off episode.lut_id]",
+    "updated": "2026-04-08"
+  },
+  "creative": [
+    {
+      "id": "bs_warm_cinematic",
+      "file": "bs_warm_cinematic.cube",
+      "look": "Kodak Portra 400 emulation, warm shadows, soft highlights",
+      "suits_brand_types": ["lifestyle", "hospitality", "food", "family", "restaurant"],
+      "mood_keywords": ["warm", "nostalgic", "intimate", "inviting", "homely"],
+      "hex_signature": ["#F5E6D3", "#C4896F", "#6B4423"]
+    },
+    {
+      "id": "bs_cool_noir",
+      "file": "bs_cool_noir.cube",
+      "look": "Desaturated, blue-shifted shadows, high contrast",
+      "suits_brand_types": ["tech", "fintech", "security", "B2B", "cybersecurity", "enterprise software"],
+      "mood_keywords": ["cool", "precise", "mysterious", "authoritative", "modern"],
+      "hex_signature": ["#1A1A2E", "#16213E", "#0F3460"]
+    },
+    {
+      "id": "bs_golden_hour",
+      "file": "bs_golden_hour.cube",
+      "look": "Amber highlights, soft warm midtones, soft sun glow",
+      "suits_brand_types": ["wellness", "beauty", "travel", "luxury", "spa", "resort"],
+      "mood_keywords": ["warm", "aspirational", "dreamy", "luxurious", "sun-kissed"],
+      "hex_signature": ["#FFD700", "#F5B041", "#8B4513"]
+    },
+    {
+      "id": "bs_urban_grit",
+      "file": "bs_urban_grit.cube",
+      "look": "Teal & orange, crushed blacks, raised greens",
+      "suits_brand_types": ["streetwear", "sports", "gaming", "automotive", "action sports"],
+      "mood_keywords": ["edgy", "bold", "cinematic", "dynamic", "urban"],
+      "hex_signature": ["#008080", "#FF6B35", "#1C1C1C"]
+    },
+    {
+      "id": "bs_dreamy_ethereal",
+      "file": "bs_dreamy_ethereal.cube",
+      "look": "Bloom highlights, soft pastels, lifted blacks",
+      "suits_brand_types": ["fashion", "perfume", "cosmetics", "jewelry", "editorial"],
+      "mood_keywords": ["ethereal", "dreamy", "romantic", "soft", "feminine"],
+      "hex_signature": ["#F8E7F6", "#E4C1F9", "#D8BFD8"]
+    },
+    {
+      "id": "bs_retro_film",
+      "file": "bs_retro_film.cube",
+      "look": "Fuji 8mm, muted saturation, warm grain",
+      "suits_brand_types": ["heritage", "artisanal", "food & drink", "craft", "vintage"],
+      "mood_keywords": ["retro", "handmade", "authentic", "warm", "timeless"],
+      "hex_signature": ["#D4A574", "#8B6914", "#4B3621"]
+    },
+    {
+      "id": "bs_high_contrast_moody",
+      "file": "bs_high_contrast_moody.cube",
+      "look": "Deep blacks, punchy highlights, neutral midtones",
+      "suits_brand_types": ["music", "entertainment", "fashion editorial", "nightlife", "DJ"],
+      "mood_keywords": ["moody", "dramatic", "bold", "editorial", "nocturnal"],
+      "hex_signature": ["#000000", "#FFFFFF", "#808080"]
+    },
+    {
+      "id": "bs_naturalistic",
+      "file": "bs_naturalistic.cube",
+      "look": "Minimal grade, subtle warmth, preserved natural tones",
+      "suits_brand_types": ["health", "education", "non-profit", "documentary", "wellness"],
+      "mood_keywords": ["natural", "honest", "trustworthy", "clean", "real"],
+      "hex_signature": ["#E8DFC9", "#A49A7E", "#4F4A3F"],
+      "is_safe_fallback": true
+    }
+  ],
+  "corrections": [
+    {
+      "id": "correct_omnihuman",
+      "file": "corrections/correct_omnihuman.cube",
+      "description": "Neutralizes OmniHuman 1.5's warm-green portrait bias",
+      "applies_to_model_prefix": ["omnihuman", "mode-a"]
+    },
+    {
+      "id": "correct_veo",
+      "file": "corrections/correct_veo.cube",
+      "description": "Neutralizes Veo 3.1's photoreal-clinical bias",
+      "applies_to_model_prefix": ["veo-3.1"]
+    },
+    {
+      "id": "correct_kling",
+      "file": "corrections/correct_kling.cube",
+      "description": "Neutralizes Kling's warm-saturated bias",
+      "applies_to_model_prefix": ["kling-o3", "kling-v3", "mode-b"]
+    }
+  ]
+}
