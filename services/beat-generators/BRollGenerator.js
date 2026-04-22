@@ -53,6 +53,13 @@ class BRollGenerator extends BaseBeatGenerator {
 
     this.logger.info(`[${beat.beat_id}] Veo B_ROLL (${duration}s${firstFrameUrl ? ', anchored' : ', text-only'})`);
 
+    // Plumb persona names + subject context so VeoService's three-tier
+    // content-filter retry can sanitise name+body-part phrasing if Vertex
+    // refuses the original prompt. See VeoPromptSanitizer.
+    const personaNames = (personas || [])
+      .map(p => p && p.name)
+      .filter(n => typeof n === 'string' && n.length > 0);
+
     const result = await veo.generateWithFrames({
       firstFrameUrl, // null is OK — VeoFalService goes text-only when absent
       lastFrameUrl: null,
@@ -61,7 +68,13 @@ class BRollGenerator extends BaseBeatGenerator {
         duration,
         aspectRatio: '9:16',
         generateAudio: true, // the whole point of using Veo for B-roll
-        tier: 'standard'
+        tier: 'standard',
+        personaNames,
+        sanitizationContext: {
+          subjectName: location, // tier-2 fallback describes the location
+          subjectDescription: atmosphere,
+          stylePrefix
+        }
       }
     });
 

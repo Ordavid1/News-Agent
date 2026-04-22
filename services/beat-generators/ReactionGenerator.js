@@ -48,15 +48,23 @@ class ReactionGenerator extends BaseBeatGenerator {
 
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const expressionArc = beat.expression_notes || 'subtle emotional shift';
+    // REACTION beats center on a persona by design, but we avoid embedding
+    // the persona name in the prompt — the first-frame reference already
+    // identifies the character and Vertex's content filter tends to refuse
+    // "Tight closeup on <Name>" combined with a person-identifying image.
     const prompt = [
       stylePrefix,
-      `Tight closeup on ${persona.name || 'the character'}.`,
+      'Tight closeup on the character in frame.',
       'Silent beat, no dialogue.',
       `Emotional arc: ${expressionArc}.`,
       'Micro-expression emphasis, shallow depth of field, intimate framing.'
     ].filter(Boolean).join(' ');
 
     this.logger.info(`[${beat.beat_id}] Veo REACTION (${duration}s, first-frame only)`);
+
+    const personaNames = (personas || [])
+      .map(p => p && p.name)
+      .filter(n => typeof n === 'string' && n.length > 0);
 
     const result = await veo.generateWithFrames({
       firstFrameUrl,
@@ -66,7 +74,13 @@ class ReactionGenerator extends BaseBeatGenerator {
         duration,
         aspectRatio: '9:16',
         generateAudio: true, // Veo's native ambient for the reaction (soft room tone)
-        tier: 'standard'
+        tier: 'standard',
+        personaNames,
+        sanitizationContext: {
+          subjectName: 'the character',
+          subjectDescription: expressionArc,
+          stylePrefix
+        }
       }
     });
 

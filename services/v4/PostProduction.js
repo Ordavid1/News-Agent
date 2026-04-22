@@ -337,6 +337,12 @@ function assembleScenesWithTransitions(scenes, outputPath) {
   const filterComplex = [...videoChain, ...audioChain].join(';');
 
   try {
+    // Capture stderr explicitly so a failure surfaces ffmpeg's actual
+    // diagnostic (e.g. "offset must be less than input duration") instead
+    // of the opaque "Command failed" message from execFileSync.
+    // Caught 2026-04-22: a silent xfade failure fell through to the
+    // straight-concat fallback, losing dissolve/fadeblack transitions
+    // without the operator knowing why. Now we log the ffmpeg stderr.
     execFileSync('ffmpeg', [
       '-y',
       ...inputArgs,
@@ -349,12 +355,20 @@ function assembleScenesWithTransitions(scenes, outputPath) {
       '-c:a', 'aac',
       '-b:a', '192k',
       outputPath
-    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    ], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'buffer' });
     logger.info(`assembly: xfade chain applied (${scenes.length - 1} transition(s))`);
   } catch (err) {
     // Silent fallback: xfade filter failed → straight concat without transitions.
-    // Log clearly so the user knows transitions were skipped.
-    logger.warn(`xfade assembly failed: ${err.message} — falling back to straight concat (transitions skipped)`);
+    // Log clearly so the user knows transitions were skipped, AND dump ffmpeg
+    // stderr so the actual filter-chain error is visible for debugging.
+    const stderr = err.stderr
+      ? (Buffer.isBuffer(err.stderr) ? err.stderr.toString('utf8') : String(err.stderr))
+      : '';
+    const stderrTail = stderr ? stderr.split('\n').filter(l => l.trim()).slice(-8).join(' | ') : '(no stderr captured)';
+    logger.warn(`xfade assembly failed: ${err.message}`);
+    logger.warn(`  filter_complex was: ${filterComplex}`);
+    logger.warn(`  ffmpeg stderr tail: ${stderrTail}`);
+    logger.warn(`  → falling back to straight concat (dissolve/fadeblack/speed_ramp transitions SKIPPED)`);
     concatNormalizedVideos(scenes.map(s => s.path), outputPath);
   }
 }

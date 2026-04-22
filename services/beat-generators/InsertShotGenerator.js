@@ -61,6 +61,21 @@ class InsertShotGenerator extends BaseBeatGenerator {
 
     this.logger.info(`[${beat.beat_id}] Veo INSERT_SHOT (${duration}s, ${subjectFocus})`);
 
+    // Pass persona names + a tier-2 fallback context to VeoService so its
+    // three-tier content-filter retry can sanitise name+body-part phrasing
+    // ("on Leo's wrist") that Vertex rejects pre-submission. The tier-2
+    // fallback — product-hero boilerplate — uses the subject's real name
+    // (NOT persona name) so the brand beat survives even at worst case.
+    const personaNames = (personas || [])
+      .map(p => p && p.name)
+      .filter(n => typeof n === 'string' && n.length > 0);
+    const subjectNameForFallback = episodeContext?.subject?.name
+      || beat.subject_focus
+      || 'the product';
+    const subjectDescriptionForFallback = episodeContext?.subject?.description
+      || episodeContext?.subject?.visual_description
+      || '';
+
     const result = await veo.generateWithFrames({
       firstFrameUrl,
       lastFrameUrl: null,
@@ -69,7 +84,13 @@ class InsertShotGenerator extends BaseBeatGenerator {
         duration,
         aspectRatio: '9:16',
         generateAudio: true,
-        tier: 'standard'
+        tier: 'standard',
+        personaNames,
+        sanitizationContext: {
+          subjectName: subjectNameForFallback,
+          subjectDescription: subjectDescriptionForFallback,
+          stylePrefix
+        }
       }
     });
 

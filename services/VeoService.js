@@ -33,6 +33,7 @@
 
 import videoGenerationService from './VideoGenerationService.js';
 import winston from 'winston';
+import { isVeoContentFilterError, sanitizeTier1, sanitizeTier2 } from './v4/VeoPromptSanitizer.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -112,34 +113,79 @@ class VeoService {
       `generateWithFrames — ${clampedDuration}s, ${aspectRatio}, first=${firstFrameUrl ? 'yes' : 'no'}, last=${lastFrameUrl && firstFrameUrl ? 'yes' : 'no'}`
     );
 
-    // Delegate to the production-tested Vertex Veo path.
-    // VideoGenerationService.generateWithFirstLastFrame() handles:
-    //   - Image download + base64 encoding
-    //   - Instance + parameters construction
-    //   - Vertex LRO submission + polling
-    //   - Content filter error surfacing (ContentFilterError class)
-    //   - 429 retry with exponential backoff
-    const result = await videoGenerationService.generateWithFirstLastFrame({
-      firstImageUrl: firstFrameUrl,
-      lastImageUrl: lastFrameUrl,
-      prompt,
-      cameraControl: null, // prompt-driven on Vertex Veo 3.1 Standard
-      options: {
-        durationSeconds: clampedDuration,
-        aspectRatio
-      }
-    });
+    // ──────────────────────────────────────────────────────────
+    // Three-tier content-filter retry. Vertex AI Veo rejects
+    // prompts with person-identity + body-part phrasing at
+    // submission time ("could not be submitted. ... violate
+    // Vertex AI's usage guidelines"). Rather than lose the beat,
+    // retry with progressively sanitised prompts:
+    //   Attempt 1: original prompt (Gemini's best creative)
+    //   Attempt 2: Tier-1 sanitised — strip persona names + body-
+    //              part phrasing. Preserves style and subject.
+    //   Attempt 3: Tier-2 minimal — product-hero boilerplate.
+    //              Near-certain submission but narrative-lossy.
+    // Each attempt reaches the same Vertex LRO path. Only content-
+    // filter errors trigger retry; any other error bubbles up.
+    // ──────────────────────────────────────────────────────────
+    const personaNames = Array.isArray(options.personaNames) ? options.personaNames : [];
+    const sanitizationContext = options.sanitizationContext || {};
+    const attempts = [
+      { label: 'original', prompt },
+      { label: 'tier1-sanitised', prompt: sanitizeTier1(prompt, personaNames) },
+      { label: 'tier2-minimal', prompt: sanitizeTier2(sanitizationContext) }
+    ];
 
-    // Normalize to the V4 beat generator shape. VideoGenerationService returns
-    // `videoUrl: 'vertex-operation:{operationName}'` as a reference since the
-    // actual bytes are in `videoBuffer`. Beat generators use `videoBuffer` for
-    // the upload step, so the opaque operation URL is fine.
+    let lastErr = null;
+    let attemptUsed = null;
+    let result = null;
+    for (const attempt of attempts) {
+      // Skip a tier if it produced a prompt identical to a previous tier
+      // (nothing to sanitise). Prevents wasting a round-trip on a no-op retry.
+      if (attempt.label !== 'original' && attempt.prompt === attempts[0].prompt) {
+        continue;
+      }
+      try {
+        result = await videoGenerationService.generateWithFirstLastFrame({
+          firstImageUrl: firstFrameUrl,
+          lastImageUrl: lastFrameUrl,
+          prompt: attempt.prompt,
+          cameraControl: null,
+          options: { durationSeconds: clampedDuration, aspectRatio }
+        });
+        attemptUsed = attempt.label;
+        if (attempt.label !== 'original') {
+          logger.warn(`Veo accepted ${attempt.label} prompt after earlier refusal. Original: "${prompt.slice(0, 120)}..." Sanitised: "${attempt.prompt.slice(0, 120)}..."`);
+        }
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (!isVeoContentFilterError(err)) {
+          // Non-safety errors bubble up immediately (no retry — could be 429,
+          // network, auth, etc.)
+          throw err;
+        }
+        logger.warn(`Veo refused ${attempt.label} prompt (content filter) — ${err.message.slice(0, 180)}`);
+      }
+    }
+
+    if (!result) {
+      // All three tiers refused. Final error carries the original prompt for
+      // downstream diagnosis + the quality_report.
+      const finalErr = new Error(
+        `Veo refused all three sanitisation tiers (original, tier1, tier2). Original prompt first 180 chars: "${prompt.slice(0, 180)}"`
+      );
+      finalErr.originalError = lastErr;
+      finalErr.isVeoContentFilter = true;
+      throw finalErr;
+    }
+
     return {
       videoUrl: result.videoUrl,
       videoBuffer: result.videoBuffer,
       duration: result.duration,
       model: 'veo-3.1-vertex',
-      fallbackTier: 1 // no in-wrapper fallback; content filter errors bubble up to beat orchestration
+      fallbackTier: 1,
+      sanitizationTier: attemptUsed // 'original' | 'tier1-sanitised' | 'tier2-minimal'
     };
   }
 }

@@ -559,6 +559,21 @@ GENERATED BEATS (a video model generates them):
            duration_seconds (2-4), ambient_sound (glass clink, fabric rustle, etc.)
    At LEAST ONE insert shot per episode when subject is a product.
 
+   ⚠️ SUBJECT_FOCUS HARD RULE — never include a PERSONA NAME or POSSESSIVE
+   BODY-PART phrase in subject_focus. This field drives the Veo content-safety
+   filter, which refuses prompts like "on Maya's wrist" / "in Daniel's hand"
+   (person-identity + body part). Write subject_focus as PRODUCT-ONLY:
+     ✗ BAD:  "A silver wristwatch on Leo's wrist."
+     ✓ GOOD: "A silver wristwatch held in frame, cinematic macro."
+     ✗ BAD:  "The encryption keycard cradled in Maya's hands."
+     ✓ GOOD: "The encryption keycard resting on a marble countertop."
+     ✗ BAD:  "The perfume bottle in her fingers."
+     ✓ GOOD: "The perfume bottle suspended in gloved hands, no face visible."
+   If the product is being handed to a character, describe HANDS (no name, no
+   possessive) or the RESULT of the handoff. Keep the persona to the
+   reference image — the pipeline's first-frame anchor already establishes
+   identity without needing it in the prompt text.
+
 8. **ACTION_NO_DIALOGUE** — physical action, movement, environmental interaction. No spoken dialogue.
    Prompt-first cinematic beat. Routes to Kling V3 Pro for up to 15s continuous action with native physics.
    Fields: action_prompt (cinematic action description), persona_indexes (who's in the shot, optional),
@@ -1097,7 +1112,7 @@ OUTPUT JSON SCHEMA (match exactly):
         {
           "beat_id": "s1b6",
           "type": "INSERT_SHOT",
-          "subject_focus": "the brand perfume bottle sat between them on the bar, untouched",
+          "subject_focus": "the brand perfume bottle resting on a marble bar, untouched, suspended between gloved hands just entering frame",
           "lighting_intent": "single hard rim light catches the bottle's engraved name",
           "camera_move": "slow push-in then rack focus from character blur to product",
           "duration_seconds": 3,

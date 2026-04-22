@@ -88,6 +88,9 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     ].filter(Boolean).join(' ');
 
     this.logger.info(`[${beat.beat_id}] Stage B: Veo 3.1 B-roll (${duration}s)`);
+    const personaNames = (personas || [])
+      .map(p => p && p.name)
+      .filter(n => typeof n === 'string' && n.length > 0);
     const veoResult = await veo.generateWithFrames({
       firstFrameUrl,
       prompt: veoPrompt,
@@ -95,7 +98,13 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
         duration,
         aspectRatio: '9:16',
         generateAudio: true, // keep ambient; orchestrator will duck it under V.O.
-        tier: 'standard'
+        tier: 'standard',
+        personaNames,
+        sanitizationContext: {
+          subjectName: location,
+          subjectDescription: 'atmospheric establishing b-roll',
+          stylePrefix
+        }
       }
     });
 
