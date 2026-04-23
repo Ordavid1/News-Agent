@@ -20,7 +20,6 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Vibrant } from 'node-vibrant/node';
 import { supabaseAdmin } from './supabase.js';
 import {
   getUserMediaAssets,
@@ -1923,33 +1922,30 @@ class MediaAssetService {
   async _extractColorPalette(imageUrls) {
     const allSwatches = [];
 
-    // Process all images (node-vibrant can work from URLs directly)
     const results = await Promise.allSettled(
       imageUrls.map(async (url) => {
-        try {
-          const palette = await Vibrant.from(url).getPalette();
-          return palette;
-        } catch (err) {
-          logger.warn(`Vibrant failed for ${url}: ${err.message}`);
-          return null;
+        const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+        const buffer = Buffer.from(resp.data);
+        const { data } = await sharp(buffer)
+          .resize(100, 100, { fit: 'inside' })
+          .removeAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+
+        const pixels = [];
+        for (let i = 0; i < data.length; i += 3) {
+          pixels.push([data[i], data[i + 1], data[i + 2]]);
         }
+        return this._kMeansCluster(pixels, 6);
       })
     );
 
-    // Collect all swatch entries across images
-    const swatchNames = ['Vibrant', 'DarkVibrant', 'LightVibrant', 'Muted', 'DarkMuted', 'LightMuted'];
     for (const result of results) {
-      if (result.status !== 'fulfilled' || !result.value) continue;
-      const palette = result.value;
-      for (const name of swatchNames) {
-        const swatch = palette[name];
-        if (swatch) {
-          allSwatches.push({
-            hex: swatch.hex,
-            population: swatch.population,
-            swatchType: name
-          });
-        }
+      if (result.status !== 'fulfilled') continue;
+      for (const cluster of result.value) {
+        const [r, g, b] = cluster.center.map(Math.round);
+        const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+        allSwatches.push({ hex, population: cluster.pixels.length, swatchType: this._classifySwatchType(r, g, b) });
       }
     }
 
@@ -1958,20 +1954,65 @@ class MediaAssetService {
       return [];
     }
 
-    // Deduplicate similar colors (ΔE < 25 in simple RGB distance)
     const deduped = this._deduplicateColors(allSwatches);
-
-    // Sort by population (frequency) and take top 8
     deduped.sort((a, b) => b.population - a.population);
     const topColors = deduped.slice(0, 8);
 
-    // Assign usage roles based on swatch type dominance
     return topColors.map((color, idx) => ({
       hex: color.hex,
       name: this._colorName(color.hex),
       usage: this._assignColorRole(color, idx),
       population: color.population
     }));
+  }
+
+  _kMeansCluster(pixels, k, maxIter = 10) {
+    const n = pixels.length;
+    if (n === 0) return [];
+    k = Math.min(k, n);
+    const step = Math.max(1, Math.floor(n / k));
+    let centroids = Array.from({ length: k }, (_, i) => [...pixels[i * step]]);
+
+    let clusters;
+    for (let iter = 0; iter < maxIter; iter++) {
+      clusters = Array.from({ length: k }, () => ({ pixels: [], sumR: 0, sumG: 0, sumB: 0 }));
+
+      for (const px of pixels) {
+        let minDist = Infinity, nearest = 0;
+        for (let c = 0; c < k; c++) {
+          const dr = px[0] - centroids[c][0], dg = px[1] - centroids[c][1], db = px[2] - centroids[c][2];
+          const d = dr * dr + dg * dg + db * db;
+          if (d < minDist) { minDist = d; nearest = c; }
+        }
+        clusters[nearest].pixels.push(px);
+        clusters[nearest].sumR += px[0];
+        clusters[nearest].sumG += px[1];
+        clusters[nearest].sumB += px[2];
+      }
+
+      let moved = false;
+      for (let c = 0; c < k; c++) {
+        if (!clusters[c].pixels.length) continue;
+        const cn = clusters[c].pixels.length;
+        const next = [clusters[c].sumR / cn, clusters[c].sumG / cn, clusters[c].sumB / cn];
+        if (Math.abs(next[0] - centroids[c][0]) + Math.abs(next[1] - centroids[c][1]) + Math.abs(next[2] - centroids[c][2]) > 0.5) moved = true;
+        centroids[c] = next;
+      }
+      if (!moved) break;
+    }
+
+    return clusters.map((c, i) => ({ center: centroids[i], pixels: c.pixels })).filter(c => c.pixels.length > 0);
+  }
+
+  _classifySwatchType(r, g, b) {
+    const rn = r / 255, gn = g / 255, bn = b / 255;
+    const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+    const l = (max + min) / 2;
+    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+    const vibrant = s > 0.35;
+    if (l < 0.3) return vibrant ? 'DarkVibrant' : 'DarkMuted';
+    if (l > 0.7) return vibrant ? 'LightVibrant' : 'LightMuted';
+    return vibrant ? 'Vibrant' : 'Muted';
   }
 
   /**
