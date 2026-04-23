@@ -564,6 +564,23 @@
     if (beat.subtext) badges.push(chip('subtext', beat.subtext, 'warn'));
     if (beat.emotional_hold === true) badges.push(chip('hold', 'silence after', 'warn'));
     if (beat.pace_hint) badges.push(chip('pace', beat.pace_hint));
+    // V4 Phase 3 — framing vocabulary (read-only badge; editor surfaces it below)
+    if (beat.framing) badges.push(chip('framing', beat.framing));
+    // V4 Phase 2 keystone — persona lock status (green when Seedream pre-frame
+    // ran, amber when persona-featuring beat skipped the pre-pass)
+    if (beat.persona_locked_first_frame_url) {
+      badges.push(chip('persona lock', 'on', 'strong'));
+    } else if (beat.persona_lock_error) {
+      badges.push(chip('persona lock', 'failed', 'warn'));
+    }
+    // V4 Phase 1.1 — subject mandate flag
+    if (beat.subject_present === true) badges.push(chip('subject', 'on screen', 'strong'));
+    // V4 Phase 8 — quality gate report
+    if (beat.quality_gate && !beat.quality_gate.passed) {
+      badges.push(chip('QC', 'failed', 'warn'));
+    } else if (beat.quality_gate && Array.isArray(beat.quality_gate.issues) && beat.quality_gate.issues.length > 0) {
+      badges.push(chip('QC', `${beat.quality_gate.issues.length} warning`, 'warn'));
+    }
     // Scene-level metadata surfaced on every beat of the scene for quick read
     if (scene) {
       if (scene.scene_goal) badges.push(chip('scene goal', scene.scene_goal));
@@ -644,6 +661,63 @@
     if ('subject_focus' in beat) addText('subject_focus', 'Subject focus', beat.subject_focus);
     if ('lighting_intent' in beat) addText('lighting_intent', 'Lighting intent', beat.lighting_intent);
     if ('camera_move' in beat) addText('camera_move', 'Camera move', beat.camera_move);
+
+    // V4 Phase 3.2 / 5.3 / 7 — structured overrides. These four dropdowns
+    // give the human director locked, non-improvised control over the shot
+    // recipe without having to write prompt prose.
+    //
+    // `framing`           → maps to the Cinematic Framing Vocabulary
+    // `preferred_generator` → per-beat model override (Phase 5.3)
+    // `subject_present`   → subject mandate toggle (Phase 1.1)
+    // `personas_present`  → comma-separated persona index override (Phase 2)
+    const addSelect = (name, label, options, current) => {
+      const sel = document.createElement('select');
+      sel.name = name;
+      sel.className = 'w-full text-sm p-2 border border-surface-300 rounded';
+      for (const opt of options) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (String(opt.value) === String(current || '')) o.selected = true;
+        sel.appendChild(o);
+      }
+      form.appendChild(el('div', null, [
+        el('label', { class: 'text-xs font-medium text-ink-600' }, label),
+        sel
+      ]));
+    };
+
+    addSelect('framing', 'Framing (cinematic vocabulary)', [
+      { value: '', label: '— default for beat type —' },
+      { value: 'wide_establishing', label: 'wide_establishing (24-35mm, reveal)' },
+      { value: 'medium_two_shot', label: 'medium_two_shot (35-50mm)' },
+      { value: 'over_shoulder', label: 'over_shoulder (50-85mm)' },
+      { value: 'tight_closeup', label: 'tight_closeup (85-100mm)' },
+      { value: 'macro_insert', label: 'macro_insert (100mm+ held macro)' },
+      { value: 'tracking_push', label: 'tracking_push (kinetic)' },
+      { value: 'bridge_transit', label: 'bridge_transit (scene connector)' }
+    ], beat.framing);
+
+    addSelect('preferred_generator', 'Generator override (advanced)', [
+      { value: '', label: '— auto-route by beat type —' },
+      { value: 'CinematicDialogueGenerator', label: 'CinematicDialogueGenerator (Kling O3 + Sync)' },
+      { value: 'GroupTwoShotGenerator', label: 'GroupTwoShotGenerator' },
+      { value: 'SilentStareGenerator', label: 'SilentStareGenerator (Kling)' },
+      { value: 'ReactionGenerator', label: 'ReactionGenerator (Veo)' },
+      { value: 'InsertShotGenerator', label: 'InsertShotGenerator (Veo)' },
+      { value: 'ActionGenerator', label: 'ActionGenerator (Kling V3 Pro)' },
+      { value: 'BRollGenerator', label: 'BRollGenerator (Veo)' },
+      { value: 'VoiceoverBRollGenerator', label: 'VoiceoverBRollGenerator (Veo + TTS)' }
+    ], beat.preferred_generator);
+
+    const subjectWrap = el('div', { class: 'flex items-center gap-2' });
+    const subjChk = document.createElement('input');
+    subjChk.type = 'checkbox';
+    subjChk.name = 'subject_present';
+    subjChk.checked = beat.subject_present === true;
+    subjectWrap.appendChild(subjChk);
+    subjectWrap.appendChild(el('label', { class: 'text-xs font-medium text-ink-600' }, 'Subject present (product/landscape on screen)'));
+    form.appendChild(subjectWrap);
 
     const grid = el('div', { class: 'grid grid-cols-2 gap-2' });
     if ('duration_seconds' in beat) {

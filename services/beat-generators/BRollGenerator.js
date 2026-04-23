@@ -30,24 +30,59 @@ class BRollGenerator extends BaseBeatGenerator {
 
     const duration = Math.max(3, Math.min(5, beat.duration_seconds || 4));
 
-    // B-roll anchor: scene master is ideal (matches scene look), fall back to
-    // previous endframe for transition continuity, then text-only.
-    const firstFrameUrl = scene?.scene_master_url
+    // Phase 2 — when Gemini flags a persona in the B-roll (e.g. "agent walks
+    // onto the terrace at golden hour"), synthesize a persona-locked first
+    // frame before Veo runs. For pure environment B-roll (no personas), this
+    // returns null and the legacy anchor waterfall runs unchanged.
+    const personaLockUrl = await this._buildPersonaLockedFirstFrame({
+      beat, scene, previousBeat, personas, episodeContext
+    });
+
+    // B-roll anchor: persona-lock (if present) → scene master (matches scene
+    // look) → previous endframe (transition continuity) → text-only.
+    const firstFrameUrl = personaLockUrl
+      || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
 
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const location = beat.location || scene?.location || 'establishing shot';
     const atmosphere = beat.atmosphere || 'cinematic, evocative';
-    const cameraMove = beat.camera_move || 'slow dolly forward';
+    // Default camera intent for a B_ROLL_ESTABLISHING is to REVEAL context,
+    // not close in on it. The legacy 'slow dolly forward' default aggressively
+    // pushed into the subject, cutting off environmental context on 2-4s
+    // beats — the opposite of an establishing shot. The new default describes
+    // a pullback/reveal at an establishing focal length so Veo opens the frame
+    // wide. Screenplay beats can still override with beat.camera_move.
+    const cameraMove = beat.camera_move
+      || 'slow dolly back revealing wider context, 24-35mm wide lens';
+    // Phase 3.2 — prefer the structured framing vocabulary recipe when emitted.
+    // For B_ROLL_ESTABLISHING the prompt-schema rule forces wide_establishing
+    // or bridge_transit, so the recipe always lands on a reveal camera.
+    const framingRecipe = this._resolveFramingRecipe(beat);
+    const framingIntent = framingRecipe
+      || 'Wide establishing frame — full environment visible, subject positioned within context, generous headroom.';
     const ambientSound = beat.ambient_sound || 'natural ambient sound, evocative and immersive';
 
+    // V4 Phase 9 — vertical framing directive. Veo strongly reaches for
+    // 2.39:1 cinemascope on "wide establishing" prompts even when aspect_ratio
+    // is 9:16, producing a letterboxed wide mid-band. The directive + the
+    // per-beat-type override force low-angle vertical compositions.
+    const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
+    // Persona-featuring B-rolls also need identity anchoring language.
+    const identityDirective = (beat.personas_present && beat.personas_present.length > 0)
+      ? this._buildIdentityAnchoringDirective()
+      : '';
+
     const prompt = [
+      verticalDirective,
       stylePrefix,
       `Establishing shot: ${location}.`,
+      framingIntent,
       `Atmosphere: ${atmosphere}.`,
       `Camera: ${cameraMove}.`,
-      'No visible characters in frame — pure environment.',
+      identityDirective,
+      'No visible characters speaking — pure environment (unless persona explicitly flagged above).',
       `Ambient audio: ${ambientSound}.`
     ].filter(Boolean).join(' ');
 
@@ -92,6 +127,7 @@ class BRollGenerator extends BaseBeatGenerator {
         fallbackTier: result.fallbackTier,
         location,
         hasAnchor: !!firstFrameUrl,
+        personaLocked: !!personaLockUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration
       }

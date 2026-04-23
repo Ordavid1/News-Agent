@@ -40,6 +40,9 @@ export { default as VoiceoverBRollGenerator } from './VoiceoverBRollGenerator.js
 // Post-production beat
 export { default as TextOverlayCardGenerator } from './TextOverlayCardGenerator.js';
 
+// V4 Phase 6.1 — narrative bridge beats (optional scene connectors)
+export { default as BridgeBeatGenerator } from './BridgeBeatGenerator.js';
+
 // ─────────────────────────────────────────────────────────────────────
 // Factory: given a beat type, return the generator class.
 // Used by unit tests and optional direct lookups — the BeatRouter uses
@@ -56,6 +59,7 @@ import MontageSequenceGeneratorDefault from './MontageSequenceGenerator.js';
 import BRollGeneratorDefault from './BRollGenerator.js';
 import VoiceoverBRollGeneratorDefault from './VoiceoverBRollGenerator.js';
 import TextOverlayCardGeneratorDefault from './TextOverlayCardGenerator.js';
+import BridgeBeatGeneratorDefault from './BridgeBeatGenerator.js';
 
 const BEAT_TYPE_TO_GENERATOR = {
   TALKING_HEAD_CLOSEUP: CinematicDialogueGeneratorDefault,  // Mode B primary
@@ -68,7 +72,8 @@ const BEAT_TYPE_TO_GENERATOR = {
   MONTAGE_SEQUENCE: MontageSequenceGeneratorDefault,
   B_ROLL_ESTABLISHING: BRollGeneratorDefault,
   VOICEOVER_OVER_BROLL: VoiceoverBRollGeneratorDefault,
-  TEXT_OVERLAY_CARD: TextOverlayCardGeneratorDefault
+  TEXT_OVERLAY_CARD: TextOverlayCardGeneratorDefault,
+  SCENE_BRIDGE: BridgeBeatGeneratorDefault  // Phase 6.1 — narrative connective tissue
   // SHOT_REVERSE_SHOT is handled by ShotReverseShotCompiler expansion, NOT routed.
   // SPEED_RAMP_TRANSITION is assembler-only (post-production), NOT routed.
 };

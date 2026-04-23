@@ -49,7 +49,13 @@ class SyncLipsyncFalService extends FalAiBaseService {
    * @param {string} params.videoUrl - public URL of the source video (from Kling Stage 1)
    * @param {string} params.audioUrl - public URL of the target audio (ElevenLabs TTS in persona voice)
    * @param {Object} [params.options]
-   * @param {boolean} [params.options.syncMode='cut_off'] - behavior when video/audio durations mismatch
+   * @param {string} [params.options.syncMode='bounce'] - behavior when video/audio durations mismatch.
+   *                                                      'bounce' mirrors the final frame back-and-forth to
+   *                                                      pad tail gaps instead of hard-clipping them, which
+   *                                                      eliminates the "mouth cut mid-phoneme" artifact that
+   *                                                      'cut_off' produced when TTS ran a few frames longer
+   *                                                      than Kling's rounded duration. Valid fal.ai values:
+   *                                                      'cut_off' | 'loop' | 'bounce' | 'silence' | 'remap'.
    * @returns {Promise<{videoUrl: string, videoBuffer: Buffer, model: string}>}
    */
   async applyLipsync({ videoUrl, audioUrl, options = {} }) {
@@ -58,7 +64,7 @@ class SyncLipsyncFalService extends FalAiBaseService {
     if (!audioUrl) throw new Error('SyncLipsyncFalService: audioUrl is required');
 
     const {
-      syncMode = 'cut_off'
+      syncMode = 'bounce'
     } = options;
 
     this.logger.info(`corrective lipsync pass — syncMode: ${syncMode}`);

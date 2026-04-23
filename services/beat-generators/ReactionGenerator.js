@@ -37,8 +37,20 @@ class ReactionGenerator extends BaseBeatGenerator {
 
     const duration = Math.max(2, Math.min(4, beat.duration_seconds || 3));
 
-    // Start frame: previous endframe (best) → scene master → persona closeup
-    const firstFrameUrl = previousBeat?.endframe_url
+    // Phase 2 keystone — persona-locked first frame (Veo has no reference-image
+    // API, so we synthesize a Seedream still that shows the persona in the
+    // scene master's look at this beat's expression state, then feed it as Veo's
+    // first_frame. This eliminates identity drift on REACTION beats, which was
+    // the loudest "characters appear out of thin air" symptom.
+    const personaLockUrl = await this._buildPersonaLockedFirstFrame({
+      beat, scene, previousBeat, personas, episodeContext
+    });
+
+    // Start frame waterfall: persona-lock (best) → previous endframe → scene
+    // master → persona closeup. The waterfall is unchanged when persona-lock
+    // returns null (V4_PERSONA_LOCK_FRAME=false or Seedream failure).
+    const firstFrameUrl = personaLockUrl
+      || previousBeat?.endframe_url
       || scene?.scene_master_url
       || persona.reference_image_urls?.[1] // closeup view
       || persona.reference_image_urls?.[0];
@@ -52,9 +64,22 @@ class ReactionGenerator extends BaseBeatGenerator {
     // the persona name in the prompt — the first-frame reference already
     // identifies the character and Vertex's content filter tends to refuse
     // "Tight closeup on <Name>" combined with a person-identifying image.
+    // Phase 3.2 — framing recipe (defaults to tight_closeup for REACTION)
+    const framingRecipe = this._resolveFramingRecipe(beat)
+      || 'Lens 85-100mm, close shot. Locked-off, shallow DOF, intimate framing.';
+
+    // V4 Phase 9 — vertical framing + identity anchoring. REACTION beats are
+    // the biggest identity-drift risk on Veo (no reference-image API), so the
+    // textual identity lock reinforces the Seedream persona-locked first frame.
+    const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
+    const identityDirective = this._buildIdentityAnchoringDirective();
+
     const prompt = [
+      verticalDirective,
       stylePrefix,
       'Tight closeup on the character in frame.',
+      framingRecipe,
+      identityDirective,
       'Silent beat, no dialogue.',
       `Emotional arc: ${expressionArc}.`,
       'Micro-expression emphasis, shallow depth of field, intimate framing.'
@@ -98,6 +123,7 @@ class ReactionGenerator extends BaseBeatGenerator {
         veoVideoUrl: result.videoUrl,
         fallbackTier: result.fallbackTier,
         firstFrameUrl,
+        personaLocked: !!personaLockUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration
       }

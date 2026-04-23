@@ -77,7 +77,48 @@ function cleanup(paths) {
 function normalizeVideo(inputPath, outputPath, options = {}) {
   const { applyCorrectionLut = null, nativeAudioGain = 1.0 } = options;
 
-  const vfChain = [`scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=decrease`, `pad=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`, `setsar=1`, `fps=${OUTPUT_FPS}`];
+  // Phase 6.5 — BLUR-FILL normalization replaces raw black-bar letterbox.
+  //
+  // The legacy black-bar pad produced visible letterbox position jumps
+  // between beats when source aspect ratios varied (16:9 → L/R bars,
+  // 1:1 → all-around bars). Viewers read that as "aspect ratio jumping
+  // between beats" even though the output was consistently 1080×1920.
+  //
+  // Industry-standard fix: split the input into two copies. The background
+  // copy is scaled UP (crop-to-fill) and heavily blurred + desaturated,
+  // then the foreground (aspect-preserved) copy is overlaid on top. The
+  // result: no black bars, no visible letterbox jumps, fills the 9:16
+  // frame with an ambient blur of the shot itself. This is how TikTok
+  // Reels, Instagram, and YouTube Shorts handle mixed-aspect sources.
+  //
+  // Opt-out via env var V4_BLUR_FILL=false to preserve legacy black bars
+  // (debugging / nostalgia).
+  const USE_BLUR_FILL = process.env.V4_BLUR_FILL !== 'false';
+
+  const vfChain = [];
+  if (USE_BLUR_FILL) {
+    // Single filter_complex-like string expressed as a vf graph:
+    //   split into [bg] and [fg]
+    //   [bg] scale to fill the frame (increase + crop), boxblur, desaturate
+    //   [fg] scale to fit (decrease + no pad — we overlay)
+    //   overlay [fg] centered on [bg]
+    // The final output is always exactly OUTPUT_WIDTH × OUTPUT_HEIGHT with
+    // no visible bars, and the ratio-preserving foreground sits centered.
+    vfChain.push(
+      `split[bg][fg];` +
+      `[bg]scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,` +
+      `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT},boxblur=30:5,eq=saturation=0.5:brightness=-0.05[bgblur];` +
+      `[fg]scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=decrease[fgscaled];` +
+      `[bgblur][fgscaled]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=${OUTPUT_FPS}`
+    );
+  } else {
+    vfChain.push(
+      `scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:force_original_aspect_ratio=decrease`,
+      `pad=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black`,
+      `setsar=1`,
+      `fps=${OUTPUT_FPS}`
+    );
+  }
   if (applyCorrectionLut) {
     vfChain.push(`lut3d='${applyCorrectionLut}'`);
   }
@@ -330,11 +371,23 @@ function probeStreamDurations(path) {
 // ─────────────────────────────────────────────────────────────────────
 
 const BRIDGE_TRANSITION_DURATION = 0.5;
+// Phase 6.2/6.3 — transitions are no longer naive xfades. Each transition
+// type maps to a ffmpeg filter recipe that the bridge renderer uses. The
+// 'kind' field tells `_renderBridgeClip` which recipe to run:
+//   - 'xfade'       : classic opacity xfade (legacy behavior, still useful
+//                     for `fadeblack` act-break transitions).
+//   - 'blur_xfade'  : xfade with motion-blur precomposition on both inputs —
+//                     reads as cinematic motion blur rather than cheap
+//                     opacity dissolve. Default for `dissolve`.
+//   - 'speed_ramp'  : real Snyder-style speed ramp — tail accelerated via
+//                     setpts with motion-blur interpolation, then a crossfade
+//                     into the next scene at normal speed. Replaces the
+//                     legacy 'smoothup' approximation.
 const BRIDGE_XFADE_MAP = {
-  dissolve: 'fade',
-  fadeblack: 'fadeblack',
-  cut: null,
-  speed_ramp: 'smoothup'
+  dissolve:   { kind: 'blur_xfade', xfade: 'fade' },
+  fadeblack:  { kind: 'xfade',      xfade: 'fadeblack' },
+  cut:        null,
+  speed_ramp: { kind: 'speed_ramp' }
 };
 
 /**
@@ -360,7 +413,7 @@ function _assembleScenesWithBridgeClips(scenes, outputPath) {
     const sd = probeStreamDurations(s.path);
     const dur = sd.video > 0 ? sd.video : sd.container;
     const transition = s.transitionToNext || 'cut';
-    const xfadeName = BRIDGE_XFADE_MAP[transition] || null;
+    const recipe = BRIDGE_XFADE_MAP[transition] || null;
     logger.info(
       `[bridge input ${i}] container=${sd.container.toFixed(2)}s ` +
       `video=${sd.video.toFixed(2)}s audio=${sd.audio.toFixed(2)}s ` +
@@ -370,8 +423,8 @@ function _assembleScenesWithBridgeClips(scenes, outputPath) {
       path: s.path,
       videoDurationSec: dur,
       transition,
-      xfadeName,
-      isSoft: xfadeName !== null
+      recipe,
+      isSoft: recipe !== null
     };
   });
 
@@ -432,10 +485,10 @@ function _assembleScenesWithBridgeClips(scenes, outputPath) {
         try {
           _extractSceneSegment(scene.path, tailStart, d, tailPath);
           _extractSceneSegment(next.path, 0, d, headPath);
-          _renderBridgeClip(tailPath, headPath, scene.xfadeName, d, bridgePath);
+          _renderBridgeClip(tailPath, headPath, scene.recipe, d, bridgePath);
           const bp = probeStreamDurations(bridgePath);
           logger.info(
-            `[bridge ${i}→${i + 1}] ${scene.transition} (${scene.xfadeName}) ` +
+            `[bridge ${i}→${i + 1}] ${scene.transition} (${scene.recipe?.kind}:${scene.recipe?.xfade || 'ramp'}) ` +
             `→ video=${bp.video.toFixed(3)}s audio=${bp.audio.toFixed(3)}s`
           );
           timelineSegments.push({ path: bridgePath, kind: 'bridge', sceneIndex: i });
@@ -564,18 +617,57 @@ function _extractSceneSegment(inputPath, startSec, durationSec, outputPath) {
  * approach, where intermediate filter-graph streams carried subtle timing
  * drift that accumulated into silent scene-drops.
  */
-function _renderBridgeClip(tailClipPath, headClipPath, xfadeName, durationSec, outputPath) {
+function _renderBridgeClip(tailClipPath, headClipPath, recipe, durationSec, outputPath) {
   // tpad stop_mode=clone guarantees at least a few tail frames exist even if
   // the extraction produced a clip marginally shorter than requested (can
   // happen when the source's audio-end slightly precedes the video-end).
   // The final -t clamps the output to exactly durationSec so no extra padding
   // leaks into the concat seam.
-  const filterComplex =
-    `[0:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS}[av];` +
-    `[1:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS}[bv];` +
-    `[av][bv]xfade=transition=${xfadeName}:duration=${durationSec.toFixed(5)}:offset=0[vout];` +
-    `[0:a]apad[aa];[1:a]apad[ba];` +
-    `[aa][ba]acrossfade=d=${durationSec.toFixed(5)}[aout]`;
+  //
+  // Phase 6.2/6.3 — recipe-driven transitions:
+  //   - 'blur_xfade': motion-blur pre-compose on tail (boxblur ramping in) +
+  //                   head (boxblur ramping out). Reads as cinematic motion
+  //                   blur rather than linear opacity dissolve.
+  //   - 'speed_ramp': real Snyder speed ramp. The tail is sped up via setpts
+  //                   (compressed to ~40% of its original duration), motion-
+  //                   blurred, then crossfaded into the head at normal speed.
+  //   - 'xfade'     : classic xfade (used for fadeblack only in the default map).
+  const kind = recipe?.kind || 'xfade';
+  const xfadeName = recipe?.xfade || 'fade';
+  const halfDur = (durationSec / 2).toFixed(5);
+  const d = durationSec.toFixed(5);
+
+  let filterComplex;
+  if (kind === 'speed_ramp') {
+    // Tail: speed up 2.5× via setpts=PTS/2.5, then add motion blur by
+    // time-blending adjacent frames (tblend=all_mode=average). The sped-up
+    // tail is only 0.2s long (0.5s / 2.5), so we tpad it out to 0.5s to keep
+    // the bridge duration constant.
+    filterComplex =
+      `[0:v]setpts=PTS/2.5,fps=${OUTPUT_FPS},tblend=all_mode=average,tpad=stop_mode=clone:stop_duration=${d}[av];` +
+      `[1:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS}[bv];` +
+      `[av][bv]xfade=transition=fade:duration=${halfDur}:offset=${halfDur}[vout];` +
+      `[0:a]apad[aa];[1:a]apad[ba];` +
+      `[aa][ba]acrossfade=d=${d}[aout]`;
+  } else if (kind === 'blur_xfade') {
+    // Motion-blur dissolve — gentle boxblur on both precomposed inputs so the
+    // xfade reads as a smeared motion transition instead of a flat opacity
+    // mix. luma radius 2 over 1 frame keeps the blur subtle (no muddy frames).
+    filterComplex =
+      `[0:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS},boxblur=2:1[av];` +
+      `[1:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS},boxblur=2:1[bv];` +
+      `[av][bv]xfade=transition=${xfadeName}:duration=${d}:offset=0[vout];` +
+      `[0:a]apad[aa];[1:a]apad[ba];` +
+      `[aa][ba]acrossfade=d=${d}[aout]`;
+  } else {
+    // Classic xfade (fadeblack, legacy path).
+    filterComplex =
+      `[0:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS}[av];` +
+      `[1:v]tpad=stop_mode=clone:stop_duration=0.1,fps=${OUTPUT_FPS}[bv];` +
+      `[av][bv]xfade=transition=${xfadeName}:duration=${d}:offset=0[vout];` +
+      `[0:a]apad[aa];[1:a]apad[ba];` +
+      `[aa][ba]acrossfade=d=${d}[aout]`;
+  }
 
   execFileSync('ffmpeg', [
     '-y',
@@ -1357,11 +1449,16 @@ function mixMusicBedWithDucking(inputPath, musicPath, outputPath, beatMetadata) 
 async function renderCardPng({
   line1,
   line2 = '',
+  line3 = '',
   position = 'center',
   fill = '#FFFFFF',
+  accent = null,
   line1Size = 84,
   line2Size = 48,
-  bg = 'black'
+  line3Size = 36,
+  bg = 'black',
+  bgHex = null,
+  fontFamily = null
 }) {
   let sharp;
   try {
@@ -1373,14 +1470,37 @@ async function renderCardPng({
   const width = 1080;
   const height = 1920;
 
-  let bgFill = '#000000';
+  // Phase 6.4 — branded card rendering. When the caller passes a brand
+  // palette, the card uses the brand's primary background hex + primary text
+  // color + accent for line 2 (episode title / secondary copy), and the
+  // brand's preferred font family. Fallback chain keeps the legacy neutral
+  // Helvetica-on-black look when no brand kit is supplied.
+  const bgFillColor = bgHex || '#000000';
   let bgOpacity = 1.0;
   if (bg === 'dark_scrim') bgOpacity = 0.75;
   if (bg === 'transparent') bgOpacity = 0.0;
 
+  const textFont = (fontFamily && String(fontFamily).trim())
+    ? `${fontFamily}, Helvetica, Arial, sans-serif`
+    : 'Helvetica, Arial, sans-serif';
+
+  // When an accent color is supplied, line 2 uses it (common brand pattern:
+  // title in brand-primary, subtitle in brand-accent). Line 3 (CTA) stays in
+  // primary fill for legibility.
+  const line2Fill = accent || fill;
+
   const centerY = position === 'bottom' ? height - 240 : height / 2;
-  const line1Y = line2 ? centerY - line1Size / 2 - 10 : centerY;
-  const line2Y = centerY + line2Size / 2 + 20;
+  // Three-line layout (title, subtitle, CTA) when line3 is present
+  const hasSub = !!line2;
+  const hasCta = !!line3;
+  const gap = 20;
+  const line1Y = hasSub
+    ? centerY - line1Size / 2 - gap - (hasCta ? line2Size / 2 : 0)
+    : centerY;
+  const line2Y = hasCta
+    ? centerY - (line3Size / 2)
+    : centerY + line2Size / 2 + gap;
+  const line3Y = centerY + line2Size / 2 + gap + line3Size;
 
   const esc = s => (s || '')
     .replace(/&/g, '&amp;')
@@ -1390,12 +1510,56 @@ async function renderCardPng({
     .replace(/'/g, '&#39;');
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-    <rect width="100%" height="100%" fill="${bgFill}" fill-opacity="${bgOpacity}"/>
-    <text x="${width / 2}" y="${line1Y}" font-family="Helvetica, Arial, sans-serif" font-size="${line1Size}" font-weight="700" fill="${fill}" text-anchor="middle" dominant-baseline="middle">${esc(line1)}</text>
-    ${line2 ? `<text x="${width / 2}" y="${line2Y}" font-family="Helvetica, Arial, sans-serif" font-size="${line2Size}" font-weight="400" fill="${fill}" text-anchor="middle" dominant-baseline="middle">${esc(line2)}</text>` : ''}
+    <rect width="100%" height="100%" fill="${bgFillColor}" fill-opacity="${bgOpacity}"/>
+    <text x="${width / 2}" y="${line1Y}" font-family="${textFont}" font-size="${line1Size}" font-weight="700" fill="${fill}" text-anchor="middle" dominant-baseline="middle">${esc(line1)}</text>
+    ${hasSub ? `<text x="${width / 2}" y="${line2Y}" font-family="${textFont}" font-size="${line2Size}" font-weight="400" fill="${line2Fill}" text-anchor="middle" dominant-baseline="middle">${esc(line2)}</text>` : ''}
+    ${hasCta ? `<text x="${width / 2}" y="${line3Y}" font-family="${textFont}" font-size="${line3Size}" font-weight="500" fill="${fill}" text-anchor="middle" dominant-baseline="middle" opacity="0.85">${esc(line3)}</text>` : ''}
   </svg>`;
 
   return await sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+/**
+ * Phase 6.4 — brand palette resolver. Pulls primary / accent / background
+ * hex values out of a brandKit's color_palette array. Brand kits tag
+ * colors with `usage` ('primary', 'accent', 'background', 'secondary').
+ * When usage is missing, we fall back to ordered first/second/third entries.
+ *
+ * Returns a `null` result when brandKit has no palette (card renderer falls
+ * back to the neutral legacy look).
+ *
+ * @param {Object} [brandKit]
+ * @returns {null | {primary: string, accent: string, background: string, fontFamily: string}}
+ */
+function resolveBrandCardPalette(brandKit) {
+  if (!brandKit || !brandKit.color_palette) return null;
+  const palette = Array.isArray(brandKit.color_palette) ? brandKit.color_palette : [];
+
+  const byUsage = u => palette.find(c => (c?.usage || '').toLowerCase() === u);
+  const hex = entry => (entry && (entry.hex || entry.value))
+    ? (String(entry.hex || entry.value).startsWith('#')
+        ? String(entry.hex || entry.value)
+        : '#' + String(entry.hex || entry.value))
+    : null;
+
+  // Primary text is typically the ACCENT on a dark background — inverted
+  // when the background is light. We use `primary` for background and
+  // `accent` for the headline so the brand's highlight color carries the
+  // title. If the brand has explicit "background" / "text" usages, use those.
+  const bgEntry = byUsage('background') || palette[0] || null;
+  const primaryEntry = byUsage('primary') || byUsage('secondary') || palette[1] || palette[0] || null;
+  const accentEntry = byUsage('accent') || byUsage('highlight') || palette[2] || primaryEntry;
+
+  const bgHex = hex(bgEntry) || '#000000';
+  const primaryHex = hex(primaryEntry) || '#FFFFFF';
+  const accentHex = hex(accentEntry) || primaryHex;
+
+  return {
+    background: bgHex,
+    primary: primaryHex,
+    accent: accentHex,
+    fontFamily: brandKit.font_family || null
+  };
 }
 
 /**
@@ -1457,9 +1621,12 @@ function renderCardClip(pngPath, durationSec, outputPath) {
  * @param {string} [params.cliffhanger]
  * @param {number} params.videoDurationSec - (unused; kept for API compat)
  */
-async function applyTitleAndEndCards({ inputPath, outputPath, seriesTitle, episodeTitle, cliffhanger, videoDurationSec }) {
+async function applyTitleAndEndCards({ inputPath, outputPath, seriesTitle, episodeTitle, cliffhanger, ctaText, brandKit, videoDurationSec }) {
   const titleCardSec = 3.0;
   const endCardSec = 2.5;
+
+  // Phase 6.4 — resolve brand palette once. `null` result keeps legacy look.
+  const palette = resolveBrandCardPalette(brandKit);
 
   let titlePngPath = null;
   let titleClipPath = null;
@@ -1468,12 +1635,16 @@ async function applyTitleAndEndCards({ inputPath, outputPath, seriesTitle, episo
   const tempToClean = [];
 
   try {
-    // ─── 1. Render title card PNG → 3s mp4 clip ───
+    // ─── 1. Render title card PNG → 3s mp4 clip (branded when palette present) ───
     const titlePng = await renderCardPng({
       line1: seriesTitle || 'Untitled Series',
       line2: episodeTitle || '',
       position: 'center',
-      bg: 'black'
+      bg: palette ? 'transparent' : 'black',
+      bgHex: palette?.background,
+      fill: palette?.primary || '#FFFFFF',
+      accent: palette?.accent,
+      fontFamily: palette?.fontFamily
     });
     titlePngPath = tmpPath('png');
     fs.writeFileSync(titlePngPath, titlePng);
@@ -1482,15 +1653,27 @@ async function applyTitleAndEndCards({ inputPath, outputPath, seriesTitle, episo
     tempToClean.push(titlePngPath, titleClipPath);
 
     // ─── 2. Optionally render end card PNG → 2.5s mp4 clip ───
+    // The end card is the story's outro. When the brand has a CTA configured,
+    // it appears as line 3 (e.g. "Visit yourdomain.com"). Cliffhanger stays
+    // at line 1 because it drives the "watch next episode" intent.
     let hasEndCard = false;
-    if (cliffhanger) {
+    if (cliffhanger || ctaText) {
+      const cliff = (cliffhanger || '').length > 60
+        ? cliffhanger.slice(0, 57) + '…'
+        : (cliffhanger || '');
       const endPng = await renderCardPng({
-        line1: cliffhanger.length > 60 ? cliffhanger.slice(0, 57) + '…' : cliffhanger,
-        line2: 'Next episode…',
+        line1: cliff || (seriesTitle || 'Thanks for watching'),
+        line2: cliff ? 'Next episode…' : '',
+        line3: ctaText || '',
         position: 'bottom',
-        bg: 'dark_scrim',
+        bg: palette ? 'transparent' : 'dark_scrim',
+        bgHex: palette?.background,
+        fill: palette?.primary || '#FFFFFF',
+        accent: palette?.accent,
+        fontFamily: palette?.fontFamily,
         line1Size: 56,
-        line2Size: 36
+        line2Size: 36,
+        line3Size: 32
       });
       endPngPath = tmpPath('png');
       fs.writeFileSync(endPngPath, endPng);
@@ -1819,7 +2002,13 @@ async function burnSubtitles(inputPath, srtContent, outputPath) {
     // Build ffmpeg overlay filter chain.
     // Each cue's PNG is a looped input; enable='between(t,start,end)' controls visibility.
     // Position at bottom of the frame (y = OUTPUT_HEIGHT - subtitle_height - marginV).
-    const marginV = 80;
+    //
+    // Phase 6.6 — subtitle safe-area: bumped from 80 → 220 so subtitles sit
+    // in the Instagram/TikTok 9:16 safe zone (~11-12% of frame height from
+    // the bottom edge). The old 80px margin put text right at the player's
+    // bottom UI bar on most phones; the new 220px margin clears the bar AND
+    // avoids crashing into TALKING_HEAD_CLOSEUP mouths/chins on tight faces.
+    const marginV = 220;
     const inputs = ['-i', inputPath];
     for (const pp of pngPaths) {
       inputs.push('-loop', '1', '-i', pp);
@@ -2081,6 +2270,8 @@ export async function runPostProduction({
         seriesTitle: episodeMeta.series_title,
         episodeTitle: episodeMeta.episode_title,
         cliffhanger: episodeMeta.cliffhanger,
+        ctaText: episodeMeta.cta_text,
+        brandKit: episodeMeta.brand_kit,
         videoDurationSec: videoDuration
       });
       currentPath = withCardsPath;

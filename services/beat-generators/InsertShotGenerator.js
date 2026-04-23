@@ -33,10 +33,35 @@ class InsertShotGenerator extends BaseBeatGenerator {
 
     const duration = Math.max(2, Math.min(4, beat.duration_seconds || 3));
 
-    // Start frame for an insert shot: the subject's reference image is the best anchor.
-    // Fall back to scene master or previous endframe if the subject has no refs.
+    // V4 Phase 9 — Scene-Integrated Product Lock (SIPL). Composites the
+    // subject into the scene master's environment via Seedream so Veo
+    // animates FROM an already-integrated frame (product on concrete table
+    // in the safehouse, not floating on studio white). Director's keystone
+    // fix for the "infomercial grammar" break.
+    const siplUrl = await this._buildSceneIntegratedProductFrame({
+      beat, scene, episodeContext
+    });
+
+    // Phase 2 — persona-lock fires when Gemini flags a persona in the insert
+    // beat (e.g. "hand picking up the laptop"). For pure product inserts,
+    // the SIPL / subject reference wins.
+    const personaLockUrl = await this._buildPersonaLockedFirstFrame({
+      beat, scene, previousBeat, personas, episodeContext
+    });
+
+    // Start frame precedence for INSERT_SHOT:
+    //   1. Scene-Integrated Product Lock (SIPL) — product inside the scene world (BEST)
+    //   2. Subject reference image (when no scene master exists to integrate into)
+    //   3. Persona-locked first frame — when the beat features a persona
+    //   4. Previous endframe — transition continuity
+    //   5. Scene master — scene-level look fallback
+    //
+    // Subject ref no longer becomes a direct first_frame when SIPL is
+    // available — that's the Director's "studio limbo teleport" fix.
     const subjectRefs = episodeContext?.subjectReferenceImages || [];
-    const firstFrameUrl = subjectRefs[0]
+    const firstFrameUrl = siplUrl
+      || subjectRefs[0]
+      || personaLockUrl
       || previousBeat?.endframe_url
       || scene?.scene_master_url;
 
@@ -44,15 +69,40 @@ class InsertShotGenerator extends BaseBeatGenerator {
       throw new Error(`beat ${beat.beat_id}: no start frame for INSERT_SHOT (need subject reference image)`);
     }
 
+    // Phase 2.3 — last_frame_hint anchors the push-in endpoint so Veo doesn't
+    // overshoot a 2-4s macro beat. When Gemini emits beat.last_frame_hint_url
+    // (a rendered storyboard panel showing the intended final composition),
+    // Veo's first-last-frame mode produces predictable, cinematic endings.
+    // Screenplay / Director Panel can set this; it falls through to null.
+    const lastFrameUrl = beat.last_frame_hint_url || null;
+
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const subjectFocus = beat.subject_focus || 'the product';
     const lightingIntent = beat.lighting_intent || 'soft directional key light';
-    const cameraMove = beat.camera_move || 'slow push-in';
+    // Default camera intent for a 2-4s INSERT is a HELD macro with subtle
+    // rack focus — not a push-in. The legacy 'slow push-in' default overshot
+    // the frame on short beats, cutting the subject in half mid-clip. Held
+    // + rack focus produces a cinematic product-hero beat with a predictable
+    // endpoint. Screenplay beats can still override with beat.camera_move.
+    const cameraMove = beat.camera_move
+      || 'held macro with subtle rack focus, minimal drift';
     const ambientSound = beat.ambient_sound || 'soft room tone, subtle foley';
 
+    // Phase 3.2 — framing vocabulary (defaults to macro_insert recipe for
+    // INSERT_SHOT when Gemini omits the field).
+    const framingRecipe = this._resolveFramingRecipe(beat)
+      || 'Lens 100mm+ macro, macro shot. Camera: held with subtle rack focus, minimal drift.';
+
+    // V4 Phase 9 — vertical framing + identity anchoring directives.
+    // INSERT_SHOT specifically benefits from overhead/high-angle framing that
+    // fills the vertical axis with the product + its environmental context.
+    const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
+
     const prompt = [
+      verticalDirective,
       stylePrefix,
       `Tight closeup on ${subjectFocus}.`,
+      framingRecipe,
       `Lighting: ${lightingIntent}.`,
       `Camera: ${cameraMove}.`,
       'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
@@ -78,7 +128,7 @@ class InsertShotGenerator extends BaseBeatGenerator {
 
     const result = await veo.generateWithFrames({
       firstFrameUrl,
-      lastFrameUrl: null,
+      lastFrameUrl,
       prompt,
       options: {
         duration,
@@ -108,6 +158,9 @@ class InsertShotGenerator extends BaseBeatGenerator {
         fallbackTier: result.fallbackTier,
         subjectFocus,
         firstFrameUrl,
+        lastFrameUrl,
+        personaLocked: !!personaLockUrl,
+        sceneIntegratedProductLock: !!siplUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration
       }

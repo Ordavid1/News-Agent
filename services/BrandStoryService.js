@@ -62,12 +62,14 @@ import {
   buildBeatRefStack,
   extractBeatEndframe
 } from './v4/StoryboardHelpers.js';
+import { runQualityGate } from './v4/QualityGate.js';
 import {
   acquirePersonaVoicesForStory
 } from './v4/VoiceAcquisition.js';
 import {
   matchBrandKitToLut,
-  resolveEpisodeLut
+  resolveEpisodeLut,
+  getLutFilePath
 } from './v4/BrandKitLutMatcher.js';
 import {
   runPostProduction,
@@ -2130,16 +2132,158 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       return persona; // Return unchanged
     }
 
-    // 6. Merge: keep original images + add new character sheet views
-    const allRefs = [...existingImages, ...newImageUrls];
+    // 6. Merge: Flux-harmonized views FIRST, original uploads second.
+    //
+    // V4 Phase 9 character-sheet ordering fix (per Director's notes 2026-04-23):
+    // previously we put user uploads first, which meant downstream
+    // `reference_image_urls.slice(0, N)` calls pulled the user's DIVERSE
+    // raw uploads (different hair/makeup/outfit/event magazine shots) before
+    // the Flux-generated harmonized views. Result: face drifted per beat
+    // because Kling/Veo averaged across inconsistent looks.
+    //
+    // New ordering puts the internally-consistent Flux views first so any
+    // slice/cap picks the harmonized identity before the diverse originals.
+    // The originals stay in the array as style context, but no longer win
+    // the identity anchor selection.
+    const allRefs = [...newImageUrls, ...existingImages];
 
-    logger.info(`Character sheet for ${name}: ${newImageUrls.length} new views + ${existingImages.length} existing = ${allRefs.length} total refs`);
+    logger.info(`Character sheet for ${name}: ${newImageUrls.length} Flux views (identity-anchored) + ${existingImages.length} originals (style context) = ${allRefs.length} total refs`);
+
+    // 7. V4 Phase 9 — Canonical Identity Portrait (CIP) stage.
+    //
+    // Even with Flux views front-loaded, different beats pull different
+    // subsets — hero for B-roll, closeup for TALKING_HEAD, fullbody-side
+    // for action. Subtle facial drift accumulates across beats.
+    //
+    // The CIP stage runs one MORE Flux pass that distills all refs into a
+    // SINGLE neutral-lit front-facing canonical portrait, then generates
+    // 2 companion views (3/4 left + 3/4 right) from that canon. The result
+    // is a 3-view Identity Anchor Set where the ONLY variance between views
+    // is angle — no stylistic variance. This is the AI-pipeline equivalent
+    // of a casting "screen test" reference.
+    //
+    // Opt-out via V4_CIP_STAGE=false for debug / cost-conscious runs.
+    let canonicalIdentityUrls = [];
+    if (process.env.V4_CIP_STAGE !== 'false') {
+      try {
+        canonicalIdentityUrls = await this._generateCanonicalIdentityPortrait({
+          name,
+          personaIndex,
+          description,
+          styleHint,
+          allRefs,
+          userId,
+          baseSeed
+        });
+        if (canonicalIdentityUrls.length > 0) {
+          logger.info(`  ${name} CIP: ${canonicalIdentityUrls.length} canonical view(s) generated — identity locked`);
+        }
+      } catch (cipErr) {
+        logger.warn(`CIP stage failed for ${name} — falling back to ordered reference_image_urls: ${cipErr.message}`);
+        canonicalIdentityUrls = [];
+      }
+    }
 
     return {
       ...persona,
       reference_image_urls: allRefs,
+      canonical_identity_urls: canonicalIdentityUrls,
       omnihuman_seed_image_url: newImageUrls[0] // hero shot
     };
+  }
+
+  /**
+   * V4 Phase 9 — Canonical Identity Portrait stage.
+   *
+   * Produces a 3-view Identity Anchor Set (front, 3/4 left, 3/4 right) where
+   * the ONLY variance between views is camera angle. No wardrobe / hair /
+   * makeup / lighting variance — this is the pure identity anchor used to
+   * eliminate face drift across beats.
+   *
+   * Step 1: One Flux Edit pass with all refs → single neutral portrait
+   * Step 2: That portrait becomes the anchor ref for 2 more angled views
+   *
+   * Returns an array of 1-3 public URLs, ordered [front, left-3/4, right-3/4].
+   * Returns empty array if Flux isn't available — caller falls back to
+   * ordered reference_image_urls.
+   */
+  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, userId, baseSeed }) {
+    if (!fluxFalService.isAvailable()) return [];
+
+    logger.info(`  ${name}: canonicalizing identity (CIP stage)...`);
+
+    // Neutral-lit front-facing portrait that distills all refs into ONE face.
+    // The prompt explicitly negates stylistic variance and instructs the model
+    // to produce a "screen test" reference — flat even lighting, neutral
+    // expression, neutral hair, neutral wardrobe. The point is to strip away
+    // everything that varies across the input refs so only the facial
+    // structure remains.
+    const cipFrontPrompt = [
+      'CANONICAL IDENTITY PORTRAIT — screen test reference frame.',
+      'Front-facing, straight-on, eye-level camera, neutral relaxed expression (slight closed mouth, no smile, no frown).',
+      'Flat even studio lighting, no dramatic shadows, no rim light, no colored gels — pure identity reference.',
+      'Neutral hair (styled simply, no elaborate styling), neutral clean wardrobe (plain shirt or blouse, no distinctive details).',
+      'Clean pure white seamless background, fully isolated.',
+      `Subject: ${description}.`,
+      styleHint ? `Style context: ${styleHint}.` : '',
+      'IMPORTANT: preserve exact facial structure from reference images — inter-ocular distance, nose geometry, jawline, lip shape, brow arch, ear placement. These are invariant.',
+      'Reference images may show the subject in varied hair / makeup / wardrobe across different events — extract the CONSTANT facial structure and render it under neutral conditions.',
+      'Hyperrealistic photographic quality, sharp facial detail, 85mm lens equivalent, head-and-shoulders framing, VERTICAL 9:16 portrait.',
+      'No text, no watermark, no letterbox.'
+    ].filter(Boolean).join(' ');
+
+    let frontUrl = null;
+    try {
+      const frontResult = await fluxFalService.generatePortrait({
+        prompt: cipFrontPrompt,
+        referenceImages: allRefs.slice(0, 8),
+        options: {
+          aspectRatio: '9:16',
+          seed: baseSeed + 100 // offset from character sheet seeds to get a distinct roll
+        }
+      });
+      const frontFilename = `cip-${Date.now()}-${personaIndex}-front.webp`;
+      frontUrl = await this._uploadBufferToStorage(
+        frontResult.imageBuffer, userId, 'personas/cip', frontFilename, 'image/webp'
+      );
+      logger.info(`  ${name} CIP front anchor ready: ${frontUrl}`);
+    } catch (err) {
+      logger.warn(`  ${name} CIP front anchor failed: ${err.message}`);
+      return [];
+    }
+
+    // Now generate 2 angled views using the CIP front as the DOMINANT
+    // reference (appears twice in the input stack to heavily weight it).
+    // The result: 3 views, same face, different angles, same conditions.
+    const angledViews = [
+      { label: 'three-quarter-left', prompt: 'Same exact person as reference image 1, same exact face, same hair, same wardrobe, same lighting. Turn head 3/4 to camera-left (approximately 45 degrees). Neutral relaxed expression. Clean white background. VERTICAL 9:16 portrait. Head-and-shoulders framing.' },
+      { label: 'three-quarter-right', prompt: 'Same exact person as reference image 1, same exact face, same hair, same wardrobe, same lighting. Turn head 3/4 to camera-right (approximately 45 degrees). Neutral relaxed expression. Clean white background. VERTICAL 9:16 portrait. Head-and-shoulders framing.' }
+    ];
+
+    const angledUrls = [];
+    const cipRefs = [frontUrl, frontUrl, ...allRefs].slice(0, 8); // front doubled → heavy weight
+    for (let v = 0; v < angledViews.length; v++) {
+      const view = angledViews[v];
+      try {
+        const result = await fluxFalService.generatePortrait({
+          prompt: view.prompt + ` IMPORTANT: preserve exact facial structure from reference 1 — inter-ocular distance, nose geometry, jawline, lip shape, brow arch. Facial bone structure is invariant; only the angle changes.`,
+          referenceImages: cipRefs,
+          options: {
+            aspectRatio: '9:16',
+            seed: baseSeed + 200 + v
+          }
+        });
+        const filename = `cip-${Date.now()}-${personaIndex}-${view.label}.webp`;
+        const url = await this._uploadBufferToStorage(
+          result.imageBuffer, userId, 'personas/cip', filename, 'image/webp'
+        );
+        angledUrls.push(url);
+      } catch (err) {
+        logger.warn(`  ${name} CIP ${view.label} failed: ${err.message} — continuing with partial CIP set`);
+      }
+    }
+
+    return [frontUrl, ...angledUrls];
   }
 
   // ═══════════════════════════════════════════════════
@@ -2570,39 +2714,54 @@ Respond with ONLY valid JSON:
     }
 
     if (brandKit && !story.brand_kit_lut_id && !story.locked_lut_id) {
-      // Phase 2: opt-in generative LUT. When BRAND_STORY_LUT_GENERATIVE=true,
-      // synthesize a custom .cube file directly from the brand's hex palette.
-      // Otherwise fall back to the curated 8-LUT library match.
-      const generativeMode = process.env.BRAND_STORY_LUT_GENERATIVE === 'true';
-      if (generativeMode) {
-        try {
-          progress('lut', `generating custom LUT from brand palette`);
-          const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
-          if (generated?.lutId) {
-            await updateBrandStory(storyId, userId, { brand_kit_lut_id: generated.lutId });
-            story.brand_kit_lut_id = generated.lutId;
-            progress('lut', `generated → ${generated.lutId}`);
-          } else {
-            progress('lut', `no palette in brand kit — falling back to library match`);
-            const lutMatch = await matchBrandKitToLut(brandKit);
-            await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
-            story.brand_kit_lut_id = lutMatch.lutId;
-            progress('lut', `matched → ${lutMatch.lutId}`);
+      // V4 LUT resolution — library-first, generative-fallback (per user request 2026-04-23).
+      //
+      // Previous flow was an exclusive either/or gated on BRAND_STORY_LUT_GENERATIVE:
+      //   - Flag on  → synthesize generative LUT
+      //   - Flag off → match curated library
+      //
+      // New flow respects the user's cinematic intent — curated library LUTs
+      // are hand-crafted by pros and always beat a math-only generative LUT
+      // when they exist on disk — while still giving a graceful color grade
+      // when .cube files haven't been dropped yet:
+      //   1. Match curated library LUT (always — fast, free, deterministic)
+      //   2. Check if that LUT's .cube file exists on disk
+      //   3. If missing AND BRAND_STORY_LUT_GENERATIVE=true AND brand kit has
+      //      a color palette → synthesize a generative LUT from the palette
+      //      and swap the lut_id
+      //   4. If still no file + no fallback → store the library id anyway;
+      //      PostProduction will gracefully skip the grade and log a clear
+      //      drop-in hint
+      progress('lut', `matching brand kit → LUT (library)`);
+      const lutMatch = await matchBrandKitToLut(brandKit);
+      let resolvedLutId = lutMatch.lutId;
+
+      const generativeFallbackMode = process.env.BRAND_STORY_LUT_GENERATIVE === 'true';
+      if (generativeFallbackMode) {
+        const libraryPath = getLutFilePath(resolvedLutId);
+        if (!libraryPath) {
+          // Library LUT .cube is missing on disk — synthesize generative as fallback
+          try {
+            progress('lut', `library LUT ${resolvedLutId} missing on disk — synthesizing generative fallback`);
+            const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
+            if (generated?.lutId) {
+              resolvedLutId = generated.lutId;
+              progress('lut', `generative fallback → ${resolvedLutId}`);
+            } else {
+              progress('lut', `generative fallback produced no LUT (no palette) — keeping ${resolvedLutId} (ungraded)`);
+            }
+          } catch (err) {
+            logger.warn(`V4: generative LUT fallback failed (${err.message}) — keeping library id ${resolvedLutId} (will render ungraded)`);
           }
-        } catch (err) {
-          logger.warn(`V4: generative LUT failed (${err.message}) — falling back to library match`);
-          const lutMatch = await matchBrandKitToLut(brandKit);
-          await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
-          story.brand_kit_lut_id = lutMatch.lutId;
-          progress('lut', `matched → ${lutMatch.lutId}`);
+        } else {
+          progress('lut', `matched → ${resolvedLutId} (library .cube on disk — using hand-crafted)`);
         }
       } else {
-        progress('lut', `matching brand kit → LUT (library)`);
-        const lutMatch = await matchBrandKitToLut(brandKit);
-        await updateBrandStory(storyId, userId, { brand_kit_lut_id: lutMatch.lutId });
-        story.brand_kit_lut_id = lutMatch.lutId;
-        progress('lut', `matched → ${lutMatch.lutId}`);
+        progress('lut', `matched → ${resolvedLutId}`);
       }
+
+      await updateBrandStory(storyId, userId, { brand_kit_lut_id: resolvedLutId });
+      story.brand_kit_lut_id = resolvedLutId;
     }
 
     // ─── Step 3: Gemini V4 scene-graph generation ───
@@ -2773,11 +2932,22 @@ Respond with ONLY valid JSON:
       episodeId: newEpisode.id,
       userId,
       subjectReferenceImages,
+      subject: story.subject || null,
+      // Subject Bible (Phase 1.1) — persistent cross-episode subject spec
+      subject_bible: story.subject?.subject_bible || story.subject_bible || null,
+      // Location Bible (Phase 1.2) — persistent cross-episode location dictionary
+      locationBible: story.location_bible || null,
+      // Brand Kit — drives branded title/end cards, subtitle styling, color-aware overlays
+      brandKit: brandKit || null,
       defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id || 'nPczCjzI2devNBz1zQrb',
       // Audio uploader injected so beat generators can stash TTS to a public URL
       uploadAudio: async ({ buffer, filename, mimeType }) => {
         return this._uploadBufferToStorage(buffer, userId, 'audio/v4', filename, mimeType);
-      }
+      },
+      // Generic buffer uploader — used by Phase 2's persona-locked first frame
+      // helper (Seedream PNG → Supabase) and any future beat-level intermediate
+      // artifacts that need a public URL.
+      uploadBuffer: uploadBufferToStorage
     };
 
     // Sequential generation within scenes to support endframe chaining,
@@ -2878,8 +3048,17 @@ Respond with ONLY valid JSON:
           }
         }
 
-        // Build the reference stack for this beat
-        const refStack = buildBeatRefStack({ beat, scene, previousBeat, personas });
+        // Build the reference stack for this beat. Phase 1.4 extends the stack
+        // to include subject refs (user-uploaded imagery) on subject-anchored
+        // beats and the Location Bible master when scene.location_id resolves.
+        const refStack = buildBeatRefStack({
+          beat,
+          scene,
+          previousBeat,
+          personas,
+          subjectReferenceImages,
+          locationBible: story.location_bible || null
+        });
 
         // Route + generate
         try {
@@ -2891,6 +3070,32 @@ Respond with ONLY valid JSON:
             episodeContext,
             previousBeat
           });
+
+          // Phase 8 — Quality Gate: run deterministic QC on the beat before
+          // uploading / chaining forward. Critical issues (mostly-black,
+          // corrupt dimensions) mark the beat as failed-qc so the Director
+          // Panel surfaces the caution chip; orchestrator currently logs and
+          // continues so the user can choose to regenerate via the Director
+          // Panel's per-beat regenerate endpoint. Auto-retry is a Phase 8.b
+          // enhancement that will reuse the persona-lock path for REACTION /
+          // B_ROLL and nudged prompts for INSERT_SHOT.
+          try {
+            const qc = await runQualityGate({ videoBuffer: result.videoBuffer, beat });
+            beat.quality_gate = qc;
+            if (!qc.passed) {
+              logger.warn(
+                `beat ${beat.beat_id} quality gate FAILED: ${qc.issues.map(i => `${i.id}:${i.severity}`).join(', ')}`
+              );
+            } else if (qc.issues.length > 0) {
+              logger.info(
+                `beat ${beat.beat_id} quality gate passed with ${qc.issues.length} warning(s)`
+              );
+            }
+          } catch (qcErr) {
+            // QC gate is a soft layer — a gate failure MUST NOT block the beat.
+            logger.warn(`beat ${beat.beat_id} quality gate threw: ${qcErr.message}`);
+            beat.quality_gate_error = qcErr.message;
+          }
 
           // Upload the generated video buffer
           const publicUrl = await uploadBufferToStorage(
@@ -2935,6 +3140,72 @@ Respond with ONLY valid JSON:
           await updateBrandStoryEpisode(newEpisode.id, userId, {
             scene_description: sceneGraph
           });
+        }
+      }
+
+      // ─── V4 Phase 6.1 — Narrative bridge beat ───
+      // When Gemini emitted scene.bridge_to_next, render a 2-3s Veo B-roll
+      // connector that shows HOW the story transitions from this scene's
+      // endframe to the next scene's master. The bridge is spliced into the
+      // beat stream as a synthetic SCENE_BRIDGE beat so the assembly picks
+      // it up without any additional post-production wiring.
+      if (process.env.V4_BRIDGE_BEATS !== 'false' && scene.bridge_to_next && typeof scene.bridge_to_next === 'object') {
+        const sceneIdx = sceneGraph.scenes.indexOf(scene);
+        const nextScene = sceneGraph.scenes[sceneIdx + 1];
+        if (nextScene) {
+          const bridgeBeat = {
+            beat_id: `${scene.scene_id || `s${sceneIdx}`}_bridge`,
+            type: 'SCENE_BRIDGE',
+            framing: scene.bridge_to_next.framing || 'bridge_transit',
+            duration_seconds: Math.max(2, Math.min(4, scene.bridge_to_next.duration_seconds || 2.5)),
+            visual_prompt: scene.bridge_to_next.visual_prompt || '',
+            ambient_sound: scene.bridge_to_next.ambient_sound || '',
+            bridge_from_scene_endframe_url: previousBeat?.endframe_url || null,
+            bridge_to_scene_master_url: nextScene.scene_master_url || null,
+            personas_present: []
+          };
+          try {
+            const result = await router.generate({
+              beat: bridgeBeat,
+              scene,
+              refStack: [],
+              personas,
+              episodeContext,
+              previousBeat
+            });
+            const bridgeUrl = await uploadBufferToStorage(
+              result.videoBuffer,
+              'videos/v4-beats',
+              `${bridgeBeat.beat_id}.mp4`,
+              'video/mp4'
+            );
+            bridgeBeat.generated_video_url = bridgeUrl;
+            try {
+              const endframeBuffer = await extractBeatEndframe(result.videoBuffer);
+              bridgeBeat.endframe_url = await uploadBufferToStorage(
+                endframeBuffer,
+                'videos/v4-endframes',
+                `${bridgeBeat.beat_id}-end.jpg`,
+                'image/jpeg'
+              );
+            } catch {}
+            beatVideoBuffers.push(result.videoBuffer);
+            beatMetadata.push({
+              beat_id: bridgeBeat.beat_id,
+              model_used: result.modelUsed,
+              duration_seconds: bridgeBeat.duration_seconds,
+              actual_duration_sec: result.durationSec
+            });
+            // Splice the bridge into the scene's beats list so the Director
+            // Panel sees it and resume paths can find it.
+            scene.beats.push(bridgeBeat);
+            previousBeat = bridgeBeat;
+            await updateBrandStoryEpisode(newEpisode.id, userId, {
+              scene_description: sceneGraph
+            });
+          } catch (err) {
+            logger.warn(`scene ${scene.scene_id} bridge beat failed — falling back to xfade: ${err.message}`);
+          }
         }
       }
     }
@@ -3007,7 +3278,12 @@ Respond with ONLY valid JSON:
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
       episode_title: sceneGraph.title || `Episode ${newEpisode.episode_number}`,
-      cliffhanger: sceneGraph.cliffhanger || ''
+      cliffhanger: sceneGraph.cliffhanger || '',
+      // Phase 6.4 — branded cards. Brand kit drives font + color palette on
+      // title/end cards; CTA text appears as the 3rd line on the end card
+      // when the story has one configured.
+      brand_kit: brandKit || null,
+      cta_text: story.cta_text || story.storyline?.cta_text || null
     };
 
     const postProductionResult = await runPostProduction({
@@ -3376,7 +3652,9 @@ Respond with ONLY valid JSON:
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
       episode_title: sceneGraph.title || `Episode ${episode.episode_number}`,
-      cliffhanger: sceneGraph.cliffhanger || ''
+      cliffhanger: sceneGraph.cliffhanger || '',
+      brand_kit: brandKit || null,
+      cta_text: story.cta_text || story.storyline?.cta_text || null
     };
 
     const postProductionResult = await runPostProduction({
@@ -3602,7 +3880,9 @@ Respond with ONLY valid JSON:
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
       episode_title: sceneGraph.title || `Episode ${episode.episode_number}`,
-      cliffhanger: sceneGraph.cliffhanger || ''
+      cliffhanger: sceneGraph.cliffhanger || '',
+      brand_kit: brandKit || null,
+      cta_text: story.cta_text || story.storyline?.cta_text || null
     };
 
     const postProductionResult = await runPostProduction({

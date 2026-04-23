@@ -112,20 +112,80 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     // For TALKING_HEAD_CLOSEUP, the prompt focuses on the face and emotion.
     // For DIALOGUE_IN_SCENE, the prompt includes movement/interaction.
     const isInScene = beat.type === 'DIALOGUE_IN_SCENE';
-    const framingHint = isInScene
-      ? 'Medium shot, character in scene, environmental context visible.'
-      : 'Tight closeup, head and shoulders, shallow depth of field.';
+    // Phase 3.2 — prefer the structured framing vocabulary when Gemini emits
+    // it. Falls back to the legacy hint when omitted.
+    const framingRecipe = this._resolveFramingRecipe(beat);
+    const framingHint = framingRecipe
+      || (isInScene
+        ? 'Medium shot, character in scene, environmental context visible.'
+        : 'Tight closeup, head and shoulders, shallow depth of field.');
 
-    const klingPrompt = [
-      stylePrefix,
-      framingHint,
-      emotionHint.trim(),
-      expressionHint.trim(),
-      subtextHint.trim(),
-      actionHint.trim(),
-      lensHint.trim(),
-      `Character speaks the line: "${dialogue}"`
-    ].filter(Boolean).join(' ');
+    // Kling O3 Omni Standard has a hard 512-char prompt limit. If we naively
+    // concatenate stylePrefix (often ~150-200 chars) + framingHint + every
+    // direction string, we spill past 512 and the dialogue line (which MUST
+    // survive because Mode B lipsyncs to it) gets silently truncated.
+    //
+    // Caught 2026-04-23 on first full V4 episode run:
+    //   [s1b4] prompt truncated from 738 → 512 chars
+    //   [s2b4] prompt truncated from 828 → 512 chars
+    // Both beats had the dialogue line at the tail of the joined prompt, so
+    // the cut removed most of it — producing a dialogue beat whose Kling
+    // input had no dialogue reference at all.
+    //
+    // Fix: budget-allocate prompt construction. Sections are ordered by
+    // priority (mandatory first). If adding the next section would exceed the
+    // soft budget, it's dropped entirely rather than chopped mid-sentence —
+    // so Kling always receives coherent, complete instructions.
+    const KLING_PROMPT_BUDGET = 480; // leave 32 chars of safety under the hard 512 limit
+    const dialogueLine = `Character speaks the line: "${dialogue}"`;
+
+    // V4 Phase 9 — vertical framing directive (condensed) + identity lock.
+    // For Kling's 512-char budget we use compact summaries rather than the
+    // full directive so other high-priority fields survive.
+    const verticalDirective = 'VERTICAL 9:16 tight portrait. Eyes upper third, chin lower third, face fills vertical. No letterbox.';
+    const identityDirective = 'Preserve facial structure from refs (bone geometry, eye/nose/jaw/lip). Same person, same face.';
+
+    // Priority-ordered sections. Mandatory ones come first and can never be
+    // dropped; optional ones are tried in order and skipped when the budget
+    // is spent.
+    const promptSections = [
+      { priority: 'mandatory', text: dialogueLine },
+      { priority: 'mandatory', text: verticalDirective },
+      { priority: 'mandatory', text: identityDirective },
+      { priority: 'mandatory', text: framingHint },
+      { priority: 'high',      text: subtextHint.trim() },
+      { priority: 'high',      text: emotionHint.trim() },
+      { priority: 'medium',    text: expressionHint.trim() },
+      { priority: 'medium',    text: actionHint.trim() },
+      { priority: 'low',       text: stylePrefix },
+      { priority: 'low',       text: lensHint.trim() }
+    ].filter(s => s.text && s.text.length > 0);
+
+    // First pass: accept every mandatory section regardless of budget (we can
+    // always overshoot by a handful of chars into the 32-char safety margin).
+    const accepted = [];
+    let runningLen = 0;
+    for (const section of promptSections) {
+      if (section.priority === 'mandatory') {
+        accepted.push(section.text);
+        runningLen += section.text.length + 1;
+      }
+    }
+    // Second pass: add optional sections in priority order until the budget
+    // is exhausted. A section is only added if it fits in full.
+    for (const section of promptSections) {
+      if (section.priority === 'mandatory') continue;
+      if (runningLen + section.text.length + 1 <= KLING_PROMPT_BUDGET) {
+        accepted.push(section.text);
+        runningLen += section.text.length + 1;
+      }
+    }
+    // Re-order: dialogue goes at the END (Kling's narrative emphasis favors
+    // the closing lines of a prompt). Framing / style / emotion lead the
+    // prompt so Kling establishes the visual register first.
+    const accDialogue = accepted.find(t => t === dialogueLine);
+    const accRest = accepted.filter(t => t !== dialogueLine);
+    const klingPrompt = [...accRest, accDialogue].filter(Boolean).join(' ');
 
     // Build the Kling elements[] array from the speaking persona (and any
     // other personas present in the shot). Character identity lock comes from
@@ -158,11 +218,14 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     });
 
     // ─── Stage C — Sync Lipsync v3 corrective pass ───
+    // syncMode intentionally NOT overridden — service default is now 'bounce',
+    // which mirrors the final frame back-and-forth to pad tail gaps when TTS
+    // runs a few frames longer than Kling's rounded duration. This eliminates
+    // the "mouth cut mid-phoneme" artifact the old 'cut_off' default produced.
     this.logger.info(`[${beat.beat_id}] Stage C: Sync Lipsync v3 corrective pass`);
     const syncResult = await syncLipsync.applyLipsync({
       videoUrl: klingResult.videoUrl, // Kling's CDN URL is already public
-      audioUrl,
-      options: { syncMode: 'cut_off' }
+      audioUrl
     });
 
     // Total cost accounting

@@ -226,6 +226,311 @@ class BaseBeatGenerator {
     if (refStack && refStack.length > 0) return refStack[0];
     return null;
   }
+
+  /**
+   * V4 Phase 9 — Vertical Framing Directive (per Director's notes 2026-04-23).
+   *
+   * The aspect_ratio='9:16' parameter alone only sets the CONTAINER. Video
+   * models were trained overwhelmingly on horizontal cinema language and
+   * reach for Roger Deakins' 2.39:1 muscle memory on words like "wide",
+   * "cinematic", or "establishing" — producing a wide composition *inside*
+   * a 9:16 canvas (subject floating in a letterboxed mid-band).
+   *
+   * The fix is COMPOSITIONAL DIRECTIVE LANGUAGE added to every prompt — not
+   * the parameter. Global boilerplate + per-beat-type overrides that bias
+   * composition along the Y axis instead of the X axis. This is the single
+   * biggest visual lift per line of code in the pipeline.
+   *
+   * @param {Object} beat
+   * @param {'kling' | 'veo' | 'seedream'} [modelHint]
+   * @returns {string}
+   */
+  _buildVerticalFramingDirective(beat, modelHint = 'generic') {
+    const beatType = beat?.type || '';
+
+    // Global directive — appended to every prompt regardless of beat type.
+    // Negates the 2.39:1 instinct explicitly and tells the model to compose
+    // along the vertical axis (foreground-midground-background stacked in Y,
+    // not X). Social-media-native framing.
+    const GLOBAL = [
+      'VERTICAL 9:16 COMPOSITION.',
+      'Full-height framing — subject occupies 70-90% of the vertical axis from frame bottom to frame top.',
+      'Headroom tight.',
+      'NO letterboxing, NO cinemascope bars, NO horizontal-wide composition placed inside vertical canvas.',
+      'Camera held in portrait orientation.',
+      'Vertical stacking of visual elements (foreground-midground-background along the Y axis, not the X axis).',
+      'Social-media vertical video framing (TikTok / Instagram Reels native).'
+    ].join(' ');
+
+    // Per-beat-type override. A true wide in 9:16 is architecturally
+    // impossible without sacrificing the subject, so wide/establishing beats
+    // become LOW-ANGLE VERTICAL reveals that use the Y axis for scope.
+    let perType = '';
+    switch (beatType) {
+      case 'B_ROLL_ESTABLISHING':
+      case 'SCENE_BRIDGE':
+        perType = 'Low-angle vertical establishing — camera looking UP along the architecture, subject in lower third, environment filling upper two-thirds. Use vertical scale (ceilings, rooflines, tall objects, columns) as the establishing element.';
+        break;
+      case 'INSERT_SHOT':
+        perType = 'Overhead or high-angle looking DOWN at the object. Object centered and filling 60% of frame width, environmental surface context visible above and below. The object lives on a surface; show the surface, show the environment, do not crop into studio limbo.';
+        break;
+      case 'TALKING_HEAD_CLOSEUP':
+      case 'REACTION':
+      case 'SILENT_STARE':
+        perType = 'Tight vertical portrait — head-and-shoulders, eyes on the upper-third line, chin at the lower-third, full vertical face. No wide-margin letterbox space on top or bottom.';
+        break;
+      case 'DIALOGUE_IN_SCENE':
+        perType = 'Medium-close vertical portrait — head-to-waist or head-to-hip, subject fills vertical frame, environmental context read in the narrow left/right margins.';
+        break;
+      case 'GROUP_DIALOGUE_TWOSHOT':
+        perType = 'Two-character vertical stacking — characters arranged so both faces read in 9:16 (one slightly forward / one slightly back, or one leaning in / one leaning back). NOT side-by-side wide two-shot.';
+        break;
+      case 'ACTION_NO_DIALOGUE':
+        perType = 'Kinetic vertical action — camera moves along Y axis (tilt/crane), subject moves along vertical diagonals. Use vertical blocking so action reads in 9:16.';
+        break;
+      case 'VOICEOVER_OVER_BROLL':
+        perType = 'Vertical atmospheric establishing — same rules as B_ROLL with V.O. in mind. Compose with room for mood, not breadth.';
+        break;
+    }
+
+    // Model-specific negative phrasing. Veo trained heavily on cinema —
+    // strongly reject 2.39. Kling handles vertical better natively but still
+    // benefits from the explicit negation.
+    let modelNegative = '';
+    if (modelHint === 'veo') {
+      modelNegative = ' Shot size is MEDIUM or MEDIUM-CLOSE (never "wide" or "extreme-wide" — those trigger horizontal cinema reflex).';
+    } else if (modelHint === 'kling') {
+      modelNegative = ' Framing is portrait-native, not cropped from a horizontal source.';
+    } else if (modelHint === 'seedream') {
+      modelNegative = ' Panel aspect is strict 9:16 with subject occupying the full vertical axis.';
+    }
+
+    return [GLOBAL, perType, modelNegative].filter(Boolean).join(' ').trim();
+  }
+
+  /**
+   * V4 Phase 9 — Identity Anchoring Directive (per Director's notes).
+   *
+   * Preserves facial structural geometry (inter-ocular distance, nose bridge,
+   * jaw line) across beats even when hair/makeup/wardrobe/lighting vary. The
+   * underlying mechanism is a reference subset (Canonical Identity Portrait),
+   * but the prompt language reinforces the lock at the model level.
+   *
+   * @returns {string}
+   */
+  _buildIdentityAnchoringDirective() {
+    return [
+      'Identity anchoring:',
+      'preserve exact facial structure from reference images —',
+      'inter-ocular distance, nose geometry, jawline, lip shape, ear placement, brow arch.',
+      'These are invariant.',
+      'Hair, makeup, wardrobe, and lighting may vary per scene, but facial bone structure must match references exactly.',
+      'Same person, same face, same age.',
+      'Do not stylistically reinterpret the face.',
+      'Reference images 1-3 are the canonical identity anchor.'
+    ].join(' ');
+  }
+
+  /**
+   * Phase 3.2 — resolve `beat.framing` to a concrete "lens X, distance Y,
+   * camera_move Z" recipe string the video models can condition on. The
+   * vocabulary is single-sourced in brandStoryPromptsV4.mjs so the prompt
+   * and the generator always stay in sync.
+   *
+   * Returns '' when no framing is emitted (generators fall back to their
+   * legacy default camera_move strings).
+   *
+   * @param {Object} beat
+   * @returns {string}
+   */
+  _resolveFramingRecipe(beat) {
+    const framing = beat?.framing;
+    if (!framing || typeof framing !== 'string') return '';
+    // Lazy-require to avoid pulling the prompt module into the generator
+    // module graph at require-time (CommonJS / ESM mixed loader care).
+    try {
+      // eslint-disable-next-line no-undef
+      const vocab = globalThis.__V4_FRAMING_VOCAB_CACHE;
+      if (vocab && vocab[framing]) {
+        const spec = vocab[framing];
+        return `Lens ${spec.lens_mm}mm, ${spec.distance} shot. Camera: ${spec.camera_move}. ${spec.intent}`;
+      }
+    } catch {}
+    // Minimal inlined fallback — matches the vocab semantics but avoids the
+    // cross-module import. Kept narrow so it doesn't drift from the prompt.
+    const INLINE = {
+      wide_establishing: 'Lens 24-35mm, wide shot. Camera: slow dolly back / crane reveal. Establish environment + subject within context.',
+      medium_two_shot:   'Lens 35-50mm, medium shot. Camera: locked-off or gentle drift. Two characters in frame at conversational distance.',
+      over_shoulder:     'Lens 50-85mm, medium-close. Camera: subtle arc over shoulder. Protagonist foreground soft, listener midground sharp.',
+      tight_closeup:     'Lens 85-100mm, close shot. Camera: locked-off, shallow DOF breathing. Head-and-shoulders, eyes and mouth as the story.',
+      macro_insert:      'Lens 100mm+ macro, macro shot. Camera: held with subtle rack focus, minimal drift. Detail hero.',
+      tracking_push:     'Lens 35-50mm, medium shot. Camera: slow push-in following subject motion.',
+      bridge_transit:    'Lens 24-35mm, wide shot. Camera: subject exits frame / enters new location. Connective transit between scenes.'
+    };
+    return INLINE[framing] || '';
+  }
+
+  /**
+   * Resolve the ordered list of personas that appear in this beat.
+   * Handles beat.persona_index (single), beat.persona_indexes[] (multi),
+   * and falls back to beat.personas_present[] (index array) or beat.voiceover_persona_index.
+   *
+   * @param {Object} beat
+   * @param {Object[]} personas
+   * @returns {Object[]} personas in the order they appear in the beat (dedup'd)
+   */
+  _resolvePersonasInBeat(beat, personas) {
+    if (!Array.isArray(personas) || personas.length === 0) return [];
+    const indexes = [];
+    if (typeof beat?.persona_index === 'number') indexes.push(beat.persona_index);
+    if (Array.isArray(beat?.persona_indexes)) indexes.push(...beat.persona_indexes);
+    if (Array.isArray(beat?.personas_present)) {
+      for (const p of beat.personas_present) {
+        if (typeof p === 'number') indexes.push(p);
+      }
+    }
+    if (typeof beat?.voiceover_persona_index === 'number') indexes.push(beat.voiceover_persona_index);
+
+    const seen = new Set();
+    const resolved = [];
+    for (const idx of indexes) {
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      if (personas[idx]) resolved.push(personas[idx]);
+    }
+    return resolved;
+  }
+
+  /**
+   * V4 Phase 9 keystone — Scene-Integrated Product Lock.
+   *
+   * For INSERT_SHOT beats with subject reference images AND a scene master,
+   * this pre-pass composites the product INTO the scene's environment via
+   * Seedream, producing a first_frame that shows the product sitting in the
+   * actual scene world (concrete table in the safehouse, not studio white).
+   *
+   * Feeding the raw studio product photo directly into Veo as first_frame
+   * produced visually-disconnected inserts — a continuity fracture that told
+   * the viewer's subconscious "this is an ad, not a story." The SIPL
+   * pre-pass eliminates that.
+   *
+   * Opt-out: V4_SIPL_STAGE=false disables the pre-pass and the legacy raw
+   * subject ref path runs.
+   *
+   * Idempotent: caches on beat.scene_integrated_product_frame_url.
+   *
+   * @param {Object} args
+   * @param {Object} args.beat
+   * @param {Object} args.scene
+   * @param {Object} args.episodeContext
+   * @returns {Promise<string|null>}
+   */
+  async _buildSceneIntegratedProductFrame({ beat, scene, episodeContext }) {
+    if (process.env.V4_SIPL_STAGE === 'false') return null;
+
+    // Idempotent resume path
+    if (beat.scene_integrated_product_frame_url) return beat.scene_integrated_product_frame_url;
+
+    const subjectRefs = episodeContext?.subjectReferenceImages || [];
+    if (!Array.isArray(subjectRefs) || subjectRefs.length === 0) return null;
+
+    // SIPL only fires when there's a scene master to integrate INTO.
+    // Without a scene master, the legacy path (raw subject ref → Veo) is
+    // actually correct — there's no scene environment to contextualize the
+    // product in.
+    if (!scene?.scene_master_url) return null;
+
+    if (!episodeContext?.uploadBuffer) {
+      this.logger.warn(`[${beat.beat_id}] SIPL skipped — episodeContext.uploadBuffer missing`);
+      return null;
+    }
+
+    try {
+      const { buildSceneIntegratedProductFrame } = await import('../v4/StoryboardHelpers.js');
+      const result = await buildSceneIntegratedProductFrame({
+        subjectReferenceImages: subjectRefs,
+        scene,
+        beat,
+        visualStylePrefix: episodeContext.visual_style_prefix || '',
+        uploadBuffer: episodeContext.uploadBuffer
+      });
+      if (!result) return null;
+      beat.scene_integrated_product_frame_url = result.first_frame_url;
+      this.logger.info(`[${beat.beat_id}] scene-integrated product lock ready (product + scene master → first frame)`);
+      return result.first_frame_url;
+    } catch (err) {
+      this.logger.warn(`[${beat.beat_id}] SIPL synthesis failed — falling back to raw subject ref: ${err.message}`);
+      beat.sipl_error = err.message || String(err);
+      return null;
+    }
+  }
+
+  /**
+   * Phase 2 keystone — acquire a persona-locked first frame for a Veo beat
+   * when the beat features one or more personas.
+   *
+   * Veo's API rejects reference images, so persona identity would drift on
+   * REACTION / B_ROLL (with-persona) / VOICEOVER_OVER_BROLL beats. We
+   * synthesize a 9:16 still via Seedream that shows the persona(s) inside
+   * the scene master's look at the beat's emotional/blocking state, and
+   * feed that still as Veo's first_frame. Veo then propagates identity
+   * forward while keeping its native ambient + cinematic camera.
+   *
+   * Opt-out: environment variable `V4_PERSONA_LOCK_FRAME=false` skips the
+   * Seedream pre-pass (kept for cost/debug situations). Default is on.
+   *
+   * Idempotent: caches the resulting URL on beat.persona_locked_first_frame_url
+   * so a resumed run skips regeneration.
+   *
+   * @param {Object} args
+   * @param {Object} args.beat
+   * @param {Object} args.scene
+   * @param {Object} [args.previousBeat]
+   * @param {Object[]} args.personas
+   * @param {Object} args.episodeContext - must carry uploadBuffer + subjectReferenceImages + visual_style_prefix
+   * @returns {Promise<string|null>} the first-frame URL to feed Veo, or null
+   *   if the beat has no personas or persona lock is disabled.
+   */
+  async _buildPersonaLockedFirstFrame({ beat, scene, previousBeat, personas, episodeContext }) {
+    if (process.env.V4_PERSONA_LOCK_FRAME === 'false') return null;
+
+    const personasInBeat = this._resolvePersonasInBeat(beat, personas);
+    if (personasInBeat.length === 0) return null;
+
+    // Resume path: reuse cached lock frame if the orchestrator persisted one
+    if (beat.persona_locked_first_frame_url) return beat.persona_locked_first_frame_url;
+
+    if (!episodeContext?.uploadBuffer) {
+      this.logger.warn(
+        `[${beat.beat_id}] persona-lock skipped — episodeContext.uploadBuffer missing`
+      );
+      return null;
+    }
+
+    try {
+      const { buildPersonaLockedFirstFrame } = await import('../v4/StoryboardHelpers.js');
+      const { first_frame_url } = await buildPersonaLockedFirstFrame({
+        personas: personasInBeat,
+        scene,
+        previousBeat,
+        subjectReferenceImages: episodeContext.subjectReferenceImages || [],
+        beat,
+        visualStylePrefix: episodeContext.visual_style_prefix || '',
+        uploadBuffer: episodeContext.uploadBuffer
+      });
+      beat.persona_locked_first_frame_url = first_frame_url;
+      this.logger.info(`[${beat.beat_id}] persona-locked first frame ready (${personasInBeat.length} persona(s))`);
+      return first_frame_url;
+    } catch (err) {
+      // Fail-soft: Veo can still produce output from prompt alone. Log so the
+      // Director Panel can surface the drift risk as a warning.
+      this.logger.warn(
+        `[${beat.beat_id}] persona-lock synthesis failed — falling back: ${err.message}`
+      );
+      beat.persona_lock_error = err.message || String(err);
+      return null;
+    }
+  }
 }
 
 export default BaseBeatGenerator;

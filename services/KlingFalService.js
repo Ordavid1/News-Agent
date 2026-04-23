@@ -84,12 +84,29 @@ export function buildKlingElementsFromPersonas(personas) {
   const capped = Array.isArray(personas) ? personas.slice(0, KLING_MAX_ELEMENTS) : [];
   for (let i = 0; i < capped.length; i++) {
     const persona = capped[i];
-    const refs = Array.isArray(persona?.reference_image_urls) ? persona.reference_image_urls.filter(Boolean) : [];
+
+    // V4 Phase 9 identity lock — prefer the Canonical Identity Portrait (CIP)
+    // set when persona has been canonicalized. CIP is a 3-view neutral-lit
+    // set of ONE harmonized face (front / 3/4 left / 3/4 right), built in the
+    // character-canonicalization stage to eliminate the "averaged across
+    // different magazine shots" drift. When CIP is present, we use it
+    // EXCLUSIVELY — no mixing with diverse source uploads that would dilute
+    // the identity anchor.
+    //
+    // Fallback: legacy path uses reference_image_urls directly (untouched
+    // behavior for personas built before the CIP stage shipped).
+    const cip = Array.isArray(persona?.canonical_identity_urls)
+      ? persona.canonical_identity_urls.filter(Boolean)
+      : [];
+    const refs = cip.length > 0
+      ? cip
+      : (Array.isArray(persona?.reference_image_urls) ? persona.reference_image_urls.filter(Boolean) : []);
     if (refs.length === 0) continue;
 
-    // Prefer closeup (index 1 in a V4 character sheet) as the frontal view.
-    // Falls back to the first available if not enough refs.
-    const frontal = refs[1] || refs[0];
+    // CIP ordering: [front, 3/4-left, 3/4-right] — front is the frontal anchor,
+    // other two are additional refs. Legacy ordering: index 1 (closeup) as
+    // frontal, index 0 + 2+ as additional.
+    const frontal = cip.length > 0 ? refs[0] : (refs[1] || refs[0]);
     const additional = refs.filter(url => url !== frontal).slice(0, KLING_MAX_REFS_PER_ELEMENT);
 
     elements.push({

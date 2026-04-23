@@ -45,10 +45,22 @@ class ActionGenerator extends BaseBeatGenerator {
       ? ' IMPORTANT: render any visible in-scene text clearly and accurately (signs, labels, captions).'
       : '';
 
+    // V4 Phase 9 — vertical framing + identity anchoring (when personas are
+    // in the action). Kling V3 Pro has a higher prompt budget than O3 Omni,
+    // but we still use the condensed directive to leave room for action prose.
+    const verticalDirective = 'VERTICAL 9:16. Kinetic action along vertical axis (tilt/crane), vertical blocking. No horizontal wide composition.';
+    const hasPersonas = (Array.isArray(beat.persona_indexes) && beat.persona_indexes.length > 0)
+      || (typeof beat.persona_index === 'number');
+    const identityDirective = hasPersonas
+      ? 'Identity lock: match facial structure from refs (bone geometry). Same person.'
+      : '';
+
     const prompt = [
+      verticalDirective,
       stylePrefix,
       actionPrompt,
       cameraNotes,
+      identityDirective,
       ambientSound ? `Ambient: ${ambientSound}` : '',
       textHint.trim()
     ].filter(Boolean).join('. ');

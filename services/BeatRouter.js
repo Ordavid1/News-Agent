@@ -26,6 +26,7 @@ import {
   BRollGenerator,
   VoiceoverBRollGenerator,
   TextOverlayCardGenerator,
+  BridgeBeatGenerator,
   ShotReverseShotCompiler
 } from './beat-generators/index.js';
 
@@ -66,6 +67,24 @@ export function resolveCostCap({ episodeOverride } = {}) {
 // V4 ROUTING TABLE (the hardcoded map)
 // ─────────────────────────────────────────────────────────────────────
 
+// Name-keyed map used by the Phase 5.3 per-beat generator override. The
+// Director Panel exposes these human-readable keys on the beat row; the
+// router resolves the key to the actual class at routing time. Keys must
+// stay stable — they are persisted on the beat row as `preferred_generator`.
+const GENERATOR_NAME_MAP = {
+  CinematicDialogueGenerator,
+  GroupTwoShotGenerator,
+  SilentStareGenerator,
+  ReactionGenerator,
+  InsertShotGenerator,
+  ActionGenerator,
+  BRollGenerator,
+  VoiceoverBRollGenerator,
+  TextOverlayCardGenerator,
+  MontageSequenceGenerator,
+  BridgeBeatGenerator
+};
+
 const ROUTING = {
   // Mode B primary — Kling O3 Omni → Sync Lipsync v3 chain
   TALKING_HEAD_CLOSEUP: { generator: CinematicDialogueGenerator, mode: 'B' },
@@ -88,6 +107,10 @@ const ROUTING = {
 
   // Opt-in voice-over beat
   VOICEOVER_OVER_BROLL: { generator: VoiceoverBRollGenerator },
+
+  // V4 Phase 6.1 — narrative bridge beats. Veo 3.1 Standard with
+  // first+last-frame anchoring, same free tier as B_ROLL_ESTABLISHING.
+  SCENE_BRIDGE: { generator: BridgeBeatGenerator },
 
   // Post-production (ffmpeg only, no API cost)
   TEXT_OVERLAY_CARD:     { generator: TextOverlayCardGenerator, noApiCost: true },
@@ -188,6 +211,20 @@ class BeatRouter {
    */
   route(beat) {
     if (!beat || !beat.type) return null;
+
+    // Phase 5.3 — per-beat generator override (Director Panel integration).
+    // When the director explicitly picks a generator on the beat row, honor it
+    // before the routing table runs. Restricted to the known generator class
+    // names in GENERATOR_NAME_MAP so invalid overrides fall through to the
+    // default route rather than crashing with an undefined class.
+    if (beat.preferred_generator && GENERATOR_NAME_MAP[beat.preferred_generator]) {
+      return {
+        GeneratorClass: GENERATOR_NAME_MAP[beat.preferred_generator],
+        mode: 'override',
+        overriddenFrom: beat.type,
+        noApiCost: !!ROUTING[beat.type]?.noApiCost
+      };
+    }
 
     // Text-rendering override: any beat with requires_text_rendering: true
     // routes to the Action generator (Kling V3 Pro — best in class text rendering).

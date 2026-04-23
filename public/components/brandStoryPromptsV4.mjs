@@ -288,6 +288,110 @@ Pace: slow burns punctuated by status flips.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Phase 3 — CINEMATIC FRAMING VOCABULARY
+// ═══════════════════════════════════════════════════════════════════════
+//
+// A named vocabulary Gemini picks from instead of improvising camera
+// language. Each entry maps a semantic name ("wide_establishing",
+// "medium_two_shot", "over_shoulder", "tight_closeup", "macro_insert") to a
+// concrete lens / distance / camera-move recipe that downstream models
+// (Kling / Veo) can interpret consistently.
+//
+// The point: if Gemini says `framing: "wide_establishing"`, the beat
+// generator appends the lens + distance + camera_move recipe to the prompt.
+// This replaces ad-hoc phrases like "cinematic macro feel" with a locked
+// recipe — which is how Hollywood DPs work (they pick from a shared shot
+// vocabulary, not reinvent terms).
+
+export const V4_FRAMING_VOCAB = {
+  wide_establishing: {
+    lens_mm: '24-35',
+    distance: 'wide',
+    camera_move: 'slow dolly back / crane reveal',
+    intent: 'Establish environment + subject within context. Generous headroom, subject ≤ 25% of frame.',
+    use_when: 'B_ROLL_ESTABLISHING, scene openers, new location reveals.'
+  },
+  medium_two_shot: {
+    lens_mm: '35-50',
+    distance: 'medium',
+    camera_move: 'locked-off or gentle drift',
+    intent: 'Two characters in frame at conversational distance. Eye-level. Both faces visible.',
+    use_when: 'GROUP_DIALOGUE_TWOSHOT, emotional peak multi-persona exchanges.'
+  },
+  over_shoulder: {
+    lens_mm: '50-85',
+    distance: 'medium-close',
+    camera_move: 'subtle arc over shoulder',
+    intent: 'Protagonist in foreground (soft), listener in midground (sharp). Conversational power dynamic.',
+    use_when: 'DIALOGUE_IN_SCENE when the scene has two characters and one is speaking.'
+  },
+  tight_closeup: {
+    lens_mm: '85-100',
+    distance: 'close',
+    camera_move: 'locked-off, shallow DOF breathing',
+    intent: 'Head-and-shoulders, eyes and mouth as the story. Intimate, emotional.',
+    use_when: 'TALKING_HEAD_CLOSEUP, SILENT_STARE, REACTION where the face IS the beat.'
+  },
+  macro_insert: {
+    lens_mm: '100-macro',
+    distance: 'macro',
+    camera_move: 'held with subtle rack focus, minimal drift',
+    intent: 'Detail beat — product, hands, object. Hero shot. Predictable endpoint.',
+    use_when: 'INSERT_SHOT, product hero, tactile detail beats.'
+  },
+  tracking_push: {
+    lens_mm: '35-50',
+    distance: 'medium',
+    camera_move: 'slow push-in following subject motion',
+    intent: 'Energy building — subject in motion, camera matches. Reserve for kinetic scenes.',
+    use_when: 'ACTION_NO_DIALOGUE with directional momentum.'
+  },
+  bridge_transit: {
+    lens_mm: '24-35',
+    distance: 'wide',
+    camera_move: 'subject exits frame / enters new location',
+    intent: 'Connective tissue between scenes. Shows HOW we got from A to B.',
+    use_when: 'scene.bridge_to_next beats.'
+  }
+};
+
+function _buildCinematicFramingBlock() {
+  const entries = Object.entries(V4_FRAMING_VOCAB)
+    .map(([name, spec]) =>
+      `  • ${name}: lens ${spec.lens_mm}mm, ${spec.distance}, ${spec.camera_move}. ${spec.intent} Use for: ${spec.use_when}`
+    )
+    .join('\n');
+
+  return `═══════════════════════════════════════════════════════════════
+CINEMATIC FRAMING VOCABULARY — pick from this list, don't improvise.
+═══════════════════════════════════════════════════════════════
+
+Every beat MUST emit a \`framing\` field with one of the names below. The
+downstream video models (Kling, Veo) receive a concrete lens + distance +
+camera-move recipe per framing name, which produces consistent, predictable
+shots across beats. Improvised camera language ("cinematic macro feel",
+"dramatic zoom") produces inconsistent results — the vocabulary eliminates that.
+
+${entries}
+
+HARD RULES:
+  - B_ROLL_ESTABLISHING → framing MUST be wide_establishing or bridge_transit.
+    Never macro_insert. An establishing shot that closes on the subject
+    defeats its purpose.
+  - INSERT_SHOT → framing MUST be macro_insert.
+  - TALKING_HEAD_CLOSEUP / SILENT_STARE / REACTION → framing SHOULD be
+    tight_closeup (occasionally over_shoulder for DIALOGUE_IN_SCENE).
+  - Never emit framing values outside this vocabulary. Missing framing
+    defaults per beat type (but picking explicitly is ALWAYS better).
+
+Camera zoom / push-in is RESERVED: use it only on tracking_push or when
+narratively motivated. A 2-4s push-in on a still subject looks cheap.
+Default to HELD shots with subtle rack focus for detail beats — the
+Hollywood standard for product heroes.
+`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // V4 EPISODE SCREENPLAY PROMPT
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -478,6 +582,8 @@ SERIES CONTEXT:
 ${emotionalBlock}${visualContinuityBlock}${motifsBlock}
 
 ${_buildGenreRegisterBlock(storyline.genre)}
+
+${_buildCinematicFramingBlock()}
 
 SEASON BIBLE:
 ${storyline.season_bible || JSON.stringify(storyline.arc || {}, null, 2)}
@@ -1038,6 +1144,7 @@ OUTPUT JSON SCHEMA (match exactly):
       "scene_id": "short_identifier",
       "type": "standard | montage",
       "location": "Where this scene takes place (one sentence)",
+      "location_id": "OPTIONAL — stable identifier for a RECURRING location (e.g. 'agent_office', 'rooftop_terrace'). When a later scene reuses the same physical space, emit the SAME location_id so the Location Bible reuses the cached scene master. Omit for one-off locations.",
       "scene_synopsis": "One-sentence summary of what happens in this scene",
       "scene_goal": "What the protagonist / camera is trying to achieve in this scene (one sentence)",
       "dramatic_question": "The ONE question this scene raises (one sentence)",
@@ -1046,13 +1153,25 @@ OUTPUT JSON SCHEMA (match exactly):
       "scene_visual_anchor_prompt": "Rich still-image description for Seedream 5 Lite Scene Master panel. 80-150 words. Cover: location + time of day + lighting + color palette + character blocking + wardrobe + atmosphere + film stock feel. Must respect visual_style_prefix. Example: 'Wide establishing of a rooftop bar at golden hour, neon signage reflecting in rain-slicked tiles. Maya stands left frame in a charcoal coat; Daniel sits right frame at a copper-topped bar. Warm amber key light, cool cyan fill from neon. Anamorphic lens feel, shallow DOF, Kodak Portra 400 grain.'",
       "ambient_bed_prompt": "Continuous room-tone/atmosphere SFX for the ENTIRE scene, under every beat. This is the Hollywood sonic backdrop that makes cuts invisible — a single unbroken ambient layer (20-25s, designed to loop seamlessly) that ties all beats in the scene together. Describe ONLY the environment, NOT any foreground actions (dialogue, footsteps, product clicks). Example for a rooftop bar at golden hour: 'Soft distant city rumble, muffled conversation chatter, gentle wind through cables, faint bass bleed from the lounge below, occasional distant car horn'. Example for a quiet forensic studio at night: 'Sterile HVAC hum, deep refrigerator-like drone, faint electrical buzz of monitors, absolute stillness between tones'. Keep under 180 chars. This bed plays at -18dB under every beat, smoothing cuts and establishing location acoustics.",
       "transition_to_next": "dissolve | fadeblack | cut | speed_ramp — DEFAULT TO 'dissolve'. The dissolve triggers a 0.5s xfade + acrossfade that smoothly transitions both video AND the scene ambient bed between scenes. Use 'cut' ONLY when a hard edit is narratively required (e.g. high-energy action shift, smash-cut for comedic/dramatic impact). A 'cut' at a scene boundary causes an abrupt audio transition from one ambient bed to the next — avoid unless intentional. 'fadeblack' is for emotional beat breaks or act separations. 'speed_ramp' for energy spikes.",
+      "bridge_to_next": {
+        "_comment": "OPTIONAL narrative bridge beat (Phase 6.1) — a 2-3s B-roll or walk shot that shows HOW we got from this scene to the next. Emit when the next scene is in a DIFFERENT location, so the viewer understands the spatial/temporal move. The bridge is generated by Veo with first_frame=this scene's endframe and last_frame_hint=next scene's master, producing a seamless transit shot. Without a bridge, the viewer sees a raw dissolve with no narrative connective tissue.",
+        "type": "B_ROLL_ESTABLISHING | INSERT_SHOT",
+        "framing": "bridge_transit | wide_establishing",
+        "duration_seconds": 2,
+        "visual_prompt": "e.g. 'Agent exits the office door, walks down the hallway toward the terrace' — describes the transit between the two scenes.",
+        "ambient_sound": "transit environment sound"
+      },
       "beats": [
         {
           "beat_id": "s1b1",
           "type": "B_ROLL_ESTABLISHING",
+          "framing": "wide_establishing",
+          "personas_present": [],
+          "subject_present": true,
+          "location_hero": true,
           "location": "rooftop bar at golden hour",
           "atmosphere": "rain-slicked tiles, neon reflections, distant city hum",
-          "camera_move": "slow dolly forward over the wet tiles, ending at the bar counter",
+          "camera_move": "slow dolly back revealing the wider terrace and skyline",
           "duration_seconds": 3,
           "ambient_sound": "distant traffic, wind, muffled bass from a door below",
           "requires_text_rendering": true,
@@ -1075,7 +1194,9 @@ OUTPUT JSON SCHEMA (match exactly):
         {
           "beat_id": "s1b3",
           "type": "REACTION",
+          "framing": "tight_closeup",
           "persona_index": 1,
+          "personas_present": [1],
           "duration_seconds": 2,
           "expression_notes": "a micro-flinch, jaw tightening, breath held, then released",
           "narrative_purpose": "Daniel is caught. The viewer learns the question matters before any answer is given.",

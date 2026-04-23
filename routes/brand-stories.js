@@ -1040,7 +1040,22 @@ router.patch('/:id/episodes/:episodeId/beats/:beatId', v4PatchLimiter, csrfProte
     }
     if (!foundBeat) return res.status(404).json({ success: false, error: 'Beat not found' });
 
-    const allowedFields = ['dialogue', 'expression_notes', 'action_prompt', 'lens', 'emotion', 'duration_seconds', 'subject_focus', 'lighting_intent', 'camera_move', 'ambient_sound', 'voiceover_text', 'model_override'];
+    const allowedFields = [
+      'dialogue', 'expression_notes', 'action_prompt', 'lens', 'emotion',
+      'duration_seconds', 'subject_focus', 'lighting_intent', 'camera_move',
+      'ambient_sound', 'voiceover_text', 'model_override',
+      // V4 Phase 1.1 / 2 / 3.2 / 5.3 / 7 — new editable fields from the
+      // expanded Director Panel. All are schema-validated by the generators,
+      // so accepting them here is safe.
+      'framing',               // cinematic vocabulary (Phase 3.2)
+      'preferred_generator',   // per-beat model override (Phase 5.3)
+      'subject_present',       // subject mandate toggle (Phase 1.1)
+      'location_hero',         // location bible reuse flag
+      'personas_present',      // persona_index array override (Phase 2)
+      'narrative_purpose',     // screenplay field promoted to editable
+      'subtext',               // subtext field promoted to editable
+      'last_frame_hint_url'    // Phase 2.3 — INSERT_SHOT end-state anchor
+    ];
     let edited = false;
     for (const key of allowedFields) {
       if (req.body[key] !== undefined) {

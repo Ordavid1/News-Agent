@@ -401,6 +401,120 @@ function repairBeatSizing(sceneGraph, issues) {
 // Public entry point
 // ──────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────
+// Phase 4.4 — Mouth-occlusion guard
+// ──────────────────────────────────────────────────────────────
+//
+// Sync Lipsync v3 fails (or visibly warps) when hand gestures overlap the
+// mouth region at the moment of dialogue. Gemini occasionally writes
+// action_notes like "hands near face", "rubbing chin", "lips pursed behind
+// fingers" on dialogue beats — the model then generates frames where the
+// mouth is obscured and the corrective lipsync pass cannot find it.
+//
+// We emit a WARNING (not a blocker) with a hint so the Doctor can rewrite
+// the gesture, or the Director Panel can show a caution chip. This keeps the
+// episode generating while surfacing the risk.
+const MOUTH_OCCLUSION_PATTERNS = [
+  /hands?\s+(near|at|over|to)\s+(mouth|face|lips|chin)/i,
+  /(touching|rubbing|cover(ing)?|wiping)\s+(mouth|lips|chin|face)/i,
+  /fingers?\s+(to|on|over)\s+(lips|mouth)/i,
+  /biting\s+(lip|nail|knuckle)/i,
+  /chewing\s+(on|fingernail)/i,
+  /palm\s+(on|against)\s+face/i
+];
+
+function beatHasMouthOcclusion(beat) {
+  const candidates = [
+    beat?.action_notes,
+    beat?.blocking_notes,
+    beat?.expression_notes,
+    beat?.subtext
+  ].filter(s => typeof s === 'string' && s.length > 0);
+  for (const text of candidates) {
+    for (const pattern of MOUTH_OCCLUSION_PATTERNS) {
+      if (pattern.test(text)) return true;
+    }
+  }
+  return false;
+}
+
+function checkMouthOcclusion(sceneGraph, issues) {
+  let flaggedCount = 0;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (!DIALOGUE_BEARING_TYPES.has(beat.type)) continue;
+      if (beatHasMouthOcclusion(beat)) {
+        flaggedCount++;
+        issues.push({
+          id: 'mouth_occlusion_risk',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id}`,
+          message: `Beat ${beat.beat_id} [${beat.type}] has a dialogue line alongside a gesture that may occlude the mouth region — Sync Lipsync v3 can fail or warp on frames where the mouth is hidden.`,
+          hint: 'Move the hand/face gesture to a non-speaking moment, or replace the gesture (e.g. "hand at collar" instead of "hand at chin"). Alternatively, shift the line to a REACTION beat.'
+        });
+      }
+    }
+  }
+  if (flaggedCount > 0) {
+    logger.info(`mouth-occlusion guard flagged ${flaggedCount} dialogue beat(s)`);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Phase 1.1 — Subject mandate check
+// ──────────────────────────────────────────────────────────────
+//
+// When the story's Subject Bible sets `integration_mandate.min_beats_per_episode`,
+// the episode MUST contain at least that many beats where the product/landscape
+// appears. Counted as either:
+//   - beat.subject_present === true (explicit flag from Gemini)
+//   - beat.type ∈ { INSERT_SHOT, B_ROLL_ESTABLISHING } AND subject naturally implied
+//
+// Blocker if zero beats mention the subject and the mandate is explicit;
+// warning if below threshold (the Doctor can add an INSERT_SHOT to fix).
+function checkSubjectMandate(sceneGraph, storyline, options, issues) {
+  const bible = options?.subject_bible || storyline?.subject_bible || null;
+  const mandate = bible?.integration_mandate;
+  if (!mandate || typeof mandate.min_beats_per_episode !== 'number') return;
+
+  const SUBJECT_ANCHORED_TYPES = new Set(['INSERT_SHOT', 'B_ROLL_ESTABLISHING']);
+  let subjectBeats = 0;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (beat.subject_present === true) {
+        subjectBeats++;
+        continue;
+      }
+      if (SUBJECT_ANCHORED_TYPES.has(beat.type)) {
+        // Heuristic: INSERT_SHOT always carries the subject; B_ROLL counts when
+        // the beat explicitly mentions the subject by name.
+        if (beat.type === 'INSERT_SHOT') { subjectBeats++; continue; }
+        const subjectName = (bible?.name || options?.subject?.name || '').toLowerCase();
+        const combined = `${beat.location || ''} ${beat.visual_prompt || ''} ${beat.subject_focus || ''}`.toLowerCase();
+        if (subjectName && combined.includes(subjectName)) subjectBeats++;
+      }
+    }
+  }
+
+  if (subjectBeats === 0) {
+    issues.push({
+      id: 'subject_missing_from_episode',
+      severity: 'blocker',
+      scope: 'episode',
+      message: `Subject "${bible?.name || 'subject'}" does not appear in ANY beat of this episode. The Subject Bible mandate requires ≥ ${mandate.min_beats_per_episode}.`,
+      hint: 'Add at least one INSERT_SHOT hero beat or mark a B_ROLL_ESTABLISHING with subject_present=true and the subject visible in its location/visual_prompt.'
+    });
+  } else if (subjectBeats < mandate.min_beats_per_episode) {
+    issues.push({
+      id: 'subject_underrepresented',
+      severity: 'warning',
+      scope: 'episode',
+      message: `Subject appears in ${subjectBeats} beat(s) — below the Subject Bible minimum of ${mandate.min_beats_per_episode} per episode.`,
+      hint: 'Promote an existing establishing beat to subject_present=true, or add a dedicated INSERT_SHOT.'
+    });
+  }
+}
+
 /**
  * Validate a V4 scene-graph against the Layer-1 checklist.
  *
@@ -435,6 +549,8 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkSubtextCoverage(repaired, issues);
   checkOneGreatLinePrinciple(repaired, issues);
   checkIntensityRamp(repaired, storyline, issues);
+  checkMouthOcclusion(repaired, issues);
+  checkSubjectMandate(repaired, storyline, options, issues);
   repairBeatSizing(repaired, issues);
 
   const { total, dialogue } = countAllDialogueBeats(repaired);

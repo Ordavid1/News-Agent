@@ -45,8 +45,14 @@ class SilentStareGenerator extends BaseBeatGenerator {
     const intensity = beat.emotional_intensity || 'medium';
     const gaze = beat.gaze_direction ? ` Eyes look ${beat.gaze_direction}.` : '';
 
+    // V4 Phase 9 — vertical framing + identity anchoring (condensed for 512-char budget).
+    const verticalDirective = 'VERTICAL 9:16 tight portrait. Eyes upper third, chin lower third, face fills vertical frame.';
+    const identityDirective = 'Preserve facial structure from refs (bone geometry). Same person, same face.';
+
     // Silent stare prompt — tight, no dialogue, held emotional weight.
     const prompt = [
+      verticalDirective,
+      identityDirective,
       stylePrefix,
       'Tight closeup, absolute stillness, held emotional weight.',
       `Intensity: ${intensity}.`,

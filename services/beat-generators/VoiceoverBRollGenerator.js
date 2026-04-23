@@ -71,7 +71,16 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     });
 
     // ─── Stage B — Veo B-roll visual with native ambient ───
-    const firstFrameUrl = scene?.scene_master_url
+    // Phase 2 — when the V.O. beat features an on-screen persona (e.g. agent
+    // walking the terrace while narrating), synthesize a persona-locked first
+    // frame so Veo preserves identity across the beat. The V.O. persona
+    // (voiceover_persona_index) is included in the persona resolution.
+    const personaLockUrl = await this._buildPersonaLockedFirstFrame({
+      beat, scene, previousBeat, personas, episodeContext
+    });
+
+    const firstFrameUrl = personaLockUrl
+      || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
 
@@ -79,11 +88,20 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     const location = beat.location || scene?.location || 'atmospheric establishing';
     const cameraMove = beat.camera_move || 'slow drift forward';
 
+    // V4 Phase 9 — vertical framing + conditional identity anchoring
+    // (V.O. beats may feature a persona on-screen while the narration plays).
+    const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
+    const identityDirective = (beat.personas_present && beat.personas_present.length > 0) || personaLockUrl
+      ? this._buildIdentityAnchoringDirective()
+      : '';
+
     const veoPrompt = [
+      verticalDirective,
       stylePrefix,
       `B-roll of ${location}.`,
       `Camera: ${cameraMove}.`,
-      'No visible characters speaking — atmospheric and evocative.',
+      identityDirective,
+      'Atmospheric and evocative.',
       'Ambient sound bed only (natural environment).'
     ].filter(Boolean).join(' ');
 
@@ -128,6 +146,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
         voiceId,
         voiceoverText,
         fallbackTier: veoResult.fallbackTier,
+        personaLocked: !!personaLockUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration,
         // Orchestrator hook: this tells post-production to do a V.O. overlay

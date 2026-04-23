@@ -15,6 +15,68 @@
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
 import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import crypto from 'crypto';
+
+/**
+ * Phase 4.3 — time-align two speaker audio tracks into ONE mp3 that Sync
+ * Lipsync v3 can correct in a single pass. Placeholder silence between the
+ * two tracks preserves the natural beat pacing: speaker 1 speaks → short
+ * breath → speaker 2 speaks. A 0.3s gap reads as a real conversational turn.
+ *
+ * Returns the merged mp3 Buffer; caller uploads and hands the URL to Sync v3.
+ */
+function concatSpeakerAudioBuffers(buffers, gapSec = 0.3) {
+  if (!Array.isArray(buffers) || buffers.length === 0) {
+    throw new Error('concatSpeakerAudioBuffers: at least one buffer required');
+  }
+  const tmpDir = os.tmpdir();
+  const runId = crypto.randomBytes(4).toString('hex');
+  const outPath = path.join(tmpDir, `v4-twoshot-audio-${runId}.mp3`);
+  const partPaths = buffers.map((buf, i) =>
+    path.join(tmpDir, `v4-twoshot-audio-${runId}-part${i}.mp3`)
+  );
+
+  try {
+    // Write each TTS buffer to disk
+    buffers.forEach((buf, i) => fs.writeFileSync(partPaths[i], buf));
+
+    // Build ffmpeg filter graph: decode each part → insert silence gap → concat
+    // Example for 2 speakers: [0:a][silence][1:a]concat=n=3:v=0:a=1
+    const inputArgs = [];
+    for (const p of partPaths) inputArgs.push('-i', p);
+    // aevalsrc for silence: we generate a single silence input that we reuse
+    inputArgs.push('-f', 'lavfi', '-i', `aevalsrc=0:d=${gapSec.toFixed(3)}`);
+
+    const silenceIdx = partPaths.length;
+    const segments = [];
+    for (let i = 0; i < partPaths.length; i++) {
+      segments.push(`[${i}:a]`);
+      if (i < partPaths.length - 1) segments.push(`[${silenceIdx}:a]`);
+    }
+    const filter = `${segments.join('')}concat=n=${segments.length}:v=0:a=1[out]`;
+
+    execFileSync('ffmpeg', [
+      '-y',
+      ...inputArgs,
+      '-filter_complex', filter,
+      '-map', '[out]',
+      '-c:a', 'libmp3lame',
+      '-q:a', '2',
+      outPath
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+    return fs.readFileSync(outPath);
+  } finally {
+    try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
+    for (const p of partPaths) {
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+    }
+  }
+}
 
 const COST_KLING_OMNI_STANDARD_PER_SEC = 0.168;
 const COST_SYNC_LIPSYNC_V3_FLAT = 0.50;
@@ -99,13 +161,46 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
       ? ` Subtext (show on faces, not in voices): the surface lines differ from what they really mean — "${beat.subtext}". Let that truth surface as micro-expressions under the surface emotion.`
       : '';
 
-    const klingPrompt = [
-      stylePrefix,
-      blockingHint,
-      emotionHint.trim(),
-      subtextHint.trim(),
-      dialogueHint
-    ].filter(Boolean).join(' ');
+    // See CinematicDialogueGenerator for the budget-allocation rationale —
+    // Kling O3 Omni Standard truncates silently at 512 chars, so we drop
+    // lower-priority sections rather than chopping mid-sentence. dialogueHint
+    // is mandatory because it binds both character tokens to their lines.
+    //
+    // V4 Phase 9 — vertical framing + identity anchoring (condensed).
+    // Two-shot vertical stacking is critical: characters must be arranged so
+    // BOTH faces read in 9:16 (one slightly forward, one back — NOT side-by-side).
+    const verticalDirective = 'VERTICAL 9:16 two-shot. Characters stacked for portrait: one slightly forward, one back. Both faces read.';
+    const identityDirective = 'Preserve facial structure from refs. Each character matches own reference, no face-swap.';
+
+    const KLING_PROMPT_BUDGET = 480;
+    const twoShotSections = [
+      { priority: 'mandatory', text: dialogueHint },
+      { priority: 'mandatory', text: verticalDirective },
+      { priority: 'mandatory', text: identityDirective },
+      { priority: 'mandatory', text: blockingHint },
+      { priority: 'high',      text: subtextHint.trim() },
+      { priority: 'medium',    text: emotionHint.trim() },
+      { priority: 'low',       text: stylePrefix }
+    ].filter(s => s.text && s.text.length > 0);
+
+    const accepted = [];
+    let runningLen = 0;
+    for (const section of twoShotSections) {
+      if (section.priority === 'mandatory') {
+        accepted.push(section.text);
+        runningLen += section.text.length + 1;
+      }
+    }
+    for (const section of twoShotSections) {
+      if (section.priority === 'mandatory') continue;
+      if (runningLen + section.text.length + 1 <= KLING_PROMPT_BUDGET) {
+        accepted.push(section.text);
+        runningLen += section.text.length + 1;
+      }
+    }
+    const accDialogueHint = accepted.find(t => t === dialogueHint);
+    const accRest = accepted.filter(t => t !== dialogueHint);
+    const klingPrompt = [...accRest, accDialogueHint].filter(Boolean).join(' ');
 
     // Build Kling elements[] from both personas — the character identity lock
     // comes from these inline elements (frontal + reference_image_urls), not
@@ -136,23 +231,47 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
       }
     });
 
-    // Stage C — sync lipsync. For two-shot, we run the corrective pass ONCE
-    // against a combined audio track (both dialogue lines concatenated). True
-    // per-speaker mask routing would require BytePlus which is not in V4.
-    // Acceptable tradeoff per the reviewer's Mode B architecture decision.
+    // Stage C — Sync Lipsync v3 corrective pass.
+    //
+    // Phase 4.3: we concatenate the two speaker TTS tracks time-aligned
+    // (speaker 1 → 0.3s breath → speaker 2) into ONE combined audio track and
+    // feed that to Sync Lipsync v3. The corrective pass then sees audio for
+    // both speakers sequentially and repairs both mouth regions in a single
+    // pass — eliminating the old "only speaker 1 is lipsynced" artifact.
+    //
+    // If ffmpeg concat fails, we gracefully fall back to speaker 1's track
+    // only (the pre-Phase-4.3 behavior) rather than losing the beat.
     let finalVideoBuffer = klingResult.videoBuffer;
     let finalVideoUrl = klingResult.videoUrl;
     let syncPassSucceeded = false;
+    let combinedAudioUrl = null;
 
     if (syncLipsync && audioUrls.length > 0) {
       try {
-        this.logger.info(`[${beat.beat_id}] Stage C: Sync Lipsync v3 (best-effort corrective pass on combined audio)`);
-        // For Phase 1a, we use the first speaker's audio for the corrective pass.
-        // Phase 2 upgrade: concatenate the audio tracks time-aligned and feed the combined.
+        this.logger.info(`[${beat.beat_id}] Stage C: concatenating ${ttsResults.length} speaker track(s) for combined lipsync pass`);
+        let audioUrlForSync = audioUrls[0];
+        if (ttsResults.length >= 2) {
+          try {
+            const combinedBuffer = concatSpeakerAudioBuffers(
+              ttsResults.map(r => r.audioBuffer),
+              0.3
+            );
+            combinedAudioUrl = await episodeContext.uploadAudio({
+              buffer: combinedBuffer,
+              filename: `beat-${beat.beat_id}-twoshot-combined.mp3`,
+              mimeType: 'audio/mpeg'
+            });
+            audioUrlForSync = combinedAudioUrl;
+          } catch (concatErr) {
+            this.logger.warn(`[${beat.beat_id}] audio concat failed, falling back to speaker 0: ${concatErr.message}`);
+          }
+        }
+
         const syncResult = await syncLipsync.applyLipsync({
           videoUrl: klingResult.videoUrl,
-          audioUrl: audioUrls[0],
-          options: { syncMode: 'cut_off' }
+          audioUrl: audioUrlForSync
+          // syncMode default 'bounce' applies — mirrors final frame back-and-forth
+          // on tail mismatch instead of clipping mid-phoneme.
         });
         finalVideoBuffer = syncResult.videoBuffer;
         finalVideoUrl = syncResult.videoUrl;
@@ -177,7 +296,8 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
         klingVideoUrl: klingResult.videoUrl,
         finalVideoUrl,
         syncPassSucceeded,
-        audioUrls
+        audioUrls,
+        combinedAudioUrl
       }
     };
   }
