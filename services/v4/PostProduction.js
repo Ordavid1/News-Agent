@@ -981,7 +981,21 @@ async function applyPerBeatSfxOverlays(beatPaths, beatMetadata, tempPaths) {
       //   - -10dB (current) gives a clear foreground-event layer that sits
       //     ON TOP of the ambient bed without fighting dialogue.
       const sfxVolume = Math.pow(10, -10 / 20).toFixed(3);
-      const filterComplex = `[1:a]volume=${sfxVolume}[sfx];[0:a][sfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`;
+      // Add 150ms fade-in and fade-out on the SFX overlay so the ambient
+      // foreground event eases in/out instead of popping hard at beat
+      // boundaries. Without this, adjacent beats where one has SFX and
+      // the next doesn't produce an abrupt "strong white cover noise then
+      // mellow audio" transition (reported by operator 2026-04-23).
+      //
+      // Implementation: probe the beat's own duration to schedule the fade-out
+      // correctly (can't use `st=end-d` syntax without knowing end time).
+      // Fall back to a symmetric fade at the SFX clip boundaries if probe fails.
+      const beatDurSec = probeDurationSec(beatPaths[i]);
+      const SFX_FADE_SEC = 0.15;
+      const fadeOutStart = Math.max(0, (beatDurSec || beatDuration || 4) - SFX_FADE_SEC);
+      const filterComplex =
+        `[1:a]volume=${sfxVolume},afade=t=in:d=${SFX_FADE_SEC}:st=0,afade=t=out:d=${SFX_FADE_SEC}:st=${fadeOutStart.toFixed(3)}[sfx];` +
+        `[0:a][sfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`;
 
       execFileSync('ffmpeg', [
         '-y',

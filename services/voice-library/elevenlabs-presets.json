@@ -246,7 +246,7 @@
       "tags": ["whispery", "intimate", "soft", "close"]
     },
     {
-      "voice_id": "XrExE9yKIg1WjnnlVkGX",
+      "voice_id": "onwK4e9ZLuTAKqWW03F9",
       "name": "Daniel",
       "gender": "male",
       "age": "middle_aged",
@@ -254,16 +254,6 @@
       "descriptor": "deep, British, authoritative",
       "best_for": ["British male lead", "news anchor tone", "prestige drama"],
       "tags": ["british", "deep", "authoritative", "prestigious"]
-    },
-    {
-      "voice_id": "onwK4e9ZLuTAKqWW03F9",
-      "name": "Callum",
-      "gender": "male",
-      "age": "middle_aged",
-      "accent": "british",
-      "descriptor": "hoarse, gritty, intense",
-      "best_for": ["gritty male character", "antihero", "thriller lead"],
-      "tags": ["gritty", "hoarse", "intense", "dark"]
     },
     {
       "voice_id": "g5CIjZEefAph4nQFvHAz",

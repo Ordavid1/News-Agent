@@ -1,26 +1,30 @@
 // services/v4/VoiceAcquisition.js
-// V4 persona voice acquisition — Gemini-driven ElevenLabs preset matching.
+// V4 persona voice acquisition — Gemini-driven ElevenLabs preset matching
+// with HARD gender enforcement and cross-persona uniqueness.
 //
-// The flow (Decision 3 from sunny-wishing-teacup.md):
-//   1. Gemini reads the persona's name, personality, role, appearance
-//   2. Gemini writes a 1-sentence voice brief ("warm baritone, slight rasp,
-//      mid-30s American, deliberate pacing")
-//   3. Gemini picks the closest voice from the curated ElevenLabs preset
-//      library in services/voice-library/elevenlabs-presets.json
-//   4. We assign the persona.elevenlabs_voice_id and persona.elevenlabs_voice_brief
+// The flow (Decision 3 from sunny-wishing-teacup.md, hardened 2026-04-23):
+//   1. Infer each persona's gender from appearance/description (locally).
+//   2. Feed Gemini a FILTERED voice library (matching gender, excluding
+//      voices already taken by earlier personas in this batch).
+//   3. Gemini writes a 1-sentence voice brief and picks a voice_id.
+//   4. Post-pick validation: reject if gender mismatches OR voice_id was
+//      already taken. On failure, do a deterministic fallback pick from
+//      the filtered subset (so the episode never ships with a wrong-gender
+//      or duplicate voice).
+//   5. Assign persona.elevenlabs_voice_id + persona.elevenlabs_voice_brief.
 //
-// User override (fallback b) comes from the Director's Panel — the user
-// can open the persona card and pick from the full library manually.
+// Why this matters (incident 2026-04-23):
+//   An Action-genre episode cast ALL THREE personas with the same Brian
+//   (male) voice — including a female character (persona 2). Root cause:
+//     (a) acquirePersonaVoicesForStory casts one persona at a time with no
+//         awareness of voices already taken → Gemini repeatedly picked the
+//         same "safe" voice
+//     (b) No gender check → Gemini's pick drifted to male for a female persona
+//     (c) `skipped` path bypasses re-casting even when the stored voice is
+//         clearly wrong (no way to recover without manual intervention)
 //
-// Kling voice cloning (Phase 1b) is OPT-IN via `cloneKlingVoice: true` on
-// acquirePersonaVoicesForStory. This calls fal-ai/kling-video/create-voice
-// to clone the ElevenLabs preset's preview audio into a kling_voice_id.
-// IMPORTANT caveat: kling_voice_ids only work on V2.6 Pro endpoints, which
-// V4 Mode B does NOT use — V4 relies on Sync Lipsync v3 for voice matching.
-// We ship createVoice integration for:
-//   (a) A/B comparison runs with a V2.6 Pro voice-bound Mode C pathway
-//   (b) Future V4.1 / V5 when Kling adds voice_ids to V3 endpoints
-// Default for normal generation: skip the Kling clone (saves an API call).
+// Fix: gender + uniqueness as hard pre-filters, not soft hints. Add a
+// `force` option to opt out of the skip-if-exists shortcut.
 
 import fs from 'fs';
 import path from 'path';
@@ -61,17 +65,6 @@ function loadVoiceLibrary() {
   }
 }
 
-// All Gemini calls route through services/v4/VertexGemini.js (Vertex AI, not
-// AI Studio). Kept local wrapper so call-sites stay concise.
-//
-// Token budget note: Gemini 3 Flash Preview uses configurable reasoning
-// ("thinking tokens") that consume output token budget BEFORE the visible
-// response starts. The earlier 800-token budget was too tight and caused
-// MAX_TOKENS truncation on Day 0 (2026-04-11) — Vertex returned mid-string
-// JSON that couldn't parse. Bumped to 4096 to give Gemini 3 Flash room to
-// think AND emit the short (~200 char) JSON response. Real V4 callers with
-// larger outputs should use 8192+.
-
 async function callGeminiJson(systemPrompt, userPrompt) {
   return callVertexGeminiJson({
     systemPrompt,
@@ -85,17 +78,136 @@ async function callGeminiJson(systemPrompt, userPrompt) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Gender inference
+// ─────────────────────────────────────────────────────────────────────
+
+// Explicit-marker word lists. These are intentionally conservative — we
+// return 'unknown' when signals are weak so Gemini can still decide,
+// but we HARD-BLOCK the opposite gender when the signal is clear.
+const FEMALE_MARKERS = [
+  // Nouns / role words
+  '\\bwoman\\b', '\\bwomen\\b', '\\bgirl\\b', '\\bgirls\\b', '\\blady\\b', '\\bladies\\b',
+  '\\bfemale\\b', '\\bfeminine\\b', '\\bmother\\b', '\\bdaughter\\b', '\\bsister\\b',
+  '\\bwife\\b', '\\bgirlfriend\\b', '\\bqueen\\b', '\\bprincess\\b', '\\bactress\\b',
+  '\\bheroine\\b', '\\bmatron\\b', '\\bmaiden\\b', '\\bmadam\\b', '\\bmrs\\b', '\\bms\\b', '\\bmiss\\b',
+  // Pronouns
+  '\\bshe\\b', '\\bher\\b', '\\bhers\\b', '\\bherself\\b',
+  // Visual descriptors used consistently for female presentation
+  '\\blong hair\\b', '\\bponytail\\b', '\\bmakeup\\b', '\\blipstick\\b', '\\bearrings\\b',
+  '\\bdress\\b', '\\bskirt\\b', '\\bhigh heels\\b', '\\bbra\\b'
+];
+
+const MALE_MARKERS = [
+  '\\bman\\b', '\\bmen\\b', '\\bboy\\b', '\\bboys\\b', '\\bgentleman\\b',
+  '\\bmale\\b', '\\bmasculine\\b', '\\bfather\\b', '\\bson\\b', '\\bbrother\\b',
+  '\\bhusband\\b', '\\bboyfriend\\b', '\\bking\\b', '\\bprince\\b', '\\bactor\\b',
+  '\\bhero\\b', '\\bsir\\b', '\\bmr\\b',
+  // Pronouns (careful — "his" is a false positive for "history", etc. — use word-boundary)
+  '\\bhe\\b', '\\bhim\\b', '\\bhis\\b', '\\bhimself\\b',
+  // Visual markers
+  '\\bbeard\\b', '\\bmustache\\b', '\\bmoustache\\b', '\\bgoatee\\b', '\\bstubble\\b',
+  '\\btuxedo\\b', '\\bsuit and tie\\b'
+];
+
+function countMatches(text, patterns) {
+  if (!text) return 0;
+  const lc = text.toLowerCase();
+  let total = 0;
+  for (const p of patterns) {
+    const matches = lc.match(new RegExp(p, 'g'));
+    if (matches) total += matches.length;
+  }
+  return total;
+}
+
+/**
+ * Infer a persona's gender from its written description.
+ *
+ * Returns:
+ *   'male'    — at least one strong male marker AND more male than female markers
+ *   'female'  — at least one strong female marker AND more female than male markers
+ *   'unknown' — no clear signal (ambiguous description, or neither marker present)
+ *
+ * Unknown is the correct answer when the text is truly ambiguous — callers
+ * should treat it as "no hard gender constraint" and let Gemini pick freely.
+ * We hard-block the opposite-gender voice ONLY when the inference is strong.
+ *
+ * @param {Object} persona
+ * @returns {'male'|'female'|'unknown'}
+ */
+export function inferPersonaGender(persona) {
+  if (!persona || typeof persona !== 'object') return 'unknown';
+
+  // Prefer persona-level explicit gender if provided (some persona generation
+  // paths capture this directly). Trust it absolutely.
+  const explicit = String(persona.gender || persona.sex || '').toLowerCase().trim();
+  if (explicit === 'male' || explicit === 'man' || explicit === 'm') return 'male';
+  if (explicit === 'female' || explicit === 'woman' || explicit === 'f') return 'female';
+
+  // Otherwise scan the description text. Concatenate every field the caller
+  // might populate — we don't assume any specific one.
+  const text = [
+    persona.name,
+    persona.description,
+    persona.personality,
+    persona.appearance,
+    persona.visual_description,
+    persona.role,
+    persona.wardrobe_hint,
+    persona.core_contradiction,
+    persona.moral_code,
+    persona.want,
+    persona.need,
+    persona.wound,
+    persona.flaw
+  ].filter(Boolean).join(' ');
+
+  const femaleHits = countMatches(text, FEMALE_MARKERS);
+  const maleHits = countMatches(text, MALE_MARKERS);
+
+  // Strong signal threshold: at least 2 markers AND > 60% preference
+  if (femaleHits >= 2 && femaleHits > maleHits * 1.5) return 'female';
+  if (maleHits >= 2 && maleHits > femaleHits * 1.5) return 'male';
+
+  // Weak signal — return unknown so Gemini decides freely.
+  return 'unknown';
+}
+
+/**
+ * Filter the voice library by gender and taken-set. The result is what
+ * we show Gemini (and what we use for the deterministic fallback pick).
+ *
+ * @param {Array} library - voice library entries
+ * @param {'male'|'female'|'unknown'} gender
+ * @param {Set<string>} takenVoiceIds - voices already assigned this batch
+ * @returns {Array} filtered subset
+ */
+function filterLibrary(library, gender, takenVoiceIds) {
+  return library.filter(v => {
+    if (takenVoiceIds.has(v.voice_id)) return false;
+    if (gender === 'unknown') return true; // no gender constraint
+    return String(v.gender || '').toLowerCase() === gender;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Pick an ElevenLabs preset voice for a persona based on personality and role.
+ * Pick an ElevenLabs preset voice for a single persona.
  *
- * @param {Object} persona - from persona_config.personas[]
- *   (uses: name, personality, description, appearance, visual_description, role)
- * @returns {Promise<{voiceId: string, voiceBrief: string, voiceName: string, justification: string}>}
+ * HARD CONSTRAINTS (enforced before and after Gemini's pick):
+ *   - Cannot reuse a voice_id in `options.takenVoiceIds`
+ *   - Must match `options.requiredGender` if specified
+ *
+ * @param {Object} persona
+ * @param {Object} [options]
+ * @param {Set<string>} [options.takenVoiceIds] - voices already taken this batch
+ * @param {'male'|'female'|'unknown'} [options.requiredGender]
+ * @returns {Promise<{voiceId, voiceBrief, voiceName, justification, gender}>}
  */
-export async function acquirePersonaVoice(persona) {
+export async function acquirePersonaVoice(persona, options = {}) {
   if (!persona) throw new Error('acquirePersonaVoice: persona required');
 
   const library = loadVoiceLibrary();
@@ -103,8 +215,20 @@ export async function acquirePersonaVoice(persona) {
     throw new Error('acquirePersonaVoice: voice library is empty');
   }
 
-  // Compact library view for Gemini's prompt (name + tags + descriptor)
-  const libraryForPrompt = library.map(v =>
+  const takenVoiceIds = options.takenVoiceIds instanceof Set ? options.takenVoiceIds : new Set();
+  const requiredGender = options.requiredGender || 'unknown';
+
+  const candidatePool = filterLibrary(library, requiredGender, takenVoiceIds);
+  if (candidatePool.length === 0) {
+    throw new Error(
+      `Voice acquisition for "${persona.name || 'unnamed'}": no available voices ` +
+      `match constraints (gender=${requiredGender}, ${takenVoiceIds.size} already taken, ` +
+      `library=${library.length}). Add more voices of this gender to the library or ` +
+      `reduce the number of personas.`
+    );
+  }
+
+  const libraryForPrompt = candidatePool.map(v =>
     `  - ${v.voice_id} | ${v.name} (${v.gender}, ${v.age}, ${v.accent}): ${v.descriptor}. Best for: ${(v.best_for || []).join(', ')}.`
   ).join('\n');
 
@@ -116,12 +240,21 @@ export async function acquirePersonaVoice(persona) {
     (persona.appearance || persona.visual_description) && `Appearance: ${persona.appearance || persona.visual_description}`
   ].filter(Boolean).join('\n');
 
+  const genderClause = requiredGender === 'unknown'
+    ? ''
+    : `\n\nHARD CONSTRAINT: the persona is inferred to be ${requiredGender}. Every voice in the library below is pre-filtered to match this gender — you MUST pick from them. Returning a non-matching voice_id is a pipeline error.`;
+
+  const takenClause = takenVoiceIds.size === 0
+    ? ''
+    : `\n\nHARD CONSTRAINT: the following voice_ids are ALREADY TAKEN by other personas in this story — you MUST NOT pick any of them: ${Array.from(takenVoiceIds).join(', ')}. The library below is pre-filtered to exclude them — pick from the remaining ${candidatePool.length} options only.`;
+
   const systemPrompt = `You are a voice-casting director picking the right ElevenLabs voice for a character in a branded short film.
 
 You have a curated library of ElevenLabs premade voices (below). Given a persona description, you will:
   1. Write a 1-sentence voice brief describing the IDEAL voice for this character (pitch, timbre, pace, accent, age, gender, emotional tone). Example: "warm baritone, slight rasp, mid-30s American, deliberate pacing, trustworthy but guarded"
   2. Pick the ONE voice_id from the library that best matches your brief
   3. Write a 1-sentence justification explaining why this voice fits
+${genderClause}${takenClause}
 
 Respond with ONLY this JSON shape:
 {
@@ -131,25 +264,19 @@ Respond with ONLY this JSON shape:
   "justification": "1-sentence reason why this preset matches the persona"
 }
 
-AVAILABLE VOICES:
+AVAILABLE VOICES (${candidatePool.length} after gender+uniqueness filter):
 ${libraryForPrompt}`;
 
   const userPrompt = `Cast the voice for this persona:
 
 ${personaDescription}`;
 
-  logger.info(`acquiring voice for persona "${persona.name || 'unnamed'}"`);
+  logger.info(
+    `acquiring voice for persona "${persona.name || 'unnamed'}" ` +
+    `(gender=${requiredGender}, ${candidatePool.length}/${library.length} candidates after filter, ` +
+    `${takenVoiceIds.size} already taken)`
+  );
 
-  // V4 policy (Phase 5 review, Day 0 2026-04-11): voice acquisition MUST
-  // hard-fail on Gemini errors. The previous fallback-to-Brian behavior was
-  // a silent gender-mismatch bug waiting to happen — a female persona would
-  // ship with male narration, and the only signal was a warning buried in
-  // the logs. The smoke test caught exactly this pattern on 2026-04-10.
-  //
-  // Caller contract: if this throws, the orchestrator should abort the
-  // entire pipeline (not continue with a fallback voice). The cost of a
-  // loud failure is one failed episode; the cost of a silent fallback is
-  // every female persona shipping in a male voice until a human spots it.
   let result;
   try {
     result = await callGeminiJson(systemPrompt, userPrompt);
@@ -157,48 +284,70 @@ ${personaDescription}`;
     logger.error(`Gemini voice casting HARD-FAILED for persona "${persona.name || 'unnamed'}": ${err.message}`);
     throw new Error(
       `Voice acquisition failed for persona "${persona.name || 'unnamed'}": ${err.message}. ` +
-      `Fix the underlying Gemini error (model config, token budget, prompt) before retrying — ` +
-      `V4 does NOT fall back to a default voice to prevent silent gender mismatches.`
+      `Fix the underlying Gemini error (model config, token budget, prompt) before retrying.`
     );
   }
 
-  // Validate Gemini picked a real voice from the library.
-  // Same hard-fail policy as the earlier catch block: if Gemini hallucinated
-  // a voice_id that doesn't exist in our curated library, that's a prompt
-  // bug (or a library drift) that needs to be fixed, not papered over with
-  // Brian. Throwing here matches the gender-safety discipline.
-  const libraryEntry = library.find(v => v.voice_id === result.voice_id);
+  // Validate Gemini's pick against the hard constraints we gave it. If it
+  // returned something outside the candidate pool (hallucination, constraint
+  // ignored), fall back to a deterministic pick from the pool rather than
+  // failing the whole story.
+  let libraryEntry = candidatePool.find(v => v.voice_id === result.voice_id);
+  let geminiRespected = true;
+
   if (!libraryEntry) {
-    logger.error(
-      `Gemini picked unknown voice_id "${result.voice_id}" for persona "${persona.name || 'unnamed'}" — ` +
-      `not in curated library of ${library.length} voices`
-    );
-    throw new Error(
-      `Voice acquisition failed for persona "${persona.name || 'unnamed'}": ` +
-      `Gemini returned voice_id "${result.voice_id}" which is not in the curated library. ` +
-      `Check the voice-library/elevenlabs-presets.json file or the acquirePersonaVoice prompt — ` +
-      `do NOT fall back silently.`
+    geminiRespected = false;
+    // Gemini picked something out of the candidate pool — either from the full
+    // library (taken or wrong gender) or hallucinated. We pick deterministically
+    // from the pool instead: first candidate whose descriptor shares words with
+    // the persona's personality. Falls back to first-in-pool if no overlap.
+    const personalityLower = String(persona.personality || '').toLowerCase();
+    const scored = candidatePool.map(v => {
+      const words = (v.descriptor || '').toLowerCase().split(/\s+/);
+      const overlap = words.filter(w => w.length > 3 && personalityLower.includes(w)).length;
+      return { v, overlap };
+    }).sort((a, b) => b.overlap - a.overlap);
+    libraryEntry = scored[0].v;
+    logger.warn(
+      `Gemini returned voice_id "${result.voice_id}" for persona "${persona.name || 'unnamed'}" ` +
+      `— outside the filtered candidate pool (gender=${requiredGender}, ${takenVoiceIds.size} taken). ` +
+      `Falling back to deterministic pick: ${libraryEntry.name} (${libraryEntry.voice_id}).`
     );
   }
 
-  logger.info(`cast "${persona.name || 'unnamed'}" as ${libraryEntry.name} (${libraryEntry.voice_id})`);
+  // Final sanity: the chosen voice must not be taken and must match required gender.
+  // These would be bugs in the filter logic, but cheap insurance.
+  if (takenVoiceIds.has(libraryEntry.voice_id)) {
+    throw new Error(
+      `Voice acquisition internal error: selected voice_id "${libraryEntry.voice_id}" is already taken — ` +
+      `filter logic is broken.`
+    );
+  }
+  if (requiredGender !== 'unknown' && String(libraryEntry.gender || '').toLowerCase() !== requiredGender) {
+    throw new Error(
+      `Voice acquisition internal error: selected voice "${libraryEntry.name}" has gender ` +
+      `"${libraryEntry.gender}" but required="${requiredGender}" — filter logic is broken.`
+    );
+  }
+
+  logger.info(
+    `cast "${persona.name || 'unnamed'}" (${requiredGender}) as ${libraryEntry.name} ` +
+    `(${libraryEntry.voice_id}, ${libraryEntry.gender}) ` +
+    `[${geminiRespected ? 'gemini' : 'fallback'}]`
+  );
 
   return {
-    voiceId: result.voice_id,
+    voiceId: libraryEntry.voice_id,
     voiceBrief: result.voice_brief || libraryEntry.descriptor,
     voiceName: libraryEntry.name,
-    justification: result.justification || 'Library match'
+    gender: libraryEntry.gender,
+    justification: result.justification || (geminiRespected ? 'Library match' : 'Deterministic fallback (Gemini out-of-pool)')
   };
 }
 
 /**
  * Fetch the ElevenLabs preview audio URL for a given preset voice_id.
- * Needed because fal-ai/kling-video/create-voice requires a public URL,
- * and ElevenLabs exposes a `preview_url` on every preset voice via the
- * shared voices endpoint.
- *
- * @param {string} elevenLabsVoiceId
- * @returns {Promise<string|null>} preview_url, or null if unavailable
+ * Used by the opt-in Kling voice clone path.
  */
 async function fetchElevenLabsPreviewUrl(elevenLabsVoiceId) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -220,56 +369,109 @@ async function fetchElevenLabsPreviewUrl(elevenLabsVoiceId) {
 }
 
 /**
- * Batch: acquire voices for every persona in a story that doesn't already have one.
- * Mutates personas in place by setting persona.elevenlabs_voice_id and
- * persona.elevenlabs_voice_brief. Optionally clones the chosen ElevenLabs
- * preset into a Kling voice_id (for A/B testing or Mode C pathways).
+ * Batch: acquire voices for every persona in a story.
+ *
+ * Mutates personas in place by setting persona.elevenlabs_voice_id etc.
+ * Enforces cross-persona uniqueness and gender correctness by construction:
+ *   - Infers each persona's gender before calling Gemini
+ *   - Tracks taken voice_ids across the batch
+ *   - Re-validates after the batch: if any duplicate or gender-mismatched
+ *     voice made it through, auto-remediate by force-recasting those personas
  *
  * @param {Object[]} personas
  * @param {Object} [options]
- * @param {boolean} [options.cloneKlingVoice=false] - opt-in Kling voice clone.
- *   Default false because Kling voice_ids only work on V2.6 Pro endpoints,
- *   which V4 Mode B (Kling O3 Omni) does not use.
- * @param {Object} [options.klingFalService] - injected KlingFalService instance
- *   (required if cloneKlingVoice is true — passed in to avoid circular import)
- * @returns {Promise<{acquired: number, skipped: number, failed: number, klingCloned: number, klingFailed: number}>}
+ * @param {boolean} [options.force=false] - re-acquire even if persona already
+ *   has an elevenlabs_voice_id. Use to fix legacy/stuck assignments.
+ * @param {boolean} [options.cloneKlingVoice=false]
+ * @param {Object}  [options.klingFalService]
+ * @returns {Promise<{acquired, skipped, failed, klingCloned, klingFailed, remediated}>}
  */
 export async function acquirePersonaVoicesForStory(personas, options = {}) {
-  if (!Array.isArray(personas)) return { acquired: 0, skipped: 0, failed: 0, klingCloned: 0, klingFailed: 0 };
+  if (!Array.isArray(personas)) {
+    return { acquired: 0, skipped: 0, failed: 0, klingCloned: 0, klingFailed: 0, remediated: 0 };
+  }
 
-  const { cloneKlingVoice = false, klingFalService = null } = options;
+  const {
+    force = false,
+    cloneKlingVoice = false,
+    klingFalService = null
+  } = options;
+
+  const library = loadVoiceLibrary();
 
   let acquired = 0;
   let skipped = 0;
   let failed = 0;
   let klingCloned = 0;
   let klingFailed = 0;
+  let remediated = 0;
 
-  for (const persona of personas) {
-    // Step 1: ElevenLabs preset picking (idempotent)
-    if (!persona.elevenlabs_voice_id) {
-      try {
-        const result = await acquirePersonaVoice(persona);
-        persona.elevenlabs_voice_id = result.voiceId;
-        persona.elevenlabs_voice_brief = result.voiceBrief;
-        persona.elevenlabs_voice_name = result.voiceName;
-        persona.elevenlabs_voice_justification = result.justification;
-        acquired++;
-      } catch (err) {
-        logger.error(`voice acquisition failed for persona "${persona.name}": ${err.message}`);
-        failed++;
-        continue; // can't clone what we don't have
-      }
-    } else {
+  // ── Pass 1: acquire for every persona, tracking taken voices + inferred gender ──
+  const takenVoiceIds = new Set();
+  const personaGenders = personas.map(p => inferPersonaGender(p));
+  const personaNames = personas.map(p => p?.name || 'unnamed');
+
+  for (let i = 0; i < personas.length; i++) {
+    const persona = personas[i];
+    if (!persona) continue;
+    const inferredGender = personaGenders[i];
+    logger.info(`persona ${i} "${personaNames[i]}" — inferred gender: ${inferredGender}`);
+
+    const hasExistingVoice = !!persona.elevenlabs_voice_id;
+    const existingIsValid = (() => {
+      if (!hasExistingVoice) return false;
+      const entry = library.find(v => v.voice_id === persona.elevenlabs_voice_id);
+      if (!entry) return false; // stored voice_id not in library
+      if (takenVoiceIds.has(persona.elevenlabs_voice_id)) return false; // duplicate in batch
+      if (inferredGender !== 'unknown' && String(entry.gender).toLowerCase() !== inferredGender) return false;
+      return true;
+    })();
+
+    if (hasExistingVoice && existingIsValid && !force) {
+      // Keep the existing valid assignment.
+      takenVoiceIds.add(persona.elevenlabs_voice_id);
       skipped++;
+      continue;
     }
 
-    // Step 2 (opt-in): Kling voice cloning from the ElevenLabs preview
+    if (hasExistingVoice && !existingIsValid) {
+      // Mid-batch auto-remediation: the stored voice is invalid (duplicate in
+      // this batch, wrong gender, or not in library). Log clearly and re-cast.
+      const entry = library.find(v => v.voice_id === persona.elevenlabs_voice_id);
+      const reason = !entry ? 'voice_id not in library'
+        : takenVoiceIds.has(persona.elevenlabs_voice_id) ? `duplicate of earlier persona in this batch`
+        : `gender mismatch (stored=${entry.gender}, inferred=${inferredGender})`;
+      logger.warn(
+        `persona ${i} "${personaNames[i]}" has an invalid stored voice_id ` +
+        `(${persona.elevenlabs_voice_id} — ${reason}) — re-casting`
+      );
+      remediated++;
+    }
+
+    try {
+      const result = await acquirePersonaVoice(persona, {
+        takenVoiceIds,
+        requiredGender: inferredGender
+      });
+      persona.elevenlabs_voice_id = result.voiceId;
+      persona.elevenlabs_voice_brief = result.voiceBrief;
+      persona.elevenlabs_voice_name = result.voiceName;
+      persona.elevenlabs_voice_justification = result.justification;
+      persona.elevenlabs_voice_gender = result.gender;
+      takenVoiceIds.add(result.voiceId);
+      acquired++;
+    } catch (err) {
+      logger.error(`voice acquisition failed for persona "${personaNames[i]}": ${err.message}`);
+      failed++;
+      continue;
+    }
+
+    // Opt-in Kling clone (unchanged from previous implementation)
     if (cloneKlingVoice && !persona.kling_voice_id && klingFalService) {
       try {
         const previewUrl = await fetchElevenLabsPreviewUrl(persona.elevenlabs_voice_id);
         if (!previewUrl) {
-          logger.warn(`no ElevenLabs preview_url for persona "${persona.name}" — skipping Kling clone`);
+          logger.warn(`no ElevenLabs preview_url for persona "${personaNames[i]}" — skipping Kling clone`);
           klingFailed++;
           continue;
         }
@@ -278,14 +480,30 @@ export async function acquirePersonaVoicesForStory(personas, options = {}) {
         persona.kling_voice_source = 'elevenlabs_preview';
         klingCloned++;
       } catch (err) {
-        logger.warn(`Kling voice clone failed for persona "${persona.name}": ${err.message}`);
+        logger.warn(`Kling voice clone failed for persona "${personaNames[i]}": ${err.message}`);
         klingFailed++;
       }
     }
   }
 
-  logger.info(`voice acquisition: acquired=${acquired}, skipped=${skipped}, failed=${failed}, klingCloned=${klingCloned}, klingFailed=${klingFailed}`);
-  return { acquired, skipped, failed, klingCloned, klingFailed };
+  // ── Pass 2: sanity-check for any residual issues (belt-and-braces) ──
+  const finalVoiceIds = personas
+    .map(p => p?.elevenlabs_voice_id)
+    .filter(Boolean);
+  const uniqueIds = new Set(finalVoiceIds);
+  if (uniqueIds.size !== finalVoiceIds.length) {
+    logger.error(
+      `VoiceAcquisition internal bug: final persona list contains duplicate voice_ids ` +
+      `(${finalVoiceIds.length} total vs ${uniqueIds.size} unique). This should be impossible ` +
+      `given the pass-1 filter; investigate.`
+    );
+  }
+
+  logger.info(
+    `voice acquisition: acquired=${acquired}, skipped=${skipped}, failed=${failed}, ` +
+    `klingCloned=${klingCloned}, klingFailed=${klingFailed}, remediated=${remediated}`
+  );
+  return { acquired, skipped, failed, klingCloned, klingFailed, remediated };
 }
 
 /**
