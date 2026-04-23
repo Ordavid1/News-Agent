@@ -119,88 +119,243 @@ describe('buildSrtFromBeats — contract with PostProduction pipeline', () => {
 // ─────────────────────────────────────────────────────────────
 
 const TRANSITION_DURATION = 0.5;
-const CUT_XFADE_DURATION = 0.01;
+const OUTPUT_FPS = 30;
+const TRANSITION_FRAMES = Math.round(TRANSITION_DURATION * OUTPUT_FPS); // 15
+const CUT_FRAMES = 1;
 
+// Mirrors the production assembly arithmetic in integer-frame domain —
+// the only representation that matches ffmpeg's internal xfade behaviour.
+// Returns per-iter { offsetFrames, offsetSec, transitionFrames, transition }.
 function computeXfadeOffsets(sceneDurations, transitions) {
-  // transitions[i] describes the transition OUT of scenes[i] → scenes[i+1].
-  // Returns [{ offset, videoOverlap, cumulativeAfter }] per iteration.
   const xfadeTransitions = new Set(['dissolve', 'fadeblack', 'speed_ramp']);
+  const sceneFrames = sceneDurations.map(d => Math.floor(d * OUTPUT_FPS));
   const out = [];
-  let cumulativeDuration = 0;
+  let cumulativeFrames = 0;
   for (let i = 0; i < transitions.length; i++) {
     const transition = transitions[i] || 'cut';
-    const videoOverlap = xfadeTransitions.has(transition) ? TRANSITION_DURATION : CUT_XFADE_DURATION;
-    cumulativeDuration += sceneDurations[i];
-    const offset = Math.max(0, cumulativeDuration - videoOverlap);
-    out.push({ offset, videoOverlap, cumulativeBefore: cumulativeDuration, transition });
-    cumulativeDuration -= videoOverlap;
+    const transitionFrames = xfadeTransitions.has(transition) ? TRANSITION_FRAMES : CUT_FRAMES;
+    cumulativeFrames += sceneFrames[i];
+    const offsetFrames = Math.max(0, cumulativeFrames - transitionFrames);
+    out.push({
+      offsetFrames,
+      offsetSec: offsetFrames / OUTPUT_FPS,
+      transitionFrames,
+      videoOverlap: transitionFrames / OUTPUT_FPS,
+      offset: offsetFrames / OUTPUT_FPS, // back-compat with old tests
+      transition
+    });
+    cumulativeFrames -= transitionFrames;
   }
-  return { offsets: out, finalCumulativeDuration: cumulativeDuration + sceneDurations[sceneDurations.length - 1] };
+  return {
+    offsets: out,
+    finalCumulativeFrames: cumulativeFrames + sceneFrames[sceneFrames.length - 1]
+  };
 }
 
-describe('assembly xfade cumulative tracking (Bug 5 Option B)', () => {
-  test('single dissolve: offset = first_input_duration - 0.5', () => {
+describe('assembly xfade cumulative tracking (frame-integer math)', () => {
+  // After the 2026-04-23 root-cause debug: assembly math must operate in
+  // integer frame counts at OUTPUT_FPS, not floating seconds. ffmpeg's xfade
+  // quantises inputs to whole frames, and floating-second math drifts by
+  // ~1/fps per scene — enough to push cut offsets past the true frame-aligned
+  // input length and cause silent xfade truncation.
+  //
+  // Helper converts seconds → floor(s * fps) for each scene and computes
+  // offsets in frames.
+
+  test('single dissolve: offset = floor(dur*fps) - 15 frames', () => {
+    // 9.1s @ 30fps = floor(273) = 273 frames. offset = 273 - 15 = 258 = 8.60s
     const { offsets } = computeXfadeOffsets([9.1, 12.1], ['dissolve']);
     assert.equal(offsets.length, 1);
-    assert.equal(offsets[0].offset.toFixed(3), (9.1 - 0.5).toFixed(3));
-    assert.equal(offsets[0].videoOverlap, 0.5);
+    assert.equal(offsets[0].offsetFrames, 273 - 15);
+    assert.equal(offsets[0].transitionFrames, 15);
   });
 
-  test('single cut: offset = first_input_duration - 0.01 (leaves room for xfade)', () => {
+  test('single cut: offset = floor(dur*fps) - 1 frame', () => {
+    // 9.1s @ 30fps = 273 frames. Cut offset = 272 = 9.0667s
     const { offsets } = computeXfadeOffsets([9.1, 12.1], ['cut']);
-    assert.equal(offsets[0].offset.toFixed(3), (9.1 - 0.01).toFixed(3));
-    assert.equal(offsets[0].videoOverlap, 0.01);
+    assert.equal(offsets[0].offsetFrames, 273 - 1);
+    assert.equal(offsets[0].transitionFrames, 1);
   });
 
-  test('dissolve then cut: second offset resolves against real [v0] duration (not drifted)', () => {
-    // [v0] after dissolve = 9.1 + 12.1 - 0.5 = 20.7s
-    // Cut offset on [v0] must be 20.7 - 0.01 = 20.69 — NOT 20.2 (which would
-    // happen with the old code that uniformly subtracted 0.5 from cumulative).
+  test('dissolve then cut: second offset matches frame-aligned [v0]', () => {
+    // Scene frames: floor(9.1*30)=273, floor(12.1*30)=363, floor(17.5*30)=525
+    // [v0] frames = 273 + 363 - 15 = 621
+    // Cut offset on [v0] = 621 - 1 = 620 frames
     const { offsets } = computeXfadeOffsets([9.1, 12.1, 17.5], ['dissolve', 'cut']);
     assert.equal(offsets.length, 2);
-    assert.equal(offsets[1].offset.toFixed(3), (20.7 - 0.01).toFixed(3));
+    assert.equal(offsets[1].offsetFrames, (273 + 363 - 15) - 1);
   });
 
-  test('cut then dissolve: dissolve offset resolves against real [v0] duration (bug regression)', () => {
-    // With the old code (uniform -= 0.5): cut iter 0 produced cumDur = -0.01 + 9.1 = 8.6 after subtraction, then
-    // cut iter 1 added 12.1 → 20.7, offset 20.19. With the current fix:
-    // cut iter 0: cumDur = 9.1, videoOverlap = 0.01, subtract 0.01 → cumDur = 9.09 (actual [v0] = 9.1+12.1-0.01 = 21.19... wait no, that's after adding B in iter 1)
-    //
-    // Corrected: after iter 0 (cut A→B), cumDur = 9.09. Iter 1 adds B = 12.1 → cumDur = 21.19. That's [v0].duration
-    // (= 9.1 + 12.1 - 0.01 = 21.19 ✓). Then dissolve offset = 21.19 - 0.5 = 20.69.
+  test('cut then dissolve: second offset matches frame-aligned [v0]', () => {
+    // Scene frames: 273, 363, 525
+    // [v0] after cut: 273 + 363 - 1 = 635
+    // Dissolve offset = 635 - 15 = 620 frames
     const { offsets } = computeXfadeOffsets([9.1, 12.1, 17.5], ['cut', 'dissolve']);
-    assert.equal(offsets[1].offset.toFixed(3), (21.19 - 0.5).toFixed(3));
+    assert.equal(offsets[1].offsetFrames, (273 + 363 - 1) - 15);
   });
 
-  test('three consecutive cuts: no drift accumulates (guards N-cut bug)', () => {
-    // Each cut leaves 0.01s overlap. After 3 cuts on [10,10,10,10], actual [v2]
-    // duration = 10 + 10 + 10 + 10 - 3*0.01 = 39.97. The FOURTH cut's offset
-    // must resolve against 39.97, not a drifted value.
+  test('three consecutive cuts: no drift, each offset matches true [v_i] frames', () => {
+    // 10s @ 30fps = 300 frames each
+    // [v0] = 300+300-1=599, [v1] = 599+300-1=898, [v2] = 898+300-1=1197
     const { offsets } = computeXfadeOffsets([10, 10, 10, 10], ['cut', 'cut', 'cut']);
     assert.equal(offsets.length, 3);
-    // Iter 0: cumDur=10, offset=9.99, after=9.99
-    // Iter 1: cumDur=9.99+10=19.99, offset=19.98, after=19.98
-    // Iter 2: cumDur=19.98+10=29.98, offset=29.97, after=29.97
-    assert.equal(offsets[0].offset.toFixed(3), '9.990');
-    assert.equal(offsets[1].offset.toFixed(3), '19.980');
-    assert.equal(offsets[2].offset.toFixed(3), '29.970');
+    assert.equal(offsets[0].offsetFrames, 300 - 1);
+    assert.equal(offsets[1].offsetFrames, 599 - 1);
+    assert.equal(offsets[2].offsetFrames, 898 - 1);
   });
 
   test('mixed dissolve/cut/dissolve/cut preserves cumulative sanity', () => {
-    // Regression test for the bug class: after any cut, subsequent dissolves
-    // and cuts must resolve against the real growing video duration.
-    const durations = [8, 12, 15, 10, 7];
-    const transitions = ['dissolve', 'cut', 'dissolve', 'cut'];
-    const { offsets } = computeXfadeOffsets(durations, transitions);
+    // Scene frames: 240, 360, 450, 300, 210
+    // [v0] = 240+360-15=585
+    // [v1] = 585+450-1=1034
+    // [v2] = 1034+300-15=1319
+    // [v3] = 1319+210-1=1528
+    const { offsets } = computeXfadeOffsets([8, 12, 15, 10, 7], ['dissolve', 'cut', 'dissolve', 'cut']);
+    assert.equal(offsets[0].offsetFrames, 240 - 15);
+    assert.equal(offsets[1].offsetFrames, 585 - 1);
+    assert.equal(offsets[2].offsetFrames, 1034 - 15);
+    assert.equal(offsets[3].offsetFrames, 1319 - 1);
+  });
 
-    // Expected [v_i] durations:
-    // [v0] = 8 + 12 - 0.5 = 19.5
-    // [v1] = 19.5 + 15 - 0.01 = 34.49
-    // [v2] = 34.49 + 10 - 0.5 = 43.99
-    // [v3] = 43.99 + 7 - 0.01 = 50.98
-    assert.equal(offsets[0].offset.toFixed(3), (8 - 0.5).toFixed(3));
-    assert.equal(offsets[1].offset.toFixed(3), (19.5 - 0.01).toFixed(3));
-    assert.equal(offsets[2].offset.toFixed(3), (34.49 - 0.5).toFixed(3));
-    assert.equal(offsets[3].offset.toFixed(3), (43.99 - 0.01).toFixed(3));
+  test('regression: frame-integer math prevents quantisation drift', () => {
+    // Bug chain caught 2026-04-23 (two rounds of debugging):
+    //   Round 1: tracked container duration (max of video+audio). Diverged
+    //            from video stream by 0.03-0.05s per scene. FIXED.
+    //   Round 2: tracked video-stream seconds. Mathematically correct but
+    //            ffmpeg quantises inputs to integer frames at 30fps, so the
+    //            actual xfade output was 1 frame shorter than math predicted.
+    //            Over two scenes, the 0.01s cut window was consumed by the
+    //            quantisation drift → xfade dropped [v0].
+    //   Round 3 (this): track INTEGER FRAMES. Matches ffmpeg exactly.
+    //
+    // Real production failure: scene videos [10.573, 21.514, 15.09]s
+    // @ 30fps = [317, 645, 452] frames.
+    // [v0] frames = 317 + 645 - 15 = 947
+    // Cut offset = 947 - 1 = 946 frames = 31.5333s (vs buggy 31.577s).
+    // Output [v1] = 947 + 452 - 1 = 1398 frames = 46.6s ✓
+
+    const { offsets } = computeXfadeOffsets([10.573, 21.514, 15.09], ['dissolve', 'cut']);
+
+    // Iter 0: frames = floor(10.573*30) = 317 → offset = 317 - 15 = 302
+    assert.equal(offsets[0].offsetFrames, 302);
+    assert.equal(offsets[0].offsetSec.toFixed(5), (302 / 30).toFixed(5));
+
+    // Iter 1 must resolve against [v0] in frames, not seconds
+    // [v0] = 317 + 645 - 15 = 947 → cut offset = 946
+    assert.equal(offsets[1].offsetFrames, 946);
+    // Offset + transition must fit exactly within [v0]
+    const v0Frames = 317 + 645 - 15;
+    assert.equal(offsets[1].offsetFrames + offsets[1].transitionFrames, v0Frames,
+      `cut xfade must consume exactly [v0].frames to avoid silent drop`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Bridge-clip assembly (the new primary path, 2026-04-23+).
+// Even with frame-integer math the chained xfade in filter_complex was
+// dropping scenes in production (intermediate [v_i] streams carry timing
+// drift that's invisible to the computed offsets). The bridge-clip path
+// replaces the chain with independent 2-input xfades on materialized
+// 0.5s clips. This test asserts the segment layout and expected-duration
+// arithmetic that the production function depends on.
+// ─────────────────────────────────────────────────────────────
+
+const BRIDGE_D = 0.5;
+const BRIDGE_XFADE_MAP = { dissolve: 'fade', fadeblack: 'fadeblack', cut: null, speed_ramp: 'smoothup' };
+
+function planBridgeSegments(sceneDurations, transitions) {
+  const info = sceneDurations.map((v, i) => {
+    const t = transitions[i] || (i === sceneDurations.length - 1 ? null : 'cut');
+    return { videoDur: v, transition: t, isSoft: !!BRIDGE_XFADE_MAP[t] };
+  });
+  const segments = [];
+  for (let i = 0; i < info.length; i++) {
+    const s = info[i];
+    const hasIncomingSoft = i > 0 && info[i - 1].isSoft;
+    const hasOutgoingSoft = i < info.length - 1 && s.isSoft;
+    const bodyStart = hasIncomingSoft ? BRIDGE_D : 0;
+    const bodyEnd = hasOutgoingSoft ? s.videoDur - BRIDGE_D : s.videoDur;
+    segments.push({ kind: 'body', sceneIndex: i, start: bodyStart, end: bodyEnd, dur: bodyEnd - bodyStart });
+    if (hasOutgoingSoft) {
+      segments.push({ kind: 'bridge', from: i, to: i + 1, dur: BRIDGE_D, xfade: BRIDGE_XFADE_MAP[s.transition] });
+    }
+  }
+  const totalDur = segments.reduce((sum, s) => sum + s.dur, 0);
+  return { segments, totalDur };
+}
+
+describe('assembly bridge-clip segment planning', () => {
+  test('dissolve then cut: body trim only on the dissolve side', () => {
+    // Production regression durations: 10.57 / 21.51 / 15.09
+    const { segments, totalDur } = planBridgeSegments(
+      [10.57, 21.51, 15.09],
+      ['dissolve', 'cut']
+    );
+    // Expected layout: body_0 (trim tail), bridge_0→1, body_1 (trim head only), body_2
+    assert.equal(segments.length, 4);
+    assert.equal(segments[0].kind, 'body');
+    assert.equal(segments[0].start, 0);
+    assert.ok(Math.abs(segments[0].end - (10.57 - BRIDGE_D)) < 1e-9);
+    assert.equal(segments[1].kind, 'bridge');
+    assert.equal(segments[1].xfade, 'fade');
+    assert.equal(segments[1].dur, BRIDGE_D);
+    assert.equal(segments[2].kind, 'body');
+    assert.ok(Math.abs(segments[2].start - BRIDGE_D) < 1e-9);
+    assert.ok(Math.abs(segments[2].end - 21.51) < 1e-9);
+    assert.equal(segments[3].kind, 'body');
+    assert.equal(segments[3].start, 0);
+    assert.ok(Math.abs(segments[3].end - 15.09) < 1e-9);
+    // Timeline total = sum of scenes - 1 × transition duration (1 soft transition)
+    const expected = 10.57 + 21.51 + 15.09 - BRIDGE_D;
+    assert.ok(Math.abs(totalDur - expected) < 1e-9);
+  });
+
+  test('all-dissolve three-scene: both middle-scene ends trimmed', () => {
+    const { segments, totalDur } = planBridgeSegments(
+      [10, 12, 15],
+      ['dissolve', 'dissolve']
+    );
+    // body0, bridge01, body1, bridge12, body2
+    assert.equal(segments.length, 5);
+    assert.equal(segments[0].end, 10 - BRIDGE_D);
+    assert.equal(segments[2].start, BRIDGE_D);
+    assert.equal(segments[2].end, 12 - BRIDGE_D);
+    assert.equal(segments[4].start, BRIDGE_D);
+    assert.ok(Math.abs(totalDur - (10 + 12 + 15 - 2 * BRIDGE_D)) < 1e-9);
+  });
+
+  test('all-cuts three-scene: no bridge segments, bodies untrimmed', () => {
+    const { segments, totalDur } = planBridgeSegments(
+      [10, 12, 15],
+      ['cut', 'cut']
+    );
+    assert.equal(segments.length, 3);
+    assert.ok(segments.every(s => s.kind === 'body'));
+    assert.equal(segments[0].dur, 10);
+    assert.equal(segments[1].dur, 12);
+    assert.equal(segments[2].dur, 15);
+    assert.equal(totalDur, 37);
+  });
+
+  test('fadeblack then dissolve: mixed soft transitions both rendered as bridges', () => {
+    const { segments, totalDur } = planBridgeSegments(
+      [8, 10, 12],
+      ['fadeblack', 'dissolve']
+    );
+    assert.equal(segments.length, 5);
+    assert.equal(segments[1].xfade, 'fadeblack');
+    assert.equal(segments[3].xfade, 'fade');
+    assert.ok(Math.abs(totalDur - (8 + 10 + 12 - 2 * BRIDGE_D)) < 1e-9);
+  });
+
+  test('regression: production triple-scene (10.57/21.51/15.09) produces the full 46.17s', () => {
+    // This is exactly the case that failed in production with chained xfade
+    // (output was 15.07s — only scene 2). The bridge-clip plan must yield
+    // the full expected length, proving the math has no room to drop scenes.
+    const { totalDur } = planBridgeSegments([10.57, 21.51, 15.09], ['dissolve', 'cut']);
+    const expected = 10.57 + 21.51 + 15.09 - BRIDGE_D;
+    assert.ok(Math.abs(totalDur - expected) < 1e-9,
+      `bridge-clip total must equal sum of scenes minus one transition overlap; got ${totalDur.toFixed(3)}, expected ${expected.toFixed(3)}`);
+    assert.ok(totalDur > 46.0, `bridge-clip total ${totalDur.toFixed(2)}s must not collapse to a single scene length`);
   });
 });
