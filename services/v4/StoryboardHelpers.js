@@ -338,6 +338,13 @@ export async function buildPersonaLockedFirstFrame({
     'Hair / makeup / wardrobe / lighting may vary per scene but facial bone structure is INVARIANT. ' +
     'Same person, same face, same age. Reference images are the canonical identity anchor.';
 
+  // When the beat marks the subject as visible, include a textual directive
+  // so Seedream knows to place it in the pre-pass frame. The subject ref image
+  // is already in refsCapped — the text reinforces the appearance constraint.
+  const subjectMention = (beat?.subject_present === true && subjectReferenceImages.length > 0)
+    ? `${beat.subject_focus || 'the subject'} is visible in the scene — maintain its exact appearance from reference images.`
+    : '';
+
   const promptParts = [
     verticalDirective,
     identityDirective,
@@ -346,6 +353,7 @@ export async function buildPersonaLockedFirstFrame({
     blocking ? `Blocking: ${blocking}.` : '',
     expression ? `Expression: ${expression}.` : '',
     beatVisual,
+    subjectMention,
     'Cinematic composition, lighting and palette consistent with the scene master.'
   ].filter(Boolean).join(' ');
 
@@ -420,7 +428,9 @@ export async function buildSceneIntegratedProductFrame({
   beat,
   visualStylePrefix = '',
   uploadBuffer,
-  seed
+  seed,
+  intent = 'hero'  // 'hero' → product fills 60% of frame (INSERT_SHOT macro)
+                   // 'ambient' → subject visible in scene as supporting element (B_ROLL, VO_BROLL)
 }) {
   if (!Array.isArray(subjectReferenceImages) || subjectReferenceImages.length === 0) {
     return null;
@@ -450,25 +460,50 @@ export async function buildSceneIntegratedProductFrame({
     || 'the scene environment';
   const beatVisual = beat?.visual_prompt || '';
 
-  // The Director's explicit prompt template — every phrase is load-bearing:
-  //   "in-world, not studio-lit"           → negates the studio source photo
-  //   "reflects the environment"           → forces reflections to rebuild
-  //   "preserve exact industrial design"   → product fidelity locked
-  //   "preserve lighting, palette, materials" → scene fidelity locked
-  const promptParts = [
-    'Scene-integrated product still.',
-    `Place ${subjectFocus} (from reference images — preserve exact industrial design, logo, proportions, and color) onto the surface of ${sceneLook}.`,
-    'Match the scene\'s lighting exactly — same direction, hardness, color temperature, and shadow fall-off as the scene master.',
-    'Match the scene\'s color grade and palette exactly.',
-    'Product is IN-WORLD, not studio-lit. Product surface reflects the actual environment, not a studio softbox.',
-    `Camera: ${cameraMove}.`,
-    `Lighting: ${lightingIntent} (inherited from the scene master).`,
-    'VERTICAL 9:16 still frame. Product centered, filling 60% of frame width. Environmental surface texture visible above and below. Tactile materiality.',
-    visualStylePrefix,
-    beatVisual,
-    'Photorealistic, cinematic, high detail. Reference image 1 is the product (preserve exactly). The scene master reference is the environment (preserve lighting, palette, materials).',
-    'NO studio white backgrounds, NO studio gravel, NO isolation — the product must sit inside the scene\'s actual world.'
-  ].filter(Boolean).join(' ');
+  // Two distinct Seedream prompt strategies depending on intent:
+  //
+  //   'hero'    → INSERT_SHOT macro. Product is the primary subject: centered,
+  //               60% frame width, foregrounded, full materiality emphasis.
+  //               This is the existing SIPL path (unchanged behavior).
+  //
+  //   'ambient' → Subject visible inside the scene as a supporting element.
+  //               NOT the hero — it occupies 20-35% of frame, sits naturally
+  //               in the environment. Maintains EXACT appearance (logo, color,
+  //               proportions) but doesn't dominate the composition. Used for
+  //               B_ROLL and VOICEOVER_OVER_BROLL beats where the subject
+  //               should be "in the world" without upstaging the atmosphere.
+  let promptParts;
+  if (intent === 'ambient') {
+    promptParts = [
+      'Scene-integrated subject presence.',
+      `${subjectFocus} (from reference images — preserve exact industrial design, logo, color, and proportions) appears naturally within the scene: ${sceneLook}.`,
+      'Subject is visible but NOT the primary focus — a supporting element in the environment.',
+      'Maintain EXACT appearance from reference images: same design, same logo, same color, same proportions.',
+      'Subject occupies 20-35% of frame. Scene composition and scale remain natural.',
+      'Match the scene\'s lighting exactly — same direction, hardness, color temperature, and shadow fall-off.',
+      'Match the scene\'s color grade and palette exactly.',
+      visualStylePrefix,
+      beatVisual,
+      'Photorealistic, cinematic. Reference images 1-3 are the subject (preserve exactly). Scene master is the environment.',
+      'NO studio white backgrounds, NO studio gravel, NO isolation. Subject is IN-WORLD as a naturally placed element.'
+    ].filter(Boolean).join(' ');
+  } else {
+    // 'hero' — existing INSERT_SHOT behavior (every phrase is load-bearing)
+    promptParts = [
+      'Scene-integrated product still.',
+      `Place ${subjectFocus} (from reference images — preserve exact industrial design, logo, proportions, and color) onto the surface of ${sceneLook}.`,
+      'Match the scene\'s lighting exactly — same direction, hardness, color temperature, and shadow fall-off as the scene master.',
+      'Match the scene\'s color grade and palette exactly.',
+      'Product is IN-WORLD, not studio-lit. Product surface reflects the actual environment, not a studio softbox.',
+      `Camera: ${cameraMove}.`,
+      `Lighting: ${lightingIntent} (inherited from the scene master).`,
+      'VERTICAL 9:16 still frame. Product centered, filling 60% of frame width. Environmental surface texture visible above and below. Tactile materiality.',
+      visualStylePrefix,
+      beatVisual,
+      'Photorealistic, cinematic, high detail. Reference image 1 is the product (preserve exactly). The scene master reference is the environment (preserve lighting, palette, materials).',
+      'NO studio white backgrounds, NO studio gravel, NO isolation — the product must sit inside the scene\'s actual world.'
+    ].filter(Boolean).join(' ');
+  }
 
   // Lazy-import Seedream singleton (same pattern as persona-lock)
   const { default: seedreamService } = await import('../SeedreamFalService.js');
@@ -485,10 +520,14 @@ export async function buildSceneIntegratedProductFrame({
   });
 
   const beatId = beat?.beat_id || 'unknown';
+  const subfolder = intent === 'ambient' ? 'storyboard/subject-ambient' : 'storyboard/product-locks';
+  const filename = intent === 'ambient'
+    ? `beat-${beatId}-subject-ambient.png`
+    : `beat-${beatId}-product-lock.png`;
   const publicUrl = await uploadBuffer(
     panel.imageBuffer,
-    'storyboard/product-locks',
-    `beat-${beatId}-product-lock.png`,
+    subfolder,
+    filename,
     'image/png'
   );
 

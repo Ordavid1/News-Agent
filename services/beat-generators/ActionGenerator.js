@@ -54,6 +54,7 @@ class ActionGenerator extends BaseBeatGenerator {
     const identityDirective = hasPersonas
       ? 'Identity lock: match facial structure from refs (bone geometry). Same person.'
       : '';
+    const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
     const prompt = [
       verticalDirective,
@@ -61,6 +62,7 @@ class ActionGenerator extends BaseBeatGenerator {
       actionPrompt,
       cameraNotes,
       identityDirective,
+      subjectDirective,
       ambientSound ? `Ambient: ${ambientSound}` : '',
       textHint.trim()
     ].filter(Boolean).join('. ');

@@ -33,7 +33,7 @@
 
 import videoGenerationService from './VideoGenerationService.js';
 import winston from 'winston';
-import { isVeoContentFilterError, sanitizeTier1, sanitizeTier2 } from './v4/VeoPromptSanitizer.js';
+import { isVeoContentFilterError, isImageContentFilterError, sanitizeTier1, sanitizeTier2 } from './v4/VeoPromptSanitizer.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -114,65 +114,106 @@ class VeoService {
     );
 
     // ──────────────────────────────────────────────────────────
-    // Three-tier content-filter retry. Vertex AI Veo rejects
-    // prompts with person-identity + body-part phrasing at
-    // submission time ("could not be submitted. ... violate
-    // Vertex AI's usage guidelines"). Rather than lose the beat,
-    // retry with progressively sanitised prompts:
-    //   Attempt 1: original prompt (Gemini's best creative)
-    //   Attempt 2: Tier-1 sanitised — strip persona names + body-
-    //              part phrasing. Preserves style and subject.
-    //   Attempt 3: Tier-2 minimal — product-hero boilerplate.
-    //              Near-certain submission but narrative-lossy.
-    // Each attempt reaches the same Vertex LRO path. Only content-
-    // filter errors trigger retry; any other error bubbles up.
+    // Four-tier content-filter retry. Vertex AI Veo produces two
+    // distinct rejection types that require different remediation:
+    //
+    //   PROMPT rejection ("could not be submitted … words that
+    //   violate"): text sanitisation fixes this.
+    //     Tier 0 → Tier 1 (strip persona names + body parts)
+    //                → Tier 2 (minimal boilerplate, no personas)
+    //
+    //   IMAGE rejection ("input image violates"): the first_frame
+    //   image was rejected by Vertex's image-safety filter. No
+    //   amount of prompt text changes fixes this. Fast-path to:
+    //     Tier 3 (text-only, no first_frame / last_frame)
+    //
+    // The 4-tier approach ensures image rejections no longer burn
+    // two useless prompt-sanitisation round-trips before giving up.
+    // Only content-filter errors trigger retry; any other error
+    // (429, network, auth) bubbles up immediately.
     // ──────────────────────────────────────────────────────────
     const personaNames = Array.isArray(options.personaNames) ? options.personaNames : [];
     const sanitizationContext = options.sanitizationContext || {};
+    const tier2Prompt = sanitizeTier2(sanitizationContext);
+
     const attempts = [
-      { label: 'original', prompt },
-      { label: 'tier1-sanitised', prompt: sanitizeTier1(prompt, personaNames) },
-      { label: 'tier2-minimal', prompt: sanitizeTier2(sanitizationContext) }
+      {
+        label: 'original',
+        prompt,
+        firstFrame: firstFrameUrl,
+        lastFrame: lastFrameUrl && firstFrameUrl ? lastFrameUrl : null
+      },
+      {
+        label: 'tier1-sanitised',
+        prompt: sanitizeTier1(prompt, personaNames),
+        firstFrame: firstFrameUrl,
+        lastFrame: null  // drop last frame on first text retry
+      },
+      {
+        label: 'tier2-minimal',
+        prompt: tier2Prompt,
+        firstFrame: firstFrameUrl,
+        lastFrame: null
+      },
+      {
+        label: 'tier3-no-image',
+        prompt: tier2Prompt,
+        firstFrame: null,  // text-only — image dropped entirely
+        lastFrame: null
+      }
     ];
 
     let lastErr = null;
     let attemptUsed = null;
     let result = null;
-    for (const attempt of attempts) {
-      // Skip a tier if it produced a prompt identical to a previous tier
-      // (nothing to sanitise). Prevents wasting a round-trip on a no-op retry.
-      if (attempt.label !== 'original' && attempt.prompt === attempts[0].prompt) {
-        continue;
-      }
+    let attemptIndex = 0;
+
+    while (attemptIndex < attempts.length) {
+      const attempt = attempts[attemptIndex];
       try {
         result = await videoGenerationService.generateWithFirstLastFrame({
-          firstImageUrl: firstFrameUrl,
-          lastImageUrl: lastFrameUrl,
+          firstImageUrl: attempt.firstFrame,
+          lastImageUrl: attempt.lastFrame,
           prompt: attempt.prompt,
           cameraControl: null,
           options: { durationSeconds: clampedDuration, aspectRatio }
         });
         attemptUsed = attempt.label;
-        if (attempt.label !== 'original') {
-          logger.warn(`Veo accepted ${attempt.label} prompt after earlier refusal. Original: "${prompt.slice(0, 120)}..." Sanitised: "${attempt.prompt.slice(0, 120)}..."`);
+        if (attemptIndex > 0) {
+          logger.warn(
+            `Veo accepted ${attempt.label} after earlier refusal ` +
+            `(first_frame=${attempt.firstFrame ? 'yes' : 'none'})`
+          );
         }
         break;
       } catch (err) {
         lastErr = err;
         if (!isVeoContentFilterError(err)) {
-          // Non-safety errors bubble up immediately (no retry — could be 429,
-          // network, auth, etc.)
+          // Non-safety errors bubble up immediately (429, network, auth, etc.)
           throw err;
         }
+
+        // IMAGE violation: changing prompt text is ineffective — jump directly
+        // to text-only tier to avoid wasting two prompt-sanitisation round-trips.
+        if (isImageContentFilterError(err) && attempt.firstFrame !== null) {
+          logger.warn(
+            `Veo refused ${attempt.label} — IMAGE violation (not prompt text). ` +
+            `Escalating directly to text-only tier (tier3-no-image).`
+          );
+          attemptIndex = attempts.findIndex(a => a.label === 'tier3-no-image');
+          continue;
+        }
+
         logger.warn(`Veo refused ${attempt.label} prompt (content filter) — ${err.message.slice(0, 180)}`);
+        attemptIndex++;
       }
     }
 
     if (!result) {
-      // All three tiers refused. Final error carries the original prompt for
-      // downstream diagnosis + the quality_report.
+      // All tiers refused (including text-only). Final error carries the
+      // original prompt for downstream diagnosis + quality_report.
       const finalErr = new Error(
-        `Veo refused all three sanitisation tiers (original, tier1, tier2). Original prompt first 180 chars: "${prompt.slice(0, 180)}"`
+        `Veo refused all sanitisation tiers including text-only (tier3-no-image). Original prompt first 180 chars: "${prompt.slice(0, 180)}"`
       );
       finalErr.originalError = lastErr;
       finalErr.isVeoContentFilter = true;

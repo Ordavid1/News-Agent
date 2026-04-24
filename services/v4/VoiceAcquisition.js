@@ -384,11 +384,11 @@ async function fetchElevenLabsPreviewUrl(elevenLabsVoiceId) {
  *   has an elevenlabs_voice_id. Use to fix legacy/stuck assignments.
  * @param {boolean} [options.cloneKlingVoice=false]
  * @param {Object}  [options.klingFalService]
- * @returns {Promise<{acquired, skipped, failed, klingCloned, klingFailed, remediated}>}
+ * @returns {Promise<{acquired, already_assigned, failed, klingCloned, klingFailed, remediated}>}
  */
 export async function acquirePersonaVoicesForStory(personas, options = {}) {
   if (!Array.isArray(personas)) {
-    return { acquired: 0, skipped: 0, failed: 0, klingCloned: 0, klingFailed: 0, remediated: 0 };
+    return { acquired: 0, already_assigned: 0, failed: 0, klingCloned: 0, klingFailed: 0, remediated: 0 };
   }
 
   const {
@@ -400,7 +400,7 @@ export async function acquirePersonaVoicesForStory(personas, options = {}) {
   const library = loadVoiceLibrary();
 
   let acquired = 0;
-  let skipped = 0;
+  let already_assigned = 0;
   let failed = 0;
   let klingCloned = 0;
   let klingFailed = 0;
@@ -428,9 +428,9 @@ export async function acquirePersonaVoicesForStory(personas, options = {}) {
     })();
 
     if (hasExistingVoice && existingIsValid && !force) {
-      // Keep the existing valid assignment.
+      // Keep the existing valid assignment — re-acquisition not needed.
       takenVoiceIds.add(persona.elevenlabs_voice_id);
-      skipped++;
+      already_assigned++;
       continue;
     }
 
@@ -500,10 +500,10 @@ export async function acquirePersonaVoicesForStory(personas, options = {}) {
   }
 
   logger.info(
-    `voice acquisition: acquired=${acquired}, skipped=${skipped}, failed=${failed}, ` +
+    `voice acquisition: acquired=${acquired}, already_assigned=${already_assigned}, failed=${failed}, ` +
     `klingCloned=${klingCloned}, klingFailed=${klingFailed}, remediated=${remediated}`
   );
-  return { acquired, skipped, failed, klingCloned, klingFailed, remediated };
+  return { acquired, already_assigned, failed, klingCloned, klingFailed, remediated };
 }
 
 /**

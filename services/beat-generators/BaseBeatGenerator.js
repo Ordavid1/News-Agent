@@ -402,46 +402,43 @@ class BaseBeatGenerator {
   }
 
   /**
-   * V4 Phase 9 keystone — Scene-Integrated Product Lock.
+   * V4 Phase 9 keystone — Scene-Integrated Product Lock (SIPL).
    *
-   * For INSERT_SHOT beats with subject reference images AND a scene master,
-   * this pre-pass composites the product INTO the scene's environment via
-   * Seedream, producing a first_frame that shows the product sitting in the
-   * actual scene world (concrete table in the safehouse, not studio white).
+   * Composites the user's subject (product/brand asset) into the scene master
+   * environment via Seedream, producing a first_frame that shows the subject
+   * sitting inside the actual scene world rather than a studio limbo.
    *
-   * Feeding the raw studio product photo directly into Veo as first_frame
-   * produced visually-disconnected inserts — a continuity fracture that told
-   * the viewer's subconscious "this is an ad, not a story." The SIPL
-   * pre-pass eliminates that.
+   * Two intents:
+   *   'hero'    → INSERT_SHOT: product centered at 60% frame width (classic SIPL)
+   *   'ambient' → B_ROLL/VO_BROLL: subject visible as supporting element (20-35%)
    *
-   * Opt-out: V4_SIPL_STAGE=false disables the pre-pass and the legacy raw
-   * subject ref path runs.
-   *
-   * Idempotent: caches on beat.scene_integrated_product_frame_url.
+   * Opt-out: V4_SIPL_STAGE=false disables the pre-pass entirely.
+   * Idempotent: caches under different beat keys per intent.
    *
    * @param {Object} args
    * @param {Object} args.beat
    * @param {Object} args.scene
    * @param {Object} args.episodeContext
+   * @param {'hero'|'ambient'} [args.intent='hero']
    * @returns {Promise<string|null>}
    */
-  async _buildSceneIntegratedProductFrame({ beat, scene, episodeContext }) {
+  async _buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent = 'hero' }) {
     if (process.env.V4_SIPL_STAGE === 'false') return null;
 
-    // Idempotent resume path
-    if (beat.scene_integrated_product_frame_url) return beat.scene_integrated_product_frame_url;
+    // Idempotent resume — each intent gets its own cache key on the beat object.
+    const cacheKey = intent === 'ambient'
+      ? 'scene_integrated_subject_ambient_url'
+      : 'scene_integrated_product_frame_url';
+    if (beat[cacheKey]) return beat[cacheKey];
 
     const subjectRefs = episodeContext?.subjectReferenceImages || [];
     if (!Array.isArray(subjectRefs) || subjectRefs.length === 0) return null;
 
     // SIPL only fires when there's a scene master to integrate INTO.
-    // Without a scene master, the legacy path (raw subject ref → Veo) is
-    // actually correct — there's no scene environment to contextualize the
-    // product in.
     if (!scene?.scene_master_url) return null;
 
     if (!episodeContext?.uploadBuffer) {
-      this.logger.warn(`[${beat.beat_id}] SIPL skipped — episodeContext.uploadBuffer missing`);
+      this.logger.warn(`[${beat.beat_id}] SIPL (${intent}) skipped — episodeContext.uploadBuffer missing`);
       return null;
     }
 
@@ -452,17 +449,44 @@ class BaseBeatGenerator {
         scene,
         beat,
         visualStylePrefix: episodeContext.visual_style_prefix || '',
-        uploadBuffer: episodeContext.uploadBuffer
+        uploadBuffer: episodeContext.uploadBuffer,
+        intent
       });
       if (!result) return null;
-      beat.scene_integrated_product_frame_url = result.first_frame_url;
-      this.logger.info(`[${beat.beat_id}] scene-integrated product lock ready (product + scene master → first frame)`);
+      beat[cacheKey] = result.first_frame_url;
+      const label = intent === 'ambient' ? 'subject ambient frame' : 'product-lock first frame';
+      this.logger.info(`[${beat.beat_id}] scene-integrated ${label} ready`);
       return result.first_frame_url;
     } catch (err) {
-      this.logger.warn(`[${beat.beat_id}] SIPL synthesis failed — falling back to raw subject ref: ${err.message}`);
-      beat.sipl_error = err.message || String(err);
+      this.logger.warn(`[${beat.beat_id}] SIPL (${intent}) synthesis failed — ${err.message}`);
+      beat[`sipl_${intent}_error`] = err.message || String(err);
       return null;
     }
+  }
+
+  /**
+   * Build a short prompt directive that preserves subject appearance across beats.
+   *
+   * When a beat has `subject_present: true`, the screenplay intends the user's
+   * subject (product, brand asset, etc.) to be visible in the shot. This
+   * directive reinforces that requirement at the prompt level — complementing
+   * any first-frame anchor that already carries the subject visually.
+   *
+   * Returns '' when the beat has no subject_present flag or no subject refs
+   * exist in the episode context (so callers can safely include it in
+   * filter(Boolean) arrays without checking first).
+   *
+   * @param {Object} beat
+   * @param {Object} episodeContext
+   * @returns {string}
+   */
+  _buildSubjectPresenceDirective(beat, episodeContext) {
+    if (!beat?.subject_present) return '';
+    const subjectRefs = episodeContext?.subjectReferenceImages || [];
+    if (subjectRefs.length === 0) return '';
+    const name = beat.subject_focus || 'the subject';
+    const desc = beat.subject_description || '';
+    return `${name} is present in this scene — maintain its exact appearance${desc ? `: ${desc}` : ''}.`;
   }
 
   /**

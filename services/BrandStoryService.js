@@ -2694,7 +2694,7 @@ Respond with ONLY valid JSON:
     // ─── Step 1: Persona voice acquisition (idempotent) ───
     progress('voices', `acquiring ${personas.length} persona voice(s)`);
     const voiceResult = await acquirePersonaVoicesForStory(personas);
-    progress('voices', `acquired=${voiceResult.acquired}, skipped=${voiceResult.skipped}, failed=${voiceResult.failed}`);
+    progress('voices', `acquired=${voiceResult.acquired}, already_assigned=${voiceResult.already_assigned}, failed=${voiceResult.failed}`);
     if (voiceResult.acquired > 0) {
       // Persist newly-acquired voices back to the story
       await updateBrandStory(storyId, userId, {
@@ -2818,10 +2818,12 @@ Respond with ONLY valid JSON:
       const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
       qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
       sceneGraph = layer1.repaired;
-      const blockers = layer1.issues.filter(i => i.severity === 'blocker').length;
-      const warnings = layer1.issues.filter(i => i.severity === 'warning').length;
-      progress('screenplay_qa', `Layer-1: ${blockers} blocker${blockers === 1 ? '' : 's'}, ${warnings} warning${warnings === 1 ? '' : 's'}`, {
-        blockers, warnings, stats: layer1.stats
+      const blockerList = layer1.issues.filter(i => i.severity === 'blocker');
+      const warningList = layer1.issues.filter(i => i.severity === 'warning');
+      const blockerIds = blockerList.map(i => i.id).join(', ') || 'none';
+      const warningIds = warningList.map(i => i.id).join(', ') || 'none';
+      progress('screenplay_qa', `Layer-1: ${blockerList.length} blocker(s) [${blockerIds}], ${warningList.length} warning(s) [${warningIds}]`, {
+        blockers: blockerList.length, warnings: warningList.length, stats: layer1.stats
       });
 
       if (layer1.needsPunchUp) {
@@ -2843,6 +2845,13 @@ Respond with ONLY valid JSON:
           const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
           qualityReport.validator_post_doctor = { issues: layer1b.issues, stats: layer1b.stats };
           sceneGraph = layer1b.repaired;
+          const postDocBlockerList = layer1b.issues.filter(i => i.severity === 'blocker');
+          const postDocWarningList = layer1b.issues.filter(i => i.severity === 'warning');
+          const postDocBlockerIds = postDocBlockerList.map(i => i.id).join(', ') || 'none';
+          const postDocWarningIds = postDocWarningList.map(i => i.id).join(', ') || 'none';
+          progress('screenplay_qa', `Layer-2 re-validation: ${postDocBlockerList.length} blocker(s) [${postDocBlockerIds}], ${postDocWarningList.length} warning(s) [${postDocWarningIds}]`, {
+            blockers: postDocBlockerList.length, warnings: postDocWarningList.length, stats: layer1b.stats
+          });
         }
       }
     } catch (err) {

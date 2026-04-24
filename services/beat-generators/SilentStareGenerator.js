@@ -45,21 +45,39 @@ class SilentStareGenerator extends BaseBeatGenerator {
     const intensity = beat.emotional_intensity || 'medium';
     const gaze = beat.gaze_direction ? ` Eyes look ${beat.gaze_direction}.` : '';
 
-    // V4 Phase 9 — vertical framing + identity anchoring (condensed for 512-char budget).
-    const verticalDirective = 'VERTICAL 9:16 tight portrait. Eyes upper third, chin lower third, face fills vertical frame.';
-    const identityDirective = 'Preserve facial structure from refs (bone geometry). Same person, same face.';
+    // V4 Phase 9 — vertical framing + identity anchoring.
+    // Priority-budgeted: mandatory sections always included within 480-char soft
+    // budget; optional sections (gaze, stylePrefix) dropped whole if overflowing.
+    // Never truncates — truncation silently corrupts identity/vertical directives.
+    const KLING_BUDGET = 480; // 32-char margin below Kling's 512-char hard limit
 
-    // Silent stare prompt — tight, no dialogue, held emotional weight.
-    const prompt = [
-      verticalDirective,
-      identityDirective,
-      stylePrefix,
+    const VERTICAL = 'VERTICAL 9:16 tight portrait. Eyes upper third, chin lower third, face fills vertical frame.';
+    const IDENTITY = 'Preserve facial structure from refs (bone geometry). Same person, same face.';
+    const core = [
       'Tight closeup, absolute stillness, held emotional weight.',
       `Intensity: ${intensity}.`,
-      gaze.trim(),
-      'Breath visible, micro-tension in the jaw, no dialogue, no sound from the character.',
+      'Breath visible, micro-tension in jaw, no dialogue.',
       'Ambient room tone only.'
-    ].filter(Boolean).join(' ');
+    ].join(' ');
+
+    // Mandatory block — must always be present (~334 chars base)
+    const mandatory = [VERTICAL, IDENTITY, core].join(' ');
+
+    // Optional sections in drop-priority order: gaze first (high value, short),
+    // stylePrefix last (lower info density, often longest).
+    const optionals = [gaze.trim(), stylePrefix].filter(Boolean);
+    const optionalParts = [];
+    let remaining = KLING_BUDGET - mandatory.length - 1;
+    for (const opt of optionals) {
+      if (opt.length + 1 <= remaining) {
+        optionalParts.push(opt);
+        remaining -= opt.length + 1;
+      }
+    }
+
+    const prompt = optionalParts.length
+      ? [...optionalParts, mandatory].join(' ')
+      : mandatory;
 
     const { elements } = buildKlingElementsFromPersonas([persona]);
 

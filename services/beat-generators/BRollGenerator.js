@@ -38,9 +38,17 @@ class BRollGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // B-roll anchor: persona-lock (if present) → scene master (matches scene
-    // look) → previous endframe (transition continuity) → text-only.
+    // Subject ambient frame — when the screenplay marks the subject as visible
+    // in this B-roll but no persona is locking the first frame. The ambient
+    // SIPL pre-pass composites the subject into the scene environment so Veo
+    // starts from a frame where the subject is already placed in-world.
+    const subjectAmbientUrl = (!personaLockUrl && beat.subject_present)
+      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'ambient' })
+      : null;
+
+    // B-roll anchor: persona-lock → subject ambient → scene master → previous endframe → text-only.
     const firstFrameUrl = personaLockUrl
+      || subjectAmbientUrl
       || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
@@ -73,6 +81,8 @@ class BRollGenerator extends BaseBeatGenerator {
     const identityDirective = (beat.personas_present && beat.personas_present.length > 0)
       ? this._buildIdentityAnchoringDirective()
       : '';
+    // Subject locking — when subject_present, reinforce appearance at the prompt level.
+    const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
     const prompt = [
       verticalDirective,
@@ -82,6 +92,7 @@ class BRollGenerator extends BaseBeatGenerator {
       `Atmosphere: ${atmosphere}.`,
       `Camera: ${cameraMove}.`,
       identityDirective,
+      subjectDirective,
       'No visible characters speaking — pure environment (unless persona explicitly flagged above).',
       `Ambient audio: ${ambientSound}.`
     ].filter(Boolean).join(' ');
@@ -128,6 +139,7 @@ class BRollGenerator extends BaseBeatGenerator {
         location,
         hasAnchor: !!firstFrameUrl,
         personaLocked: !!personaLockUrl,
+        subjectAmbientFrame: !!subjectAmbientUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration
       }

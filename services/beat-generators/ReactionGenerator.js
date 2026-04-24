@@ -73,6 +73,7 @@ class ReactionGenerator extends BaseBeatGenerator {
     // textual identity lock reinforces the Seedream persona-locked first frame.
     const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
     const identityDirective = this._buildIdentityAnchoringDirective();
+    const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
     const prompt = [
       verticalDirective,
@@ -80,6 +81,7 @@ class ReactionGenerator extends BaseBeatGenerator {
       'Tight closeup on the character in frame.',
       framingRecipe,
       identityDirective,
+      subjectDirective,
       'Silent beat, no dialogue.',
       `Emotional arc: ${expressionArc}.`,
       'Micro-expression emphasis, shallow depth of field, intimate framing.'

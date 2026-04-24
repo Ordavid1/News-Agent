@@ -54,6 +54,29 @@ export function isVeoContentFilterError(err) {
   return CONTENT_FILTER_SIGNATURES.some(re => re.test(msg));
 }
 
+/**
+ * Distinguish an input-IMAGE content-filter rejection from a PROMPT-TEXT rejection.
+ *
+ * Vertex AI Veo returns two distinct failure messages:
+ *   • Image violation: "Veo could not generate videos because the input image
+ *     violates Vertex AI's usage guidelines."
+ *   • Prompt violation: "The prompt could not be submitted. This prompt
+ *     contains words that violate Vertex AI's usage guidelines."
+ *
+ * When the image is rejected, changing the prompt text is ineffective — the
+ * only meaningful retry is to drop the first_frame entirely (text-only mode).
+ * This function identifies the image-rejection case so callers can fast-path
+ * to text-only rather than burning two additional prompt-text retries.
+ *
+ * @param {Error} err
+ * @returns {boolean}
+ */
+export function isImageContentFilterError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  return /input image violates|could not generate.*input image|image.*violates.*guidelines/i.test(msg);
+}
+
 // ──────────────────────────────────────────────────────────────
 // Known trigger patterns — progressive sanitization
 // ──────────────────────────────────────────────────────────────
@@ -172,6 +195,7 @@ export function sanitizeTier2({ subjectName = 'the subject', subjectDescription 
 
 export default {
   isVeoContentFilterError,
+  isImageContentFilterError,
   sanitizeTier1,
   sanitizeTier2
 };

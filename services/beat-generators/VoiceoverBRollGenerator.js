@@ -79,7 +79,13 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
+    // Subject ambient frame — when subject_present but no persona lock.
+    const subjectAmbientUrl = (!personaLockUrl && beat.subject_present)
+      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'ambient' })
+      : null;
+
     const firstFrameUrl = personaLockUrl
+      || subjectAmbientUrl
       || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
@@ -94,6 +100,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     const identityDirective = (beat.personas_present && beat.personas_present.length > 0) || personaLockUrl
       ? this._buildIdentityAnchoringDirective()
       : '';
+    const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
     const veoPrompt = [
       verticalDirective,
@@ -101,6 +108,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       `B-roll of ${location}.`,
       `Camera: ${cameraMove}.`,
       identityDirective,
+      subjectDirective,
       'Atmospheric and evocative.',
       'Ambient sound bed only (natural environment).'
     ].filter(Boolean).join(' ');
@@ -147,6 +155,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
         voiceoverText,
         fallbackTier: veoResult.fallbackTier,
         personaLocked: !!personaLockUrl,
+        subjectAmbientFrame: !!subjectAmbientUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration,
         // Orchestrator hook: this tells post-production to do a V.O. overlay
