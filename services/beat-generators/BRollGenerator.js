@@ -11,6 +11,7 @@
 // from the prompt alone (text-only tier).
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
+import { regenerateSafeFirstFrame } from '../v4/StoryboardHelpers.js';
 
 const COST_VEO_STANDARD_PER_SEC = 0.40;
 
@@ -38,17 +39,20 @@ class BRollGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // Subject ambient frame — when the screenplay marks the subject as visible
-    // in this B-roll but no persona is locking the first frame. The ambient
-    // SIPL pre-pass composites the subject into the scene environment so Veo
-    // starts from a frame where the subject is already placed in-world.
-    const subjectAmbientUrl = (!personaLockUrl && beat.subject_present)
-      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'ambient' })
+    // Subject natural frame — non-invasive Veo anchoring. Fires only when the
+    // screenplay explicitly sets `subject_focus` (Gemini's "subject is in this
+    // shot" signal — narrower than the broader `subject_present`) and no
+    // persona is locking the first frame. The 'natural' intent uses a terse
+    // Seedream prompt with no compositional emphasis so Vertex's image filter
+    // doesn't refuse the frame on noir/surveillance scenes.
+    const hasSubjectFocus = typeof beat.subject_focus === 'string' && beat.subject_focus.trim().length > 0;
+    const subjectNaturalUrl = (!personaLockUrl && hasSubjectFocus)
+      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'natural' })
       : null;
 
-    // B-roll anchor: persona-lock → subject ambient → scene master → previous endframe → text-only.
+    // B-roll anchor: persona-lock → subject natural → scene master → previous endframe → text-only.
     const firstFrameUrl = personaLockUrl
-      || subjectAmbientUrl
+      || subjectNaturalUrl
       || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
@@ -84,7 +88,7 @@ class BRollGenerator extends BaseBeatGenerator {
     // Subject locking — when subject_present, reinforce appearance at the prompt level.
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
-    const prompt = [
+    const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       `Establishing shot: ${location}.`,
@@ -95,7 +99,7 @@ class BRollGenerator extends BaseBeatGenerator {
       subjectDirective,
       'No visible characters speaking — pure environment (unless persona explicitly flagged above).',
       `Ambient audio: ${ambientSound}.`
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo B_ROLL (${duration}s${firstFrameUrl ? ', anchored' : ', text-only'})`);
 
@@ -105,6 +109,21 @@ class BRollGenerator extends BaseBeatGenerator {
     const personaNames = (personas || [])
       .map(p => p && p.name)
       .filter(n => typeof n === 'string' && n.length > 0);
+
+    // Tier 2.5 callback: if Vertex rejects the persona/product first frame with
+    // an IMAGE violation, VeoService will call this once to get a safer frame
+    // before falling all the way to text-only. Not provided when firstFrameUrl
+    // is scene master or previous endframe (those rarely trip image safety filters).
+    const regenKind = personaLockUrl ? 'persona' : (subjectNaturalUrl ? 'product' : null);
+    const safeRegenCallback = (regenKind && episodeContext?.uploadBuffer)
+      ? () => regenerateSafeFirstFrame({
+          kind: regenKind,
+          personas: personas || [],
+          subjectReferenceImages: episodeContext?.subjectReferenceImages || [],
+          beat,
+          uploadBuffer: episodeContext.uploadBuffer
+        })
+      : null;
 
     const result = await veo.generateWithFrames({
       firstFrameUrl, // null is OK — VeoFalService goes text-only when absent
@@ -120,7 +139,8 @@ class BRollGenerator extends BaseBeatGenerator {
           subjectName: location, // tier-2 fallback describes the location
           subjectDescription: atmosphere,
           stylePrefix
-        }
+        },
+        regenerateSafeFirstFrame: safeRegenCallback
       }
     });
 
@@ -139,7 +159,7 @@ class BRollGenerator extends BaseBeatGenerator {
         location,
         hasAnchor: !!firstFrameUrl,
         personaLocked: !!personaLockUrl,
-        subjectAmbientFrame: !!subjectAmbientUrl,
+        subjectNaturalFrame: !!subjectNaturalUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration
       }

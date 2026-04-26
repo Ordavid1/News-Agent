@@ -36,41 +36,93 @@ const PERSONAS = [
   { name: 'B', speech_patterns: { signature_line: 'Later.' } }
 ];
 
-describe('Sound stage — V4 prompt still teaches ambient bed + per-beat SFX', () => {
-  test('scene ambient_bed_prompt is still marked MANDATORY in user prompt', () => {
+describe('Sound stage — V4 prompt teaches the new sonic_world architecture', () => {
+  // Phase 3 of the V4 Audio Coherence Overhaul: per-scene ambient_bed_prompt
+  // is replaced with an EPISODE-level sonic_world block (one bed for the whole
+  // episode + scene_variations[] additive overlays). The viewer hears one
+  // world, not a different bed per scene.
+
+  test('episode-level sonic_world is taught as MANDATORY in user prompt', () => {
     const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
-    assert.ok(usr.includes('SCENE-LEVEL AMBIENT BED'));
+    assert.ok(usr.includes('EPISODE-LEVEL sonic_world'), 'Rule 13 should teach episode-level sonic_world');
     assert.ok(usr.includes('MANDATORY'));
-    assert.ok(usr.includes('ambient_bed_prompt'));
+    assert.ok(usr.includes('"sonic_world"'), 'sonic_world must appear in the JSON schema example');
+    assert.ok(usr.includes('base_palette'), 'sonic_world.base_palette must be in the schema');
+    assert.ok(usr.includes('spectral_anchor'), 'sonic_world.spectral_anchor must be in the schema');
+    assert.ok(usr.includes('scene_variations'), 'sonic_world.scene_variations[] must be in the schema');
   });
 
-  test('per-beat ambient_sound discipline still in the user prompt', () => {
+  test('per-beat ambient_sound is re-scoped to Foley EVENTS only', () => {
     const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
     assert.ok(usr.includes('PER-BEAT ambient_sound DISCIPLINE'));
-    assert.ok(usr.includes('FOREGROUND events'));
+    assert.ok(usr.includes('Foley EVENTS only'), 'Rule 14 should re-scope ambient_sound to Foley');
+    assert.ok(usr.includes('1-3s'), 'Foley clamp must be 1-3s');
   });
 
-  test('transition_to_next default-to-dissolve rule still in the user prompt', () => {
+  test('scene-level ambient_bed_prompt is no longer in the schema example', () => {
+    const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
+    // The legacy per-scene field must NOT be in the example schema anymore —
+    // it's been promoted to episode-level sonic_world.scene_variations[].overlay.
+    // Note: the rule text itself may mention the legacy name for compat — we
+    // only check it's gone from the JSON SCHEMA example block.
+    const schemaSection = usr.split('OUTPUT JSON SCHEMA')[1] || '';
+    assert.ok(!schemaSection.includes('"ambient_bed_prompt"'), 'legacy ambient_bed_prompt must not appear in the new schema example');
+  });
+
+  test('sonic_world appears at episode level (not per scene)', () => {
+    const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
+    const sonicIdx = usr.indexOf('"sonic_world"');
+    const scenesIdx = usr.indexOf('"scenes":');
+    assert.ok(sonicIdx > 0, 'sonic_world not found');
+    assert.ok(scenesIdx > 0, 'scenes[] not found');
+    assert.ok(sonicIdx < scenesIdx, 'sonic_world must render at the EPISODE level (before scenes[]) — not nested per scene');
+  });
+
+  test('transition_to_next no longer warns about ambient cliffs (sonic_world made cuts safe)', () => {
     const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
     assert.ok(usr.includes('transition_to_next'));
-    assert.ok(usr.includes('DEFAULT TO \'dissolve\''));
-    assert.ok(usr.includes('acrossfade'));
+    // The new architecture means base_palette plays UNCUT across boundaries,
+    // so 'cut' is now safe for sonic continuity. The rule must say so.
+    assert.ok(usr.includes('cut') && (usr.includes('safe for sonic continuity') || usr.includes('plays UNCUT')),
+      'transition rule should mention cut is now safe / base bed plays uncut');
   });
 
-  test('scene schema example still surfaces ambient_bed_prompt BEFORE beats[]', () => {
-    const usr = getEpisodeUserPromptV4(STORYLINE, '', 1, {});
-    const bedIdx = usr.indexOf('"ambient_bed_prompt"');
-    const beatsIdx = usr.indexOf('"beats":');
-    assert.ok(bedIdx > 0, 'ambient_bed_prompt not found in example');
-    assert.ok(beatsIdx > 0, 'beats[] not found in example');
-    assert.ok(bedIdx < beatsIdx, 'ambient_bed_prompt must render before beats[] in example schema');
-  });
-
-  test('system prompt still routes Gemini to ambient discipline', () => {
+  test('system prompt still routes Gemini to per-beat Foley discipline', () => {
     const sys = getEpisodeSystemPromptV4(STORYLINE, [], PERSONAS, { costCapUsd: 20 });
-    // The system prompt references ambient per-beat guidance at the beat-type
-    // descriptions (B_ROLL / INSERT_SHOT / ACTION carry ambient_sound fields).
+    // Beat-type descriptions still reference ambient_sound for non-dialogue beats.
     assert.ok(sys.includes('ambient_sound'));
+  });
+
+  test('sonic series bible block injects when bible is provided', () => {
+    const bible = {
+      signature_drone: { description: 'low industrial drone', frequency_band_hz: [40, 120], presence_dB: -22 },
+      base_palette: { ambient_keywords: ['concrete reverb', 'distant traffic'] },
+      spectral_anchor: { description: 'sustained 60-120Hz', always_present: true, level_dB: -18 },
+      foley_density: 'naturalistic',
+      score_under_dialogue: 'ducked_-18dB',
+      silence_as_punctuation: 'load_bearing',
+      diegetic_ratio: 0.7,
+      transition_grammar: ['j_cut_dominant'],
+      prohibited_instruments: ['orchestral_strings'],
+      prohibited_tropes: ['sting_on_reveal'],
+      inheritance_policy: {
+        grammar: 'immutable',
+        no_fly_list: 'immutable',
+        base_palette: 'overridable_with_justification',
+        signature_drone: 'must_appear_at_least_once_per_episode'
+      },
+      reference_shows: ['severance_s1']
+    };
+    const sys = getEpisodeSystemPromptV4(STORYLINE, [], PERSONAS, { costCapUsd: 20, sonicSeriesBible: bible });
+    assert.ok(sys.includes('SONIC SERIES BIBLE'), 'bible block should appear in system prompt when bible is provided');
+    assert.ok(sys.includes('low industrial drone'), 'drone description should be rendered');
+    assert.ok(sys.includes('orchestral_strings'), 'no-fly-list prohibitions should be rendered');
+    assert.ok(sys.includes('must_appear_at_least_once_per_episode'), 'binding clause must be rendered');
+  });
+
+  test('sonic series bible block is empty when no bible is provided (legacy stories)', () => {
+    const sys = getEpisodeSystemPromptV4(STORYLINE, [], PERSONAS, { costCapUsd: 20 });
+    assert.ok(!sys.includes('SONIC SERIES BIBLE'), 'no bible header when sonicSeriesBible is null');
   });
 });
 
@@ -122,8 +174,12 @@ describe('Sound stage — SHOT_REVERSE_SHOT compiler preserves audio authorship'
   });
 });
 
-describe('Sound stage — validator does not disturb audio fields', () => {
-  test('validator preserves scene ambient_bed_prompt on the repaired scene graph', () => {
+describe('Sound stage — validator does not disturb audio fields (legacy + new)', () => {
+  // After Phase 3 the V4 prompt no longer EMITS scene.ambient_bed_prompt — it
+  // emits episode-level sonic_world instead. But the validator still preserves
+  // the legacy field as a passthrough so episodes generated BEFORE Phase 3 can
+  // still re-assemble. Phase 6 will add a warning (not strip) for legacy fields.
+  test('validator preserves legacy scene ambient_bed_prompt as passthrough (backward-compat)', () => {
     const sg = {
       title: 'T',
       dramatic_question: 'Q?',

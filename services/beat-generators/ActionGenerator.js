@@ -11,7 +11,7 @@
 // override), regardless of its original beat type.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
-import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
 
 const COST_KLING_V3_PRO_PER_SEC = 0.224;
 
@@ -56,7 +56,7 @@ class ActionGenerator extends BaseBeatGenerator {
       : '';
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
-    const prompt = [
+    const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       actionPrompt,
@@ -65,7 +65,7 @@ class ActionGenerator extends BaseBeatGenerator {
       subjectDirective,
       ambientSound ? `Ambient: ${ambientSound}` : '',
       textHint.trim()
-    ].filter(Boolean).join('. ');
+    ].filter(Boolean).join('. '), beat);
 
     // Action beats may include personas if visible_persona_indexes is present
     const personasInShot = [];
@@ -77,6 +77,17 @@ class ActionGenerator extends BaseBeatGenerator {
       personasInShot.push(personas[beat.persona_index]);
     }
     const { elements } = buildKlingElementsFromPersonas(personasInShot);
+
+    // Non-invasive subject anchoring — when the screenplay marks subject_present
+    // and there's room in elements[], append the subject as a pure visual ref.
+    // No prompt change: Kling locks the form factor via the reference alone.
+    if (beat.subject_present && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) {
+        elements.push(subjectElement);
+        this.logger.info(`[${beat.beat_id}] subject element added to Kling refs (${elements.length}/3)`);
+      }
+    }
 
     this.logger.info(
       `[${beat.beat_id}] Kling V3 Pro ACTION (${duration}s${isTextOverride ? ', TEXT OVERRIDE' : ''}${startFrameUrl ? ', anchored' : ', text-only'}, ${elements.length} element(s))`

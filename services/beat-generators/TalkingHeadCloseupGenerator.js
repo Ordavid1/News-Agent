@@ -84,7 +84,7 @@ class TalkingHeadCloseupGenerator extends BaseBeatGenerator {
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const expressionHint = beat.expression_notes ? ` ${beat.expression_notes}.` : '';
     const emotionHint = beat.emotion ? ` ${beat.emotion} tone.` : '';
-    const prompt = `${stylePrefix}${emotionHint}${expressionHint}`.trim();
+    const prompt = this._appendDirectorNudge(`${stylePrefix}${emotionHint}${expressionHint}`.trim(), beat);
 
     this.logger.info(`[${beat.beat_id}] Stage B: OmniHuman 1.5`);
     const ohResult = await omniHuman.generateTalkingHead({

@@ -268,3 +268,69 @@ describe('ScreenplayValidator — thresholds are exported', () => {
     assert.equal(typeof THRESHOLDS.minSubtextCoverage, 'number');
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// Persona-index coverage check (added 2026-04-25 after logs.txt
+// caught a SHOT_REVERSE_SHOT child failing "no persona resolved"
+// at beat-generation time — by then the Scene Master + earlier
+// beats had already burned API budget. The check moves the
+// catch upstream to L1 validation.)
+// ──────────────────────────────────────────────────────────────
+describe('ScreenplayValidator — persona-index coverage', () => {
+  test('single-persona dialogue beat without persona_index → blocker', () => {
+    const g = cleanGraph();
+    delete g.scenes[0].beats[0].persona_index;
+    const r = validateScreenplay(g, {}, PERSONAS);
+    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker');
+    assert.ok(f, 'expected persona_index_missing blocker');
+    assert.match(f.scope, /^beat:s1b1$/);
+  });
+
+  test('SHOT_REVERSE_SHOT exchange without persona_index → blocker', () => {
+    const g = cleanGraph();
+    g.scenes[0].beats = [
+      {
+        beat_id: 'srs1',
+        type: 'SHOT_REVERSE_SHOT',
+        exchanges: [
+          { persona_index: 0, dialogue: 'You knew this.', emotion: 'cold', duration_seconds: 4 },
+          { /* no persona_index */ dialogue: 'I never wanted any of this.', emotion: 'broken', duration_seconds: 4 }
+        ]
+      }
+    ];
+    const r = validateScreenplay(g, {}, PERSONAS);
+    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker' && i.scope === 'beat:srs1');
+    assert.ok(f, 'expected SHOT_REVERSE_SHOT exchange blocker');
+    assert.match(f.message, /exchange\[1\]/);
+  });
+
+  test('GROUP_DIALOGUE_TWOSHOT missing persona_indexes alignment → blocker', () => {
+    const g = cleanGraph();
+    g.scenes[0].beats = [
+      {
+        beat_id: 'g1',
+        type: 'GROUP_DIALOGUE_TWOSHOT',
+        dialogues: ['First line.', 'Second line.'],
+        persona_indexes: [0],  // missing index for second dialogue
+        duration_seconds: 6
+      }
+    ];
+    const r = validateScreenplay(g, {}, PERSONAS);
+    assert.ok(r.issues.find(i =>
+      i.id === 'persona_index_missing' && i.severity === 'blocker' && /dialogues\[1\]/.test(i.message)
+    ));
+  });
+
+  test('persona_index pointing outside personas[] → blocker', () => {
+    const g = cleanGraph();
+    g.scenes[0].beats[0].persona_index = 99; // PERSONAS has 2 entries (0, 1)
+    const r = validateScreenplay(g, {}, PERSONAS);
+    assert.ok(r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker'));
+  });
+
+  test('clean graph has no persona_index_missing blockers', () => {
+    const g = cleanGraph();
+    const r = validateScreenplay(g, {}, PERSONAS);
+    assert.ok(!r.issues.find(i => i.id === 'persona_index_missing'));
+  });
+});

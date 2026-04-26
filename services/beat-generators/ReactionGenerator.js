@@ -75,7 +75,7 @@ class ReactionGenerator extends BaseBeatGenerator {
     const identityDirective = this._buildIdentityAnchoringDirective();
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
-    const prompt = [
+    const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       'Tight closeup on the character in frame.',
@@ -85,7 +85,7 @@ class ReactionGenerator extends BaseBeatGenerator {
       'Silent beat, no dialogue.',
       `Emotional arc: ${expressionArc}.`,
       'Micro-expression emphasis, shallow depth of field, intimate framing.'
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo REACTION (${duration}s, first-frame only)`);
 

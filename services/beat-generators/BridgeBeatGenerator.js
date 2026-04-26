@@ -74,14 +74,14 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
       || 'Transit shot connecting the previous scene to the next location';
     const ambientSound = beat.ambient_sound || 'natural transit ambient sound';
 
-    const prompt = [
+    const prompt = this._appendDirectorNudge([
       stylePrefix,
       'Scene bridge — connective transit shot.',
       framingRecipe,
       visualPrompt,
       'Seamless movement, no dialogue.',
       `Ambient: ${ambientSound}.`
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '), beat);
 
     this.logger.info(
       `[${beat.beat_id}] Veo SCENE_BRIDGE (${duration}s, ` +

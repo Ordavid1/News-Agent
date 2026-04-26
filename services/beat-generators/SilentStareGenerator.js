@@ -14,7 +14,7 @@
 // Fallback: OmniHuman 1.5 (Mode A) with a silent audio track.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
-import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
 
 const COST_KLING_OMNI_STANDARD_PER_SEC = 0.168;
 
@@ -63,9 +63,16 @@ class SilentStareGenerator extends BaseBeatGenerator {
     // Mandatory block — must always be present (~334 chars base)
     const mandatory = [VERTICAL, IDENTITY, core].join(' ');
 
-    // Optional sections in drop-priority order: gaze first (high value, short),
-    // stylePrefix last (lower info density, often longest).
-    const optionals = [gaze.trim(), stylePrefix].filter(Boolean);
+    // V4 Director Agent (L3) nudge — add as a HIGH-priority optional that
+    // joins the budget queue ahead of stylePrefix when the orchestrator's
+    // Lens C blocking-mode retry stamps a director_nudge onto the beat.
+    const directorNudge = (typeof beat?.director_nudge === 'string' && beat.director_nudge.trim().length > 0)
+      ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
+      : '';
+
+    // Optional sections in drop-priority order: nudge first (highest value when
+    // present), gaze second (high value, short), stylePrefix last.
+    const optionals = [directorNudge, gaze.trim(), stylePrefix].filter(Boolean);
     const optionalParts = [];
     let remaining = KLING_BUDGET - mandatory.length - 1;
     for (const opt of optionals) {
@@ -80,6 +87,17 @@ class SilentStareGenerator extends BaseBeatGenerator {
       : mandatory;
 
     const { elements } = buildKlingElementsFromPersonas([persona]);
+
+    // Non-invasive subject anchoring — when subject_present and there's room
+    // (silent stare uses 1 persona element, so slot 2-3 are free), append the
+    // brand subject as a pure visual ref. No prompt change.
+    if (beat.subject_present && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) {
+        elements.push(subjectElement);
+        this.logger.info(`[${beat.beat_id}] subject element added to Kling refs (${elements.length}/3)`);
+      }
+    }
 
     this.logger.info(`[${beat.beat_id}] Kling O3 Omni silent stare (${duration}s, ${intensity}, ${elements.length} element(s))`);
     const result = await kling.generateDialogueBeat({

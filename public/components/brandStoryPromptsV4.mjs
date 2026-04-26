@@ -392,6 +392,82 @@ Hollywood standard for product heroes.
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// V4 SONIC SERIES BIBLE — episode-prompt injector
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Phase 3 of the Audio Coherence Overhaul. The story-level sonic_series_bible
+// is rendered into the episode system prompt as IMMUTABLE context — Gemini
+// must inherit from it when authoring the episode-level sonic_world block.
+//
+// When no bible is available (legacy stories, generation failure that fell
+// through to default), the block returns an empty string. The episode prompt
+// then teaches Gemini to author a stand-alone sonic_world (the schema rules
+// in Rule 13 still bind regardless of bible presence).
+function _buildSonicSeriesBibleBlock(bible) {
+  if (!bible || typeof bible !== 'object') return '';
+
+  const drone = bible.signature_drone || {};
+  const palette = bible.base_palette || {};
+  const anchor = bible.spectral_anchor || {};
+  const policy = bible.inheritance_policy || {};
+  const prohibitedInst = Array.isArray(bible.prohibited_instruments) ? bible.prohibited_instruments : [];
+  const prohibitedTropes = Array.isArray(bible.prohibited_tropes) ? bible.prohibited_tropes : [];
+  const refs = Array.isArray(bible.reference_shows) ? bible.reference_shows : [];
+
+  const fmtList = (a, fallback = '—') => (a && a.length > 0 ? a.join(', ') : fallback);
+
+  return `═══════════════════════════════════════════════════════════════
+SONIC SERIES BIBLE (locked at story creation — inherit, do not violate):
+═══════════════════════════════════════════════════════════════
+
+This is the show's sound DNA. Every episode shares it. Variations between
+episodes must obey the bible's inheritance_policy. The viewer should hear
+ONE world across all episodes — not a different audio aesthetic each time.
+
+PALETTE (the show's signature timbre):
+- signature_drone: ${drone.description || '—'}
+  • frequency band: ${Array.isArray(drone.frequency_band_hz) ? drone.frequency_band_hz.join('–') + ' Hz' : '—'}
+  • presence level: ${typeof drone.presence_dB === 'number' ? drone.presence_dB + ' dB' : '—'}
+- base_palette ambient keywords: ${fmtList(palette.ambient_keywords)}
+- BPM range: ${Array.isArray(palette.bpm_range) ? palette.bpm_range.join('–') + ' BPM' : '—'}
+- Modal/key center: ${palette.key_or_modal_center || '—'}
+- spectral_anchor (always-on seam-hider): ${anchor.description || '—'} @ ${typeof anchor.level_dB === 'number' ? anchor.level_dB + ' dB' : '—'}
+
+GRAMMAR (rules of engagement):
+- Foley density: ${bible.foley_density || '—'}
+- Score under dialogue: ${bible.score_under_dialogue || '—'}
+- Silence as punctuation: ${bible.silence_as_punctuation || '—'}
+- Diegetic ratio (diegetic vs scored): ${typeof bible.diegetic_ratio === 'number' ? bible.diegetic_ratio.toFixed(2) : '—'}
+- Transition grammar: ${fmtList(bible.transition_grammar)}
+
+NO-FLY LIST (what this show NEVER does — equally identity-defining):
+- Prohibited instruments: ${fmtList(prohibitedInst, 'none')}
+- Prohibited audio tropes: ${fmtList(prohibitedTropes, 'none')}
+
+INHERITANCE POLICY (binding):
+- grammar: ${policy.grammar || 'immutable'} — do not deviate from foley_density / score_under_dialogue / silence rules
+- no_fly_list: ${policy.no_fly_list || 'immutable'} — do not include any prohibited instrument or trope
+- base_palette: ${policy.base_palette || 'overridable_with_justification'} — episode-level base_palette may evolve; cite reason if it does
+- signature_drone: ${policy.signature_drone || 'must_appear_at_least_once_per_episode'} — your sonic_world.spectral_anchor MUST contain the drone's frequency band
+
+REFERENCE SHOWS (taste anchor): ${fmtList(refs, '—')}
+${bible.reference_rationale ? `Rationale: ${bible.reference_rationale}` : ''}
+
+IMPLICATION FOR THIS EPISODE:
+Your "sonic_world" block (see schema below) IS NOT a fresh audio design — it is
+a VARIATION on this bible. Your sonic_world.base_palette must reference (and
+may add to) the bible's base_palette ambient keywords. Your sonic_world.spectral_anchor
+must contain the bible's signature_drone frequency band. Your sonic_world.scene_variations[]
+overlays must NEVER replace the base palette — only ADD to it (additive layers).
+
+If your music_bed_intent uses a prohibited instrument, you have violated the
+bible. If a scene_variations[].overlay swaps the base palette wholesale, you
+have violated the bible. The downstream Validator will reject these violations
+and the Doctor will rewrite them — but you should author them correctly the
+first time.`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // V4 EPISODE SCREENPLAY PROMPT
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -421,12 +497,19 @@ export function getEpisodeSystemPromptV4(storyline, previousEpisodes = [], perso
     previousEmotionalState = '',
     directorsNotes = '',
     costCapUsd = 10,
-    hasBrandKitLut = false
+    hasBrandKitLut = false,
+    // Phase 3 — V4 Audio Coherence Overhaul. The locked sonic_series_bible
+    // (story-level, authored once at first episode, mutable via PATCH).
+    // When provided, the episode-level sonic_world MUST inherit from it
+    // per the bible's inheritance_policy. When null/undefined, Gemini
+    // falls back to authoring a stand-alone sonic_world (legacy stories).
+    sonicSeriesBible = null
   } = options;
 
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
   const brandContextBlock = brandKit ? _buildBrandKitContextBlock(brandKit) : '';
   const focusBlock = _buildCinematicFocusBlock(storyFocus);
+  const sonicBibleBlock = _buildSonicSeriesBibleBlock(sonicSeriesBible);
 
   const nextEpNumber = previousEpisodes.length + 1;
   const emotionalArc = storyline.emotional_arc || [];
@@ -607,6 +690,8 @@ ${subjectIntegrationBlock}
 ${lutBlock}
 
 ${prevBlock}
+
+${sonicBibleBlock}
 
 ═══════════════════════════════════════════════════════════════
 V4 SCENE-GRAPH PARADIGM (READ CAREFULLY):
@@ -1043,7 +1128,14 @@ You MUST respond with ONLY valid JSON (no markdown code fences, no extra text).`
  * @returns {string}
  */
 export function getEpisodeUserPromptV4(storyline, lastCliffhanger, episodeNumber, options = {}) {
-  const { hasBrandKitLut = false } = options;
+  const {
+    hasBrandKitLut = false,
+    // Phase 3 — when present, the user-prompt schema example reminds Gemini
+    // that sonic_world inherits from the bible (the system prompt has the
+    // full bible context; this is a short pointer in the JSON schema).
+    sonicSeriesBible = null
+  } = options;
+  const hasBible = !!(sonicSeriesBible && typeof sonicSeriesBible === 'object');
 
   const plannedEpisode = storyline.episodes?.[episodeNumber - 1];
   const plannedContext = plannedEpisode
@@ -1131,6 +1223,7 @@ OUTPUT JSON SCHEMA (match exactly):
   "title": "Episode title — intriguing and specific",
   "hook": "What happens in the first 2-3 seconds to grab attention (1 sentence)",
   "narrative_beat": "The story beat this episode covers (1 sentence)",
+  "dramatic_question": "The ONE high-stakes question this episode poses that keeps the viewer watching (one sentence, ends with '?'). Example: 'Will Maya finally confront what she buried six years ago?'",
   "mood": "Episode's emotional register (e.g. 'quiet tension building to release')",
   "continuity_from_previous": "How this connects to what came before",
   "continuity_check": "How this episode's opening resolves the previous cliffhanger",
@@ -1138,7 +1231,15 @@ OUTPUT JSON SCHEMA (match exactly):
   "emotional_state": "Where the viewer's emotional journey stands at the END of this episode",
   "visual_motif_used": "Which recurring visual motif (from season bible) appears and how",
   "visual_style_prefix": "UNIFIED cinematography brief for ALL beats: color temperature, lighting quality, lens feel, film stock reference. Example: 'Warm golden-hour tones, shallow DOF, anamorphic lens flare, Kodak Portra 400 grain, soft backlit highlights'. This prefix applies to every scene_visual_anchor_prompt.",${lutField}
-  "music_bed_intent": "Music brief for ElevenLabs Music. Describe instrumentation, mood, arc. Example: 'Low brooding strings with sparse piano, building tension through the confrontation, resolving to a single held cello note at the cliffhanger'. Keep under 200 chars.",
+  "music_bed_intent": "Music brief for ElevenLabs Music. Describe instrumentation, mood, arc. Example: 'Low brooding strings with sparse piano, building tension through the confrontation, resolving to a single held cello note at the cliffhanger'. Keep under 200 chars.${hasBible ? ' MUST NOT include any prohibited_instruments from the Sonic Series Bible.' : ''}",
+  "sonic_world": {
+    "_comment": "EPISODE-LEVEL audio architecture (replaces per-scene ambient_bed_prompt). One bed for the whole episode, scene-specific overlays as ADDITIVE layers. ${hasBible ? 'Must inherit from the Sonic Series Bible (see SONIC SERIES BIBLE block above).' : 'Authored fresh — no story-level bible available.'}",
+    "base_palette": "${hasBible ? 'Episode-level bed description that REFERENCES and may add to the bible base_palette ambient_keywords. The continuous always-on layer for the WHOLE episode (10-25s+). Example — low industrial drone with concrete reverb tail, faint distant traffic, deep HVAC undertone (the constant). Keep under 220 chars.' : 'Episode-level bed description — the continuous always-on layer for the WHOLE episode. Example — low industrial drone with concrete reverb tail, faint distant traffic. Keep under 220 chars.'}",
+    "spectral_anchor": "${hasBible ? 'The seam-hider — sustained low-frequency content that ALWAYS plays under everything (sub-200Hz anchor). MUST include the bible signature_drone frequency band. Example — sustained 60-120Hz hum + faint 2-4kHz air movement. Keep under 160 chars.' : 'The seam-hider — sustained low-frequency content that ALWAYS plays under everything. Example — sustained 60-120Hz hum + faint 2-4kHz air movement. Keep under 160 chars.'}",
+    "scene_variations": [
+      { "scene_id": "matches scene.scene_id", "overlay": "ADDITIVE layer that plays ON TOP OF base_palette during this scene only. MUST share at least one texture word with base_palette. FAIL: base='low industrial drone, concrete reverb' + overlay='sterile electrical hum' (no shared texture). PASS: base='low industrial drone, concrete reverb' + overlay='wind through concrete gaps' (shares concrete). Keep under 140 chars.", "intensity": 0.65 }
+    ]
+  },
   "scenes": [
     {
       "scene_id": "short_identifier",
@@ -1151,8 +1252,7 @@ OUTPUT JSON SCHEMA (match exactly):
       "hook_types": ["CLIFFHANGER" | "REVELATION" | "CRESCENDO" | "DRAMATIC_IRONY" | "STATUS_FLIP" | "CONTRADICTION_REVEAL" | "ESCALATION_OF_ASK"],
       "opposing_intents": { "[0]": "what persona 0 wants in this scene", "[1]": "what persona 1 wants — must oppose persona 0" },
       "scene_visual_anchor_prompt": "Rich still-image description for Seedream 5 Lite Scene Master panel. 80-150 words. Cover: location + time of day + lighting + color palette + character blocking + wardrobe + atmosphere + film stock feel. Must respect visual_style_prefix. Example: 'Wide establishing of a rooftop bar at golden hour, neon signage reflecting in rain-slicked tiles. Maya stands left frame in a charcoal coat; Daniel sits right frame at a copper-topped bar. Warm amber key light, cool cyan fill from neon. Anamorphic lens feel, shallow DOF, Kodak Portra 400 grain.'",
-      "ambient_bed_prompt": "Continuous room-tone/atmosphere SFX for the ENTIRE scene, under every beat. This is the Hollywood sonic backdrop that makes cuts invisible — a single unbroken ambient layer (20-25s, designed to loop seamlessly) that ties all beats in the scene together. Describe ONLY the environment, NOT any foreground actions (dialogue, footsteps, product clicks). Example for a rooftop bar at golden hour: 'Soft distant city rumble, muffled conversation chatter, gentle wind through cables, faint bass bleed from the lounge below, occasional distant car horn'. Example for a quiet forensic studio at night: 'Sterile HVAC hum, deep refrigerator-like drone, faint electrical buzz of monitors, absolute stillness between tones'. Keep under 180 chars. This bed plays at -18dB under every beat, smoothing cuts and establishing location acoustics.",
-      "transition_to_next": "dissolve | fadeblack | cut | speed_ramp — DEFAULT TO 'dissolve'. The dissolve triggers a 0.5s xfade + acrossfade that smoothly transitions both video AND the scene ambient bed between scenes. Use 'cut' ONLY when a hard edit is narratively required (e.g. high-energy action shift, smash-cut for comedic/dramatic impact). A 'cut' at a scene boundary causes an abrupt audio transition from one ambient bed to the next — avoid unless intentional. 'fadeblack' is for emotional beat breaks or act separations. 'speed_ramp' for energy spikes.",
+      "transition_to_next": "dissolve | fadeblack | cut | speed_ramp — DEFAULT TO 'dissolve'. With the V4 audio coherence overhaul, the EPISODE base bed plays UNCUT across every scene boundary regardless of transition; only the scene_variations[] OVERLAY J-cuts (pre-rolls in / tail-rolls out across the cut). 'cut' is now safe for sonic continuity — choose it freely when the narrative wants a hard visual edit. 'dissolve' adds a 0.5s video xfade. 'fadeblack' is for emotional beat breaks or act separations. 'speed_ramp' for energy spikes.",
       "bridge_to_next": {
         "_comment": "OPTIONAL narrative bridge beat (Phase 6.1) — a 2-3s B-roll or walk shot that shows HOW we got from this scene to the next. Emit when the next scene is in a DIFFERENT location, so the viewer understands the spatial/temporal move. The bridge is generated by Veo with first_frame=this scene's endframe and last_frame_hint=next scene's master, producing a seamless transit shot. Without a bridge, the viewer sees a raw dissolve with no narrative connective tissue.",
         "type": "B_ROLL_ESTABLISHING | INSERT_SHOT",
@@ -1292,48 +1392,93 @@ CRITICAL RULES:
       • 16 words → 7s
       • 18 words → 8s
 
-13. SCENE-LEVEL AMBIENT BED (the Hollywood sonic backdrop) — MANDATORY:
-    Every scene MUST include a "ambient_bed_prompt" field describing the
-    continuous room-tone/atmosphere that plays UNDER every beat in the scene.
-    This is what makes an episode feel like a FILM instead of a montage of
-    disconnected clips: the bed masks audio cuts, establishes location
-    acoustics, and carries emotional continuity across shot changes.
+13. EPISODE-LEVEL sonic_world (the Hollywood spine + stems architecture) — MANDATORY:
+    Audio coherence in V4 is owned at the EPISODE level, not the scene level.
+    There is ONE base bed for the whole episode. There is ONE always-on
+    spectral anchor (the seam-hider). Per-scene variations are ADDITIVE
+    overlays — they NEVER replace the base palette.
+
+    The viewer should hear ONE world across the episode — not a different
+    sonic backdrop in every scene. Scene-boundary timbre cliffs (wind in
+    scene 1 → electrical hum in scene 2) are forbidden by this architecture.
+
+    Required structure (emit at the EPISODE level, not per scene):
+
+    "sonic_world": {
+      "base_palette":     "<one continuous bed for the whole episode>",
+      "spectral_anchor":  "<sub-200Hz + faint air content that plays under everything>",
+      "scene_variations": [
+        { "scene_id": "<id>", "overlay": "<additive layer>", "intensity": 0.0-1.0 },
+        ...
+      ]
+    }
 
     Rules:
-    • Describe ONLY environmental sound (air, hum, distant traffic, crowd
-      murmur, wind, HVAC, fluorescent buzz, ocean, rain) — NOT dialogue,
-      footsteps, or prop clicks (those go in per-beat ambient_sound).
-    • The bed must feel LOOPABLE — a steady texture without hard events or
-      melodic elements. No dogs barking, no door slams, no music.
-    • The bed must match the scene's mood AND location. Tense interrogation
-      room = sterile HVAC hum + distant refrigerator drone. Rooftop bar =
-      distant city rumble + muffled chatter + occasional wind gust.
-    • Different scenes can have different beds; they crossfade at scene
-      boundaries (0.5s) so transitions don't jolt.
-    • Per-beat "ambient_sound" fields are FOREGROUND events (footsteps,
-      glass clink, product click) that play ON TOP of the bed at -10dB.
-      Think of the bed as the ALWAYS-ON track and ambient_sound as the
-      SPECIFIC moment layered over it.
+    • base_palette MUST be one bed that works under EVERY beat in the
+      episode (10-25s+ continuous, designed to loop / extend seamlessly).
+      Describe environmental sound ONLY — NOT dialogue, footsteps,
+      foreground events (those go in per-beat ambient_sound).
+    • spectral_anchor MUST contain sustained low-frequency content
+      (sub-200Hz). This is the anchor that hides the seams across cuts —
+      every beat shares it. If a Sonic Series Bible is locked, the anchor
+      MUST contain the bible signature_drone frequency band.
+    • scene_variations[] entries are ADDITIVE — they layer ON TOP of the
+      base_palette during their scene only. They MUST NOT replace or
+      contradict it. "Wind through gaps" is a valid overlay over an
+      "industrial drone" base. "Sterile electrical hum" is NOT a valid
+      overlay over an "industrial drone" base — it's a replacement, which
+      is what causes the timbre cliff. The overlay must SHARE the base's
+      low-frequency envelope.
+    • ADDITIVE test: can you still hear the base_palette UNDER the overlay?
+      If the overlay description completely replaces the base (different
+      materials, different space, different frequency character), it fails.
+      The overlay is a seasoning, not a new dish.
+    • intensity is a 0.0-1.0 float that maps to overlay gain at mix time
+      (1.0 = -16dB, 0.5 = -22dB, 0.0 = silent). Most scenes 0.5-0.85.
+    • A bible-locked story inherits palette and grammar from the bible.
+      A bible-free story authors the sonic_world fresh — but the same
+      additive-layer rule still binds.
 
-14. PER-BEAT ambient_sound DISCIPLINE:
+    Legacy compatibility: if you must emit per-scene ambient_bed_prompt
+    (legacy episodes that pre-date this rule), DO NOT — emit only
+    sonic_world at the episode level. The orchestrator backward-reads
+    legacy fields if present, but you should never produce them.
+
+14. PER-BEAT ambient_sound DISCIPLINE — Foley EVENTS only (1-3s percussive):
     When you emit an "ambient_sound" field on a beat, describe a SPECIFIC
-    foreground sound event tied to that beat's action — NOT the scene's
-    general atmosphere (that's what ambient_bed_prompt is for).
+    short foreground sound event tied to that beat's action. This is FOLEY
+    (a Hollywood sound discipline), not ambient. It is a discrete diegetic
+    EVENT (1-3s, percussive), not a continuous bed.
 
-    Good per-beat ambient_sound examples:
+    Good per-beat ambient_sound (Foley events):
       • B_ROLL reveal of a product: "soft thud as the box lands on marble"
       • ACTION beat showing a door opening: "distinct metallic click of the latch"
       • INSERT_SHOT of a wristwatch: "crisp tick-tock, faint brushed-metal grip sound"
       • REACTION closeup: "shallow breath, fabric shift"
+      • ACTION fight beat: "knuckle crack, fabric tension snap"
 
-    Bad per-beat ambient_sound (these belong in the bed, not per-beat):
-      • "ambient crowd chatter" — bed material, not beat-specific
+    Bad per-beat ambient_sound (these are AMBIENT — they belong in
+    sonic_world.base_palette or scene_variations[].overlay, not per-beat):
+      • "ambient crowd chatter" — that's a bed, not a Foley event
       • "distant city hum" — bed material
       • "soft wind" — bed material
+      • "atmospheric drone" — bed material
+      • "evocative room tone" — bed material
+
+    The Validator will reject any ambient_sound containing the words
+    "ambient", "drone", "atmosphere", "room tone", "wash", "evocative" —
+    those are bed words. Foley is concrete, percussive, short.
 
     Every non-dialogue beat (B_ROLL, ACTION, INSERT_SHOT, REACTION,
     SILENT_STARE) SHOULD have a per-beat ambient_sound for its specific
-    foreground event. Dialogue beats can omit it (voice is foreground).
+    foreground EVENT. Dialogue beats can omit it (voice is foreground).
+
+15. EPISODE-LEVEL dramatic_question — MANDATORY: emit a single sentence
+    ending in '?' in the "dramatic_question" field at the episode root
+    (not inside a scene). This is the question the EPISODE poses — the
+    one question the viewer must see answered before they stop watching.
+    It is distinct from per-scene dramatic_question fields.
+    Example: "Will Maya finally confront what she buried six years ago?"
 
 Respond with ONLY valid JSON. No markdown fences. No preamble.`;
 }

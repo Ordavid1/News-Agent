@@ -105,7 +105,8 @@ export async function generateSceneMasters({
           size: '3K',
           seed: seed + i,
           sequentialGeneration: 'auto'
-        }
+        },
+        label: 'scene master'
       });
 
       const publicUrl = await uploadBuffer(
@@ -338,10 +339,18 @@ export async function buildPersonaLockedFirstFrame({
     'Hair / makeup / wardrobe / lighting may vary per scene but facial bone structure is INVARIANT. ' +
     'Same person, same face, same age. Reference images are the canonical identity anchor.';
 
-  // When the beat marks the subject as visible, include a textual directive
-  // so Seedream knows to place it in the pre-pass frame. The subject ref image
-  // is already in refsCapped — the text reinforces the appearance constraint.
-  const subjectMention = (beat?.subject_present === true && subjectReferenceImages.length > 0)
+  // 2026-04-25 — subject mention disabled by default. The textual nudge in
+  // the Seedream pre-pass prompt was over-steering the panel — Seedream
+  // would build the entire frame around the subject rather than the persona,
+  // which then propagated into Veo as a subject-centric beat (not the
+  // persona moment the screenplay intended). The subject ref image stays in
+  // refsCapped so it's still available as visual influence; we just don't
+  // call it out textually anymore. To re-enable: V4_PERSONA_LOCK_SUBJECT_MENTION=true.
+  const subjectMention = (
+    process.env.V4_PERSONA_LOCK_SUBJECT_MENTION === 'true' &&
+    beat?.subject_present === true &&
+    subjectReferenceImages.length > 0
+  )
     ? `${beat.subject_focus || 'the subject'} is visible in the scene — maintain its exact appearance from reference images.`
     : '';
 
@@ -368,7 +377,8 @@ export async function buildPersonaLockedFirstFrame({
       size: '3K',
       seed: typeof seed === 'number' ? seed : Math.floor(Math.random() * 1_000_000),
       sequentialGeneration: 'auto'
-    }
+    },
+    label: 'persona-lock'
   });
 
   const beatId = beat?.beat_id || 'unknown';
@@ -429,8 +439,9 @@ export async function buildSceneIntegratedProductFrame({
   visualStylePrefix = '',
   uploadBuffer,
   seed,
-  intent = 'hero'  // 'hero' → product fills 60% of frame (INSERT_SHOT macro)
-                   // 'ambient' → subject visible in scene as supporting element (B_ROLL, VO_BROLL)
+  intent = 'hero'  // 'hero'    → product fills 60% of frame (INSERT_SHOT macro)
+                   // 'ambient' → subject visible in scene as supporting element (legacy, env-gated)
+                   // 'natural' → subject placed in scene with NO compositional emphasis (default for B_ROLL / VO_BROLL when subject_focus is set)
 }) {
   if (!Array.isArray(subjectReferenceImages) || subjectReferenceImages.length === 0) {
     return null;
@@ -473,7 +484,19 @@ export async function buildSceneIntegratedProductFrame({
   //               B_ROLL and VOICEOVER_OVER_BROLL beats where the subject
   //               should be "in the world" without upstaging the atmosphere.
   let promptParts;
-  if (intent === 'ambient') {
+  if (intent === 'natural') {
+    // Non-invasive subject anchoring — terse prompt with NO compositional
+    // emphasis. Used on Veo B_ROLL / VOICEOVER_OVER_BROLL when the screenplay
+    // explicitly sets subject_focus. Avoids the noir/surveillance-coded
+    // language that trips Vertex's image classifier on the 'hero' intent.
+    promptParts = [
+      `Place ${subjectFocus} naturally into the existing scene: ${sceneLook}.`,
+      'Preserve exact appearance from reference images — same design, logo, color, proportions.',
+      'Match scene lighting and color grade exactly.',
+      'No compositional emphasis. Subject sits in the world as a naturally occurring element, not centered, not hero-framed.',
+      visualStylePrefix
+    ].filter(Boolean).join(' ');
+  } else if (intent === 'ambient') {
     promptParts = [
       'Scene-integrated subject presence.',
       `${subjectFocus} (from reference images — preserve exact industrial design, logo, color, and proportions) appears naturally within the scene: ${sceneLook}.`,
@@ -516,14 +539,19 @@ export async function buildSceneIntegratedProductFrame({
       size: '3K',
       seed: typeof seed === 'number' ? seed : Math.floor(Math.random() * 1_000_000),
       sequentialGeneration: 'auto'
-    }
+    },
+    label: intent === 'ambient' ? 'SIPL-ambient' : (intent === 'natural' ? 'SIPL-natural' : 'SIPL-hero')
   });
 
   const beatId = beat?.beat_id || 'unknown';
-  const subfolder = intent === 'ambient' ? 'storyboard/subject-ambient' : 'storyboard/product-locks';
+  const subfolder = intent === 'ambient'
+    ? 'storyboard/subject-ambient'
+    : (intent === 'natural' ? 'storyboard/subject-natural' : 'storyboard/product-locks');
   const filename = intent === 'ambient'
     ? `beat-${beatId}-subject-ambient.png`
-    : `beat-${beatId}-product-lock.png`;
+    : (intent === 'natural'
+      ? `beat-${beatId}-subject-natural.png`
+      : `beat-${beatId}-product-lock.png`);
   const publicUrl = await uploadBuffer(
     panel.imageBuffer,
     subfolder,
@@ -644,4 +672,101 @@ export async function extractBeatEndframe(videoBuffer) {
     try { if (fs.existsSync(mp4Path)) fs.unlinkSync(mp4Path); } catch {}
     try { if (fs.existsSync(jpgPath)) fs.unlinkSync(jpgPath); } catch {}
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Veo tier 2.5 — safe-mode first-frame regeneration
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Regenerate a Veo first frame using a minimal, safe-mode Seedream pass.
+ * Called by VeoService's tier 2.5 path when Vertex rejects a persona-lock
+ * or product-lock first frame with an IMAGE content violation. The goal is
+ * to preserve persona/product visual identity on the retry while reducing
+ * the likelihood of triggering Vertex's image-safety filter a second time.
+ *
+ * Safe-mode strategy:
+ *   - Use ONLY the CIP front view (persona) or the first product image
+ *     (product) as the reference — drops scene master and additional refs
+ *     that may compound into a safety-sensitive composition.
+ *   - Append explicit safe-mode composition directives to the prompt:
+ *     neutral pose, conservative framing, studio-clean background.
+ *   - Use a fresh random seed (distinct from the original persona-lock seed).
+ *   - No SIPL compositing — the frame is a clean, standalone reference.
+ *
+ * @param {Object} params
+ * @param {'persona' | 'product'} params.kind        - which reference type to regenerate
+ * @param {Object[]} [params.personas]               - persona bibles (for kind='persona')
+ * @param {string[]} [params.subjectReferenceImages] - product URLs (for kind='product')
+ * @param {Object} params.beat                        - beat record (for beat_id + prompt context)
+ * @param {Function} params.uploadBuffer              - (buffer, path, filename, mime) → publicUrl
+ * @returns {Promise<string | null>} public URL of the safer first frame, or null on failure
+ */
+export async function regenerateSafeFirstFrame({
+  kind,
+  personas = [],
+  subjectReferenceImages = [],
+  beat,
+  uploadBuffer
+}) {
+  if (!beat) throw new Error('regenerateSafeFirstFrame: beat required');
+  if (!uploadBuffer) throw new Error('regenerateSafeFirstFrame: uploadBuffer required');
+
+  // Minimal reference stack: single cleanest ref image only.
+  let safeRefs = [];
+  if (kind === 'persona') {
+    const p = personas[0];
+    const cip = Array.isArray(p?.canonical_identity_urls) ? p.canonical_identity_urls : null;
+    const cipFront = cip?.[0] || p?.reference_image_urls?.[0] || null;
+    if (cipFront) safeRefs = [cipFront];
+  } else if (kind === 'product') {
+    const first = subjectReferenceImages[0] || null;
+    if (first) safeRefs = [first];
+  }
+
+  if (safeRefs.length === 0) return null; // no reference to work from
+
+  // Safe-mode prompt: conservative composition that avoids common filter triggers
+  // (exposed skin, aggressive expressions, suggestive poses, tight body crops).
+  const safeDirective =
+    'SAFE MODE: neutral pose, eyes-on-camera, conservative professional framing, ' +
+    'no body parts focus, no exposed skin, fully clothed, clean studio background, ' +
+    'professional headshot composition, VERTICAL 9:16 portrait.';
+
+  const entityDescriptor = kind === 'persona'
+    ? (() => {
+        const p = personas[0];
+        const name = p?.name || 'the character';
+        const appearance = p?.appearance || p?.character_sheet?.appearance || '';
+        return appearance ? `${name} (${appearance})` : name;
+      })()
+    : (beat?.subject_focus || 'the product');
+
+  const prompt = [
+    safeDirective,
+    `${entityDescriptor}, neutral expression, front-facing.`,
+    'Cinematic still, clean background.'
+  ].join(' ');
+
+  const { default: seedreamService } = await import('../SeedreamFalService.js');
+
+  const panel = await seedreamService.generatePanel({
+    prompt,
+    referenceImages: safeRefs,
+    options: {
+      aspectRatio: '9:16',
+      size: '3K',
+      seed: Math.floor(Math.random() * 1_000_000), // always a fresh seed
+      sequentialGeneration: 'auto'
+    },
+    label: `${kind}-lock-safe-regen`
+  });
+
+  const beatId = beat?.beat_id || 'unknown';
+  return uploadBuffer(
+    panel.imageBuffer,
+    'storyboard/persona-locks',
+    `beat-${beatId}-${kind}-lock-safe.png`,
+    'image/png'
+  );
 }

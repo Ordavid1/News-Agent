@@ -29,6 +29,9 @@
   let panelRoot = null;
   let pollFallbackInterval = null;
   let progressLog = [];
+  // Which section is mounted in the right rail. Defaults to Script QA because
+  // it surfaces blockers / warnings the director needs to address first.
+  let activeRightTab = 'qa';
 
   const BEAT_TYPE_ICON = {
     TALKING_HEAD_CLOSEUP: '\uD83C\uDFAD',
@@ -156,6 +159,7 @@
     activeEpisode = null;
     activeStory = null;
     activeBeatIdx = null;
+    activeRightTab = 'qa';
     progressLog = [];
 
     // Re-render the brand-stories detail view so the episode list picks up
@@ -178,7 +182,7 @@
     if (!panelRoot) {
       panelRoot = document.createElement('div');
       panelRoot.id = 'directorPanelRoot';
-      panelRoot.className = 'fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 hidden';
+      panelRoot.className = 'fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-2 sm:p-4 hidden';
       panelRoot.addEventListener('click', (e) => {
         if (e.target === panelRoot) window.closeDirectorPanel();
       });
@@ -189,7 +193,7 @@
   function renderLoadingShell() {
     clear(panelRoot);
     const shell = el('div', {
-      class: 'bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex items-center justify-center',
+      class: 'bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[95vh] overflow-hidden flex items-center justify-center',
       style: 'min-height: 400px;'
     }, el('div', { class: 'text-ink-500' }, 'Loading Director\'s Panel\u2026'));
     panelRoot.appendChild(shell);
@@ -262,7 +266,11 @@
       renderSceneTimeline();
       renderBeatStrip();
       renderBeatDetail();
-      renderScriptQa();
+      // renderRightPane() re-mounts the active right-rail tab and recomputes
+      // the QA-issue-count + L3-note badges. Replaces the old direct
+      // renderScriptQa() / renderDirectorNotes() calls, which were no-ops for
+      // any tab whose container wasn't currently in the DOM.
+      renderRightPane();
     } catch (err) {
       console.warn('refreshEpisodeData failed:', err);
     }
@@ -276,7 +284,23 @@
     clear(panelRoot);
 
     const header = el('div', { id: 'dpHeader', class: 'border-b border-surface-200 px-5 py-3' });
-    const progress = el('div', { id: 'dpProgress', class: 'border-b border-surface-200 bg-surface-50 px-5 py-2 max-h-24 overflow-y-auto text-xs font-mono text-ink-600' });
+
+    // Progress feed is wrapped in a <details> so the user can collapse it once
+    // they've seen the pipeline kick off. Default open on first render.
+    const progressFeed = el('div', {
+      id: 'dpProgress',
+      class: 'max-h-32 overflow-y-auto text-xs font-mono text-ink-600 px-5 pb-2'
+    });
+    const progressDetails = el('details', {
+      class: 'border-b border-surface-200 bg-surface-50',
+      open: 'open'
+    }, [
+      el('summary', {
+        class: 'px-5 py-1.5 cursor-pointer text-[11px] font-medium text-ink-500 hover:text-ink-700 select-none'
+      }, 'Pipeline progress'),
+      progressFeed
+    ]);
+
     const sceneTimelineWrap = el('div', { class: 'border-b border-surface-200 px-5 py-2 overflow-x-auto' },
       el('div', { id: 'dpSceneTimeline', class: 'flex gap-2' })
     );
@@ -285,29 +309,50 @@
     );
 
     const beatDetailContainer = el('div', { id: 'dpBeatDetail' });
+    // The container IDs below stay stable — the existing render*() functions
+    // target them by ID. We just re-mount them under the active right-pane tab.
     const personasContainer = el('div', { id: 'dpPersonasSidebar' });
     const lutContainer = el('div', { id: 'dpLutPicker' });
     const scriptQaContainer = el('div', { id: 'dpScriptQa' });
+    const directorNotesContainer = el('div', { id: 'dpDirectorNotes' });
+    // Phase 7 — V4 Audio Coherence Overhaul. Sonic Series Bible (story-level)
+    // + episode sonic_world (palette + spectral_anchor + scene_variations).
+    const soundContainer = el('div', { id: 'dpSoundPanel' });
 
-    const body = el('div', { class: 'flex-1 overflow-y-auto px-5 py-4' }, [
-      beatDetailContainer,
-      el('div', { class: 'mt-6' }, [
-        el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2' }, 'Personas'),
-        personasContainer
-      ]),
-      el('div', { class: 'mt-6' }, [
-        el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2' }, 'LUT (color grade)'),
-        lutContainer
-      ]),
-      el('div', { class: 'mt-6' }, [
-        el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2' }, 'Script QA'),
-        scriptQaContainer
-      ])
-    ]);
+    // Left pane: beat editor — always visible, scrolls independently of the
+    // right rail so the director can edit a beat without losing QA context.
+    const leftPane = el('div', {
+      class: 'flex-1 min-w-0 overflow-y-auto px-5 py-4 lg:border-r lg:border-surface-200'
+    }, beatDetailContainer);
+
+    // Right pane: tabbed (Script QA / Personas + LUT / Director's Notes). On
+    // narrow viewports the right pane stacks beneath the left pane (lg: ≥1024px
+    // is the breakpoint where the two-column layout activates).
+    const tabBar = el('div', {
+      id: 'dpRightTabBar',
+      class: 'flex items-center gap-1 border-b border-surface-200 px-3 py-2 bg-surface-50'
+    });
+    const rightContent = el('div', {
+      id: 'dpRightContent',
+      class: 'flex-1 overflow-y-auto px-5 py-4'
+    });
+    const rightPane = el('div', {
+      class: 'flex flex-col w-full lg:w-[28rem] xl:w-[32rem] border-t border-surface-200 lg:border-t-0 max-h-[55vh] lg:max-h-none'
+    }, [tabBar, rightContent]);
+
+    // Stash the right-pane containers on the panel root so renderRightPane()
+    // can mount them without rebuilding their internals.
+    panelRoot._dpContainers = {
+      personasContainer, lutContainer, scriptQaContainer, directorNotesContainer, soundContainer
+    };
+
+    const body = el('div', {
+      class: 'flex-1 overflow-hidden flex flex-col lg:flex-row'
+    }, [leftPane, rightPane]);
 
     const modal = el('div', {
-      class: 'bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col'
-    }, [header, progress, sceneTimelineWrap, beatStripWrap, body]);
+      class: 'bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col'
+    }, [header, progressDetails, sceneTimelineWrap, beatStripWrap, body]);
 
     panelRoot.appendChild(modal);
 
@@ -316,9 +361,95 @@
     renderSceneTimeline();
     renderBeatStrip();
     renderBeatDetail();
-    renderPersonasSidebar();
-    renderLutPicker();
-    renderScriptQa();
+    renderRightPane();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Right-rail tab switcher — mounts one of (Script QA / Personas + LUT /
+  // Director's Notes) into the right-pane content area and re-runs that
+  // section's existing render function. Keeps render logic untouched.
+  // ─────────────────────────────────────────────────────────────────────
+  function renderRightPane() {
+    const tabBar = document.getElementById('dpRightTabBar');
+    const rightContent = document.getElementById('dpRightContent');
+    if (!tabBar || !rightContent) return;
+    clear(tabBar);
+    clear(rightContent);
+
+    const containers = panelRoot && panelRoot._dpContainers;
+    if (!containers) return;
+
+    const issuesCount = (() => {
+      const r = activeEpisode?.quality_report;
+      if (!r) return 0;
+      const l1 = Array.isArray(r.layer_1?.issues) ? r.layer_1.issues.length : 0;
+      const post = Array.isArray(r.layer_1_post_doctor?.issues) ? r.layer_1_post_doctor.issues.length : 0;
+      return l1 + post;
+    })();
+
+    const hasL3Notes = (() => {
+      const dr = activeEpisode?.director_report;
+      if (!dr) return false;
+      return Boolean(dr.lens_a) || Boolean(dr.lens_b) || Boolean(dr.lens_c) || Boolean(dr.lens_d);
+    })();
+
+    const tabs = [
+      { id: 'qa', label: 'Script QA', badge: issuesCount > 0 ? String(issuesCount) : null },
+      { id: 'personas', label: 'Personas & LUT', badge: null },
+      { id: 'sound', label: 'Sound', badge: null },
+      { id: 'notes', label: 'Director\u2019s Notes', badge: hasL3Notes ? 'L3' : null }
+    ];
+
+    for (const t of tabs) {
+      const isActive = activeRightTab === t.id;
+      const btn = el('button', {
+        type: 'button',
+        class: 'px-3 py-1.5 text-xs rounded-md flex items-center gap-1.5 transition-colors ' + (
+          isActive
+            ? 'bg-white border border-surface-200 shadow-sm font-medium text-ink-800'
+            : 'text-ink-500 hover:text-ink-700'
+        ),
+        onclick: () => {
+          if (activeRightTab === t.id) return;
+          activeRightTab = t.id;
+          renderRightPane();
+        }
+      }, [t.label]);
+      if (t.badge) {
+        const badgeClass = t.id === 'notes'
+          ? 'text-[10px] font-mono px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded border border-purple-200'
+          : 'text-[10px] font-medium px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200';
+        btn.appendChild(el('span', { class: badgeClass }, t.badge));
+      }
+      tabBar.appendChild(btn);
+    }
+
+    if (activeRightTab === 'qa') {
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2' }, 'Script QA'));
+      rightContent.appendChild(containers.scriptQaContainer);
+      renderScriptQa();
+    } else if (activeRightTab === 'personas') {
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2' }, 'Personas'));
+      rightContent.appendChild(containers.personasContainer);
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mt-6 mb-2' }, 'LUT (color grade)'));
+      rightContent.appendChild(containers.lutContainer);
+      renderPersonasSidebar();
+      renderLutPicker();
+    } else if (activeRightTab === 'sound') {
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+        'Sound design',
+        el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded border border-blue-200' }, 'V4')
+      ]));
+      rightContent.appendChild(containers.soundContainer);
+      renderSoundPanel();
+    } else if (activeRightTab === 'notes') {
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+        'Director\u2019s Notes',
+        el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded border border-purple-200' }, 'L3')
+      ]));
+      rightContent.appendChild(containers.directorNotesContainer);
+      renderDirectorNotes();
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -399,6 +530,251 @@
 
     if (report.error) {
       node.appendChild(el('div', { class: 'mt-2 text-xs text-red-600' }, `Quality-gate error (non-fatal): ${report.error}`));
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Director's Notes (Layer 3) — surfaces the V4 Director Agent verdicts
+  // emitted at four checkpoints (screenplay / scene_master / beat / episode).
+  // Verdict contract: .claude/agents/branded-film-director.md §7.
+  // All fields rendered via textContent through el() — no innerHTML with
+  // user/model data, identical XSS posture as renderScriptQa.
+  // ─────────────────────────────────────────────────────────────────────
+  function renderDirectorNotes() {
+    const node = document.getElementById('dpDirectorNotes');
+    if (!node) return;
+    clear(node);
+    const report = activeEpisode?.director_report;
+    if (!report || typeof report !== 'object' || Object.keys(report).length === 0) {
+      node.appendChild(el('div', { class: 'text-xs text-ink-400' },
+        'No Director verdicts on this episode. (Set BRAND_STORY_DIRECTOR_AGENT=shadow to activate L3 craft critic.)'
+      ));
+      return;
+    }
+
+    // ─── verdict color helpers ───
+    const verdictColor = (v) => {
+      switch (v) {
+        case 'pass':            return 'bg-green-100 text-green-700 border-green-200';
+        case 'pass_with_notes': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        case 'soft_reject':     return 'bg-amber-100 text-amber-700 border-amber-200';
+        case 'hard_reject':     return 'bg-red-100 text-red-700 border-red-200';
+        default:                return 'bg-surface-100 text-ink-600 border-surface-200';
+      }
+    };
+    const severityColor = (s) => {
+      switch (s) {
+        case 'critical': return 'bg-red-100 text-red-700 border-red-200';
+        case 'warning':  return 'bg-amber-50 text-amber-700 border-amber-200';
+        case 'note':     return 'bg-surface-50 text-ink-600 border-surface-200';
+        default:         return 'bg-surface-50 text-ink-600 border-surface-200';
+      }
+    };
+    const scoreColor = (s) => {
+      const n = Number(s);
+      if (!Number.isFinite(n)) return 'bg-surface-100 text-ink-600';
+      if (n >= 85) return 'bg-green-100 text-green-700';
+      if (n >= 70) return 'bg-emerald-50 text-emerald-700';
+      if (n >= 50) return 'bg-amber-100 text-amber-700';
+      return 'bg-red-100 text-red-700';
+    };
+
+    const verdictBadge = (v) => el('span', {
+      class: `inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border ${verdictColor(v)}`
+    }, v || 'unknown');
+    const scoreBadge = (s) => el('span', {
+      class: `inline-block text-[10px] font-mono px-1.5 py-0.5 rounded ${scoreColor(s)}`
+    }, `${Number.isFinite(Number(s)) ? Math.round(Number(s)) : '—'}/100`);
+    const severityBadge = (sev) => el('span', {
+      class: `inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border ${severityColor(sev)}`
+    }, sev || 'note');
+
+    // Render the dimension scores as compact chips (each dimension shown as
+    // "name: 73"). Skips empty/missing scores gracefully.
+    const renderDimensionScores = (scores) => {
+      if (!scores || typeof scores !== 'object') return null;
+      const entries = Object.entries(scores).filter(([, v]) => v != null);
+      if (entries.length === 0) return null;
+      return el('div', { class: 'flex flex-wrap gap-1 mt-1' },
+        entries.map(([name, val]) => el('span', {
+          class: `text-[10px] font-mono px-1.5 py-0.5 rounded ${scoreColor(val)}`
+        }, `${name}: ${Number.isFinite(Number(val)) ? Math.round(Number(val)) : '—'}`))
+      );
+    };
+
+    // Render a single finding row — id, severity, scope, message, evidence,
+    // remediation prompt_delta. Click the prompt-delta block to copy to clipboard.
+    // For beat-scoped findings with action='regenerate_beat' and a non-empty
+    // prompt_delta, an "Apply L3 nudge & regenerate" button posts to the
+    // existing regenerate route with directorNotes=prompt_delta — the route
+    // stamps it onto the beat as director_nudge and the generator splices it
+    // into the model prompt (Phase 5).
+    const renderFinding = (f) => {
+      const remediation = f.remediation || {};
+      const promptDelta = remediation.prompt_delta || '';
+      const targetFields = Array.isArray(remediation.target_fields) ? remediation.target_fields.join(', ') : '';
+      const scope = f.scope || '';
+      const beatId = scope.startsWith('beat:') ? scope.slice('beat:'.length) : '';
+      const isBeatRegen = !!beatId && remediation.action === 'regenerate_beat' && promptDelta.length > 0;
+
+      let deltaBox = null;
+      if (promptDelta) {
+        deltaBox = el('div', {
+          class: 'mt-1 p-1.5 bg-purple-50 border border-purple-200 rounded text-[11px] text-purple-900 cursor-pointer hover:bg-purple-100',
+          title: 'Click to copy prompt delta'
+        }, [
+          el('div', { class: 'font-mono text-[9px] text-purple-700 mb-0.5' },
+            `Action: ${remediation.action || '?'}${targetFields ? ` · fields: ${targetFields}` : ''}`),
+          el('div', null, promptDelta)
+        ]);
+        deltaBox.addEventListener('click', () => {
+          try {
+            navigator.clipboard.writeText(promptDelta);
+            if (typeof flashStatus === 'function') flashStatus('Prompt delta copied', false);
+          } catch {}
+        });
+      }
+
+      let regenBtn = null;
+      if (isBeatRegen && activeStoryId && activeEpisodeId) {
+        regenBtn = document.createElement('button');
+        regenBtn.type = 'button';
+        regenBtn.className = 'mt-1 px-2 py-1 text-[11px] font-medium text-white bg-purple-600 hover:bg-purple-700 rounded transition-colors';
+        regenBtn.textContent = `Apply L3 nudge & regenerate beat ${beatId}`;
+        regenBtn.addEventListener('click', async () => {
+          regenBtn.disabled = true;
+          regenBtn.textContent = 'Regenerating…';
+          try {
+            const resp = await fetch(
+              `/api/brand-stories/${activeStoryId}/episodes/${activeEpisodeId}/beats/${beatId}/regenerate`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+                body: JSON.stringify({ directorNotes: promptDelta })
+              }
+            );
+            const json = await resp.json().catch(() => ({}));
+            if (!resp.ok || json.success === false) {
+              flashStatus(`Regenerate failed: ${json.error || resp.statusText}`, true);
+              regenBtn.disabled = false;
+              regenBtn.textContent = `Retry: Apply L3 nudge & regenerate beat ${beatId}`;
+              return;
+            }
+            flashStatus(`Regenerate started for ${beatId} with director nudge`, false);
+            regenBtn.textContent = `Started — see progress feed`;
+          } catch (err) {
+            flashStatus(`Regenerate error: ${err.message}`, true);
+            regenBtn.disabled = false;
+            regenBtn.textContent = `Retry: Apply L3 nudge & regenerate beat ${beatId}`;
+          }
+        });
+      }
+
+      return el('li', { class: 'text-xs text-ink-700 flex items-start gap-2' }, [
+        severityBadge(f.severity),
+        el('div', { class: 'flex-1' }, [
+          el('div', { class: 'font-mono text-[10px] text-ink-400' }, `${f.scope || '?'} — ${f.id || '?'}`),
+          el('div', null, f.message || ''),
+          f.evidence ? el('div', { class: 'text-ink-500 italic mt-0.5' }, `Evidence: ${f.evidence}`) : null,
+          deltaBox,
+          regenBtn
+        ])
+      ]);
+    };
+
+    // Compact verdict-card renderer used for screenplay (Lens A) and episode (Lens D).
+    const renderVerdictCard = (label, verdict) => {
+      if (!verdict || typeof verdict !== 'object') return null;
+      if (verdict.error) {
+        return el('div', { class: 'mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700' },
+          `${label} error: ${verdict.error}`
+        );
+      }
+      const findings = Array.isArray(verdict.findings) ? verdict.findings : [];
+      const commendations = Array.isArray(verdict.commendations) ? verdict.commendations : [];
+      return el('div', { class: 'mt-3 p-2 bg-surface-50 border border-surface-200 rounded' }, [
+        el('div', { class: 'flex items-center gap-2 mb-1' }, [
+          el('div', { class: 'text-xs font-semibold text-ink-700' }, label),
+          verdictBadge(verdict.verdict),
+          scoreBadge(verdict.overall_score)
+        ]),
+        renderDimensionScores(verdict.dimension_scores),
+        findings.length > 0
+          ? el('div', { class: 'mt-2' }, [
+              el('div', { class: 'text-[11px] font-medium text-ink-600 mb-1' }, `Findings (${findings.length})`),
+              el('ul', { class: 'space-y-1' }, findings.map(renderFinding))
+            ])
+          : null,
+        commendations.length > 0
+          ? el('div', { class: 'mt-2' }, [
+              el('div', { class: 'text-[11px] font-medium text-ink-600 mb-1' }, 'Commendations'),
+              el('ul', { class: 'space-y-0.5 list-disc list-inside text-xs text-ink-700' },
+                commendations.map(c => el('li', null, typeof c === 'string' ? c : (c?.description || JSON.stringify(c))))
+              )
+            ])
+          : null
+      ]);
+    };
+
+    // Per-scene / per-beat: condensed list of verdicts keyed by id.
+    const renderKeyedVerdicts = (label, verdictMap) => {
+      if (!verdictMap || typeof verdictMap !== 'object') return null;
+      const entries = Object.entries(verdictMap);
+      if (entries.length === 0) return null;
+      return el('div', { class: 'mt-3' }, [
+        el('div', { class: 'text-xs font-semibold text-ink-700 mb-1' }, `${label} (${entries.length})`),
+        el('div', { class: 'space-y-2' }, entries.map(([id, v]) => {
+          if (!v || v.error) {
+            return el('div', { class: 'text-xs text-red-600' },
+              `${id}: ${v?.error || 'no verdict'}`
+            );
+          }
+          const findings = Array.isArray(v.findings) ? v.findings : [];
+          const card = el('div', { class: 'p-2 bg-surface-50 border border-surface-200 rounded' }, [
+            el('div', { class: 'flex items-center gap-2 mb-1' }, [
+              el('span', { class: 'text-[11px] font-mono text-ink-700' }, id),
+              verdictBadge(v.verdict),
+              scoreBadge(v.overall_score)
+            ]),
+            renderDimensionScores(v.dimension_scores),
+            findings.length > 0
+              ? el('details', { class: 'mt-1' }, [
+                  el('summary', { class: 'text-[11px] cursor-pointer text-ink-600 hover:text-ink-800' },
+                    `${findings.length} finding${findings.length === 1 ? '' : 's'}`),
+                  el('ul', { class: 'space-y-1 mt-1' }, findings.map(renderFinding))
+                ])
+              : null
+          ]);
+          return card;
+        }))
+      ]);
+    };
+
+    // ─── Compose the panel ───
+    const screenplayCard = renderVerdictCard('Lens A — Table Read (post-screenplay)', report.screenplay);
+    if (screenplayCard) node.appendChild(screenplayCard);
+
+    const sceneVerdicts = renderKeyedVerdicts('Lens B — Look Dev Review (per scene)', report.scene_master);
+    if (sceneVerdicts) node.appendChild(sceneVerdicts);
+
+    const beatVerdicts = renderKeyedVerdicts('Lens C — Dailies (per beat)', report.beat);
+    if (beatVerdicts) node.appendChild(beatVerdicts);
+
+    const episodeCard = renderVerdictCard('Lens D — Picture Lock (advisory only)', report.episode);
+    if (episodeCard) node.appendChild(episodeCard);
+
+    if (report.screenplay_error) {
+      node.appendChild(el('div', { class: 'mt-2 text-xs text-red-600' },
+        `Lens A error (non-fatal): ${report.screenplay_error}`
+      ));
+    }
+
+    // Empty-state if every key was empty/missing — already handled by the
+    // top-level early return, but defensive against an object with only retries.
+    if (!screenplayCard && !sceneVerdicts && !beatVerdicts && !episodeCard) {
+      node.appendChild(el('div', { class: 'text-xs text-ink-400' },
+        'Director Agent enabled but no verdicts emitted for this episode yet.'
+      ));
     }
   }
 
@@ -719,7 +1095,7 @@
     subjectWrap.appendChild(el('label', { class: 'text-xs font-medium text-ink-600' }, 'Subject present (product/landscape on screen)'));
     form.appendChild(subjectWrap);
 
-    const grid = el('div', { class: 'grid grid-cols-2 gap-2' });
+    const grid = el('div', { class: 'grid grid-cols-1 sm:grid-cols-2 gap-2' });
     if ('duration_seconds' in beat) {
       const inp = document.createElement('input');
       inp.type = 'number';
@@ -779,6 +1155,20 @@
       node.appendChild(el('div', { class: 'text-ink-400 text-xs' }, 'No personas'));
       return;
     }
+    // Voice-lock map: which voice_ids are already taken by OTHER personas in
+    // this story. Mirrors the backend lock enforced by PATCH /personas/:idx/voice
+    // — see routes/brand-stories.js. Showing taken voices as disabled (vs
+    // hiding them entirely) lets the user see who has what.
+    const voiceTakenBy = new Map(); // voice_id → { personaIdx, personaName }
+    personas.forEach((other, j) => {
+      if (other?.elevenlabs_voice_id) {
+        voiceTakenBy.set(other.elevenlabs_voice_id, {
+          personaIdx: j,
+          personaName: other.name || `Persona ${j + 1}`
+        });
+      }
+    });
+
     personas.forEach((p, i) => {
       const voiceName = p.elevenlabs_voice_name || (p.elevenlabs_voice_id ? p.elevenlabs_voice_id.slice(0, 8) : '\u2014');
 
@@ -791,7 +1181,17 @@
       (voiceLibrary || []).forEach(v => {
         const opt = document.createElement('option');
         opt.value = v.voice_id;
-        opt.textContent = `${v.name} (${v.gender})`;
+        // Lock-aware label: voice taken by ANOTHER persona is disabled and
+        // labeled with that persona's name. The current persona's own voice
+        // shows normally and stays selectable.
+        const takenInfo = voiceTakenBy.get(v.voice_id);
+        const takenByOther = takenInfo && takenInfo.personaIdx !== i;
+        if (takenByOther) {
+          opt.disabled = true;
+          opt.textContent = `${v.name} (${v.gender}) — locked to ${takenInfo.personaName}`;
+        } else {
+          opt.textContent = `${v.name} (${v.gender})`;
+        }
         if (v.voice_id === p.elevenlabs_voice_id) opt.selected = true;
         select.appendChild(opt);
       });
@@ -810,6 +1210,213 @@
       node.appendChild(row);
     });
   }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 7 — Sound design panel: Sonic Series Bible (story-level) +
+  // episode sonic_world (palette + spectral_anchor + scene_variations).
+  //
+  // All fields rendered via textContent through el() — no innerHTML with
+  // dynamic data (XSS-safe pattern shared by every other render in this file).
+  // ─────────────────────────────────────────────────────────────────────
+  function renderSoundPanel() {
+    const node = document.getElementById('dpSoundPanel');
+    if (!node) return;
+    clear(node);
+
+    // ─── Sonic Series Bible (story-level) ───
+    const bibleSection = el('section', { class: 'mb-6 pb-4 border-b border-surface-200' });
+    bibleSection.appendChild(el('h5', { class: 'text-xs font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+      'Sonic Series Bible',
+      el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-ink-100 text-ink-600 rounded' }, 'STORY-LEVEL')
+    ]));
+
+    const bible = activeStory?.sonic_series_bible;
+    if (!bible || typeof bible !== 'object') {
+      bibleSection.appendChild(el('div', { class: 'text-xs text-ink-500 italic' },
+        'No bible authored yet — will be generated on the next episode (lazy + idempotent, mirrors LUT pattern).'
+      ));
+    } else {
+      const drone = bible.signature_drone || {};
+      const palette = bible.base_palette || {};
+      const anchor = bible.spectral_anchor || {};
+      const policy = bible.inheritance_policy || {};
+      const generatedBy = bible._generated_by || 'gemini';
+
+      const provBadgeClass = generatedBy === 'manual_override'
+        ? 'text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200'
+        : generatedBy === 'default_fallback'
+          ? 'text-[10px] font-mono px-1.5 py-0.5 bg-ink-100 text-ink-600 rounded border border-ink-200'
+          : 'text-[10px] font-mono px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded border border-emerald-200';
+      bibleSection.appendChild(el('div', { class: 'mb-2' },
+        el('span', { class: provBadgeClass }, generatedBy)
+      ));
+
+      const grid = el('div', { class: 'space-y-2 text-xs' });
+
+      // PALETTE
+      grid.appendChild(el('div', {}, [
+        el('div', { class: 'font-semibold text-ink-700' }, 'Signature drone'),
+        el('div', { class: 'text-ink-600' }, drone.description || '—'),
+        el('div', { class: 'text-ink-500 font-mono mt-0.5' },
+          `${(drone.frequency_band_hz || []).join('–') || '—'} Hz · presence ${drone.presence_dB ?? '—'} dB`
+        )
+      ]));
+
+      grid.appendChild(el('div', {}, [
+        el('div', { class: 'font-semibold text-ink-700' }, 'Base palette'),
+        el('div', { class: 'text-ink-600' }, (palette.ambient_keywords || []).join(', ') || '—'),
+        el('div', { class: 'text-ink-500 font-mono mt-0.5' },
+          `BPM ${(palette.bpm_range || []).join('–') || '—'} · ${palette.key_or_modal_center || '—'}`
+        )
+      ]));
+
+      grid.appendChild(el('div', {}, [
+        el('div', { class: 'font-semibold text-ink-700' }, 'Spectral anchor (seam-hider)'),
+        el('div', { class: 'text-ink-600' }, anchor.description || '—'),
+        el('div', { class: 'text-ink-500 font-mono mt-0.5' },
+          `${anchor.always_present === true ? 'always present' : 'NOT always present'} · ${anchor.level_dB ?? '—'} dB`
+        )
+      ]));
+
+      // GRAMMAR
+      grid.appendChild(el('div', { class: 'pt-2 border-t border-surface-100' }, [
+        el('div', { class: 'font-semibold text-ink-700 mb-1' }, 'Grammar'),
+        el('div', { class: 'text-ink-600' },
+          `Foley: ${bible.foley_density || '—'} · Score under dialogue: ${bible.score_under_dialogue || '—'} · Silence: ${bible.silence_as_punctuation || '—'} · Diegetic: ${typeof bible.diegetic_ratio === 'number' ? bible.diegetic_ratio.toFixed(2) : '—'}`
+        ),
+        el('div', { class: 'text-ink-500 mt-0.5' },
+          `Transitions: ${(bible.transition_grammar || []).join(', ') || '—'}`
+        )
+      ]));
+
+      // NO-FLY
+      grid.appendChild(el('div', { class: 'pt-2 border-t border-surface-100' }, [
+        el('div', { class: 'font-semibold text-ink-700 mb-1' }, 'No-fly list'),
+        el('div', { class: 'text-ink-600' },
+          `Instruments: ${(bible.prohibited_instruments || []).join(', ') || 'none'}`
+        ),
+        el('div', { class: 'text-ink-600' },
+          `Tropes: ${(bible.prohibited_tropes || []).join(', ') || 'none'}`
+        )
+      ]));
+
+      // INHERITANCE POLICY
+      grid.appendChild(el('div', { class: 'pt-2 border-t border-surface-100' }, [
+        el('div', { class: 'font-semibold text-ink-700 mb-1' }, 'Inheritance policy'),
+        el('div', { class: 'text-ink-500 font-mono text-[11px]' },
+          `grammar=${policy.grammar || 'immutable'} · no_fly=${policy.no_fly_list || 'immutable'} · base=${policy.base_palette || 'overridable_with_justification'} · drone=${policy.signature_drone || 'must_appear_at_least_once_per_episode'}`
+        )
+      ]));
+
+      // REFERENCE SHOWS
+      if (Array.isArray(bible.reference_shows) && bible.reference_shows.length > 0) {
+        grid.appendChild(el('div', { class: 'pt-2 border-t border-surface-100' }, [
+          el('div', { class: 'font-semibold text-ink-700 mb-1' }, 'Reference shows'),
+          el('div', { class: 'text-ink-600' }, bible.reference_shows.join(', ')),
+          bible.reference_rationale ? el('div', { class: 'text-ink-500 italic mt-0.5' }, bible.reference_rationale) : null
+        ].filter(Boolean)));
+      }
+
+      bibleSection.appendChild(grid);
+
+      // Regenerate button — clears the bible so the next episode call regenerates
+      const regenBtn = el('button', {
+        type: 'button',
+        class: 'mt-3 text-xs px-2.5 py-1 border border-surface-300 rounded text-ink-600 hover:bg-surface-50',
+        onclick: () => window._dpRegenerateSonicBible()
+      }, 'Clear & regenerate on next episode');
+      bibleSection.appendChild(regenBtn);
+    }
+
+    node.appendChild(bibleSection);
+
+    // ─── Episode sonic_world ───
+    const epSection = el('section', { class: 'mb-4' });
+    epSection.appendChild(el('h5', { class: 'text-xs font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+      'Episode sound world',
+      el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-ink-100 text-ink-600 rounded' }, 'EPISODE-LEVEL')
+    ]));
+
+    const sw = activeEpisode?.scene_description?.sonic_world;
+    if (!sw || typeof sw !== 'object') {
+      // Check for legacy per-scene beds
+      const legacyBeds = (activeEpisode?.scene_description?.scenes || [])
+        .map(s => s?.ambient_bed_prompt)
+        .filter(Boolean);
+      if (legacyBeds.length > 0) {
+        epSection.appendChild(el('div', { class: 'text-xs text-amber-700 mb-1' },
+          `Legacy episode — ${legacyBeds.length} per-scene bed(s) (Phase 4 backward-compat synthesizes a base palette from these at post-production).`
+        ));
+        legacyBeds.forEach(b => epSection.appendChild(el('div', { class: 'text-[11px] text-ink-500 font-mono pl-2' }, `· ${b}`)));
+      } else {
+        epSection.appendChild(el('div', { class: 'text-xs text-ink-500 italic' },
+          'No sonic_world on this episode.'
+        ));
+      }
+    } else {
+      const scenes = activeEpisode?.scene_description?.scenes || [];
+      const scenesById = new Map(scenes.map(s => [s.scene_id, s]));
+
+      const grid = el('div', { class: 'space-y-2 text-xs' });
+      grid.appendChild(el('div', {}, [
+        el('div', { class: 'font-semibold text-ink-700' }, 'Base palette (uncut, episode-length)'),
+        el('div', { class: 'text-ink-600' }, sw.base_palette || '—')
+      ]));
+      grid.appendChild(el('div', {}, [
+        el('div', { class: 'font-semibold text-ink-700' }, 'Spectral anchor'),
+        el('div', { class: 'text-ink-600' },
+          typeof sw.spectral_anchor === 'string' ? sw.spectral_anchor : (sw.spectral_anchor?.description || '—')
+        )
+      ]));
+
+      const overlays = Array.isArray(sw.scene_variations) ? sw.scene_variations : [];
+      grid.appendChild(el('div', { class: 'pt-2 border-t border-surface-100' }, [
+        el('div', { class: 'font-semibold text-ink-700 mb-1' }, `Scene overlays (${overlays.length})`),
+        ...(overlays.length === 0
+          ? [el('div', { class: 'text-ink-500 italic' }, 'No per-scene overlays — base palette plays alone.')]
+          : overlays.map(v => {
+              const known = scenesById.has(v.scene_id);
+              return el('div', { class: 'pl-2 border-l-2 border-surface-200 mb-1' }, [
+                el('div', { class: 'text-ink-700 font-mono text-[11px]' },
+                  `${v.scene_id || '?'} · intensity ${typeof v.intensity === 'number' ? v.intensity.toFixed(2) : '—'}${known ? '' : ' (UNKNOWN scene_id)'}`
+                ),
+                el('div', { class: 'text-ink-600' }, v.overlay || '—')
+              ]);
+            }))
+      ]));
+
+      epSection.appendChild(grid);
+    }
+
+    node.appendChild(epSection);
+
+    // ─── Foley discipline note ───
+    node.appendChild(el('div', { class: 'mt-4 pt-3 border-t border-surface-200 text-[11px] text-ink-500' }, [
+      el('div', { class: 'font-semibold text-ink-700 mb-1' }, 'Per-beat ambient_sound discipline (Phase 5)'),
+      el('div', {}, 'Beat-level ambient_sound is FOLEY EVENTS only (1-3s percussive: door click, glass clink, fabric rustle). Bed material (ambient/drone/atmosphere/room tone) is rejected at SFX-call time and belongs in sonic_world above.')
+    ]));
+  }
+
+  // Phase 7 — clear the bible on the server so the next episode regenerates.
+  // Mirrors the lut clear pattern (PATCH with null body).
+  window._dpRegenerateSonicBible = async function () {
+    if (!activeStoryId) return;
+    if (!confirm('Clear the Sonic Series Bible? The next episode will regenerate it from scratch.')) return;
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/sonic-series-bible`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ bible: null })
+      });
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || 'Clear failed');
+      if (activeStory) activeStory.sonic_series_bible = null;
+      renderSoundPanel();
+      flashStatus('Bible cleared — next episode will regenerate it');
+    } catch (err) {
+      flashStatus(`Clear failed: ${err.message}`, true);
+    }
+  };
 
   function renderLutPicker() {
     const node = document.getElementById('dpLutPicker');
@@ -963,6 +1570,11 @@
       renderPersonasSidebar();
       flashStatus(`Voice updated: ${voiceName}`);
     } catch (err) {
+      // Revert the dropdown's optimistic change — the select shows the
+      // rejected option until we re-render from current state. The 409
+      // case (voice locked to another persona, or gender mismatch) lands
+      // here with a descriptive backend error in err.message.
+      renderPersonasSidebar();
       flashStatus(`Voice override failed: ${err.message}`, true);
     }
   };

@@ -153,37 +153,90 @@ function _vertexEndpoint(modelId) {
  * shape as AI Studio's, so the body structure is identical. The difference
  * is the URL + auth header (bearer token instead of x-goog-api-key).
  *
+ * Supports multimodal input via `userParts`: pass an array of Vertex AI
+ * content parts (`{text}`, `{inline_data: {mime_type, data}}`, `{file_data:
+ * {file_uri, mime_type}}`). If `userParts` is provided, it replaces the
+ * default text-only construction from `userPrompt`.
+ *
+ * Supports JSON-schema-constrained output via `config.responseSchema`. When
+ * set, Vertex enforces the schema on the response — used by the V4 Director
+ * Agent to lock the verdict contract shape. Without it, the model may drift
+ * field names or invent enum values (observed during agent dogfood).
+ *
  * @param {Object} params
  * @param {string} params.systemPrompt
- * @param {string} params.userPrompt
+ * @param {string} [params.userPrompt]   - text-only convenience (used when userParts not provided)
+ * @param {Object[]} [params.userParts]  - multimodal parts: [{text}, {inline_data}, {file_data}]
  * @param {Object} [params.config]
  * @param {number} [params.config.temperature=0.4]
  * @param {number} [params.config.maxOutputTokens=2000]
- * @param {string} [params.config.modelId]  - override the default model id
+ * @param {string} [params.config.modelId]              - override the default model id
+ * @param {Object} [params.config.responseSchema]       - optional JSON schema to constrain output
+ * @param {string} [params.config.thinkingLevel]        - Gemini 3.x thinking level: 'minimal' | 'low' | 'medium' | 'high'.
+ *   Default behaviour (when omitted) keeps Gemini's own default — for Gemini 3 Flash that is dynamic
+ *   thinking at level 'high', which on complex multimodal calls (images / videos / large system
+ *   prompts) consumes the full maxOutputTokens budget on reasoning before emitting any visible
+ *   JSON. The V4 Director Agent passes 'low' on its 4 lens calls because the verdict is
+ *   pattern-matching against a rubric, not novel problem-solving — see logs.txt 2026-04-25 for
+ *   the production pattern that drove this fix.
  * @param {number} [params.timeoutMs=60000]
  * @returns {Promise<Object>} parsed JSON from the model's first candidate
  */
-export async function callVertexGeminiJson({ systemPrompt, userPrompt, config = {}, timeoutMs = 60000 } = {}) {
+export async function callVertexGeminiJson({ systemPrompt, userPrompt, userParts, config = {}, timeoutMs = 60000 } = {}) {
   if (!systemPrompt) throw new Error('callVertexGeminiJson: systemPrompt required');
-  if (!userPrompt) throw new Error('callVertexGeminiJson: userPrompt required');
+  const hasParts = Array.isArray(userParts) && userParts.length > 0;
+  if (!hasParts && !userPrompt) {
+    throw new Error('callVertexGeminiJson: either userPrompt or userParts is required');
+  }
 
   const {
     temperature = 0.4,
     maxOutputTokens = 2000,
-    modelId = process.env.GEMINI_MODEL || DEFAULT_MODEL
+    modelId = process.env.GEMINI_MODEL || DEFAULT_MODEL,
+    responseSchema,
+    thinkingLevel
   } = config;
 
   const endpoint = _vertexEndpoint(modelId);
   const token = await _getAccessToken();
 
+  const generationConfig = {
+    temperature,
+    maxOutputTokens,
+    responseMimeType: 'application/json'
+  };
+  if (responseSchema && typeof responseSchema === 'object') {
+    generationConfig.responseSchema = responseSchema;
+  }
+  if (typeof thinkingLevel === 'string' && thinkingLevel.length > 0) {
+    // Vertex AI global endpoint for gemini-3-flash-preview uses the Gemini 2.5
+    // numeric thinkingBudget API surface, NOT the AI Studio thinkingLevel string
+    // API. Sending { thinkingLevel } is silently ignored — the model defaults to
+    // dynamic thinking that consumes ~87% of maxOutputTokens, causing MAX_TOKENS
+    // truncation or timeouts depending on budget size.
+    //
+    // Map string levels to explicit numeric thinkingBudget:
+    //   'minimal' → 0 (disable — rubric matching is explicit pattern-check, no
+    //                   novel reasoning needed; schema enum constraints bound shape)
+    //   'low'     → 1024
+    //   'medium'  → 4096
+    //   'high'    → 8192
+    //
+    // With thinking disabled, the full maxOutputTokens budget is available for
+    // visible verdict output. Schema maxItems + maxLength caps keep verdicts to
+    // ~1500 tokens; 8192 budget gives 5× headroom.
+    const THINKING_BUDGET_MAP = { minimal: 0, low: 1024, medium: 4096, high: 8192 };
+    const thinkingBudget = THINKING_BUDGET_MAP[thinkingLevel] ?? 1024;
+    generationConfig.thinkingConfig = { thinkingBudget };
+  }
+
   const requestBody = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-      responseMimeType: 'application/json'
-    }
+    contents: [{
+      role: 'user',
+      parts: hasParts ? userParts : [{ text: userPrompt }]
+    }],
+    generationConfig
   };
 
   let response;
@@ -210,27 +263,61 @@ export async function callVertexGeminiJson({ systemPrompt, userPrompt, config = 
   const rawText = candidate?.content?.parts?.[0]?.text;
   const finishReason = candidate?.finishReason;
 
-  if (!rawText) {
-    logger.error(`Vertex Gemini returned no text: ${JSON.stringify(response.data).slice(0, 800)}`);
-    throw new Error('Vertex Gemini returned no text');
-  }
+  // Vertex returns usageMetadata.thoughtsTokenCount + candidatesTokenCount.
+  // Logging this is the only way to diagnose why a tightened budget still
+  // truncates: when thinkingLevel='low' is silently ignored, thoughts can
+  // dwarf candidates and there's no other signal in the response payload.
+  // Logged on EVERY call so we can correlate latency vs. token split.
+  const usage = response.data?.usageMetadata || {};
+  const thoughtTokens = usage.thoughtsTokenCount ?? 0;
+  const candidateTokens = usage.candidatesTokenCount ?? 0;
+  const promptTokens = usage.promptTokenCount ?? 0;
+  const totalUsed = thoughtTokens + candidateTokens;
+  logger.info(
+    `Vertex Gemini ${modelId} usage: prompt=${promptTokens}, ` +
+    `thoughts=${thoughtTokens}, candidate=${candidateTokens}, ` +
+    `total_output=${totalUsed}/${maxOutputTokens}, finish=${finishReason}` +
+    (config.thinkingLevel ? `, thinkingLevel=${config.thinkingLevel}` : '')
+  );
 
-  // Gemini 3 Flash uses configurable reasoning ("thinking tokens") that
-  // consume the output token budget BEFORE the visible response starts.
-  // A too-tight maxOutputTokens silently truncates mid-string, which then
-  // surfaces downstream as an opaque JSON.parse error. Detect MAX_TOKENS
-  // here and throw a specific, actionable error so the caller knows to
-  // bump maxOutputTokens instead of debugging phantom JSON bugs.
+  // MAX_TOKENS check MUST come before the !rawText check. When Vertex hits
+  // the token cap mid-JSON in structured-output mode, it drops content.parts
+  // entirely (returns {"role":"model"} with no parts) while still reporting
+  // candidatesTokenCount > 0 in usageMetadata. If !rawText runs first, the
+  // caller sees "Vertex Gemini returned no text" and loses the MAX_TOKENS
+  // signal — DirectorAgent's retry-on-MAX_TOKENS logic never fires.
+  //
+  // Two distinct truncation patterns observed in production (logs.txt 2026-04-26):
+  //   Mode 1 — Lens A/B (text-heavy): hidden thinking (~7096 tokens, unreported
+  //     by thoughtsTokenCount) eats the budget; only ~1096 visible tokens emitted;
+  //     Vertex returns the partial JSON text (rawText present). Root cause: confirmed
+  //     Google SDK bug #782 — thinkingLevel='minimal' does NOT fully disable
+  //     thinking for Gemini 3 Flash Preview.
+  //   Mode 2 — Lens C/D (multimodal): no hidden thinking; full budget consumed by
+  //     visible output (~8177 tokens) because responseSchema maxLength caps are
+  //     validated post-hoc, not enforced during token generation; Vertex drops
+  //     content.parts (rawText absent). Fix: raise maxOutputTokens to give model
+  //     room to complete the JSON before hitting the cap.
   if (finishReason === 'MAX_TOKENS') {
     logger.error(
       `Vertex Gemini ${modelId} hit MAX_TOKENS at ${maxOutputTokens} tokens — response truncated. ` +
-      `Raw (first 200 chars): ${rawText.slice(0, 200)}`
+      `usage: thoughts=${thoughtTokens}, candidate=${candidateTokens}. ` +
+      (rawText
+        ? `Raw (first 200 chars): ${rawText.slice(0, 200)}`
+        : `No content returned (Vertex dropped partial structured JSON at hard cap).`)
     );
     throw new Error(
-      `Vertex Gemini ${modelId} response truncated (finishReason=MAX_TOKENS, budget=${maxOutputTokens}). ` +
-      `Gemini 3 Flash uses thinking tokens before output — raise maxOutputTokens to at least 4096 ` +
-      `for short JSON responses and 8192+ for complex generations.`
+      `Vertex Gemini ${modelId} response truncated (finishReason=MAX_TOKENS, budget=${maxOutputTokens}, ` +
+      `thoughts=${thoughtTokens}, candidate=${candidateTokens}). ` +
+      `Gemini 3 Flash Preview may consume hidden thinking tokens unreported by SDK ` +
+      `(googleapis/python-genai #782) OR schema maxLength caps not enforced during generation — ` +
+      `bump maxOutputTokens.`
     );
+  }
+
+  if (!rawText) {
+    logger.error(`Vertex Gemini returned no text: ${JSON.stringify(response.data).slice(0, 800)}`);
+    throw new Error('Vertex Gemini returned no text');
   }
 
   // Delegate to the shared repair chain — handles markdown fences, raw LF/CR/TAB

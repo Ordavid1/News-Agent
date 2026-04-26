@@ -79,13 +79,17 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // Subject ambient frame — when subject_present but no persona lock.
-    const subjectAmbientUrl = (!personaLockUrl && beat.subject_present)
-      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'ambient' })
+    // Subject natural frame — non-invasive Veo anchoring. Fires only when the
+    // screenplay explicitly sets `subject_focus` and no persona is locking the
+    // first frame. Uses the terse 'natural' Seedream prompt to avoid tripping
+    // Vertex's image classifier.
+    const hasSubjectFocus = typeof beat.subject_focus === 'string' && beat.subject_focus.trim().length > 0;
+    const subjectNaturalUrl = (!personaLockUrl && hasSubjectFocus)
+      ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'natural' })
       : null;
 
     const firstFrameUrl = personaLockUrl
-      || subjectAmbientUrl
+      || subjectNaturalUrl
       || scene?.scene_master_url
       || previousBeat?.endframe_url
       || null;
@@ -102,7 +106,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       : '';
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
-    const veoPrompt = [
+    const veoPrompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       `B-roll of ${location}.`,
@@ -111,7 +115,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       subjectDirective,
       'Atmospheric and evocative.',
       'Ambient sound bed only (natural environment).'
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Stage B: Veo 3.1 B-roll (${duration}s)`);
     const personaNames = (personas || [])
@@ -155,7 +159,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
         voiceoverText,
         fallbackTier: veoResult.fallbackTier,
         personaLocked: !!personaLockUrl,
-        subjectAmbientFrame: !!subjectAmbientUrl,
+        subjectNaturalFrame: !!subjectNaturalUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration,
         // Orchestrator hook: this tells post-production to do a V.O. overlay

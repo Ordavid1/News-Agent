@@ -6797,12 +6797,46 @@ async function purchasePlayableCredits() {
 let brandStoryState = {
     stories: [],
     currentStoryId: null,
+    currentStoryEpisodes: [],  // Cached episode array for the open story; used to
+                               // detect when a newly-generated episode has landed.
+    currentStoryPersonas: [],
+    brandKitPersonas: null,
     wizardStep: 1,
     stockAvatars: [],
     storyFocus: 'person',  // 'person' | 'product' | 'landscape' — selected at Step 1
     voices: [],            // All HeyGen voices (loaded once per wizard open)
     selectedVoiceId: ''    // Optional override; empty = auto-match
 };
+
+// All non-terminal episode statuses, across v2/v3/V4 pipelines. Single source
+// of truth — every "is this episode mid-pipeline?" check must read from here
+// to prevent the lists from drifting apart as new pipeline stages ship.
+const IN_PROGRESS_EPISODE_STATUSES = new Set([
+    'pending',
+    // v2/v3 pipeline
+    'writing_script', 'generating_narration', 'generating_scene',
+    'generating_storyboard', 'generating_avatar', 'generating_video',
+    'compositing', 'post_production', 'publishing',
+    // V4 pipeline
+    'brand_safety_check', 'generating_scene_masters', 'generating_beats',
+    'assembling', 'applying_lut'
+]);
+
+const isEpisodeInProgress = (ep) => IN_PROGRESS_EPISODE_STATUSES.has(ep?.status);
+
+/**
+ * Single source of truth for the "Generating..." spinner + Generate-Episode
+ * button disabled state. Calling sites just say "polling is active / not
+ * active" and this function keeps both DOM bits in sync, so the spinner
+ * cannot drift out of step with the actual pipeline state — even across
+ * full-detail re-renders that happen during a long V4 run.
+ */
+function setEpisodeGeneratingIndicator(visible) {
+    const btn = document.getElementById('generateEpisodeBtn');
+    const statusEl = document.getElementById('episodeGeneratingStatus');
+    if (btn) btn.disabled = !!visible;
+    if (statusEl) statusEl.classList.toggle('hidden', !visible);
+}
 
 /**
  * Load and display all brand stories for the current user.
@@ -8060,27 +8094,24 @@ async function showStoryDetail(storyId) {
         updateAvatarTrainingBanner(story);
 
         // Episodes
-        renderEpisodeTimeline(story.episodes || []);
+        const episodes = story.episodes || [];
+        brandStoryState.currentStoryEpisodes = episodes;
+        renderEpisodeTimeline(episodes);
 
         // Update generate button with the next episode number
         const genBtn = document.getElementById('generateEpisodeBtn');
         const genBtnText = document.getElementById('generateEpisodeBtnText');
         if (genBtn) genBtn.onclick = () => generateNextEpisode(storyId);
         if (genBtnText) {
-            const nextEpisodeNum = (story.episodes?.length || 0) + 1;
+            const nextEpisodeNum = episodes.length + 1;
             genBtnText.textContent = `Generate ${ordinalSuffix(nextEpisodeNum)} Episode`;
         }
 
         // Auto-resume polling if any episode is still mid-pipeline.
         // This handles the case where the user navigates away, refreshes the page,
         // or reopens the story detail view while an episode is being generated.
-        const inProgress = (story.episodes || []).some(ep =>
-            ['pending', 'generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing',
-             'writing_script', 'generating_narration', 'post_production'].includes(ep.status)
-        );
-        if (inProgress) {
-            if (genBtn) genBtn.disabled = true;
-            document.getElementById('episodeGeneratingStatus')?.classList.remove('hidden');
+        if (episodes.some(isEpisodeInProgress)) {
+            setEpisodeGeneratingIndicator(true);
             pollStoryUpdates(storyId);
         }
 
@@ -8660,63 +8691,84 @@ async function generateNextEpisode(storyId) {
     const targetId = storyId || brandStoryState.currentStoryId;
     if (!targetId) return;
 
-    const btn = document.getElementById('generateEpisodeBtn');
-    const statusEl = document.getElementById('episodeGeneratingStatus');
-
-    if (btn) btn.disabled = true;
-    if (statusEl) statusEl.classList.remove('hidden');
+    setEpisodeGeneratingIndicator(true);
 
     try {
+        // Snapshot the pre-POST episode count so the poller can tell when the
+        // newly-requested episode lands — defeats the race where the V4 pipeline
+        // hasn't written the new row by the time the first GET returns.
+        const expectedMinEpisodes = (brandStoryState.currentStoryEpisodes?.length || 0) + 1;
+
         const result = await apiPost(`/api/brand-stories/${targetId}/generate-episode`);
         if (!result.success) throw new Error(result.error || 'Failed to start episode generation');
 
         showToast('Episode generation started! This may take a few minutes.', 'success');
 
-        // Poll for updates
-        pollStoryUpdates(targetId);
+        // Poll for updates. minAttempts gives ~25s of grace when no in-progress
+        // status is visible yet (status set lags or pipeline-stage drift).
+        pollStoryUpdates(targetId, 0, { expectedMinEpisodes, minAttempts: 5 });
     } catch (error) {
         showToast(error.message || 'Failed to generate episode', 'error');
-        if (btn) btn.disabled = false;
-        if (statusEl) statusEl.classList.add('hidden');
+        setEpisodeGeneratingIndicator(false);
     }
 }
 
 /**
  * Poll for story updates (episode generation progress).
+ *
+ * Continues polling while ANY of:
+ *   - an episode is in a non-terminal status (IN_PROGRESS_EPISODE_STATUSES)
+ *   - episodes.length is still below the count expected after a generate POST
+ *   - we haven't yet hit the minimum number of attempts requested by the caller
+ *
+ * The latter two guards exist because the V4 pipeline writes the new episode
+ * row asynchronously and the first GET can race ahead of it.
  */
-async function pollStoryUpdates(storyId, attempt = 0) {
+async function pollStoryUpdates(storyId, attempt = 0, opts = {}) {
+    const { expectedMinEpisodes = 0, minAttempts = 0 } = opts;
+
     if (attempt > 60) {
-        const btn = document.getElementById('generateEpisodeBtn');
-        if (btn) btn.disabled = false;
-        document.getElementById('episodeGeneratingStatus')?.classList.add('hidden');
+        setEpisodeGeneratingIndicator(false);
         return;
     }
 
     try {
         const result = await apiGet(`/api/brand-stories/${storyId}`);
         const story = result.story;
-        renderEpisodeTimeline(story.episodes || []);
+        const episodes = story.episodes || [];
+        brandStoryState.currentStoryEpisodes = episodes;
+        renderEpisodeTimeline(episodes);
 
-        const generating = (story.episodes || []).some(ep =>
-            ['generating_scene', 'generating_storyboard', 'generating_avatar', 'generating_video', 'compositing', 'publishing'].includes(ep.status)
-        );
+        const generating = episodes.some(isEpisodeInProgress);
+        const stillWaitingForNewEpisode = episodes.length < expectedMinEpisodes;
+        const withinMinAttempts = attempt < minAttempts;
 
-        if (generating) {
-            setTimeout(() => pollStoryUpdates(storyId, attempt + 1), 5000);
+        if (generating || stillWaitingForNewEpisode || withinMinAttempts) {
+            // Re-assert visibility every iteration so any drift caused by
+            // intervening renders (e.g. showStoryDetail, director-panel close)
+            // is corrected. The spinner stays visible from the moment the user
+            // clicks Generate until the pipeline truly terminates.
+            setEpisodeGeneratingIndicator(true);
+            setTimeout(() => pollStoryUpdates(storyId, attempt + 1, opts), 5000);
         } else {
-            const btn = document.getElementById('generateEpisodeBtn');
-            if (btn) btn.disabled = false;
-            document.getElementById('episodeGeneratingStatus')?.classList.add('hidden');
+            setEpisodeGeneratingIndicator(false);
 
-            const latest = (story.episodes || []).slice(-1)[0];
+            const latest = episodes.slice(-1)[0];
             if (latest?.status === 'ready' || latest?.status === 'published') {
                 showToast(`Episode ${latest.episode_number} is ready!`, 'success');
             } else if (latest?.status === 'failed') {
                 showToast(`Episode generation failed: ${latest.error_message || 'Unknown error'}`, 'error');
             }
+
+            // Refresh the full detail view so the "Generate Nth Episode" button
+            // label and any other derived UI (counts, season bible) update too.
+            showStoryDetail(storyId);
         }
     } catch (error) {
-        setTimeout(() => pollStoryUpdates(storyId, attempt + 1), 5000);
+        // Keep the spinner up across transient fetch errors — pipeline is still
+        // running on the backend; we just couldn't reach it for one cycle.
+        setEpisodeGeneratingIndicator(true);
+        setTimeout(() => pollStoryUpdates(storyId, attempt + 1, opts), 5000);
     }
 }
 

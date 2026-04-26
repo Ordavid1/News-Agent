@@ -148,14 +148,28 @@ function normalizeVideo(inputPath, outputPath, options = {}) {
     '-pix_fmt', 'yuv420p'
   ];
 
-  // Native audio gain control. Default 1.0 (pass-through for clean Veo audio).
-  // For Kling/OmniHuman beats, callers pass nativeAudioGain = 0.2 to duck the
-  // inconsistent native audio so it doesn't fight the scene-level ambient bed
-  // we layer on later. Without this ducking, Kling's random birds/impacts/
-  // tones compete with the carefully-designed sonic backdrop and break
-  // episode coherence.
+  // Native audio gain + LUFS normalization. The audio filter chain is:
+  //   1. volume=<gain>   — model-aware ducking (resolveNativeAudioGain)
+  //   2. loudnorm=I=-23  — broadcast spec (EBU R128) per-beat target so no
+  //                        single beat pops 5x louder than the next
+  //
+  // Phase 1 of the audio coherence overhaul. The previous regime (Veo @1.0,
+  // Kling @0.2) created a perceptual loudness war: Veo beats arrived at full
+  // volume while surrounding Kling beats were heavily ducked, so a Kling→Veo
+  // cut sounded like a 5x volume jump. LUFS-normalising every beat to -23
+  // collapses that delta to <3 LU regardless of vendor.
+  //
+  // gain=0 (Veo VO_BROLL) means "discard the native track entirely" — the
+  // V.O. mix is added later in post. Skip loudnorm on silence.
+  const audioFilters = [];
   if (nativeAudioGain !== 1.0) {
-    args.push('-af', `volume=${nativeAudioGain.toFixed(3)}`);
+    audioFilters.push(`volume=${nativeAudioGain.toFixed(3)}`);
+  }
+  if (nativeAudioGain > 0) {
+    audioFilters.push('loudnorm=I=-23:LRA=7:TP=-2');
+  }
+  if (audioFilters.length > 0) {
+    args.push('-af', audioFilters.join(','));
   }
 
   args.push(
@@ -171,24 +185,36 @@ function normalizeVideo(inputPath, outputPath, options = {}) {
 
 /**
  * Decide the native-audio gain for a beat based on its model.
- *   - Veo beats: 1.0 — Veo's native ambient is cinematic quality, keep full
- *   - Kling / OmniHuman / Mode B beats: 0.2 — their native audio is erratic
- *     (random birds, odd impacts, inconsistent tones). We duck it to ~20%
- *     so the scene-level ambient bed we layer next can breathe. Mode B
- *     beats still carry Sync Lipsync v3's voice track which this ducks too
- *     — but that's fine because the TTS audio was mixed in at Sync stage
- *     already loud and clear; 20% of it is still very audible.
  *
- *   Actually: Mode B beats MUST keep voice audible. For safety we bump
- *   Mode B to 0.6 (voice is the foreground, we still duck Kling native
- *   ambient a bit but not aggressively).
+ * Phase 1 of the audio coherence overhaul (Director memo: "spine + stems").
+ * Veo's native ambient is no longer the floor — the episode-wide ambient
+ * bed (Phase 4) will be the floor. Veo's native track is kept at -9dB
+ * (linear 0.35) so its discrete diegetic events (glass clink, fabric
+ * rustle, foley on INSERT_SHOT / B_ROLL / REACTION) survive *under* the
+ * episode bed without competing with it. Veo's improvised ambient wash
+ * disappears into the bed instead of layering on top of it.
+ *
+ *   - Veo VOICEOVER_OVER_BROLL beats: 0.0  — V.O. is the audio; Veo's
+ *     improvised ambient fights the V.O. and loses. Discard entirely.
+ *   - Veo other beats (B_ROLL/REACTION/INSERT_SHOT): 0.35  — keep diegetic
+ *     events under the episode bed (~ -9dB).
+ *   - Mode B (Kling+Sync) beats: 0.6  — voice is foreground; duck Kling
+ *     native ambient lightly without crushing the dialogue stem.
+ *   - Kling / OmniHuman beats: 0.2  — their native audio is erratic (random
+ *     birds, odd impacts), duck hard so the scene bed and per-beat SFX
+ *     overlay (-22dB) can breathe.
+ *
+ * Match order matters: VO_BROLL substring is checked before the generic
+ * Veo branch. The model strings are produced by the beat generators
+ * (e.g. VoiceoverBRollGenerator emits "veo-3.1-standard/vo-broll + ...").
  */
 function resolveNativeAudioGain(modelUsed) {
   if (!modelUsed) return 1.0;
   const m = modelUsed.toLowerCase();
-  if (m.includes('veo')) return 1.0;
-  if (m.includes('mode-b') || m.includes('sync-lipsync')) return 0.6; // keep dialogue audible
-  if (m.includes('kling') || m.includes('omnihuman')) return 0.2;     // duck hard — it's noise
+  if (m.includes('vo-broll')) return 0.0;                                 // V.O. owns the audio
+  if (m.includes('veo')) return 0.35;                                     // diegetic events under episode bed
+  if (m.includes('mode-b') || m.includes('sync-lipsync')) return 0.6;     // keep dialogue audible
+  if (m.includes('kling') || m.includes('omnihuman')) return 0.2;         // duck hard — it's noise
   return 1.0;
 }
 
@@ -1033,15 +1059,24 @@ async function applyPerBeatSfxOverlays(beatPaths, beatMetadata, tempPaths) {
     const beatDuration = meta.actual_duration_sec || meta.duration_seconds;
     if (!beatDuration || beatDuration <= 0) continue;
 
+    // Phase 5 — per-beat ambient_sound is now scoped to FOLEY EVENTS
+    // (1-3s percussive diegetic sounds). Bed-phrasing prompts are rejected
+    // by SoundEffectsService.generateFoleyEvent and we skip the overlay —
+    // the episode-level sonic_world (Phase 4) carries the ambient layer
+    // for those beats instead.
     let sfxResult;
     try {
-      sfxResult = await soundEffectsService.generate({
+      sfxResult = await soundEffectsService.generateFoleyEvent({
         prompt: ambientPrompt,
-        durationSec: Math.min(beatDuration, 22),
-        promptInfluence: 0.45
+        durationSec: Math.min(beatDuration, 3),
+        promptInfluence: 0.5
       });
+      if (sfxResult === null) {
+        // generateFoleyEvent already logged the rejection reason
+        continue;
+      }
     } catch (err) {
-      logger.warn(`SFX gen failed for beat ${meta.beat_id}: ${err.message} — skipping overlay`);
+      logger.warn(`Foley SFX gen failed for beat ${meta.beat_id}: ${err.message} — skipping overlay`);
       continue;
     }
 
@@ -1241,6 +1276,375 @@ async function applySceneAmbientBed(scenePath, scene, outputPath, tempPaths) {
     fs.copyFileSync(scenePath, outputPath);
     return false;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Stage 2.5b — V4 Audio Coherence Overhaul: episode-level sonic_world
+// ─────────────────────────────────────────────────────────────────────
+//
+// This is the Phase 4 successor to the per-scene `applySceneAmbientBed`.
+// "Spine + stems" Hollywood discipline:
+//   - ONE base bed plays UNCUT under the entire episode (the spine)
+//   - Per-scene overlays add SCENE-SPECIFIC content as J-cut layers
+//   - Scene boundaries no longer need acrossfade=0.5 — only the overlays
+//     J-cut, the base bed never breaks
+//
+// Stays out of the way when there's no sonic_world (legacy episodes still
+// run the per-scene path). When sonic_world IS present, this replaces the
+// per-scene bed entirely.
+
+const ELEVEN_LABS_SFX_MAX_SEC = 22;            // ElevenLabs Sound Effects single-clip cap
+const SCENE_OVERLAY_PRE_ROLL_SEC = 0.8;        // overlay i+1 fades IN this many s BEFORE the cut
+const SCENE_OVERLAY_POST_TAIL_SEC = 1.0;       // overlay i fades OUT this many s AFTER the cut
+const SCENE_OVERLAY_RAMP_SEC = 0.6;            // duration of the actual fade-in/out ramps
+const BASE_BED_CHUNK_OVERLAP_SEC = 2.0;        // crossfade between bed chunks when >22s
+
+/**
+ * Sha-256 cache key for an SFX clip request — bypasses regeneration when
+ * the same (prompt, durationSec) is requested twice (e.g. on reassembly).
+ */
+function _sfxCacheKey(prompt, durationSec) {
+  return crypto.createHash('sha256').update(`${prompt}::${durationSec}`).digest('hex').slice(0, 16);
+}
+
+/**
+ * Generate a single SFX clip (cached on disk by _sfxCacheKey). Returns the
+ * path to the mp3. Caller is responsible for cleanup ONLY of non-cached
+ * files (cached files persist across runs to amortize ElevenLabs latency
+ * across reassemblies).
+ *
+ * @param {string} prompt
+ * @param {number} durationSec  - clamped to ELEVEN_LABS_SFX_MAX_SEC
+ * @param {string} label        - logging label (e.g. "base_bed_chunk_0", "overlay_sc_01")
+ * @returns {Promise<string|null>}  null if SFX service unavailable / failed
+ */
+async function _generateSfxClipCached(prompt, durationSec, label) {
+  if (!soundEffectsService.isAvailable()) {
+    logger.info(`${label}: SFX service unavailable — skipping`);
+    return null;
+  }
+  const dur = Math.min(durationSec, ELEVEN_LABS_SFX_MAX_SEC);
+  const cacheKey = _sfxCacheKey(prompt, dur);
+  const cachePath = path.join(os.tmpdir(), `v4-sfx-${cacheKey}.mp3`);
+  if (fs.existsSync(cachePath)) {
+    logger.info(`${label}: cache hit (${cacheKey})`);
+    return cachePath;
+  }
+  try {
+    const result = await soundEffectsService.generate({
+      prompt,
+      durationSec: dur,
+      promptInfluence: 0.4
+    });
+    fs.writeFileSync(cachePath, result.audioBuffer);
+    logger.info(`${label}: generated + cached (${cacheKey})`);
+    return cachePath;
+  } catch (err) {
+    logger.warn(`${label}: SFX generation failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Generate the EPISODE-LENGTH base bed by chunking ElevenLabs's 22s clips
+ * and seamlessly concatenating them with crossfade. For episodes ≤22s
+ * a single clip is sufficient. For longer episodes we generate ⌈N/22⌉
+ * chunks and acrossfade them with BASE_BED_CHUNK_OVERLAP_SEC overlap.
+ *
+ * Cached per-chunk so reassembly is sub-second.
+ *
+ * @param {string} prompt - the episode-level base palette description
+ * @param {number} episodeDurationSec
+ * @param {string[]} tempPaths
+ * @returns {Promise<string|null>} path to the assembled episode-length mp3, or null on failure
+ */
+async function _generateEpisodeBaseBed(prompt, episodeDurationSec, tempPaths) {
+  if (!prompt || prompt.trim().length === 0) return null;
+  if (episodeDurationSec <= 0) return null;
+
+  // For short episodes a single clip is enough.
+  if (episodeDurationSec <= ELEVEN_LABS_SFX_MAX_SEC) {
+    return _generateSfxClipCached(prompt, Math.min(episodeDurationSec + 1, ELEVEN_LABS_SFX_MAX_SEC), 'base_bed');
+  }
+
+  // Multi-chunk path. Each chunk is 22s; consecutive chunks acrossfade
+  // BASE_BED_CHUNK_OVERLAP_SEC (2s) so the seam is inaudible.
+  // Effective per-chunk contribution = 22s - 2s = 20s.
+  const effectivePerChunk = ELEVEN_LABS_SFX_MAX_SEC - BASE_BED_CHUNK_OVERLAP_SEC;
+  const chunkCount = Math.ceil(episodeDurationSec / effectivePerChunk);
+  logger.info(`base_bed: ${episodeDurationSec.toFixed(1)}s episode → ${chunkCount} chunks × ${ELEVEN_LABS_SFX_MAX_SEC}s with ${BASE_BED_CHUNK_OVERLAP_SEC}s overlap`);
+
+  const chunkPaths = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const cp = await _generateSfxClipCached(prompt, ELEVEN_LABS_SFX_MAX_SEC, `base_bed_chunk_${i}`);
+    if (!cp) {
+      logger.warn(`base_bed: chunk ${i} failed — base bed disabled for this episode`);
+      return null;
+    }
+    chunkPaths.push(cp);
+  }
+
+  // Acrossfade chain — same shape as _assembleScenesWithConcatFilter's audio chain
+  const inputArgs = chunkPaths.flatMap(p => ['-i', p]);
+  let chain;
+  if (chunkPaths.length === 1) {
+    chain = `[0:a]anull[aout]`;
+  } else {
+    const parts = [];
+    for (let i = 0; i < chunkPaths.length - 1; i++) {
+      const left = i === 0 ? '[0:a]' : `[a${i - 1}]`;
+      const right = `[${i + 1}:a]`;
+      const out = i === chunkPaths.length - 2 ? '[aout]' : `[a${i}]`;
+      parts.push(`${left}${right}acrossfade=d=${BASE_BED_CHUNK_OVERLAP_SEC}${out}`);
+    }
+    chain = parts.join(';');
+  }
+
+  const assembledBedPath = tmpPath('mp3');
+  tempPaths.push(assembledBedPath);
+  try {
+    execFileSync('ffmpeg', [
+      '-y',
+      ...inputArgs,
+      '-filter_complex', chain,
+      '-map', '[aout]',
+      '-c:a', 'libmp3lame',
+      '-b:a', '192k',
+      // Cap the bed to the exact episode duration (can't be longer than picture)
+      '-t', episodeDurationSec.toFixed(3),
+      assembledBedPath
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    return assembledBedPath;
+  } catch (err) {
+    logger.warn(`base_bed: chunk assembly failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Build the ffmpeg `volume='expr':eval=frame` envelope for a J-cut overlay.
+ *
+ * The overlay starts SCENE_OVERLAY_PRE_ROLL_SEC before the scene cut and
+ * ends SCENE_OVERLAY_POST_TAIL_SEC after the cut. Within that window:
+ *   - first SCENE_OVERLAY_RAMP_SEC: linear ramp 0 → intensity
+ *   - middle: full intensity
+ *   - last SCENE_OVERLAY_RAMP_SEC: linear ramp intensity → 0
+ *
+ * @param {number} startSec - overlay start in episode time (after pre-roll)
+ * @param {number} endSec   - overlay end in episode time (after post-tail)
+ * @param {number} intensityLinear - peak gain, 0..1
+ * @returns {string} ffmpeg volume expression
+ */
+function _buildOverlayEnvelope(startSec, endSec, intensityLinear) {
+  const rampInEnd = startSec + SCENE_OVERLAY_RAMP_SEC;
+  const rampOutStart = endSec - SCENE_OVERLAY_RAMP_SEC;
+  // gain envelope:
+  //   t < startSec               → 0
+  //   startSec ≤ t < rampInEnd   → (t - startSec) / RAMP * intensity
+  //   rampInEnd ≤ t < rampOutStart → intensity
+  //   rampOutStart ≤ t < endSec  → (1 - (t - rampOutStart) / RAMP) * intensity
+  //   t ≥ endSec                 → 0
+  const I = intensityLinear.toFixed(4);
+  const R = SCENE_OVERLAY_RAMP_SEC.toFixed(3);
+  const S = startSec.toFixed(3);
+  const E = endSec.toFixed(3);
+  const RIE = rampInEnd.toFixed(3);
+  const ROS = rampOutStart.toFixed(3);
+  return (
+    `if(lt(t,${S}),0,` +
+      `if(lt(t,${RIE}),(t-${S})/${R}*${I},` +
+        `if(lt(t,${ROS}),${I},` +
+          `if(lt(t,${E}),(1-(t-${ROS})/${R})*${I},0))))`
+  );
+}
+
+/**
+ * Mix the episode-level sonic_world into the assembled episode audio.
+ * Replaces the legacy per-scene `applySceneAmbientBed` walk for episodes
+ * that carry a sonic_world block (Phase 3 schema).
+ *
+ * Two layers added:
+ *   1. base_palette — episode-length bed at spectral_anchor.level_dB,
+ *      plays UNCUT across every scene boundary
+ *   2. scene_variations[] overlays — additive per-scene layers, J-cut
+ *      across scene boundaries with intensity-scaled gain
+ *
+ * @param {string} inputPath - assembled episode mp4 (output of stage 2)
+ * @param {object} sonicWorld - { base_palette, spectral_anchor, scene_variations }
+ * @param {Array<{scene_id, startSec, durationSec}>} sceneTimeline
+ * @param {string} outputPath
+ * @param {string[]} tempPaths
+ * @returns {Promise<boolean>} true if sonic_world was applied, false on skip
+ */
+async function applyEpisodeSonicWorld(inputPath, sonicWorld, sceneTimeline, outputPath, tempPaths) {
+  if (!sonicWorld || typeof sonicWorld !== 'object') {
+    fs.copyFileSync(inputPath, outputPath);
+    return false;
+  }
+
+  const episodeDurationSec = probeDurationSec(inputPath);
+  if (episodeDurationSec <= 0) {
+    logger.warn('applyEpisodeSonicWorld: input duration probe failed — skipping');
+    fs.copyFileSync(inputPath, outputPath);
+    return false;
+  }
+
+  const basePalettePrompt = sonicWorld.base_palette;
+  if (!basePalettePrompt || typeof basePalettePrompt !== 'string') {
+    logger.info('applyEpisodeSonicWorld: no base_palette — skipping sonic_world stage');
+    fs.copyFileSync(inputPath, outputPath);
+    return false;
+  }
+
+  // Stage 2.5b.1 — generate the episode-length base bed
+  const basePath = await _generateEpisodeBaseBed(basePalettePrompt, episodeDurationSec, tempPaths);
+  if (!basePath) {
+    logger.warn('applyEpisodeSonicWorld: base bed generation failed — falling through with no bed');
+    fs.copyFileSync(inputPath, outputPath);
+    return false;
+  }
+
+  // Stage 2.5b.2 — generate per-scene overlays
+  // Resolve which scenes have variations (by scene_id) and what intensity
+  const variationMap = new Map();
+  const variations = Array.isArray(sonicWorld.scene_variations) ? sonicWorld.scene_variations : [];
+  for (const v of variations) {
+    if (v && v.scene_id) variationMap.set(v.scene_id, v);
+  }
+
+  const overlayClips = []; // { path, startSec, endSec, intensity }
+  for (const sc of sceneTimeline) {
+    const v = variationMap.get(sc.scene_id);
+    if (!v || !v.overlay) continue;
+    const intensityRaw = typeof v.intensity === 'number' ? v.intensity : 0.65;
+    const intensity = Math.max(0, Math.min(1, intensityRaw));
+    if (intensity <= 0) continue;
+
+    // Overlay window: pre-roll BEFORE scene start, post-tail AFTER scene end
+    const startSec = Math.max(0, sc.startSec - SCENE_OVERLAY_PRE_ROLL_SEC);
+    const endSec = Math.min(episodeDurationSec, sc.startSec + sc.durationSec + SCENE_OVERLAY_POST_TAIL_SEC);
+    const requestedDur = endSec - startSec;
+    if (requestedDur < 1) continue;
+
+    const overlayPath = await _generateSfxClipCached(
+      v.overlay,
+      Math.min(requestedDur + 1, ELEVEN_LABS_SFX_MAX_SEC),
+      `overlay_${sc.scene_id}`
+    );
+    if (!overlayPath) continue;
+
+    // Map intensity 0..1 → linear gain. 1.0 = -16dB, 0.5 = -22dB, 0.0 = silent.
+    // -16dB linear ≈ 0.158; -22dB linear ≈ 0.079.
+    const minDb = -22;
+    const maxDb = -16;
+    const targetDb = minDb + (maxDb - minDb) * intensity;
+    const gain = Math.pow(10, targetDb / 20);
+
+    overlayClips.push({ path: overlayPath, startSec, endSec, intensityLinear: gain });
+  }
+
+  // Stage 2.5b.3 — build the giant filter_complex that mixes:
+  //   [0:a] (input episode audio)
+  //   [1:a] (base bed at spectral_anchor.level_dB)
+  //   [2:a]..[N+1:a] (overlays with their J-cut envelopes + adelay to start time)
+  // All amix together with normalize=0 so the input audio stays at full level.
+  const anchorDb = sonicWorld.spectral_anchor?.level_dB;
+  const baseDb = typeof anchorDb === 'number' ? anchorDb : -18;
+  const baseGain = Math.pow(10, baseDb / 20);
+
+  const inputArgs = ['-i', inputPath, '-i', basePath];
+  for (const ov of overlayClips) inputArgs.push('-i', ov.path);
+
+  const filterParts = [];
+  // Pad the input audio so amix uses the full video duration
+  filterParts.push(`[0:a]apad[main]`);
+  // Base bed: gain at -18dB (or anchor level), padded
+  filterParts.push(`[1:a]volume=${baseGain.toFixed(4)},apad[basebed]`);
+  // Overlays
+  const overlayLabels = [];
+  overlayClips.forEach((ov, i) => {
+    const inIdx = 2 + i;
+    const lbl = `ov${i}`;
+    overlayLabels.push(lbl);
+    const envExpr = _buildOverlayEnvelope(ov.startSec, ov.endSec, ov.intensityLinear);
+    // adelay aligns the overlay clip to its scene start (minus pre-roll), then
+    // the volume envelope shapes the J-cut. eval=frame is required for the
+    // time-varying expression.
+    const delayMs = Math.round(ov.startSec * 1000);
+    filterParts.push(
+      `[${inIdx}:a]adelay=${delayMs}|${delayMs},volume='${envExpr}':eval=frame,apad[${lbl}]`
+    );
+  });
+
+  // Combine: main + basebed + all overlays, normalize=0 to preserve levels
+  const mixInputs = ['[main]', '[basebed]', ...overlayLabels.map(l => `[${l}]`)];
+  filterParts.push(`${mixInputs.join('')}amix=inputs=${mixInputs.length}:duration=longest:dropout_transition=0:normalize=0[aout]`);
+
+  const filterComplex = filterParts.join(';');
+
+  try {
+    execFileSync('ffmpeg', [
+      '-y',
+      ...inputArgs,
+      '-filter_complex', filterComplex,
+      '-map', '0:v',
+      '-map', '[aout]',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-t', episodeDurationSec.toFixed(3),
+      outputPath
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    logger.info(
+      `sonic_world applied — base bed @${baseDb}dB across ${episodeDurationSec.toFixed(1)}s, ` +
+      `${overlayClips.length} J-cut scene overlay(s)`
+    );
+    return true;
+  } catch (err) {
+    logger.warn(`applyEpisodeSonicWorld: filter_complex mix failed: ${err.message} — keeping input as-is`);
+    fs.copyFileSync(inputPath, outputPath);
+    return false;
+  }
+}
+
+/**
+ * Resolve the episode's sonic_world from the scene_description, with
+ * backward-compat for legacy episodes that only have per-scene
+ * ambient_bed_prompt fields.
+ *
+ * @param {object} sceneDescription
+ * @returns {object|null} the sonic_world (authored or synthesized), or null
+ */
+function _resolveEpisodeSonicWorld(sceneDescription) {
+  if (!sceneDescription || typeof sceneDescription !== 'object') return null;
+
+  // Prefer the Phase 3 authored block
+  if (sceneDescription.sonic_world && typeof sceneDescription.sonic_world === 'object') {
+    return sceneDescription.sonic_world;
+  }
+
+  // Backward compat: synthesize a sonic_world from legacy per-scene beds.
+  // This is intentionally LOSSY — it just unions the per-scene prompts into
+  // one bed so legacy episodes can re-assemble through the new path. Real
+  // continuity requires re-generating the screenplay with the new schema.
+  const scenes = Array.isArray(sceneDescription.scenes) ? sceneDescription.scenes : [];
+  const beds = scenes.map(s => s?.ambient_bed_prompt).filter(Boolean);
+  if (beds.length === 0) return null;
+  // Pick the first non-empty bed as the base palette; remaining scenes
+  // become overlays (intensity 0.65 default).
+  const basePalette = beds[0];
+  const scene_variations = [];
+  for (let i = 1; i < scenes.length; i++) {
+    const s = scenes[i];
+    if (!s?.ambient_bed_prompt || s.ambient_bed_prompt === basePalette) continue;
+    scene_variations.push({ scene_id: s.scene_id, overlay: s.ambient_bed_prompt, intensity: 0.65 });
+  }
+  return {
+    base_palette: basePalette,
+    spectral_anchor: { description: 'derived (legacy)', always_present: true, level_dB: -18 },
+    scene_variations,
+    _generated_by: 'legacy_synth'
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2150,18 +2554,30 @@ export async function runPostProduction({
         concatNormalizedVideos(sceneBeatPaths, sceneConcatPath);
         const sceneConcatDur = probeDurationSec(sceneConcatPath);
 
-        // 2. Apply the Hollywood-grade scene-level ambient bed on top.
-        // This is what ties all the beats together acoustically — one
-        // continuous room tone / atmosphere that masks the beat cuts.
-        const sceneWithBedPath = tmpPath('mp4');
-        tempPaths.push(sceneWithBedPath);
-        await applySceneAmbientBed(sceneConcatPath, scene, sceneWithBedPath, tempPaths);
-        const sceneWithBedDur = probeDurationSec(sceneWithBedPath);
-        logger.info(
-          `[duration trace] scene ${scene?.scene_id || '?'}: ` +
-          `concat=${sceneConcatDur.toFixed(2)}s → +bed=${sceneWithBedDur.toFixed(2)}s ` +
-          (Math.abs(sceneConcatDur - sceneWithBedDur) > 0.1 ? `⚠️ DRIFT ${(sceneConcatDur - sceneWithBedDur).toFixed(2)}s` : '')
-        );
+        // 2. Per-scene ambient bed (LEGACY path — only when no sonic_world).
+        //
+        // Phase 4: when the episode has an authored sonic_world (Phase 3
+        // schema), the per-scene bed is REPLACED by a single episode-length
+        // base bed + J-cut scene overlays mixed AFTER assembly. We skip the
+        // legacy per-scene bed in that case so we don't double-stack atmosphere.
+        const hasEpisodeSonicWorld = sceneDescription?.sonic_world
+          && typeof sceneDescription.sonic_world === 'object';
+
+        let scenePathForAssembly = sceneConcatPath;
+        if (!hasEpisodeSonicWorld) {
+          const sceneWithBedPath = tmpPath('mp4');
+          tempPaths.push(sceneWithBedPath);
+          await applySceneAmbientBed(sceneConcatPath, scene, sceneWithBedPath, tempPaths);
+          const sceneWithBedDur = probeDurationSec(sceneWithBedPath);
+          logger.info(
+            `[duration trace] scene ${scene?.scene_id || '?'}: ` +
+            `concat=${sceneConcatDur.toFixed(2)}s → +bed=${sceneWithBedDur.toFixed(2)}s ` +
+            (Math.abs(sceneConcatDur - sceneWithBedDur) > 0.1 ? `⚠️ DRIFT ${(sceneConcatDur - sceneWithBedDur).toFixed(2)}s` : '')
+          );
+          scenePathForAssembly = sceneWithBedPath;
+        } else {
+          logger.info(`scene ${scene?.scene_id || '?'}: sonic_world present — deferring bed to episode-level mix (Phase 4)`);
+        }
 
         // V4 emotional_hold honouring: if the LAST beat of the scene is
         // marked emotional_hold, the scene ends on a loaded silence — a
@@ -2177,9 +2593,11 @@ export async function runPostProduction({
         }
 
         scenePaths.push({
-          path: sceneWithBedPath,
+          path: scenePathForAssembly,
           transitionToNext: transitionOut,
           ambientBedPrompt: scene.ambient_bed_prompt || null,
+          sceneId: scene.scene_id || null,
+          sceneDurationSec: probeDurationSec(scenePathForAssembly),
           endsOnHold: lastBeat?.emotional_hold === true
         });
       }
@@ -2188,25 +2606,33 @@ export async function runPostProduction({
         // Don't transition OUT of the final scene
         if (scenePaths.length > 0) scenePaths[scenePaths.length - 1].transitionToNext = 'cut';
 
-        // Safeguard: if a scene has a hard 'cut' boundary but the next
-        // scene has a DIFFERENT ambient bed, the ambient snaps abruptly
-        // mid-listen — a Hollywood no-no. Auto-upgrade 'cut' to 'dissolve'
-        // at those boundaries so the xfade path applies acrossfade to both
-        // video AND audio. Cuts are preserved when beds match (same room/
-        // scene continuation) since there's no audio discontinuity.
-        for (let i = 0; i < scenePaths.length - 1; i++) {
-          const curBed = scenePaths[i].ambientBedPrompt;
-          const nextBed = scenePaths[i + 1].ambientBedPrompt;
-          if (
-            scenePaths[i].transitionToNext === 'cut' &&
-            !scenePaths[i].endsOnHold &&
-            curBed && nextBed && curBed !== nextBed
-          ) {
-            logger.info(
-              `scene ${i} → ${i + 1}: upgrading 'cut' → 'dissolve' for ` +
-              `ambient-bed continuity (differing beds)`
-            );
-            scenePaths[i].transitionToNext = 'dissolve';
+        // LEGACY safeguard (only when sonic_world is NOT present): if a
+        // scene has a hard 'cut' boundary but the next scene has a DIFFERENT
+        // ambient bed, the ambient snaps abruptly mid-listen — auto-upgrade
+        // 'cut' to 'dissolve' so the xfade path acrossfades both video AND
+        // audio.
+        //
+        // Phase 4 obsoletes this for new episodes: with the episode-level
+        // sonic_world, the base bed plays UNCUT under every scene boundary,
+        // so 'cut' is sonically safe. Skip the auto-upgrade in that case so
+        // the user's intentional 'cut' choices are preserved.
+        const hasSonicWorldUpgradeBypass = sceneDescription?.sonic_world
+          && typeof sceneDescription.sonic_world === 'object';
+        if (!hasSonicWorldUpgradeBypass) {
+          for (let i = 0; i < scenePaths.length - 1; i++) {
+            const curBed = scenePaths[i].ambientBedPrompt;
+            const nextBed = scenePaths[i + 1].ambientBedPrompt;
+            if (
+              scenePaths[i].transitionToNext === 'cut' &&
+              !scenePaths[i].endsOnHold &&
+              curBed && nextBed && curBed !== nextBed
+            ) {
+              logger.info(
+                `scene ${i} → ${i + 1}: upgrading 'cut' → 'dissolve' for ` +
+                `ambient-bed continuity (differing beds — legacy path)`
+              );
+              scenePaths[i].transitionToNext = 'dissolve';
+            }
           }
         }
 
@@ -2231,11 +2657,47 @@ export async function runPostProduction({
       logger.warn(`[duration trace] ⚠ stage 2 video/audio DIVERGENCE of ${Math.abs(durAfterAssembly.video - durAfterAssembly.audio).toFixed(2)}s — downstream -shortest/amix behaviour WILL truncate the output to the shorter stream`);
     }
 
+    // ─── Stage 2.5b — V4 audio coherence: episode-level sonic_world mix ───
+    //
+    // Replaces the per-scene ambient bed (Phase 1-3 architecture) with a
+    // single episode-length base bed + per-scene J-cut overlays. Only fires
+    // when scene_description.sonic_world is present; legacy episodes already
+    // got their per-scene beds applied above.
+    let sonicWorldPath = assembledPath;
+    const sonicWorld = _resolveEpisodeSonicWorld(sceneDescription);
+    if (sonicWorld && sceneDescription?.sonic_world) {
+      // Build the scene timeline in episode-space using the per-scene
+      // durations captured during assembly. transitions are accounted for
+      // by reading the actual concatenated file's duration progression.
+      const sceneTimeline = [];
+      let runningStart = 0;
+      for (const sp of scenePaths) {
+        sceneTimeline.push({
+          scene_id: sp.sceneId || null,
+          startSec: runningStart,
+          durationSec: sp.sceneDurationSec || 0
+        });
+        runningStart += sp.sceneDurationSec || 0;
+      }
+
+      const sonicMixedPath = tmpPath('mp4');
+      tempPaths.push(sonicMixedPath);
+      logger.info(`stage 2.5b/6: episode sonic_world mix (base bed + ${(sonicWorld.scene_variations || []).length} overlays)`);
+      const applied = await applyEpisodeSonicWorld(assembledPath, sonicWorld, sceneTimeline, sonicMixedPath, tempPaths);
+      if (applied) {
+        sonicWorldPath = sonicMixedPath;
+        const durAfterSonic = probeStreamDurations(sonicWorldPath);
+        logger.info(`[duration trace] after stage 2.5b (sonic_world): container=${durAfterSonic.container.toFixed(2)}s video=${durAfterSonic.video.toFixed(2)}s audio=${durAfterSonic.audio.toFixed(2)}s`);
+      }
+    }
+
     // ─── Stage 3 — unified creative LUT pass ───
     logger.info(`stage 3/6: creative LUT pass (${episodeLutId})`);
     const gradedPath = tmpPath('mp4');
     tempPaths.push(gradedPath);
-    applyCreativeLut(assembledPath, gradedPath, episodeLutId);
+    // Phase 4: feed the sonic_world-mixed file (or the raw assembled file
+    // if no sonic_world was applied) into the LUT pass.
+    applyCreativeLut(sonicWorldPath, gradedPath, episodeLutId);
     const durAfterLut = probeStreamDurations(gradedPath);
     logger.info(`[duration trace] after stage 3 (creative LUT): container=${durAfterLut.container.toFixed(2)}s video=${durAfterLut.video.toFixed(2)}s audio=${durAfterLut.audio.toFixed(2)}s`);
 
@@ -2316,3 +2778,21 @@ export async function runPostProduction({
 export function estimateEpisodeDuration(beatMetadata) {
   return beatMetadata.reduce((sum, b) => sum + (b.actual_duration_sec || b.duration_seconds || 0), 0);
 }
+
+// Phase 1 — exported for unit testing the audio coherence rules.
+// The function itself is a pure decision (modelUsed string → linear gain) so
+// tests don't need to spin up ffmpeg. See tests/v4/PostProductionAudio.test.mjs.
+export { resolveNativeAudioGain };
+
+// Phase 4 — exported for unit testing the sonic_world helpers (the pure ones).
+// _buildOverlayEnvelope is a pure ffmpeg-expression builder (string output);
+// _resolveEpisodeSonicWorld is a pure resolver/synthesizer (no I/O). The
+// ffmpeg-touching helpers (_generateSfxClipCached, _generateEpisodeBaseBed,
+// applyEpisodeSonicWorld) are integration-tested via live episode runs.
+export {
+  _buildOverlayEnvelope,
+  _resolveEpisodeSonicWorld,
+  SCENE_OVERLAY_PRE_ROLL_SEC,
+  SCENE_OVERLAY_POST_TAIL_SEC,
+  SCENE_OVERLAY_RAMP_SEC
+};

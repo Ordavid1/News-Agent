@@ -20,6 +20,7 @@
 // a single-persona landscape story) don't trip the validator.
 
 import winston from 'winston';
+import { detectAmbientBedPhrasing } from '../SoundEffectsService.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -461,6 +462,79 @@ function checkMouthOcclusion(sceneGraph, issues) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Persona-index coverage — ensures every dialogue line declares its speaker
+// ──────────────────────────────────────────────────────────────
+//
+// Caught 2026-04-25 (logs.txt): a SHOT_REVERSE_SHOT child beat (s2b2_b)
+// failed CinematicDialogueGenerator with "no persona resolved" — the
+// exchange in Gemini's screenplay omitted persona_index, so the compiler
+// produced a child TALKING_HEAD_CLOSEUP without a valid speaker. By that
+// point the Scene Master + earlier beats had already been rendered.
+//
+// This check is a blocker: every dialogue-bearing line must declare its
+// speaker via persona_index (single), persona_indexes[] (group), or
+// exchanges[].persona_index (SRS). If absent, fail at L1 so the user
+// either retakes the screenplay or fixes the field manually in the
+// Director Panel — never fail mid-generation.
+function checkPersonaIndexCoverage(sceneGraph, personas, issues) {
+  const personaCount = Array.isArray(personas) ? personas.length : 0;
+  const isValidIdx = (i) => Number.isInteger(i) && i >= 0 && i < personaCount;
+  let missing = 0;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      // Single-persona dialogue (DIALOGUE_IN_SCENE / TALKING_HEAD_CLOSEUP)
+      if (beat.dialogue && typeof beat.dialogue === 'string' && beat.dialogue.length > 0) {
+        if (!isValidIdx(beat.persona_index)) {
+          missing++;
+          issues.push({
+            id: 'persona_index_missing',
+            severity: 'blocker',
+            scope: `beat:${beat.beat_id}`,
+            message: `Beat ${beat.beat_id} [${beat.type}] has dialogue but no valid persona_index (got ${JSON.stringify(beat.persona_index)}). The beat generator will fail with "no persona resolved" mid-pipeline.`,
+            hint: `Set persona_index to an integer 0..${personaCount - 1} on the beat, or fix it in the Director Panel before regenerating.`
+          });
+        }
+      }
+      // Group dialogue (GROUP_DIALOGUE_TWOSHOT) — every dialogue entry needs a matching persona_indexes[i]
+      if (Array.isArray(beat.dialogues) && beat.dialogues.length > 0) {
+        const indexes = Array.isArray(beat.persona_indexes) ? beat.persona_indexes : [];
+        for (let i = 0; i < beat.dialogues.length; i++) {
+          if (!isValidIdx(indexes[i])) {
+            missing++;
+            issues.push({
+              id: 'persona_index_missing',
+              severity: 'blocker',
+              scope: `beat:${beat.beat_id}`,
+              message: `Beat ${beat.beat_id} [${beat.type}] dialogues[${i}] has no valid persona_indexes[${i}] (got ${JSON.stringify(indexes[i])}).`,
+              hint: `Provide persona_indexes[] with one integer 0..${personaCount - 1} per dialogue line.`
+            });
+          }
+        }
+      }
+      // SHOT_REVERSE_SHOT exchanges — every exchange needs persona_index
+      if (Array.isArray(beat.exchanges)) {
+        for (let i = 0; i < beat.exchanges.length; i++) {
+          const ex = beat.exchanges[i] || {};
+          if (ex.dialogue && !isValidIdx(ex.persona_index)) {
+            missing++;
+            issues.push({
+              id: 'persona_index_missing',
+              severity: 'blocker',
+              scope: `beat:${beat.beat_id}`,
+              message: `Beat ${beat.beat_id} [SHOT_REVERSE_SHOT] exchange[${i}] has dialogue but no valid persona_index (got ${JSON.stringify(ex.persona_index)}). The compiler will produce an unrenderable closeup child.`,
+              hint: `Set exchanges[${i}].persona_index to an integer 0..${personaCount - 1}.`
+            });
+          }
+        }
+      }
+    }
+  }
+  if (missing > 0) {
+    logger.info(`persona-index coverage flagged ${missing} dialogue line(s) with missing speakers`);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Phase 1.1 — Subject mandate check
 // ──────────────────────────────────────────────────────────────
 //
@@ -515,6 +589,214 @@ function checkSubjectMandate(sceneGraph, storyline, options, issues) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Phase 6 — V4 Audio Coherence Overhaul checks
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Check that sonic_world is structurally well-formed at the EPISODE level.
+ * The Phase 3 schema replaces per-scene ambient_bed_prompt with this block.
+ *
+ * Warnings (legacy episodes / Doctor patches):
+ *   - sonic_world missing entirely (becomes blocker when bible is present)
+ *
+ * Blockers:
+ *   - base_palette missing or empty
+ *   - spectral_anchor missing or empty
+ *
+ * Warnings:
+ *   - scene_variations[] entries reference unknown scene_ids
+ *   - scene_variations[] entries have empty overlay text
+ */
+function checkSonicWorldStructure(sceneGraph, issues) {
+  const sw = sceneGraph.sonic_world;
+  if (!sw || typeof sw !== 'object') {
+    issues.push({
+      id: 'sonic_world_missing',
+      severity: 'warning',
+      scope: 'episode',
+      message: 'episode is missing sonic_world block (Phase 3 schema)',
+      hint: 'Add an episode-level "sonic_world" with base_palette, spectral_anchor, and scene_variations[]. Per-scene ambient_bed_prompt is deprecated.'
+    });
+    return;
+  }
+
+  if (!sw.base_palette || typeof sw.base_palette !== 'string' || sw.base_palette.trim().length === 0) {
+    issues.push({
+      id: 'sonic_world_no_base_palette',
+      severity: 'blocker',
+      scope: 'episode.sonic_world',
+      message: 'sonic_world.base_palette is required (the continuous bed for the whole episode)',
+      hint: 'Author a 1-sentence ambient bed description that plays under every beat.'
+    });
+  }
+
+  if (!sw.spectral_anchor || (typeof sw.spectral_anchor !== 'string' && typeof sw.spectral_anchor !== 'object')) {
+    issues.push({
+      id: 'sonic_world_no_spectral_anchor',
+      severity: 'blocker',
+      scope: 'episode.sonic_world',
+      message: 'sonic_world.spectral_anchor is required (the seam-hider that always plays)',
+      hint: 'Author the sub-200Hz + faint air content that anchors continuity across cuts.'
+    });
+  }
+
+  if (Array.isArray(sw.scene_variations)) {
+    const validSceneIds = new Set((sceneGraph.scenes || []).map(s => s?.scene_id).filter(Boolean));
+    for (const v of sw.scene_variations) {
+      if (!v || !v.scene_id) {
+        issues.push({
+          id: 'sonic_world_overlay_no_scene_id',
+          severity: 'warning',
+          scope: 'episode.sonic_world.scene_variations',
+          message: 'scene_variations entry missing scene_id',
+          hint: 'Each overlay must reference a scene by scene_id'
+        });
+        continue;
+      }
+      if (!validSceneIds.has(v.scene_id)) {
+        issues.push({
+          id: 'sonic_world_overlay_unknown_scene',
+          severity: 'warning',
+          scope: `episode.sonic_world.scene_variations[${v.scene_id}]`,
+          message: `scene_variations references unknown scene_id "${v.scene_id}"`,
+          hint: `Known scene_ids: ${[...validSceneIds].join(', ') || '(none)'}`
+        });
+      }
+      if (!v.overlay || typeof v.overlay !== 'string' || v.overlay.trim().length === 0) {
+        issues.push({
+          id: 'sonic_world_overlay_empty',
+          severity: 'warning',
+          scope: `episode.sonic_world.scene_variations[${v.scene_id}]`,
+          message: 'overlay text is empty',
+          hint: 'Either remove this entry or author the additive scene-specific layer'
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Bible-binding clauses. Only fires when a sonic_series_bible is provided.
+ * Most violations are warnings (Doctor will patch); the only blocker is
+ * "bible exists but episode has no sonic_world at all" — that's negligence.
+ */
+function checkSonicWorldBibleInheritance(sceneGraph, bible, issues) {
+  if (!bible || typeof bible !== 'object') return;
+
+  const sw = sceneGraph.sonic_world;
+  if (!sw || typeof sw !== 'object') {
+    issues.push({
+      id: 'sonic_world_missing_with_bible',
+      severity: 'blocker',
+      scope: 'episode',
+      message: 'story has a Sonic Series Bible — episode MUST emit a sonic_world block that inherits from it',
+      hint: 'Author sonic_world with base_palette + spectral_anchor + scene_variations[].'
+    });
+    return;
+  }
+
+  // Binding clause: signature_drone must appear in spectral_anchor
+  const policy = bible.inheritance_policy?.signature_drone || 'must_appear_at_least_once_per_episode';
+  const droneBand = bible.signature_drone?.frequency_band_hz;
+  if (
+    policy === 'must_appear_at_least_once_per_episode' &&
+    Array.isArray(droneBand) &&
+    droneBand.length === 2
+  ) {
+    const [low, high] = droneBand;
+    const anchorText = typeof sw.spectral_anchor === 'string'
+      ? sw.spectral_anchor
+      : (sw.spectral_anchor?.description || '');
+    const hzMatches = (anchorText.match(/\d+\s*[-–]?\s*\d*\s*hz/ig) || []);
+    const evidenceTerms = /\b(sub[- ]?bass|low[- ]?frequency|low[- ]?end|hum|drone)\b/i;
+    if (hzMatches.length === 0 && !evidenceTerms.test(anchorText)) {
+      issues.push({
+        id: 'sonic_world_drone_not_in_anchor',
+        severity: 'warning',
+        scope: 'episode.sonic_world.spectral_anchor',
+        message: `bible signature_drone (${low}-${high}Hz) is not represented in spectral_anchor — violates inheritance_policy.signature_drone="must_appear_at_least_once_per_episode"`,
+        hint: `Add the drone's low-frequency band to spectral_anchor (e.g. "sustained ${low}-${high}Hz drone + faint air movement").`
+      });
+    }
+  }
+
+  // Additive-overlay invariant
+  if (Array.isArray(sw.scene_variations)) {
+    for (const v of sw.scene_variations) {
+      if (!v?.overlay) continue;
+      const baseTokens = new Set(
+        (sw.base_palette || '').toLowerCase().match(/\b[a-z]{4,}\b/g) || []
+      );
+      const overlayTokens = (v.overlay || '').toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const noiseWords = new Set(['with','from','through','under','over','against','that','this','sound','audio','layer','tones','tone']);
+      const sharedTokens = overlayTokens.filter(t => baseTokens.has(t) && !noiseWords.has(t));
+      if (baseTokens.size > 0 && overlayTokens.length >= 4 && sharedTokens.length === 0) {
+        issues.push({
+          id: 'sonic_world_overlay_replaces_base',
+          severity: 'warning',
+          scope: `episode.sonic_world.scene_variations[${v.scene_id || '?'}]`,
+          message: 'overlay shares no vocabulary with base_palette — likely a REPLACEMENT not an additive layer (timbre cliff risk)',
+          hint: 'Re-author overlay so it ADDS to base_palette (e.g. base="industrial drone, distant traffic" + overlay="wind through gaps" — wind ADDS to traffic). Avoid wholesale swaps.'
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Per-beat ambient_sound must be FOLEY (1-3s percussive diegetic) — not bed
+ * material. Phase 5 enforces this at the SFX-call site too; the validator
+ * catches it at write time so the Doctor can patch before generation.
+ */
+function checkPerBeatAmbientSoundIsFoley(sceneGraph, issues) {
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      const prompt = beat?.ambient_sound;
+      if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) continue;
+      const offending = detectAmbientBedPhrasing(prompt);
+      if (offending) {
+        issues.push({
+          id: 'beat_ambient_sound_is_bed_material',
+          severity: 'warning',
+          scope: `beat ${beat.beat_id || '?'}`,
+          message: `ambient_sound contains bed-phrase "${offending}" — belongs in sonic_world, not per-beat`,
+          hint: 'Per-beat ambient_sound is for FOLEY EVENTS only (1-3s percussive: door click, glass clink, fabric rustle). Move bed material to sonic_world.'
+        });
+      }
+    }
+  }
+}
+
+/**
+ * music_bed_intent must respect the bible's no-fly list of prohibited instruments.
+ * Blocker — the bible explicitly forbids these and the music will be regenerated.
+ */
+function checkMusicBedRespectsNoFlyList(sceneGraph, bible, issues) {
+  if (!bible || typeof bible !== 'object') return;
+  const music = sceneGraph.music_bed_intent;
+  if (!music || typeof music !== 'string') return;
+  const prohibited = Array.isArray(bible.prohibited_instruments) ? bible.prohibited_instruments : [];
+  if (prohibited.length === 0) return;
+  const lowered = music.toLowerCase();
+  for (const prohibitedInst of prohibited) {
+    if (!prohibitedInst || typeof prohibitedInst !== 'string') continue;
+    const variants = [
+      prohibitedInst.toLowerCase(),
+      prohibitedInst.toLowerCase().replace(/_/g, ' ')
+    ];
+    if (variants.some(v => lowered.includes(v))) {
+      issues.push({
+        id: 'music_violates_no_fly_list',
+        severity: 'blocker',
+        scope: 'episode.music_bed_intent',
+        message: `music_bed_intent uses prohibited instrument "${prohibitedInst}" from the Sonic Series Bible`,
+        hint: `Re-author music_bed_intent without "${prohibitedInst.replace(/_/g, ' ')}". Bible no-fly list: ${prohibited.join(', ')}.`
+      });
+    }
+  }
+}
+
 /**
  * Validate a V4 scene-graph against the Layer-1 checklist.
  *
@@ -523,10 +805,19 @@ function checkSubjectMandate(sceneGraph, storyline, options, issues) {
  * @param {Object[]} personas - persona_config.personas[]
  * @param {Object} [options]
  * @param {string} [options.storyFocus='product'] - 'person' | 'product' | 'landscape'
+ * @param {Object} [options.sonicSeriesBible] - locked story-level bible (Phase 6)
  * @returns {{ issues, repaired, stats, needsPunchUp }}
  */
 export function validateScreenplay(sceneGraph, storyline = {}, personas = [], options = {}) {
-  const { storyFocus = 'product' } = options;
+  const {
+    storyFocus = 'product',
+    // Phase 6 — when provided, validates sonic_world inheritance from the
+    // Sonic Series Bible per its inheritance_policy. When absent, sonic_world
+    // is still validated structurally (base_palette + spectral_anchor must
+    // exist) but the bible-binding rules (signature_drone presence,
+    // prohibited_instruments, additive overlay invariant) don't fire.
+    sonicSeriesBible = null
+  } = options;
   if (!sceneGraph || typeof sceneGraph !== 'object') {
     return {
       issues: [{ id: 'no_scene_graph', severity: 'blocker', scope: 'episode', message: 'No scene graph to validate.', hint: '' }],
@@ -550,7 +841,13 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkOneGreatLinePrinciple(repaired, issues);
   checkIntensityRamp(repaired, storyline, issues);
   checkMouthOcclusion(repaired, issues);
+  checkPersonaIndexCoverage(repaired, personas, issues);
   checkSubjectMandate(repaired, storyline, options, issues);
+  // Phase 6 — V4 audio coherence overhaul rules
+  checkSonicWorldStructure(repaired, issues);
+  checkSonicWorldBibleInheritance(repaired, sonicSeriesBible, issues);
+  checkPerBeatAmbientSoundIsFoley(repaired, issues);
+  checkMusicBedRespectsNoFlyList(repaired, sonicSeriesBible, issues);
   repairBeatSizing(repaired, issues);
 
   const { total, dialogue } = countAllDialogueBeats(repaired);

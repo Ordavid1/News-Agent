@@ -14,7 +14,7 @@
 // a warning — the beat is still usable, just with Kling's native lip-sync.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
-import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -173,11 +173,15 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
     const identityDirective = 'Preserve facial structure from refs. Each character matches own reference, no face-swap.';
 
     const KLING_PROMPT_BUDGET = 480;
+    const directorNudge = (typeof beat?.director_nudge === 'string' && beat.director_nudge.trim().length > 0)
+      ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
+      : '';
     const twoShotSections = [
       { priority: 'mandatory', text: dialogueHint },
       { priority: 'mandatory', text: verticalDirective },
       { priority: 'mandatory', text: identityDirective },
       { priority: 'mandatory', text: blockingHint },
+      { priority: 'high',      text: directorNudge },
       { priority: 'high',      text: subtextHint.trim() },
       { priority: 'medium',    text: emotionHint.trim() },
       { priority: 'low',       text: stylePrefix }
@@ -206,6 +210,18 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
     // comes from these inline elements (frontal + reference_image_urls), not
     // from a flat reference_images array.
     const { elements, elementTokens } = buildKlingElementsFromPersonas(resolvedPersonas);
+
+    // Non-invasive subject anchoring — append brand subject as a pure visual
+    // ref when subject_present and there's room. Two-shots typically use 2
+    // persona elements, leaving slot 3 free for the subject.
+    if (beat.subject_present && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) {
+        elements.push(subjectElement);
+        this.logger.info(`[${beat.beat_id}] subject element added to Kling refs (${elements.length}/3)`);
+      }
+    }
+
     const startFrameUrl = scene?.scene_master_url
       || previousBeat?.endframe_url
       || elements[0]?.frontal_image_url;

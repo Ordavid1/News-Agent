@@ -14,6 +14,7 @@
 // those drive the prompt directly.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
+import { regenerateSafeFirstFrame } from '../v4/StoryboardHelpers.js';
 
 const COST_VEO_STANDARD_PER_SEC = 0.40;
 
@@ -98,7 +99,7 @@ class InsertShotGenerator extends BaseBeatGenerator {
     // fills the vertical axis with the product + its environmental context.
     const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
 
-    const prompt = [
+    const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       `Tight closeup on ${subjectFocus}.`,
@@ -107,7 +108,7 @@ class InsertShotGenerator extends BaseBeatGenerator {
       `Camera: ${cameraMove}.`,
       'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
       `Ambient: ${ambientSound}.`
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo INSERT_SHOT (${duration}s, ${subjectFocus})`);
 
@@ -126,6 +127,21 @@ class InsertShotGenerator extends BaseBeatGenerator {
       || episodeContext?.subject?.visual_description
       || '';
 
+    // Tier 2.5 callback: regenerate first frame in safe-mode when Vertex
+    // rejects the SIPL/persona-lock with an IMAGE violation. Prefer 'product'
+    // kind for INSERT_SHOT (it's a product hero beat); fall back to 'persona'
+    // if the lock source was persona-only (no SIPL / subject refs).
+    const regenKind = (siplUrl || subjectRefs[0]) ? 'product' : (personaLockUrl ? 'persona' : null);
+    const safeRegenCallback = (regenKind && episodeContext?.uploadBuffer)
+      ? () => regenerateSafeFirstFrame({
+          kind: regenKind,
+          personas: personas || [],
+          subjectReferenceImages: subjectRefs,
+          beat,
+          uploadBuffer: episodeContext.uploadBuffer
+        })
+      : null;
+
     const result = await veo.generateWithFrames({
       firstFrameUrl,
       lastFrameUrl,
@@ -140,7 +156,8 @@ class InsertShotGenerator extends BaseBeatGenerator {
           subjectName: subjectNameForFallback,
           subjectDescription: subjectDescriptionForFallback,
           stylePrefix
-        }
+        },
+        regenerateSafeFirstFrame: safeRegenCallback
       }
     });
 

@@ -41,6 +41,61 @@ const ENDPOINT_ELEVENLABS_SFX = 'fal-ai/elevenlabs/sound-effects/v2';
 const MIN_DURATION_SEC = 0.5;
 const MAX_DURATION_SEC = 22;
 
+// Phase 5 — Foley event clamp.
+// Per-beat ambient_sound is now scoped to FOLEY EVENTS only: short, percussive
+// diegetic sounds (door click, glass clink, fabric rustle) that play 1–3s on
+// top of the beat. Anything longer is bed material that belongs in the
+// episode-level sonic_world (Phase 4), NOT per-beat.
+const FOLEY_MIN_SEC = 1.0;
+const FOLEY_MAX_SEC = 3.0;
+
+// Phase 5 — bed-phrase blacklist.
+// Words that mark a prompt as AMBIENT BED material (continuous atmospheric wash)
+// rather than a discrete Foley event. Per-beat ambient_sound prompts containing
+// any of these words are rejected — they belong in sonic_world.base_palette or
+// scene_variations[].overlay, not per-beat. This is enforced at SFX-call time
+// AND at screenplay-validate time (ScreenplayValidator, Phase 6).
+//
+// Word boundaries: matched as whole words (case-insensitive) so "drone strike"
+// doesn't get caught as "drone".
+export const FOLEY_BED_PHRASE_BLACKLIST = Object.freeze([
+  'ambient',
+  'atmosphere',
+  'atmospheric',
+  'drone',
+  'wash',
+  'evocative',
+  'room tone',
+  'bed',
+  'ambience',
+  'soundscape'
+]);
+
+/**
+ * Phase 5 — return the first bed-phrase that triggers if `prompt` is bed
+ * material (not a Foley event). Returns null when the prompt looks like a
+ * proper Foley event (concrete, percussive, short).
+ *
+ * Used by SoundEffectsService per-beat overlay path AND by ScreenplayValidator
+ * (Phase 6) to reject `beat.ambient_sound` violations before generation.
+ *
+ * @param {string} prompt
+ * @returns {string|null} the offending phrase, or null if clean
+ */
+export function detectAmbientBedPhrasing(prompt) {
+  if (!prompt || typeof prompt !== 'string') return null;
+  const lowered = prompt.toLowerCase();
+  for (const phrase of FOLEY_BED_PHRASE_BLACKLIST) {
+    // Word-boundary match (or substring for multi-word phrases like "room tone")
+    const hasSpace = phrase.includes(' ');
+    const re = hasSpace
+      ? new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      : new RegExp(`\\b${phrase}\\b`, 'i');
+    if (re.test(lowered)) return phrase;
+  }
+  return null;
+}
+
 // Models that benefit from SFX overlay (Kling and OmniHuman are weak on ambient).
 // Veo beats are skipped because Veo's native ambient is already strong.
 const MODELS_NEEDING_SFX = [
@@ -83,6 +138,37 @@ class SoundEffectsService {
     const lowered = modelUsed.toLowerCase();
     if (lowered.includes('veo')) return false;
     return MODELS_NEEDING_SFX.some(prefix => lowered.includes(prefix));
+  }
+
+  /**
+   * Phase 5 — Foley event SFX generation.
+   *
+   * Per-beat ambient_sound is RE-SCOPED to short percussive Foley events
+   * (1-3s door click, glass clink, fabric rustle). Bed-phrasing prompts
+   * ("ambient room tone", "atmospheric drone") are REJECTED here — those
+   * belong in the episode-level sonic_world, not per-beat. Returns null on
+   * rejection so callers can skip the overlay gracefully.
+   *
+   * @param {Object} params
+   * @param {string} params.prompt
+   * @param {number} [params.durationSec=2] - clamped to [1, 3] for Foley
+   * @param {number} [params.promptInfluence=0.5]
+   * @returns {Promise<{audioBuffer: Buffer, durationSec: number, prompt: string}|null>}
+   */
+  async generateFoleyEvent({ prompt, durationSec = 2, promptInfluence = 0.5 }) {
+    const offending = detectAmbientBedPhrasing(prompt);
+    if (offending) {
+      this.base.logger.warn(
+        `Foley event rejected — prompt contains bed-phrase "${offending}" — ` +
+        `belongs in sonic_world, not per-beat ambient_sound: "${(prompt || '').slice(0, 60)}"`
+      );
+      return null;
+    }
+    const clampedDur = Math.max(FOLEY_MIN_SEC, Math.min(FOLEY_MAX_SEC, durationSec));
+    if (clampedDur !== durationSec) {
+      this.base.logger.info(`Foley duration ${durationSec}s clamped to ${clampedDur}s (Foley window 1-3s)`);
+    }
+    return this.generate({ prompt, durationSec: clampedDur, promptInfluence });
   }
 
   /**

@@ -71,6 +71,7 @@ import {
   resolveEpisodeLut,
   getLutFilePath
 } from './v4/BrandKitLutMatcher.js';
+import { generateSonicSeriesBible } from './v4/SonicSeriesBible.js';
 import {
   runPostProduction,
   estimateEpisodeDuration
@@ -80,6 +81,13 @@ import { generateLutFromBrandKit } from './v4/GenerativeLut.js';
 import { validateScreenplay } from './v4/ScreenplayValidator.js';
 import { punchUpScreenplay } from './v4/ScreenplayDoctor.js';
 import { parseGeminiJson } from './v4/GeminiJsonRepair.js';
+import {
+  DirectorAgent,
+  CHECKPOINTS as DIRECTOR_CHECKPOINTS,
+  resolveDirectorMode,
+  DirectorBlockingHaltError
+} from './v4/DirectorAgent.js';
+import { decideRetry as decideDirectorRetry } from './v4/DirectorRetryPolicy.js';
 import {
   callVertexGeminiJson,
   callVertexGeminiText,
@@ -2764,6 +2772,44 @@ Respond with ONLY valid JSON:
       story.brand_kit_lut_id = resolvedLutId;
     }
 
+    // ─── Step 2b: Sonic Series Bible (lazy + idempotent — mirrors LUT pattern) ───
+    //
+    // The bible is the show's sound DNA — palette + grammar + no-fly list +
+    // inheritance_policy. Authored once per story by Gemini at first episode
+    // generation, locked thereafter (mutable via PATCH). Every per-episode
+    // sonic_world inherits from this bible per the inheritance_policy.
+    //
+    // Director's verdict (V4 Audio Coherence Overhaul, Phase 2): the load-bearing
+    // root cause of episode audio incoherence is per-scene ambient_bed_prompt
+    // re-rolled fresh by Gemini each scene. The bible eliminates the amnesia.
+    //
+    // Failure mode: if Gemini fails or the response is invalid, the
+    // generateSonicSeriesBible() helper falls through to DEFAULT_SONIC_SERIES_BIBLE
+    // (a safe naturalistic restraint default). Pipeline never blocks.
+    if (!story.sonic_series_bible) {
+      progress('sonic_bible', 'authoring sonic series bible (one-time per story)');
+      const personaArchetypes = (personas || [])
+        .map(p => p?.archetype || p?.character_summary || null)
+        .filter(Boolean);
+      const bibleCtx = {
+        brandName: story.name,
+        genre: story.subject?.genre || story.storyline?.genre,
+        tone: story.subject?.tone || story.storyline?.tone,
+        thematicArgument: story.storyline?.thematic_argument,
+        centralDramaticQuestion: story.storyline?.central_dramatic_question,
+        antagonistCurve: story.storyline?.antagonist_curve,
+        brandMood: brandKit?.style_characteristics?.mood,
+        brandAesthetic: brandKit?.style_characteristics?.overall_aesthetic,
+        personaArchetypes,
+        referenceShows: story.subject?.reference_shows || story.storyline?.reference_shows || [],
+        directorsNotes: story.subject?.directors_notes
+      };
+      const bible = await generateSonicSeriesBible(bibleCtx);
+      await updateBrandStory(storyId, userId, { sonic_series_bible: bible });
+      story.sonic_series_bible = bible;
+      progress('sonic_bible', `bible authored (${bible._generated_by || 'gemini'}, drone: ${bible.signature_drone?.description?.slice(0, 40) || 'n/a'}...)`);
+    }
+
     // ─── Step 3: Gemini V4 scene-graph generation ───
     progress('screenplay', 'generating V4 scene-graph via Gemini');
     const previousEpisodes = await getBrandStoryEpisodes(storyId, userId);
@@ -2815,7 +2861,7 @@ Respond with ONLY valid JSON:
     const storyFocus = story.story_focus || 'product';
     let qualityReport = { validator: null, doctor: null };
     try {
-      const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
+      const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus, sonicSeriesBible: story.sonic_series_bible || null });
       qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
       sceneGraph = layer1.repaired;
       const blockerList = layer1.issues.filter(i => i.severity === 'blocker');
@@ -2842,7 +2888,7 @@ Respond with ONLY valid JSON:
           progress('screenplay_qa', `Doctor applied ${layer2.applied.length} edits`);
           // Re-run Layer 1 once to capture post-doctor state in the report.
           // We do NOT loop — a second blocker list just gets logged.
-          const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus });
+          const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus, sonicSeriesBible: story.sonic_series_bible || null });
           qualityReport.validator_post_doctor = { issues: layer1b.issues, stats: layer1b.stats };
           sceneGraph = layer1b.repaired;
           const postDocBlockerList = layer1b.issues.filter(i => i.severity === 'blocker');
@@ -2860,6 +2906,211 @@ Respond with ONLY valid JSON:
       qualityReport.error = err.message;
     }
 
+    // ─── Step 3c: Director Agent (Layer 3) — per-checkpoint mode resolution ───
+    // L3 sits ABOVE L1 (validator) + L2 (doctor) + QC8 (quality gate).
+    //   shadow    — run + persist verdict, never block
+    //   blocking  — run + auto-retry once on soft_reject (per DirectorRetryPolicy);
+    //               escalate to user (awaiting_user_review) on hard_reject or
+    //               second-attempt fail
+    //   advisory  — Lens D only (full episodes too expensive to auto-retry):
+    //               persist verdict + surface as user-actionable in panel
+    //
+    // Env flags:
+    //   BRAND_STORY_DIRECTOR_AGENT       master toggle (default 'off')
+    //   BRAND_STORY_DIRECTOR_SCREENPLAY  Lens A override
+    //   BRAND_STORY_DIRECTOR_SCENE_MASTER Lens B override
+    //   BRAND_STORY_DIRECTOR_BEAT        Lens C override
+    //   BRAND_STORY_DIRECTOR_EPISODE     Lens D override
+    //
+    // Plan refs: .claude/plans/v4-director-agent.md §3 §8 §13
+    //            .claude/agents/branded-film-director.md §5 §7 §9
+    const directorModes = {
+      [DIRECTOR_CHECKPOINTS.SCREENPLAY]:   resolveDirectorMode(DIRECTOR_CHECKPOINTS.SCREENPLAY),
+      [DIRECTOR_CHECKPOINTS.SCENE_MASTER]: resolveDirectorMode(DIRECTOR_CHECKPOINTS.SCENE_MASTER),
+      [DIRECTOR_CHECKPOINTS.BEAT]:         resolveDirectorMode(DIRECTOR_CHECKPOINTS.BEAT),
+      [DIRECTOR_CHECKPOINTS.EPISODE]:      resolveDirectorMode(DIRECTOR_CHECKPOINTS.EPISODE)
+    };
+    const anyDirectorEnabled = Object.values(directorModes).some(m => m !== 'off');
+    let directorAgent = null;
+    const directorReport = { retries: {}, modes: directorModes };
+
+    // Format a verdict for the SSE/log progress detail string. On error
+    // (Vertex truncation / network / quota — see logs.txt 2026-04-25 for the
+    // pattern), the DirectorAgent fallback now returns { verdict: null, error }
+    // instead of synthesizing a `pass_with_notes` with score 0. This formatter
+    // makes the progress feed reflect that distinction so dashboards and
+    // calibration data don't read errored runs as low-quality passes.
+    const fmtVerdict = (v) => {
+      if (v?.error) return `error (${String(v.error).slice(0, 120)})`;
+      const verdictStr = v?.verdict ?? 'no-verdict';
+      const scoreStr = (v?.overall_score == null) ? '—' : v.overall_score;
+      return `${verdictStr} (score ${scoreStr})`;
+    };
+    if (anyDirectorEnabled) {
+      try {
+        directorAgent = new DirectorAgent();
+        if (!directorAgent.isAvailable()) {
+          logger.warn('V4 Director Agent enabled but Vertex Gemini not configured — skipping');
+          directorAgent = null;
+        }
+      } catch (initErr) {
+        logger.warn(`V4 Director Agent initialization failed (${initErr.message}) — skipping`);
+        directorAgent = null;
+      }
+    }
+
+    // Compute previous-episode final intensity once (used by Lens A judge prompt).
+    let previousFinalIntensity = null;
+    if (directorAgent) {
+      const lastReady = previousReady?.[previousReady.length - 1];
+      const ledger = lastReady?.scene_description?.emotional_intensity_ledger
+        || story?.story_so_far?.emotional_intensity_ledger
+        || null;
+      if (ledger && typeof ledger === 'object') {
+        const candidate = Number(ledger.final_intensity ?? ledger.last ?? ledger.episode_close ?? null);
+        if (Number.isFinite(candidate)) previousFinalIntensity = candidate;
+      }
+    }
+
+    // ─── Lens A — Table Read (post-screenplay, post-Doctor) ───
+    if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY] !== 'off') {
+      const lensAMode = directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY];
+      try {
+        const verdictA = await directorAgent.judgeScreenplay({
+          sceneGraph,
+          personas,
+          storyBible: story?.storyline || null,
+          sonicSeriesBible: story?.sonic_series_bible || null,
+          previousEpisodesSummary: lastCliffhanger || '',
+          storyFocus: story?.story_focus || 'drama',
+          previousFinalIntensity,
+          isRetry: false
+        });
+        directorReport.screenplay = verdictA;
+        progress('director:screenplay', fmtVerdict(verdictA), {
+          checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+          mode: lensAMode,
+          verdict: verdictA?.verdict,
+          score: verdictA?.overall_score,
+          findings: (verdictA?.findings || []).length
+        });
+
+        // Blocking mode — decide retry vs escalate
+        if (lensAMode === 'blocking') {
+          const decision = decideDirectorRetry({
+            verdict: verdictA,
+            checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+            retriesState: directorReport.retries
+          });
+
+          if (decision.shouldEscalate && !decision.shouldRetry) {
+            // No episode row exists yet (we run before createBrandStoryEpisode);
+            // throwing here halts the pipeline before the row is created — the
+            // route handler logs but does NOT create a row to mark, so the user
+            // never sees a partial episode. The director_report is intentionally
+            // not persisted in this path; the next attempt is a clean retry.
+            throw new DirectorBlockingHaltError({
+              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+              verdict: verdictA,
+              reason: decision.reason
+            });
+          }
+
+          if (decision.shouldRetry) {
+            progress('director:screenplay', `auto-retry triggered: ${decision.reason}`, {
+              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+              retry: true,
+              nudge_chars: (decision.nudgePromptDelta || '').length
+            });
+            // Convert director critical findings into Doctor-compatible issue
+            // shape and force-run punchUpScreenplay (bypasses the doctor env
+            // flag — the user's blocking-mode opt-in IS the trigger).
+            const doctorIssues = (verdictA.findings || [])
+              .filter(f => f.severity === 'critical')
+              .map(f => ({
+                id: f.id,
+                severity: 'blocker',
+                scope: f.scope,
+                message: f.message,
+                hint: f.remediation?.prompt_delta || ''
+              }));
+            try {
+              const layer2b = await punchUpScreenplay(sceneGraph, personas, doctorIssues, { force: true });
+              if (!layer2b.skipped && layer2b.patched) {
+                sceneGraph = layer2b.patched;
+                directorReport.screenplay_doctor_director = {
+                  applied: layer2b.applied,
+                  rejected: layer2b.rejected,
+                  notes: layer2b.notes
+                };
+                // Re-run L1 once to capture the post-director-doctor state.
+                try {
+                  const layer1c = validateScreenplay(
+                    sceneGraph,
+                    story.storyline || {},
+                    personas,
+                    {
+                      storyFocus: story.story_focus || 'product',
+                      sonicSeriesBible: story.sonic_series_bible || null
+                    }
+                  );
+                  sceneGraph = layer1c.repaired;
+                  qualityReport.validator_post_director = {
+                    issues: layer1c.issues,
+                    stats: layer1c.stats
+                  };
+                } catch (revalErr) {
+                  logger.warn(`V4 Director-driven re-validation failed: ${revalErr.message}`);
+                }
+              } else if (layer2b.skipped) {
+                progress('director:screenplay', `doctor skipped: ${layer2b.skipped}`);
+              }
+            } catch (docErr) {
+              logger.warn(`V4 Director Lens A re-doctor failed (non-fatal): ${docErr.message}`);
+            }
+
+            // Re-judge with isRetry=true (forces retry_authorization=false in verdict)
+            const verdictA2 = await directorAgent.judgeScreenplay({
+              sceneGraph,
+              personas,
+              storyBible: story?.storyline || null,
+              sonicSeriesBible: story?.sonic_series_bible || null,
+              previousEpisodesSummary: lastCliffhanger || '',
+              storyFocus: story?.story_focus || 'drama',
+              previousFinalIntensity,
+              isRetry: true
+            });
+            directorReport.screenplay_retry = verdictA2;
+            directorReport.retries = decision.nextRetriesState;
+            progress('director:screenplay', `retry verdict: ${fmtVerdict(verdictA2)}`, {
+              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+              retry: true,
+              verdict: verdictA2?.verdict,
+              score: verdictA2?.overall_score
+            });
+
+            // Second attempt failure → escalate
+            const finalDecision = decideDirectorRetry({
+              verdict: verdictA2,
+              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+              retriesState: directorReport.retries
+            });
+            if (finalDecision.shouldEscalate || finalDecision.shouldRetry === false && verdictA2?.verdict !== 'pass' && verdictA2?.verdict !== 'pass_with_notes') {
+              throw new DirectorBlockingHaltError({
+                checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+                verdict: verdictA2,
+                reason: `retry attempt ${verdictA2?.verdict || 'no verdict'} — escalating`
+              });
+            }
+          }
+        }
+      } catch (dirErr) {
+        if (dirErr instanceof DirectorBlockingHaltError) throw dirErr; // surface to outer pipeline
+        logger.warn(`V4 Director Agent Lens A failed (non-fatal): ${dirErr.message}`);
+        directorReport.screenplay_error = dirErr.message;
+      }
+    }
+
     // ─── Step 4: Brand safety filter (lightweight validation pass) ───
     this._brandSafetyFilter(sceneGraph);
 
@@ -2870,7 +3121,8 @@ Respond with ONLY valid JSON:
       pipeline_version: 'v4',
       status: 'generating_scene_masters',
       cost_cap_usd: costCapUsd,
-      quality_report: qualityReport
+      quality_report: qualityReport,
+      director_report: directorReport
     });
 
     // Activate SSE emitter now that we have the episode_id. From this point
@@ -2923,10 +3175,150 @@ Respond with ONLY valid JSON:
       baseSeed: previousReady.length * 100 // varies per episode, deterministic across retries
     });
 
+    // ─── Step 6.5: Director Agent (Layer 3) — Lens B "Look Dev Review" ───
+    // Per-scene multimodal critique. Per-checkpoint mode resolution:
+    //   shadow   — judge + persist; never block
+    //   blocking — soft_reject triggers ONE auto-retry with director nudge
+    //              spliced into scene's anchor prompt; second fail escalates
+    //              the episode to awaiting_user_review
+    if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.SCENE_MASTER] !== 'off') {
+      const lensBMode = directorModes[DIRECTOR_CHECKPOINTS.SCENE_MASTER];
+      directorReport.scene_master = {};
+      const lutId = story?.brand_kit_lut_id || story?.locked_lut_id || null;
+      for (const scene of sceneGraph.scenes) {
+        if (!scene?.scene_master_url) continue;
+        try {
+          let verdictB = await directorAgent.judgeSceneMaster({
+            scene,
+            sceneMasterImage: scene.scene_master_url,
+            sceneMasterMime: 'image/jpeg',
+            personas,
+            lutId,
+            visualStylePrefix: sceneGraph.visual_style_prefix || '',
+            storyFocus: story.story_focus || 'drama',
+            isRetry: false
+          });
+          directorReport.scene_master[scene.scene_id] = verdictB;
+          progress('director:scene_master', `scene ${scene.scene_id}: ${fmtVerdict(verdictB)}`, {
+            checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+            mode: lensBMode,
+            scene_id: scene.scene_id,
+            verdict: verdictB?.verdict,
+            score: verdictB?.overall_score,
+            findings: (verdictB?.findings || []).length
+          });
+
+          // Blocking-mode retry path
+          if (lensBMode === 'blocking') {
+            const decision = decideDirectorRetry({
+              verdict: verdictB,
+              checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+              artifactKey: scene.scene_id,
+              retriesState: directorReport.retries
+            });
+
+            if (decision.shouldEscalate && !decision.shouldRetry) {
+              await updateBrandStoryEpisode(newEpisode.id, userId, {
+                status: 'awaiting_user_review',
+                director_report: directorReport
+              });
+              throw new DirectorBlockingHaltError({
+                checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                verdict: verdictB,
+                artifactKey: scene.scene_id,
+                reason: decision.reason
+              });
+            }
+
+            if (decision.shouldRetry) {
+              progress('director:scene_master', `scene ${scene.scene_id} auto-retry: ${decision.reason}`, {
+                checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                scene_id: scene.scene_id,
+                retry: true
+              });
+              // Splice director nudge into the scene's anchor prompt for the
+              // re-render. Clearing scene_master_url forces generateSceneMasters
+              // to regenerate this scene; other scenes (which already have URLs)
+              // are skipped by the helper's resume-path check.
+              const originalAnchor = scene.scene_visual_anchor_prompt || scene.location || '';
+              scene.scene_visual_anchor_prompt = `${originalAnchor}. DIRECTOR'S RETAKE NOTE: ${decision.nudgePromptDelta}`.trim();
+              scene.scene_master_url = null;
+              try {
+                await generateSceneMasters({
+                  scenes: [scene],
+                  visualStylePrefix: sceneGraph.visual_style_prefix,
+                  personas,
+                  subjectReferenceImages,
+                  storyFocus: story.story_focus || 'product',
+                  userId,
+                  uploadBuffer: uploadBufferToStorage,
+                  baseSeed: (previousReady.length * 100) + 1 // shift seed for the retry
+                });
+              } catch (regenErr) {
+                logger.warn(`V4 Director Lens B retake render failed (scene ${scene.scene_id}): ${regenErr.message}`);
+              }
+              // Restore original anchor on the scene record so downstream code
+              // doesn't see the nudge text — the regenerated PNG embeds the
+              // direction; the prompt stays clean for resume paths.
+              scene.scene_visual_anchor_prompt = originalAnchor;
+
+              // Re-judge with isRetry=true (forces retry_authorization=false)
+              if (scene.scene_master_url) {
+                verdictB = await directorAgent.judgeSceneMaster({
+                  scene,
+                  sceneMasterImage: scene.scene_master_url,
+                  sceneMasterMime: 'image/jpeg',
+                  personas,
+                  lutId,
+                  visualStylePrefix: sceneGraph.visual_style_prefix || '',
+                  storyFocus: story.story_focus || 'drama',
+                  isRetry: true
+                });
+                directorReport.scene_master[scene.scene_id] = verdictB;
+                directorReport.retries = decision.nextRetriesState;
+                progress('director:scene_master', `scene ${scene.scene_id} retry verdict: ${fmtVerdict(verdictB)}`, {
+                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  scene_id: scene.scene_id,
+                  retry: true,
+                  verdict: verdictB?.verdict,
+                  score: verdictB?.overall_score
+                });
+
+                // Second-attempt failure → escalate
+                const final = decideDirectorRetry({
+                  verdict: verdictB,
+                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  artifactKey: scene.scene_id,
+                  retriesState: directorReport.retries
+                });
+                if (final.shouldEscalate) {
+                  await updateBrandStoryEpisode(newEpisode.id, userId, {
+                    status: 'awaiting_user_review',
+                    director_report: directorReport
+                  });
+                  throw new DirectorBlockingHaltError({
+                    checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                    verdict: verdictB,
+                    artifactKey: scene.scene_id,
+                    reason: `retake still ${verdictB?.verdict} — escalating`
+                  });
+                }
+              }
+            }
+          }
+        } catch (dirErr) {
+          if (dirErr instanceof DirectorBlockingHaltError) throw dirErr;
+          logger.warn(`V4 Director Agent Lens B (scene ${scene.scene_id}) failed (non-fatal): ${dirErr.message}`);
+          directorReport.scene_master[scene.scene_id] = { error: dirErr.message };
+        }
+      }
+    }
+
     // Persist scene master URLs to the episode
     await updateBrandStoryEpisode(newEpisode.id, userId, {
       scene_description: sceneGraph,
-      status: 'generating_beats'
+      status: 'generating_beats',
+      director_report: directorReport
     });
 
     // ─── Step 7: Beat generation (sequential within scene for endframe chaining) ───
@@ -3129,6 +3521,200 @@ Respond with ONLY valid JSON:
             logger.warn(`beat ${beat.beat_id} endframe extraction failed: ${err.message}`);
           }
 
+          // ─── Director Agent (Layer 3) — Lens C "Dailies" (per beat) ───
+          // Runs AFTER QC8 deterministic gate. Multimodal: endframe + scene
+          // master thumb + previous endframe + beat metadata.
+          //   shadow   — judge + persist; never block
+          //   blocking — soft_reject triggers ONE auto-retry: stamp
+          //              director_nudge onto the beat, re-route through
+          //              BeatRouter, re-extract endframe, re-judge isRetry=true.
+          //              Second fail OR hard_reject → episode awaiting_user_review.
+          if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.BEAT] !== 'off' && beat.endframe_url) {
+            const lensCMode = directorModes[DIRECTOR_CHECKPOINTS.BEAT];
+            try {
+              if (!directorReport.beat) directorReport.beat = {};
+              let verdictC = await directorAgent.judgeBeat({
+                beat,
+                scene,
+                endframeImage: beat.endframe_url,
+                endframeMime: 'image/jpeg',
+                previousEndframeImage: previousBeat?.endframe_url || null,
+                previousEndframeMime: 'image/jpeg',
+                sceneMasterThumbnail: scene?.scene_master_url || null,
+                sceneMasterMime: 'image/jpeg',
+                personas,
+                routingMetadata: {
+                  modelUsed: result.modelUsed,
+                  costUsd: result.costUsd || null,
+                  metadata: result.metadata || null
+                },
+                storyFocus: story.story_focus || 'drama',
+                isRetry: false
+              });
+              directorReport.beat[beat.beat_id] = verdictC;
+              progress('director:beat', `beat ${beat.beat_id}: ${fmtVerdict(verdictC)}`, {
+                checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                mode: lensCMode,
+                beat_id: beat.beat_id,
+                verdict: verdictC?.verdict,
+                score: verdictC?.overall_score,
+                findings: (verdictC?.findings || []).length
+              });
+
+              // Blocking-mode retry path
+              if (lensCMode === 'blocking') {
+                const decision = decideDirectorRetry({
+                  verdict: verdictC,
+                  checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                  artifactKey: beat.beat_id,
+                  retriesState: directorReport.retries
+                });
+
+                if (decision.shouldEscalate && !decision.shouldRetry) {
+                  await updateBrandStoryEpisode(newEpisode.id, userId, {
+                    status: 'awaiting_user_review',
+                    scene_description: sceneGraph,
+                    director_report: directorReport
+                  });
+                  throw new DirectorBlockingHaltError({
+                    checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                    verdict: verdictC,
+                    artifactKey: beat.beat_id,
+                    reason: decision.reason
+                  });
+                }
+
+                if (decision.shouldRetry) {
+                  progress('director:beat', `beat ${beat.beat_id} auto-retry: ${decision.reason}`, {
+                    checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                    beat_id: beat.beat_id,
+                    retry: true
+                  });
+
+                  // Stamp director_nudge so generators splice it into the model
+                  // prompt via BaseBeatGenerator._appendDirectorNudge / per-generator
+                  // prompt builders. Clear endframe_url so the new render's frame
+                  // is what subsequent beats chain off of.
+                  beat.director_nudge = decision.nudgePromptDelta;
+                  beat.generated_video_url = null;
+                  beat.endframe_url = null;
+
+                  try {
+                    const result2 = await router.generate({
+                      beat,
+                      scene,
+                      refStack,
+                      personas,
+                      episodeContext,
+                      previousBeat
+                    });
+
+                    // Re-run QC8 (cheap) and replace the buffer
+                    let qc2 = null;
+                    try {
+                      qc2 = await runQualityGate({ videoBuffer: result2.videoBuffer, beat });
+                      beat.quality_gate = qc2;
+                    } catch (qcErr) {
+                      logger.warn(`beat ${beat.beat_id} QC8 retake threw: ${qcErr.message}`);
+                    }
+
+                    // Replace the previously-pushed buffer + metadata with the retake.
+                    // We push only AFTER the judge accepts the retry; if the second
+                    // pass also fails, we escalate without persisting the retake.
+                    const retakeUrl = await uploadBufferToStorage(
+                      result2.videoBuffer,
+                      'videos/v4-beats',
+                      `${beat.beat_id}-retake.mp4`,
+                      'video/mp4'
+                    );
+                    beat.generated_video_url = retakeUrl;
+
+                    try {
+                      const endframeBuffer2 = await extractBeatEndframe(result2.videoBuffer);
+                      beat.endframe_url = await uploadBufferToStorage(
+                        endframeBuffer2,
+                        'videos/v4-endframes',
+                        `${beat.beat_id}-retake-end.jpg`,
+                        'image/jpeg'
+                      );
+                    } catch (endErr) {
+                      logger.warn(`beat ${beat.beat_id} retake endframe extraction failed: ${endErr.message}`);
+                    }
+
+                    // Re-judge with isRetry=true
+                    verdictC = await directorAgent.judgeBeat({
+                      beat,
+                      scene,
+                      endframeImage: beat.endframe_url || retakeUrl,
+                      endframeMime: 'image/jpeg',
+                      previousEndframeImage: previousBeat?.endframe_url || null,
+                      previousEndframeMime: 'image/jpeg',
+                      sceneMasterThumbnail: scene?.scene_master_url || null,
+                      sceneMasterMime: 'image/jpeg',
+                      personas,
+                      routingMetadata: {
+                        modelUsed: result2.modelUsed,
+                        costUsd: result2.costUsd || null,
+                        metadata: result2.metadata || null
+                      },
+                      storyFocus: story.story_focus || 'drama',
+                      isRetry: true
+                    });
+                    directorReport.beat[beat.beat_id] = verdictC;
+                    directorReport.retries = decision.nextRetriesState;
+                    progress('director:beat', `beat ${beat.beat_id} retry verdict: ${fmtVerdict(verdictC)}`, {
+                      checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                      beat_id: beat.beat_id,
+                      retry: true,
+                      verdict: verdictC?.verdict,
+                      score: verdictC?.overall_score
+                    });
+
+                    // Replace the previously-pushed buffer (the failed first attempt
+                    // is still in beatVideoBuffers — overwrite the last entry).
+                    beatVideoBuffers[beatVideoBuffers.length - 1] = result2.videoBuffer;
+                    beatMetadata[beatMetadata.length - 1] = {
+                      beat_id: beat.beat_id,
+                      model_used: result2.modelUsed,
+                      duration_seconds: beat.duration_seconds,
+                      actual_duration_sec: result2.durationSec
+                    };
+
+                    // Second-attempt failure → escalate
+                    const final = decideDirectorRetry({
+                      verdict: verdictC,
+                      checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                      artifactKey: beat.beat_id,
+                      retriesState: directorReport.retries
+                    });
+                    if (final.shouldEscalate) {
+                      await updateBrandStoryEpisode(newEpisode.id, userId, {
+                        status: 'awaiting_user_review',
+                        scene_description: sceneGraph,
+                        director_report: directorReport
+                      });
+                      throw new DirectorBlockingHaltError({
+                        checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                        verdict: verdictC,
+                        artifactKey: beat.beat_id,
+                        reason: `retake still ${verdictC?.verdict} — escalating`
+                      });
+                    }
+                  } catch (regenErr) {
+                    if (regenErr instanceof DirectorBlockingHaltError) throw regenErr;
+                    logger.warn(`V4 Director Lens C retake failed (beat ${beat.beat_id}): ${regenErr.message}`);
+                    directorReport.beat[beat.beat_id + '_retry_error'] = regenErr.message;
+                  }
+                }
+              }
+            } catch (dirErr) {
+              if (dirErr instanceof DirectorBlockingHaltError) throw dirErr;
+              logger.warn(`V4 Director Agent Lens C (beat ${beat.beat_id}) failed (non-fatal): ${dirErr.message}`);
+              if (!directorReport.beat) directorReport.beat = {};
+              directorReport.beat[beat.beat_id] = { error: dirErr.message };
+            }
+          }
+
           beatVideoBuffers.push(result.videoBuffer);
           beatMetadata.push({
             beat_id: beat.beat_id,
@@ -3140,7 +3726,8 @@ Respond with ONLY valid JSON:
 
           // Persist beat-level progress so partial failures can resume
           await updateBrandStoryEpisode(newEpisode.id, userId, {
-            scene_description: sceneGraph
+            scene_description: sceneGraph,
+            director_report: directorReport
           });
         } catch (err) {
           logger.error(`beat ${beat.beat_id} failed: ${err.message}`);
@@ -3330,12 +3917,50 @@ Respond with ONLY valid JSON:
       'video/mp4'
     );
 
+    // ─── Step 10.5: Director Agent (Layer 3) — Lens D "Picture Lock" ───
+    // Multimodal full-video critique. ADVISORY ONLY — Lens D never auto-retries
+    // (full episodes are too expensive); findings recommend targeted scene/beat
+    // regenerate actions surfaced via the Director Panel's Lens D card.
+    // resolveDirectorMode() downgrades 'blocking' → 'advisory' for this lens.
+    if (directorAgent && finalVideoUrl && directorModes[DIRECTOR_CHECKPOINTS.EPISODE] !== 'off') {
+      const lensDMode = directorModes[DIRECTOR_CHECKPOINTS.EPISODE];
+      try {
+        const verdictD = await directorAgent.judgeEpisode({
+          episodeVideoUrl: finalVideoUrl,
+          videoMime: 'video/mp4',
+          sceneGraph,
+          sonicSeriesBible: story?.sonic_series_bible || null,
+          sonicWorld: sceneGraph?.sonic_world || null,
+          postProductionManifest: {
+            lutId: episodeLutId,
+            musicBedUrl,
+            subtitleUrl,
+            beatCount: enrichedBeatMetadata.length,
+            sceneCount: sceneGraph.scenes?.length || 0
+          },
+          storyFocus: story.story_focus || 'drama'
+        });
+        directorReport.episode = verdictD;
+        progress('director:episode', `episode: ${fmtVerdict(verdictD)}`, {
+          checkpoint: DIRECTOR_CHECKPOINTS.EPISODE,
+          mode: lensDMode,
+          verdict: verdictD?.verdict,
+          score: verdictD?.overall_score,
+          findings: (verdictD?.findings || []).length
+        });
+      } catch (dirErr) {
+        logger.warn(`V4 Director Agent Lens D failed (non-fatal): ${dirErr.message}`);
+        directorReport.episode = { error: dirErr.message };
+      }
+    }
+
     const completedEpisode = await updateBrandStoryEpisode(newEpisode.id, userId, {
       scene_description: sceneGraph,
       final_video_url: finalVideoUrl,
       subtitle_url: subtitleUrl,
       status: 'ready',
-      lut_id: episodeLutId
+      lut_id: episodeLutId,
+      director_report: directorReport
     });
 
     progress('complete', `Episode ${newEpisode.episode_number} ready: ${finalVideoUrl}`);
@@ -3436,6 +4061,18 @@ Respond with ONLY valid JSON:
     for (const k of ALLOWED_OVERRIDES) {
       if (overrides[k] !== undefined) targetBeat[k] = overrides[k];
     }
+
+    // V4 Director Agent — directorNotes carry-through. When the Director's Panel
+    // (or Phase 2 auto-retry) supplies a prompt_delta from a soft_reject finding,
+    // we stamp it onto the beat as `director_nudge` so beat generators can splice
+    // it into the model prompt. In shadow mode this is observational (verdicts
+    // collect in director_report); in blocking mode (Phase 2+) the orchestrator
+    // computes the nudge from DirectorRetryPolicy.decideRetry and passes it here.
+    if (typeof overrides.directorNotes === 'string' && overrides.directorNotes.length > 0) {
+      targetBeat.director_nudge = overrides.directorNotes;
+      progress('director_nudge', `beat ${beatId} regenerating with director nudge (${overrides.directorNotes.length} chars)`);
+    }
+
     // Clear the generated state so downstream code knows to actually generate
     targetBeat.generated_video_url = null;
     targetBeat.endframe_url = null;
@@ -3775,6 +4412,16 @@ Respond with ONLY valid JSON:
     const sceneGraph = episode.scene_description || {};
     if (!Array.isArray(sceneGraph.scenes)) throw new Error(`V4 reassemble: episode has no scene-graph`);
 
+    let brandKit = {};
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        if (job?.brand_kit) brandKit = job.brand_kit;
+      } catch (err) {
+        logger.warn(`V4 reassemble: failed to load brand kit (non-fatal): ${err.message}`);
+      }
+    }
+
     // Mark episode as regenerating_beat (closest existing status — means
     // "some in-place mutation is happening on this episode"). We could add
     // a dedicated 'reassembling' status but that requires a DB migration
@@ -3972,11 +4619,16 @@ Respond with ONLY valid JSON:
       previousEmotionalState,
       directorsNotes,
       costCapUsd,
-      hasBrandKitLut
+      hasBrandKitLut,
+      // Phase 3 — pass the locked sonic series bible so the prompt can teach
+      // Gemini to inherit from it. resolveBibleForStory returns the safe
+      // default if the story doesn't have one yet (legacy stories).
+      sonicSeriesBible: story.sonic_series_bible || null
     });
 
     const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {
-      hasBrandKitLut
+      hasBrandKitLut,
+      sonicSeriesBible: story.sonic_series_bible || null
     });
 
     const parsed = await callVertexGeminiJson({

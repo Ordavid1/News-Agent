@@ -28,7 +28,7 @@
 // generator does it inline if a supabaseUpload helper is in deps.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
-import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
 
 // Cost constants for estimator (per-second rates × typical duration)
 const COST_KLING_OMNI_STANDARD_PER_SEC = 0.168;
@@ -145,6 +145,15 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     const verticalDirective = 'VERTICAL 9:16 tight portrait. Eyes upper third, chin lower third, face fills vertical. No letterbox.';
     const identityDirective = 'Preserve facial structure from refs (bone geometry, eye/nose/jaw/lip). Same person, same face.';
 
+    // V4 Director Agent (L3) nudge. When the orchestrator (Phase 3 blocking-
+    // mode auto-retry OR Director-Panel "Apply L3 nudge & regenerate") stamps
+    // a generator-actionable prompt_delta onto the beat, splice it in as a
+    // HIGH-priority section so it survives the 512-char Kling budget unless
+    // truly mandatory directives are competing.
+    const directorNudge = (typeof beat?.director_nudge === 'string' && beat.director_nudge.trim().length > 0)
+      ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
+      : '';
+
     // Priority-ordered sections. Mandatory ones come first and can never be
     // dropped; optional ones are tried in order and skipped when the budget
     // is spent.
@@ -153,6 +162,7 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       { priority: 'mandatory', text: verticalDirective },
       { priority: 'mandatory', text: identityDirective },
       { priority: 'mandatory', text: framingHint },
+      { priority: 'high',      text: directorNudge },
       { priority: 'high',      text: subtextHint.trim() },
       { priority: 'high',      text: emotionHint.trim() },
       { priority: 'medium',    text: expressionHint.trim() },
@@ -197,6 +207,17 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       }
     }
     const { elements, elementTokens } = buildKlingElementsFromPersonas(personasInShot);
+
+    // Non-invasive subject anchoring — append the brand subject as a pure
+    // visual ref when the screenplay marks subject_present and there's room.
+    // Subject does NOT get an @Element token (it's not a speaker).
+    if (beat.subject_present && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) {
+        elements.push(subjectElement);
+        this.logger.info(`[${beat.beat_id}] subject element added to Kling refs (${elements.length}/3)`);
+      }
+    }
 
     // Splice @Element tokens into the prompt so Kling knows which character
     // speaks the line. Use @Element1 for the primary speaker.

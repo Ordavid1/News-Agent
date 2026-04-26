@@ -18,7 +18,7 @@
 // the episode timeline at scene boundaries.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
-import { buildKlingElementsFromPersonas } from '../KlingFalService.js';
+import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
 
 const COST_KLING_V3_PRO_PER_SEC = 0.224;
 
@@ -88,6 +88,18 @@ class MontageSequenceGenerator extends BaseBeatGenerator {
       }
     }
     const { elements } = buildKlingElementsFromPersonas(personasInMontage);
+
+    // Non-invasive subject anchoring — montage runs at scene level. If ANY
+    // beat in the montage marks subject_present and there's room in the
+    // elements[] cap, append the brand subject as a pure visual ref.
+    const sceneHasSubjectPresent = beats.some(b => b && b.subject_present === true);
+    if (sceneHasSubjectPresent && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) {
+        elements.push(subjectElement);
+        this.logger.info(`[scene ${scene.scene_id}] subject element added to Kling refs (${elements.length}/3)`);
+      }
+    }
 
     this.logger.info(
       `[scene ${scene.scene_id}] Kling V3 Pro Custom Multi-Shot — ${shots.length} shots, ${shots.reduce((s, x) => s + x.duration, 0)}s total, ${elements.length} element(s)`

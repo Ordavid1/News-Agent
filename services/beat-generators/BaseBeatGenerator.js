@@ -207,7 +207,30 @@ class BaseBeatGenerator {
 
     parts.push(...beatPromptFields);
 
-    return parts.join('. ').replace(/\.\./g, '.');
+    // V4 Director Agent (L3) — director_nudge consumption. When the orchestrator
+    // (Phase 3 blocking-mode auto-retry OR Director-Panel manual "Apply L3 nudge"
+    // button) stamps a generator-actionable prompt_delta onto the beat, splice
+    // it into the prompt as DIRECTOR'S NOTE. Generators that override
+    // _buildLayeredPrompt should call _appendDirectorNudge() to keep this
+    // behavior consistent across the family.
+    return this._appendDirectorNudge(parts.join('. ').replace(/\.\./g, '.'), beat);
+  }
+
+  /**
+   * Append a Director Agent prompt nudge to a built prompt string. Used by
+   * `_buildLayeredPrompt` and by subclasses that build their own prompts.
+   * Does nothing when `beat.director_nudge` is empty.
+   *
+   * @param {string} prompt - the existing prompt string
+   * @param {Object} beat
+   * @returns {string}
+   */
+  _appendDirectorNudge(prompt, beat) {
+    const nudge = beat?.director_nudge;
+    if (typeof nudge !== 'string' || nudge.trim().length === 0) return prompt;
+    const trimmed = String(prompt || '').replace(/\s+$/, '');
+    const sep = trimmed.length > 0 && !/[.!?]$/.test(trimmed) ? '. ' : ' ';
+    return `${trimmed}${sep}DIRECTOR'S NOTE (retake): ${nudge.trim()}`;
   }
 
   /**
@@ -419,16 +442,32 @@ class BaseBeatGenerator {
    * @param {Object} args.beat
    * @param {Object} args.scene
    * @param {Object} args.episodeContext
-   * @param {'hero'|'ambient'} [args.intent='hero']
+   * @param {'hero'|'ambient'|'natural'} [args.intent='hero']
    * @returns {Promise<string|null>}
    */
   async _buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent = 'hero' }) {
     if (process.env.V4_SIPL_STAGE === 'false') return null;
 
+    // 2026-04-25 — ambient SIPL disabled by default. The pre-pass was forcing
+    // the subject into B_ROLL / VO_BROLL frames where the screenplay didn't
+    // want it as the focal point, derailing scene focus and pulling the
+    // viewer's attention away from the actual narrative beat. INSERT_SHOT
+    // ('hero' intent) is unaffected — it WANTS the product as the focal
+    // point. To re-enable ambient SIPL: V4_SIPL_AMBIENT=true.
+    if (intent === 'ambient' && process.env.V4_SIPL_AMBIENT !== 'true') return null;
+
+    // 'natural' intent has NO env gate — the screenplay-level subject_focus
+    // check at the call site is the only gate. This is the non-invasive Veo
+    // anchoring path: terse Seedream prompt, no compositional emphasis,
+    // designed not to trip Vertex's image classifier on noir/surveillance
+    // scenes.
+
     // Idempotent resume — each intent gets its own cache key on the beat object.
     const cacheKey = intent === 'ambient'
       ? 'scene_integrated_subject_ambient_url'
-      : 'scene_integrated_product_frame_url';
+      : (intent === 'natural'
+        ? 'scene_integrated_subject_natural_url'
+        : 'scene_integrated_product_frame_url');
     if (beat[cacheKey]) return beat[cacheKey];
 
     const subjectRefs = episodeContext?.subjectReferenceImages || [];
@@ -454,7 +493,9 @@ class BaseBeatGenerator {
       });
       if (!result) return null;
       beat[cacheKey] = result.first_frame_url;
-      const label = intent === 'ambient' ? 'subject ambient frame' : 'product-lock first frame';
+      const label = intent === 'ambient'
+        ? 'subject ambient frame'
+        : (intent === 'natural' ? 'subject natural frame' : 'product-lock first frame');
       this.logger.info(`[${beat.beat_id}] scene-integrated ${label} ready`);
       return result.first_frame_url;
     } catch (err) {
@@ -467,20 +508,24 @@ class BaseBeatGenerator {
   /**
    * Build a short prompt directive that preserves subject appearance across beats.
    *
-   * When a beat has `subject_present: true`, the screenplay intends the user's
-   * subject (product, brand asset, etc.) to be visible in the shot. This
-   * directive reinforces that requirement at the prompt level — complementing
-   * any first-frame anchor that already carries the subject visually.
+   * DISABLED 2026-04-24 — the textual directive was over-steering Veo/Kling,
+   * forcing the subject into every frame even when the screenplay beat didn't
+   * intend it to be hero. This derailed scene coherence on test episodes.
    *
-   * Returns '' when the beat has no subject_present flag or no subject refs
-   * exist in the episode context (so callers can safely include it in
-   * filter(Boolean) arrays without checking first).
+   * The first-frame anchoring (ambient SIPL pre-pass + persona-lock subject
+   * mention in the Seedream first frame) still carries the subject visually
+   * where appropriate — that's the lock that actually matters. The prompt
+   * directive was belt-and-suspenders that ended up fighting the prompt.
+   *
+   * To re-enable: toggle the env flag V4_SUBJECT_PRESENCE_DIRECTIVE=true.
+   * Current default: disabled.
    *
    * @param {Object} beat
    * @param {Object} episodeContext
    * @returns {string}
    */
   _buildSubjectPresenceDirective(beat, episodeContext) {
+    if (process.env.V4_SUBJECT_PRESENCE_DIRECTIVE !== 'true') return '';
     if (!beat?.subject_present) return '';
     const subjectRefs = episodeContext?.subjectReferenceImages || [];
     if (subjectRefs.length === 0) return '';

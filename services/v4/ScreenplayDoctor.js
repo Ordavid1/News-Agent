@@ -32,6 +32,7 @@ const logger = winston.createLogger({
 });
 
 const EDITABLE_FIELDS = new Set(['dialogue', 'subtext', 'expression_notes', 'emotion', 'action_notes']);
+const EPISODE_ROOT_EDITABLE_FIELDS = new Set(['dramatic_question', 'music_bed_intent', 'hook', 'cliffhanger', 'mood']);
 
 /**
  * Render a compact character bible for the Doctor prompt. Only the fields
@@ -112,8 +113,24 @@ function applyPatch(sceneGraph, operations = []) {
       continue;
     }
     const { scene_id, beat_id, field, new_value } = op;
-    if (!scene_id || !beat_id || !field) {
-      rejected.push({ op, reason: 'missing scene_id/beat_id/field' });
+    if (!scene_id || !field) {
+      rejected.push({ op, reason: 'missing scene_id/field' });
+      continue;
+    }
+
+    // Episode-root patch: scene_id '__episode__', no beat_id required.
+    if (scene_id === '__episode__') {
+      if (EPISODE_ROOT_EDITABLE_FIELDS.has(field)) {
+        sceneGraph[field] = new_value;
+        applied.push({ ...op, scope: 'episode_root' });
+      } else {
+        rejected.push({ op, reason: `field '${field}' is not in the episode root allowlist` });
+      }
+      continue;
+    }
+
+    if (!beat_id) {
+      rejected.push({ op, reason: 'missing beat_id (required for non-episode-root ops)' });
       continue;
     }
     if (!EDITABLE_FIELDS.has(field)) {
@@ -169,8 +186,14 @@ For SHOT_REVERSE_SHOT beats (which carry exchanges[]), include "exchange_index" 
 the op to target a specific exchange:
   { "scene_id":"s2","beat_id":"s2b4","exchange_index":1,"field":"dialogue","new_value":"..." }
 
+For EPISODE-ROOT fields (dramatic_question, music_bed_intent, hook, cliffhanger, mood),
+use scene_id "__episode__" and omit beat_id:
+  { "scene_id": "__episode__", "beat_id": null, "field": "dramatic_question", "new_value": "Will Maya finally confront what she buried?" }
+
 RULES you MUST follow:
-- Editable fields are ONLY: dialogue, subtext, expression_notes, emotion, action_notes. Never anything else.
+- Beat-level editable fields are ONLY: dialogue, subtext, expression_notes, emotion, action_notes.
+- Episode-root editable fields are ONLY: dramatic_question, music_bed_intent, hook, cliffhanger, mood.
+- Never edit any other field.
 - Match each character's speech_patterns (vocabulary, sentence length, tics, avoids, signature line) exactly. If two characters in the same scene sound alike, rewrite one to sound more like themselves.
 - If a scene has opposing_intents and dialogue doesn't reflect them, rewrite the offending lines so the conflict is audible (via subtext if the line surface must stay polite).
 - Lift any beat with dialogue ≤ 3 words that isn't an emotional_hold into a proper line (5-12 words) while preserving the character's voice.
@@ -205,10 +228,17 @@ Return the JSON patch now.`;
  * @param {Object[]} personas
  * @param {Object[]} issues - Layer-1 issues (blockers drive the rewrite)
  * @param {Object} [options]
+ * @param {boolean} [options.force=false] - bypass the BRAND_STORY_SCREENPLAY_DOCTOR env-flag
+ *   gate. Used by the V4 Director Agent (L3) Lens-A retry path: when
+ *   `BRAND_STORY_DIRECTOR_SCREENPLAY=blocking` is on we want to re-doctor
+ *   the screenplay using the director's findings even if the original Doctor
+ *   flag is off. Director findings (severity 'critical') are recognized as
+ *   blocker-equivalents alongside L1's `severity: 'blocker'`.
  * @returns {Promise<{ patched, applied, rejected, notes, skipped }>}
  */
 export async function punchUpScreenplay(sceneGraph, personas = [], issues = [], options = {}) {
-  const enabled = String(process.env.BRAND_STORY_SCREENPLAY_DOCTOR || '').toLowerCase() === 'true';
+  const force = !!options.force;
+  const enabled = force || String(process.env.BRAND_STORY_SCREENPLAY_DOCTOR || '').toLowerCase() === 'true';
   if (!enabled) {
     return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'env flag BRAND_STORY_SCREENPLAY_DOCTOR not set' };
   }
@@ -218,9 +248,9 @@ export async function punchUpScreenplay(sceneGraph, personas = [], issues = [], 
   if (!isVertexGeminiConfigured()) {
     return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'Vertex Gemini not configured' };
   }
-  // Only run when there's at least one blocker to fix. Warnings don't trigger
-  // the Doctor — they're advisory and don't block generation.
-  const blockers = (issues || []).filter(i => i && i.severity === 'blocker');
+  // Only run when there's at least one blocker (L1) or critical (L3) to fix.
+  // Warnings/notes are advisory and don't trigger the Doctor.
+  const blockers = (issues || []).filter(i => i && (i.severity === 'blocker' || i.severity === 'critical'));
   if (blockers.length === 0) {
     return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'no blockers — nothing to punch up' };
   }
@@ -235,9 +265,15 @@ export async function punchUpScreenplay(sceneGraph, personas = [], issues = [], 
       userPrompt,
       config: {
         temperature: 0.4,
-        maxOutputTokens: 4096
+        // Gemini 3 Flash consumes "thinking tokens" BEFORE emitting visible
+        // output. For a multi-beat JSON patch (2+ blockers → 5-10 ops each
+        // with dialogue rewrites), 4096 overflows during the thinking phase
+        // and truncates mid-string. 16384 gives a ~4x safety margin over
+        // observed worst-case Doctor output (~3000 tokens of thinking + ~1500
+        // of JSON).
+        maxOutputTokens: 16384
       },
-      timeoutMs: 60000
+      timeoutMs: 90000
     });
   } catch (err) {
     logger.warn(`Doctor call failed (${err.message}) — returning original scene graph`);

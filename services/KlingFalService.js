@@ -119,6 +119,33 @@ export function buildKlingElementsFromPersonas(personas) {
   return { elements, elementTokens };
 }
 
+/**
+ * Build a Kling elements[] entry for the brand SUBJECT (product/object).
+ *
+ * Used for non-invasive subject anchoring on Kling beats: when the screenplay
+ * marks a beat with `subject_present: true`, the subject can be appended to
+ * the existing personas-derived elements[] (room permitting, max 3 total).
+ * No prompt change is needed — Kling locks the form factor via the visual
+ * reference alone.
+ *
+ * @param {string[]} subjectReferenceImages - public URLs of the subject's
+ *   reference images (story.subject.reference_image_urls).
+ * @returns {Object|null} `{ frontal_image_url, reference_image_urls? }` or
+ *   null when no usable refs are present.
+ */
+export function buildKlingSubjectElement(subjectReferenceImages) {
+  const refs = Array.isArray(subjectReferenceImages)
+    ? subjectReferenceImages.filter(Boolean)
+    : [];
+  if (refs.length === 0) return null;
+  const frontal = refs[0];
+  const additional = refs.slice(1, 1 + KLING_MAX_REFS_PER_ELEMENT);
+  return {
+    frontal_image_url: frontal,
+    ...(additional.length > 0 ? { reference_image_urls: additional } : {})
+  };
+}
+
 class KlingFalService {
   constructor() {
     // Three independent base services, one per endpoint. Each has its own

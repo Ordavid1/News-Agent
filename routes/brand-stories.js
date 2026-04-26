@@ -30,8 +30,14 @@ import winston from 'winston';
 
 // V4 imports
 import { getProgressEmitter } from '../services/v4/ProgressEmitter.js';
-import { getVoiceLibrary } from '../services/v4/VoiceAcquisition.js';
+import { getVoiceLibrary, inferPersonaGender } from '../services/v4/VoiceAcquisition.js';
 import { resolveEpisodeLut } from '../services/v4/BrandKitLutMatcher.js';
+import {
+  resolveBibleForStory,
+  validateBible,
+  mergeBibleDefaults,
+  DEFAULT_SONIC_SERIES_BIBLE
+} from '../services/v4/SonicSeriesBible.js';
 import {
   v4RegenerateLimiter,
   v4ReassembleLimiter,
@@ -1194,9 +1200,56 @@ router.patch('/:id/personas/:personaIndex/voice', csrfProtection, async (req, re
     const { voice_id, voice_name } = req.body;
     if (!voice_id) return res.status(400).json({ success: false, error: 'voice_id required' });
 
+    // ─── Voice-lock validation (Phase 1 hardening — 2026-04-25) ───
+    // The acquisition pipeline (acquirePersonaVoicesForStory) enforces
+    // cross-persona uniqueness + gender match by construction. The manual
+    // override path used to skip both checks, so a user could collide two
+    // personas onto the same voice (or assign a male voice to a female
+    // persona). Auto-remediation healed this on the next pipeline run, but
+    // the bad state persisted in the DB and showed wrong-voice in any
+    // intermediate beat regen. Now enforced at the route too.
+    const library = getVoiceLibrary();
+    const libraryEntry = library.find(v => v.voice_id === voice_id);
+    if (!libraryEntry) {
+      return res.status(400).json({
+        success: false,
+        error: `voice_id "${voice_id}" is not in the ElevenLabs preset library. Pick from the curated 26-voice library.`
+      });
+    }
+
+    // Cross-persona uniqueness — every other persona in this story must NOT
+    // already hold this voice_id.
+    const collidingIdx = personas.findIndex((p, i) =>
+      i !== idx && p && p.elevenlabs_voice_id === voice_id
+    );
+    if (collidingIdx >= 0) {
+      const otherName = personas[collidingIdx]?.name || `Persona ${collidingIdx + 1}`;
+      return res.status(409).json({
+        success: false,
+        error: `Voice "${libraryEntry.name}" is already locked to ${otherName} (persona ${collidingIdx}). Each persona in a story must have a unique voice. Either pick a different voice for this persona or first reassign ${otherName} to a different voice.`,
+        conflict: { taken_by_persona_index: collidingIdx, taken_by_persona_name: otherName }
+      });
+    }
+
+    // Gender enforcement — same rule the acquisition flow uses. inferPersonaGender
+    // returns 'unknown' on ambiguous descriptions, in which case any voice is
+    // allowed (no hard constraint).
+    const inferredGender = inferPersonaGender(personas[idx]);
+    if (inferredGender !== 'unknown') {
+      const voiceGender = String(libraryEntry.gender || '').toLowerCase();
+      if (voiceGender !== inferredGender) {
+        return res.status(409).json({
+          success: false,
+          error: `Voice "${libraryEntry.name}" is ${voiceGender}; persona "${personas[idx].name || `Persona ${idx + 1}`}" is inferred to be ${inferredGender}. The pipeline rejects gender-mismatched voices because they break the dialogue track. Pick a ${inferredGender} voice or update the persona description if the inference is wrong.`,
+          conflict: { voice_gender: voiceGender, persona_gender: inferredGender }
+        });
+      }
+    }
+
     personas[idx].elevenlabs_voice_id = voice_id;
-    if (voice_name) personas[idx].elevenlabs_voice_name = voice_name;
-    personas[idx].elevenlabs_voice_brief = `User-overridden voice (${voice_name || voice_id})`;
+    personas[idx].elevenlabs_voice_name = voice_name || libraryEntry.name;
+    personas[idx].elevenlabs_voice_gender = libraryEntry.gender;
+    personas[idx].elevenlabs_voice_brief = `User-overridden voice (${voice_name || libraryEntry.name})`;
     personas[idx].elevenlabs_voice_justification = 'Manually selected via Director\'s Panel';
     // Invalidate any prior Kling clone — the user may want a fresh clone next gen
     personas[idx].kling_voice_id = null;
@@ -1234,6 +1287,107 @@ router.patch('/:id/lut', csrfProtection, async (req, res) => {
   } catch (error) {
     logger.error('Error setting LUT lock:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to set LUT lock' });
+  }
+});
+
+/**
+ * GET /api/brand-stories/:id/sonic-series-bible
+ * Read the story's sonic series bible. Returns the safe-default bible if
+ * none has been authored yet (so the Director Panel can always render
+ * something — null indicates "not yet generated").
+ *
+ * Response:
+ *   {
+ *     success: true,
+ *     authored: boolean,                  // true if Gemini-authored, false if default
+ *     bible: <SonicSeriesBible>,
+ *     default: <DEFAULT_SONIC_SERIES_BIBLE>  // for Director Panel diff display
+ *   }
+ */
+router.get('/:id/sonic-series-bible', async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const authored = !!story.sonic_series_bible;
+    const bible = authored
+      ? resolveBibleForStory(story)
+      : { ...DEFAULT_SONIC_SERIES_BIBLE };
+
+    res.json({
+      success: true,
+      authored,
+      bible,
+      default: { ...DEFAULT_SONIC_SERIES_BIBLE }
+    });
+  } catch (error) {
+    logger.error('Error reading sonic_series_bible:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to read bible' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/sonic-series-bible
+ * Override the story's sonic series bible.
+ *
+ * Body shape (any of these forms):
+ *   { bible: <full bible object> }   — replace the whole bible
+ *   { bible: null }                  — clear the override (regenerate on next episode)
+ *
+ * Validation:
+ *   The body bible runs through validateBible() — blocker-severity issues
+ *   reject the PATCH with 422; warning-severity issues are accepted but
+ *   surfaced in the response so the Director Panel can flag them.
+ */
+router.patch('/:id/sonic-series-bible', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const { bible } = req.body;
+
+    // Clear-the-override path: bible=null → next runV4Pipeline will regenerate
+    if (bible === null) {
+      await updateBrandStory(req.params.id, req.user.id, { sonic_series_bible: null });
+      return res.json({
+        success: true,
+        cleared: true,
+        next_episode_will_regenerate: true
+      });
+    }
+
+    if (!bible || typeof bible !== 'object') {
+      return res.status(400).json({ success: false, error: 'Body must be { bible: <object> } or { bible: null }' });
+    }
+
+    // Merge defaults so partial overrides are valid (e.g. user only changes
+    // prohibited_instruments — the rest of the bible stays canonical).
+    const merged = mergeBibleDefaults(bible);
+    const issues = validateBible(merged);
+    const blockers = issues.filter(i => i.severity === 'blocker');
+
+    if (blockers.length > 0) {
+      return res.status(422).json({
+        success: false,
+        error: 'bible failed validation',
+        blockers,
+        warnings: issues.filter(i => i.severity === 'warning')
+      });
+    }
+
+    // Annotate provenance so the Director Panel can show "manually overridden"
+    merged._generated_by = 'manual_override';
+
+    await updateBrandStory(req.params.id, req.user.id, { sonic_series_bible: merged });
+
+    res.json({
+      success: true,
+      bible: merged,
+      warnings: issues
+    });
+  } catch (error) {
+    logger.error('Error overriding sonic_series_bible:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to override bible' });
   }
 });
 
