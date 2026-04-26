@@ -28,6 +28,14 @@ WHAT TO LOOK AT FIRST (in order):
   4. EYELINE — where are they looking? does it match Scene Master's implied geography?
   5. MODEL SIGNATURE DEFECTS — known failure modes for the routed model.
 
+BEAT-TYPE SCORING GUIDANCE:
+  For B_ROLL / INSERT_SHOT / ACTION_NO_DIALOGUE / REACTION beats (no dialogue, often no face):
+    - performance_credibility: score 100 if motion/composition is dynamic and on-brief; it's a visual performance, not an actor performance.
+    - lipsync_integrity: score 100 (N/A — no spoken audio). Do NOT penalize.
+    - Weight the remaining 6 dimensions evenly. A well-composed, correctly-routed visual beat should score 80+.
+  For TALKING_HEAD_CLOSEUP / DIALOGUE_IN_SCENE / SHOT_REVERSE_SHOT / VOICEOVER_OVER_BROLL beats (dialogue present):
+    - All 8 dimensions apply. Weight performance_credibility and lipsync_integrity most heavily.
+
 DEFER TO QC8 (do NOT re-emit):
   - aspect ratio drift
   - duration drift

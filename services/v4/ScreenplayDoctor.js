@@ -118,8 +118,8 @@ function applyPatch(sceneGraph, operations = []) {
       continue;
     }
 
-    // Episode-root patch: scene_id '__episode__', no beat_id required.
-    if (scene_id === '__episode__') {
+    // Episode-root patch: scene_id '__episode__' (or bare 'episode'), no beat_id required.
+    if (scene_id === '__episode__' || scene_id === 'episode') {
       if (EPISODE_ROOT_EDITABLE_FIELDS.has(field)) {
         sceneGraph[field] = new_value;
         applied.push({ ...op, scope: 'episode_root' });
@@ -187,8 +187,11 @@ the op to target a specific exchange:
   { "scene_id":"s2","beat_id":"s2b4","exchange_index":1,"field":"dialogue","new_value":"..." }
 
 For EPISODE-ROOT fields (dramatic_question, music_bed_intent, hook, cliffhanger, mood),
-use scene_id "__episode__" and omit beat_id:
-  { "scene_id": "__episode__", "beat_id": null, "field": "dramatic_question", "new_value": "Will Maya finally confront what she buried?" }
+use scene_id "__episode__" with NO beat_id key:
+  { "scene_id": "__episode__", "field": "dramatic_question", "new_value": "Will Maya finally confront what she buried?" }
+
+IMPORTANT: For ALL beat-level ops, beat_id MUST be the real beat identifier string (e.g. "s1b3").
+NEVER include "beat_id": null on any op — episode-root ops omit beat_id entirely; beat-level ops require it.
 
 RULES you MUST follow:
 - Beat-level editable fields are ONLY: dialogue, subtext, expression_notes, emotion, action_notes.
@@ -256,7 +259,11 @@ export async function punchUpScreenplay(sceneGraph, personas = [], issues = [], 
   }
 
   const working = JSON.parse(JSON.stringify(sceneGraph));
-  const userPrompt = buildUserPrompt({ sceneGraph: working, personas, issues });
+  // Pass only blockers to the Doctor prompt — warnings are advisory and
+  // distract Gemini from the primary fix, wasting patch-op budget on fields
+  // the Doctor isn't supposed to touch (e.g. sonic_world_overlay_replaces_base
+  // causing the Doctor to attempt sonic_world repairs that get rejected).
+  const userPrompt = buildUserPrompt({ sceneGraph: working, personas, issues: blockers });
 
   let parsed;
   try {

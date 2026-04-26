@@ -254,7 +254,9 @@ function checkDialogueBeatRatio(sceneGraph, personas, issues, storyFocus) {
 }
 
 function checkAvgDialogueLength(sceneGraph, issues) {
-  const lines = countAllDialogueLines(sceneGraph);
+  const allLines = countAllDialogueLines(sceneGraph);
+  // Exclude emotional_hold beats — short lines there are director-crafted silence, not sparseness.
+  const lines = allLines.filter(l => !l.beat?.emotional_hold);
   if (lines.length === 0) return;
   const totalWords = lines.reduce((s, l) => s + wordCount(l.text), 0);
   const avg = totalWords / lines.length;

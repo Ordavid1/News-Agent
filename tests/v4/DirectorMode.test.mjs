@@ -204,7 +204,7 @@ test('DirectorAgent — defaults: temp=0.7, maxOutputTokens=24576, timeoutMs=360
   // 24576: visible capacity 3195 tokens (38% margin over 2500-token worst-case
   // hard_reject verdict). thinkingConfig ignored by Vertex global endpoint;
   // ~87% of budget consumed by hidden thinking regardless of setting.
-  assert.equal(agent.maxOutputTokens, 24576);
+  assert.equal(agent.maxOutputTokens, 8192);
   // 360s: multimodal at 24576 budget takes ~205s at 120 t/s, ~307s at 80 t/s.
   // Both fit within 360s. Retry (min(24576×2,65536)=49152) is a safety net
   // but should rarely trigger since 24576 fits all observed verdict sizes.

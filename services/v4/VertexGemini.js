@@ -209,25 +209,20 @@ export async function callVertexGeminiJson({ systemPrompt, userPrompt, userParts
     generationConfig.responseSchema = responseSchema;
   }
   if (typeof thinkingLevel === 'string' && thinkingLevel.length > 0) {
-    // Vertex AI global endpoint for gemini-3-flash-preview uses the Gemini 2.5
-    // numeric thinkingBudget API surface, NOT the AI Studio thinkingLevel string
-    // API. Sending { thinkingLevel } is silently ignored — the model defaults to
-    // dynamic thinking that consumes ~87% of maxOutputTokens, causing MAX_TOKENS
-    // truncation or timeouts depending on budget size.
+    // Vertex AI gemini-3-flash-preview uses { thinkingLevel: 'MINIMAL'|'LOW'|'MEDIUM'|'HIGH' }
+    // (uppercase enum string). This REPLACES the Gemini 2.5 numeric { thinkingBudget } API.
+    // Sending thinkingBudget to Gemini 3 is silently accepted but has zero effect —
+    // the model ignores it and runs at its default thinking level, consuming ~87% of
+    // maxOutputTokens as hidden thinking (thoughtsTokenCount reported as 0, SDK bug #782).
     //
-    // Map string levels to explicit numeric thinkingBudget:
-    //   'minimal' → 0 (disable — rubric matching is explicit pattern-check, no
-    //                   novel reasoning needed; schema enum constraints bound shape)
-    //   'low'     → 1024
-    //   'medium'  → 4096
-    //   'high'    → 8192
-    //
-    // With thinking disabled, the full maxOutputTokens budget is available for
-    // visible verdict output. Schema maxItems + maxLength caps keep verdicts to
-    // ~1500 tokens; 8192 budget gives 5× headroom.
-    const THINKING_BUDGET_MAP = { minimal: 0, low: 1024, medium: 4096, high: 8192 };
-    const thinkingBudget = THINKING_BUDGET_MAP[thinkingLevel] ?? 1024;
-    generationConfig.thinkingConfig = { thinkingBudget };
+    // MINIMAL is the floor for Gemini 3 Flash — thinking cannot be fully disabled, only
+    // minimised. With MINIMAL set, empirically visible budget rises from ~13% → ~50%+
+    // of maxOutputTokens, giving the verdict JSON room to complete within the token cap.
+    const THINKING_LEVEL_MAP = { minimal: 'MINIMAL', low: 'LOW', medium: 'MEDIUM', high: 'HIGH' };
+    const resolvedLevel = THINKING_LEVEL_MAP[thinkingLevel];
+    if (resolvedLevel) {
+      generationConfig.thinkingConfig = { thinkingLevel: resolvedLevel };
+    }
   }
 
   const requestBody = {

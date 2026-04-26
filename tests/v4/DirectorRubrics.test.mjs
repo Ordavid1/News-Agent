@@ -87,6 +87,48 @@ test('verdict schema — commendations is a non-empty string array, capped at 2'
 });
 
 // ──────────────────────────────────────────────────────────────
+// dimension_scores — explicit per-checkpoint enumeration 2026-04-26
+// Root cause of MAX_TOKENS blowout: additionalProperties: { type: 'integer' }
+// (schema-value form) is intermittently ignored by Vertex AI, causing the model
+// to emit verbose prose values (8177 tokens vs expected ~400). Fix: enumerate
+// each checkpoint's dimension keys explicitly with additionalProperties: false
+// (boolean form — reliably supported by Vertex AI).
+// ──────────────────────────────────────────────────────────────
+test('verdict schema — dimension_scores uses additionalProperties:false (boolean, not schema-value)', () => {
+  for (const schema of [SCREENPLAY_VERDICT_SCHEMA, SCENE_MASTER_VERDICT_SCHEMA, BEAT_VERDICT_SCHEMA, EPISODE_VERDICT_SCHEMA]) {
+    const ds = schema.properties.dimension_scores;
+    assert.strictEqual(ds.additionalProperties, false, 'must be boolean false, not a schema object');
+    assert.ok(Array.isArray(ds.propertyOrdering) && ds.propertyOrdering.length > 0, 'propertyOrdering must be present and non-empty');
+    assert.ok(typeof ds.properties === 'object' && Object.keys(ds.properties).length > 0, 'at least one named property must be present');
+    const firstKey = ds.propertyOrdering[0];
+    assert.equal(ds.properties[firstKey]?.type, 'integer', 'dimension properties must be type:integer');
+    assert.equal(ds.properties[firstKey]?.minimum, 0);
+    assert.equal(ds.properties[firstKey]?.maximum, 100);
+  }
+});
+
+test('verdict schema — dimension_scores per-checkpoint keys match rubric', () => {
+  assert.deepEqual(SCREENPLAY_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
+    'story_spine', 'character_voice', 'dialogue_craft', 'subtext_density',
+    'scene_structure', 'escalation', 'genre_fidelity', 'sonic_world_coherence', 'cliffhanger'
+  ]);
+  assert.deepEqual(SCENE_MASTER_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
+    'composition', 'nine_sixteen_storytelling', 'persona_fidelity',
+    'genre_register_visual', 'lut_mood_fit', 'wardrobe_props_credibility', 'directorial_interest'
+  ]);
+  assert.deepEqual(BEAT_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
+    'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
+    'lighting_continuity', 'lens_continuity', 'camera_move_intent',
+    'identity_lock', 'model_signature_check'
+  ]);
+  assert.deepEqual(EPISODE_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
+    'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
+    'lut_consistency_cross_scene', 'transition_intent', 'subtitle_legibility_taste',
+    'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting'
+  ]);
+});
+
+// ──────────────────────────────────────────────────────────────
 // Length-discipline caps — tightened 2026-04-26 after observing hard_reject
 // verdicts filling 3200+ visible tokens at budget 24576 (candidate=3208,
 // MAX_TOKENS). Root cause: Vertex validates maxItems/maxLength post-hoc, NOT

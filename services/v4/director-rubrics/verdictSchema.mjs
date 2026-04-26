@@ -10,8 +10,11 @@
 // constraints (vs. full JSON Schema):
 //   - `type` must be a single string, not array (no nullable via type).
 //   - `enum` is supported on string properties.
-//   - `additionalProperties: false` is supported but discouraged for
-//     forward compat — we use `propertyOrdering` instead where it helps.
+//   - `additionalProperties: false` (boolean) is supported and reliably
+//     enforced by Vertex AI. Use it on objects with known key sets.
+//     `additionalProperties: { type: 'integer' }` (schema-value form) is
+//     NOT reliably enforced — Vertex AI intermittently ignores it, causing
+//     the model to emit verbose prose values and exhaust the token budget.
 //   - `minimum` / `maximum` supported on number.
 //   - `required` array supported.
 //   - `propertyOrdering` (Vertex extension, NOT standard JSON Schema) is
@@ -22,8 +25,9 @@
 //     schema includes `propertyOrdering` listing its properties in the
 //     exact order the model should emit them.
 //
-// One schema, four checkpoints. The `checkpoint` enum value differs per
-// invocation but the verdict shape is uniform.
+// Four checkpoints, four schemas. Each schema enumerates its lens-specific
+// dimension_scores keys explicitly (additionalProperties: false) so Vertex AI
+// cannot emit verbose prose values. Dimension keys match the rubric files.
 
 const SEVERITY_ENUM = ['critical', 'warning', 'note'];
 const VERDICT_ENUM = ['pass', 'pass_with_notes', 'soft_reject', 'hard_reject'];
@@ -38,7 +42,18 @@ const ACTION_ENUM = [
   'user_review'
 ];
 
-function buildSchema(checkpointValue) {
+function buildDimensionScoresSchema(dimensionKeys) {
+  return {
+    type: 'object',
+    propertyOrdering: dimensionKeys,
+    additionalProperties: false,
+    properties: Object.fromEntries(
+      dimensionKeys.map(k => [k, { type: 'integer', minimum: 0, maximum: 100 }])
+    )
+  };
+}
+
+function buildSchema(checkpointValue, dimensionKeys) {
   return {
     type: 'object',
     // propertyOrdering tells Vertex the exact sequence to emit fields.
@@ -81,12 +96,7 @@ function buildSchema(checkpointValue) {
         minimum: 0,
         maximum: 100
       },
-      dimension_scores: {
-        type: 'object',
-        description: 'Object keyed by dimension name from the lens rubric. Each value is an integer 0-100.'
-        // dynamic keys — we don't enumerate per checkpoint to keep one schema,
-        // the lens prompt names the expected dimensions.
-      },
+      dimension_scores: buildDimensionScoresSchema(dimensionKeys),
       findings: {
         type: 'array',
         // CAP: at most 3 findings. Vertex AI validates maxItems/maxLength post-hoc
@@ -166,10 +176,27 @@ function buildSchema(checkpointValue) {
   };
 }
 
-export const SCREENPLAY_VERDICT_SCHEMA = buildSchema('screenplay');
-export const SCENE_MASTER_VERDICT_SCHEMA = buildSchema('scene_master');
-export const BEAT_VERDICT_SCHEMA = buildSchema('beat');
-export const EPISODE_VERDICT_SCHEMA = buildSchema('episode');
+export const SCREENPLAY_VERDICT_SCHEMA = buildSchema('screenplay', [
+  'story_spine', 'character_voice', 'dialogue_craft', 'subtext_density',
+  'scene_structure', 'escalation', 'genre_fidelity', 'sonic_world_coherence', 'cliffhanger'
+]);
+
+export const SCENE_MASTER_VERDICT_SCHEMA = buildSchema('scene_master', [
+  'composition', 'nine_sixteen_storytelling', 'persona_fidelity',
+  'genre_register_visual', 'lut_mood_fit', 'wardrobe_props_credibility', 'directorial_interest'
+]);
+
+export const BEAT_VERDICT_SCHEMA = buildSchema('beat', [
+  'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
+  'lighting_continuity', 'lens_continuity', 'camera_move_intent',
+  'identity_lock', 'model_signature_check'
+]);
+
+export const EPISODE_VERDICT_SCHEMA = buildSchema('episode', [
+  'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
+  'lut_consistency_cross_scene', 'transition_intent', 'subtitle_legibility_taste',
+  'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting'
+]);
 
 export const VERDICT_ENUMS = Object.freeze({
   verdict: VERDICT_ENUM,

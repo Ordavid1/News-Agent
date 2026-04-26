@@ -104,20 +104,27 @@ const DEFAULT_TEMPERATURE = 0.7;
 //                        budget=12288: thinking≈10665, visible≈1623 → truncated
 //                        budget=16384: thinking≈14254, visible≈2130 available
 //                                      verdict used 1578 tokens → finish=STOP ✓
+//                        budget=24576: visible≈3195 — BUT verdict STILL hits
+//                                      MAX_TOKENS at candidate=3210 (barely over).
+//                                      Root cause: dimension_scores had no
+//                                      additionalProperties schema constraint →
+//                                      model writes verbose prose values (e.g.
+//                                      "75 — arc present but...") adding 500-2000
+//                                      extra visible tokens. Verdict itself is
+//                                      3500+ when prose, ~435 when integers only.
 //
-//                      Verdict size varies by judgment quality:
-//                        Lens A soft_reject: ~1578 tokens visible → min budget ~12138
-//                        Lens B hard_reject: ~2500+ tokens visible → min budget ~19231
-//                      Set budget 24576 → visible capacity 3195 tokens (38% margin
-//                      over observed 2500-token worst case), handles all lens types.
-//
-//                      At 24576 budget, multimodal generation: ~205s at observed
-//                      ~120 t/s. Timeout raised to 360s for comfortable margin
-//                      even at slow generation (~80 t/s → ~307s < 360s ✓).
-//                      Retry at min(24576×2, 65536)=49152 is a safety net —
-//                      should rarely trigger since 24576 provides 3195 visible
-//                      tokens which exceeds all observed verdict sizes.
-const DEFAULT_MAX_OUTPUT_TOKENS = 24576;
+//   2026-04-26T15:33 — thinkingLevel: 'MINIMAL' (uppercase, Gemini 3 API) is
+//                      ALSO ignored on Vertex global endpoint, same as
+//                      thinkingBudget: 0. Both APIs silently accepted, zero
+//                      effect. Hidden thinking stays at ~87% regardless.
+//                      Root fix: add additionalProperties:{type:integer} to
+//                      dimension_scores in verdictSchema.mjs. This forces integer
+//                      values and drops worst-case verdict from 3500+ → ~435
+//                      tokens. At 87% thinking, budget=8192 → visible=1065 →
+//                      435-token hard_reject fits with 630-token margin.
+//                      Generation time: 8192/120t/s = 68s << 360s timeout ✓.
+//                      Retry at 16384 = 137s; first+buffer+retry = 235s < 360s ✓.
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 const DEFAULT_TIMEOUT_MS = 360_000;    // raised from 240s — multimodal at 24576 budget takes ~205s
 const DEFAULT_TIMEOUT_VIDEO_MS = 360_000; // Lens D (full episode video)
 const DEFAULT_THINKING_LEVEL = 'minimal';

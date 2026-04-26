@@ -46,7 +46,7 @@ test('DirectorAgent._call — MAX_TOKENS on attempt 1, success on retry', async 
   // Fake DirectorAgent that replicates _call logic with a controlled Gemini stub
   class TestAgent {
     constructor() {
-      this.maxOutputTokens = 24576;
+      this.maxOutputTokens = 8192;
       this.temperature = 0.7;
       this.timeoutMs = 180_000;
       this.modelId = 'gemini-3-flash-preview';
@@ -95,11 +95,11 @@ test('DirectorAgent._call — MAX_TOKENS on attempt 1, success on retry', async 
   assert.equal(verdict.error, undefined, 'no error field on success');
 
   // Attempt 1: original budget
-  assert.equal(budgets[0], 24576);
+  assert.equal(budgets[0], 8192);
   assert.equal(temps[0], 0.7);
 
   // Attempt 2: doubled budget (capped at 65536), temp +0.2
-  assert.equal(budgets[1], Math.min(24576 * 2, 65536));
+  assert.equal(budgets[1], Math.min(8192 * 2, 65536));
   assert.equal(temps[1], Math.min(0.7 + 0.2, 1.0));
 });
 
@@ -108,7 +108,7 @@ test('DirectorAgent._call — MAX_TOKENS on both attempts → synthetic error re
 
   class TestAgent {
     constructor() {
-      this.maxOutputTokens = 24576;
+      this.maxOutputTokens = 8192;
       this.temperature = 0.7;
       this.timeoutMs = 180_000;
     }

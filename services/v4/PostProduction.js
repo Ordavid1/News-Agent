@@ -211,6 +211,7 @@ function normalizeVideo(inputPath, outputPath, options = {}) {
 function resolveNativeAudioGain(modelUsed) {
   if (!modelUsed) return 1.0;
   const m = modelUsed.toLowerCase();
+  if (m.includes('text-card')) return 0.0;                                // anullsrc — no signal; skip loudnorm
   if (m.includes('vo-broll')) return 0.0;                                 // V.O. owns the audio
   if (m.includes('veo')) return 0.35;                                     // diegetic events under episode bed
   if (m.includes('mode-b') || m.includes('sync-lipsync')) return 0.6;     // keep dialogue audible
