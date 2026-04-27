@@ -2478,6 +2478,7 @@ export async function runPostProduction({
   episodeLutId,
   musicBedBuffer,
   sceneGraph = null,
+  sceneDescription = null,
   episodeMeta = null,
   burnSubtitles: shouldBurnSubtitles = true
 }) {
@@ -2518,8 +2519,14 @@ export async function runPostProduction({
     // Build per-scene assemblies. Each scene's beats get concat'd tight,
     // then the scene's ambient bed is layered under the whole thing, then
     // scenes are joined with their Gemini-specified transition.
+    //
+    // scenePaths is hoisted to function scope so the Phase 4 sonic_world
+    // mix (Stage 2.5b, below) can consume per-scene timeline data. When the
+    // else-branch (no scene-graph) runs, it stays empty — and the sonic_world
+    // block won't fire either since _resolveEpisodeSonicWorld returns null
+    // without a sceneDescription, so the empty array is never iterated.
+    const scenePaths = [];
     if (sceneGraph && sceneGraph.length > 0) {
-      const scenePaths = [];
 
       // Walk normalized beat videos in the same order the orchestrator
       // generated them. Match beats to scenes by position in the scene-graph.

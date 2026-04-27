@@ -154,15 +154,32 @@ describe('ScreenplayValidator — warnings', () => {
     assert.equal(warn.severity, 'warning');
   });
 
-  test('bare short lines marked emotional_hold are NOT counted', () => {
+  test('bare short lines marked emotional_hold WITH justification are NOT counted', () => {
     const g = cleanGraph();
+    // Earned holds — each beat has expression_notes ≥ 5 words explaining the silence.
+    g.scenes[0].beats = [
+      { beat_id: 's1b1', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Go now.', emotional_hold: true, expression_notes: 'eyes locked on the open doorway, jaw tight', duration_seconds: 3 },
+      { beat_id: 's1b2', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'I cannot.', emotional_hold: true, expression_notes: 'breath catches, gaze drops to the floor', duration_seconds: 3 },
+      { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Why not?', emotional_hold: true, expression_notes: 'face hardens, shoulders square against the answer', duration_seconds: 3 }
+    ];
+    const r = validateScreenplay(g, {}, PERSONAS);
+    assert.ok(!r.issues.find(i => i.id === 'too_many_bare_short_lines'));
+    assert.ok(!r.issues.find(i => i.id === 'unearned_emotional_hold'));
+  });
+
+  test('bare short lines marked emotional_hold WITHOUT justification ARE counted (unearned)', () => {
+    const g = cleanGraph();
+    // Naked emotional_hold flag — no expression_notes, no subtext. Gameable.
     g.scenes[0].beats = [
       { beat_id: 's1b1', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Go now.', emotional_hold: true, duration_seconds: 3 },
       { beat_id: 's1b2', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'I cannot.', emotional_hold: true, duration_seconds: 3 },
       { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Why not?', emotional_hold: true, duration_seconds: 3 }
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(!r.issues.find(i => i.id === 'too_many_bare_short_lines'));
+    assert.ok(r.issues.find(i => i.id === 'too_many_bare_short_lines'));
+    const unearned = r.issues.filter(i => i.id === 'unearned_emotional_hold');
+    assert.equal(unearned.length, 3);
+    assert.equal(unearned[0].severity, 'warning');
   });
 
   test('intensity ramp drop from prior ep 8 → this ep "calm" produces warning', () => {

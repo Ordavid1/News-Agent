@@ -42,7 +42,14 @@ export const THRESHOLDS = {
   minSubtextCoverage: 0.40,          // ≥ 40% of dialogue beats have non-null subtext
   maxBareShortLines: 2,              // ≤ 2 beats with dialogue ≤ 3 words AND not emotional_hold
   beatSizeToleranceMin: 0.7,
-  beatSizeToleranceMax: 1.3
+  beatSizeToleranceMax: 1.3,
+  // emotional_hold is the ONLY exemption from the dialogue-density floor.
+  // To prevent Gemini from gaming the flag (flipping it on every short beat
+  // to dodge dialogue_too_sparse), the hold must be JUSTIFIED — i.e. the
+  // beat must carry substantive expression_notes OR subtext explaining what
+  // the silence is doing. An unearned hold is treated as ordinary sparse
+  // dialogue (counted in avg-words and bare-short tallies).
+  emotionalHoldMinJustificationWords: 5
 };
 
 // English stopwords — used for voice-distinctness tokenisation.
@@ -79,6 +86,20 @@ function tokenise(line) {
 function wordCount(line) {
   if (!line || typeof line !== 'string') return 0;
   return line.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * `emotional_hold: true` exempts a beat from the dialogue-density floor
+ * (avg words + bare-short tally), but only when the silence is EARNED —
+ * the beat must carry substantive expression_notes OR subtext that justifies
+ * what the held silence is doing. A naked `emotional_hold: true` flag with
+ * no justification is gameable and is treated as ordinary sparse dialogue.
+ */
+function isEmotionalHoldEarned(beat) {
+  if (!beat || beat.emotional_hold !== true) return false;
+  const min = THRESHOLDS.emotionalHoldMinJustificationWords;
+  return wordCount(beat.expression_notes) >= min
+      || wordCount(beat.subtext) >= min;
 }
 
 /**
@@ -255,8 +276,10 @@ function checkDialogueBeatRatio(sceneGraph, personas, issues, storyFocus) {
 
 function checkAvgDialogueLength(sceneGraph, issues) {
   const allLines = countAllDialogueLines(sceneGraph);
-  // Exclude emotional_hold beats — short lines there are director-crafted silence, not sparseness.
-  const lines = allLines.filter(l => !l.beat?.emotional_hold);
+  // Exempt only EARNED emotional_hold beats (flag + substantive justification).
+  // An unearned hold is gameable — count it normally so dialogue_too_sparse
+  // can still fire when Gemini sprays the flag to dodge the floor.
+  const lines = allLines.filter(l => !isEmotionalHoldEarned(l.beat));
   if (lines.length === 0) return;
   const totalWords = lines.reduce((s, l) => s + wordCount(l.text), 0);
   const avg = totalWords / lines.length;
@@ -290,11 +313,34 @@ function checkSubtextCoverage(sceneGraph, issues) {
   }
 }
 
+/**
+ * Surface every `emotional_hold: true` beat that lacks substantive justification.
+ * Warning-severity (advisory) — the dialogue-density blockers already account
+ * for the unearned holds quantitatively; this check gives the user (and the
+ * Director Agent) a per-beat paper trail so the looseness is visible.
+ */
+function checkEmotionalHoldEarned(sceneGraph, issues) {
+  const min = THRESHOLDS.emotionalHoldMinJustificationWords;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (beat.emotional_hold !== true) continue;
+      if (isEmotionalHoldEarned(beat)) continue;
+      issues.push({
+        id: 'unearned_emotional_hold',
+        severity: 'warning',
+        scope: `beat:${beat.beat_id || '?'}`,
+        message: `Beat marks emotional_hold: true but lacks ≥${min}-word expression_notes or subtext to justify the silence.`,
+        hint: 'Either add expression_notes describing what the silent face/body shows, add subtext explaining what the silence carries, OR drop emotional_hold and write a full line.'
+      });
+    }
+  }
+}
+
 function checkOneGreatLinePrinciple(sceneGraph, issues) {
   let bareShort = 0;
   const lines = countAllDialogueLines(sceneGraph);
   for (const l of lines) {
-    if (wordCount(l.text) <= 3 && !(l.beat && l.beat.emotional_hold)) bareShort++;
+    if (wordCount(l.text) <= 3 && !isEmotionalHoldEarned(l.beat)) bareShort++;
   }
   if (bareShort > THRESHOLDS.maxBareShortLines) {
     issues.push({
@@ -841,6 +887,7 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkAvgDialogueLength(repaired, issues);
   checkSubtextCoverage(repaired, issues);
   checkOneGreatLinePrinciple(repaired, issues);
+  checkEmotionalHoldEarned(repaired, issues);
   checkIntensityRamp(repaired, storyline, issues);
   checkMouthOcclusion(repaired, issues);
   checkPersonaIndexCoverage(repaired, personas, issues);

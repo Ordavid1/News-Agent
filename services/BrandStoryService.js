@@ -3888,6 +3888,7 @@ Respond with ONLY valid JSON:
       episodeLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
+      sceneDescription: sceneGraph,
       episodeMeta,
       burnSubtitles: true
     });
@@ -4309,6 +4310,7 @@ Respond with ONLY valid JSON:
       episodeLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
+      sceneDescription: sceneGraph,
       episodeMeta,
       burnSubtitles: true
     });
@@ -4547,6 +4549,7 @@ Respond with ONLY valid JSON:
       episodeLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
+      sceneDescription: sceneGraph,
       episodeMeta,
       burnSubtitles: true
     });

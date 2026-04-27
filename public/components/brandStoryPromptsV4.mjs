@@ -1195,6 +1195,15 @@ BEAT-LEVEL OPTIONAL FIELDS (emit only when applicable):
   duration. Post-production will NOT auto-trim trailing silence; TTS will not
   pace-pad; transition xfade out of the beat stays 'cut' or 'fadeblack' (never
   dissolve into a cliffhanger).
+  EARNED-HOLD CONTRACT: emotional_hold: true is the ONLY exemption from the
+  6-words-per-line dialogue-density floor. To honor the exemption, the beat
+  MUST also carry substantive expression_notes (≥5 words) OR substantive
+  subtext (≥5 words) that articulates what the silence is doing — what the
+  face shows, what the line is NOT saying. A naked emotional_hold flag with
+  no justification is treated by the validator as ordinary sparse dialogue
+  and counts toward dialogue_too_sparse / too_many_bare_short_lines.
+  WHY: the flag exists to honor director-crafted silence, not to dodge the
+  density floor on weak beats. Earn the silence or write a full line.
 
 - "pace_hint": one of "slow" | "normal" | "fast". Nudges the TTS speaking rate
   within the 0.7×-1.2× clamp for dialogue beats. Use for character-consistent
