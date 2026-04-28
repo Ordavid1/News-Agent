@@ -189,13 +189,30 @@ export const SCENE_MASTER_VERDICT_SCHEMA = buildSchema('scene_master', [
 export const BEAT_VERDICT_SCHEMA = buildSchema('beat', [
   'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
   'lighting_continuity', 'lens_continuity', 'camera_move_intent',
-  'identity_lock', 'model_signature_check'
+  'identity_lock', 'model_signature_check',
+  // Phase 4 — natural product placement guardrails. These dimensions are
+  // scored 100 (N/A pass-through) when the beat is not product-bearing
+  // OR when product_integration_style is hero_showcase / commercial.
+  'product_identity_lock', 'product_subtlety'
 ]);
 
 export const EPISODE_VERDICT_SCHEMA = buildSchema('episode', [
   'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
   'lut_consistency_cross_scene', 'transition_intent', 'subtitle_legibility_taste',
   'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting'
+]);
+
+// Phase 6 — COMMERCIAL genre verdict schemas (replaces Lens A and Lens D for
+// stories whose genre == 'commercial'). The Lens 0 brief verdict shares the
+// same dimension set as Lens A (commercial) — one rubric across pre-screenplay
+// brief AND assembled spot.
+export const COMMERCIAL_BRIEF_VERDICT_SCHEMA = buildSchema('commercial_brief', [
+  'creative_bravery', 'brand_recall', 'story_compression', 'visual_signature',
+  'hook_first_1_5s', 'music_visual_sync', 'tagline_landing', 'product_role'
+]);
+export const COMMERCIAL_EPISODE_VERDICT_SCHEMA = buildSchema('commercial_episode', [
+  'creative_bravery', 'brand_recall', 'story_compression', 'visual_signature',
+  'hook_first_1_5s', 'music_visual_sync', 'tagline_landing', 'product_role'
 ]);
 
 export const VERDICT_ENUMS = Object.freeze({

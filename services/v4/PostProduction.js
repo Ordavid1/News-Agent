@@ -1652,26 +1652,56 @@ function _resolveEpisodeSonicWorld(sceneDescription) {
 // Stage 4 — Unified creative LUT pass (stage 2 of 2-pass grade)
 // ─────────────────────────────────────────────────────────────────────
 
-function applyCreativeLut(inputPath, outputPath, lutId) {
+/**
+ * Apply the creative LUT pass. Phase 2 (BRAND_STORY_LUT_GENERATIVE_PRIMARY):
+ * supports an optional second pass for the brand-palette LUT, layered on top
+ * of the genre LUT in the same ffmpeg invocation:
+ *
+ *   FFmpeg filter chain when both LUTs present:
+ *     lut3d='genre.cube',lut3d='brand.cube'
+ *
+ * Genre LUT runs first (locks the cinematic register). Brand LUT runs second
+ * at low strength (already baked into the .cube via per-genre strength). The
+ * brand pass acts as a tonal trim — never overrides motivation.
+ *
+ * @param {string} inputPath
+ * @param {string} outputPath
+ * @param {string} lutId  - the creative (genre / legacy) LUT id
+ * @param {string} [brandLutId] - optional brand-palette LUT id (Phase 2)
+ */
+function applyCreativeLut(inputPath, outputPath, lutId, brandLutId = null) {
   const lutPath = getLutFilePath(lutId);
-  if (!lutPath) {
-    logger.warn(`creative LUT "${lutId}" not available on disk — skipping grade`);
+  const brandLutPath = brandLutId ? getLutFilePath(brandLutId) : null;
+
+  // Compose the ffmpeg filter chain. Order matters — genre first, brand trim
+  // last (so brand color sits on top of the colorist's grade, never under it).
+  const filters = [];
+  if (lutPath) filters.push(`lut3d='${lutPath}'`);
+  if (brandLutPath) filters.push(`lut3d='${brandLutPath}'`);
+
+  if (filters.length === 0) {
+    logger.warn(`creative LUT "${lutId}" + brand "${brandLutId}" both unavailable — skipping grade`);
     fs.copyFileSync(inputPath, outputPath);
     return;
   }
+
+  const filterChain = filters.join(',');
+  const stagesLog = brandLutPath
+    ? `genre=${lutId} + brand=${brandLutId}`
+    : `${lutId}${brandLutId ? ` (brand "${brandLutId}" missing — applying genre only)` : ''}`;
 
   try {
     execFileSync('ffmpeg', [
       '-y',
       '-i', inputPath,
-      '-vf', `lut3d='${lutPath}'`,
+      '-vf', filterChain,
       '-c:v', 'libx264',
       '-preset', 'medium',
       '-pix_fmt', 'yuv420p',
       '-c:a', 'copy',
       outputPath
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
-    logger.info(`applied creative LUT ${lutId}`);
+    logger.info(`applied creative LUT pass: ${stagesLog}`);
   } catch (err) {
     logger.warn(`creative LUT pass failed: ${err.message} — outputting ungraded`);
     fs.copyFileSync(inputPath, outputPath);
@@ -2476,6 +2506,7 @@ export async function runPostProduction({
   beatVideoBuffers,
   beatMetadata,
   episodeLutId,
+  brandLutId = null,
   musicBedBuffer,
   sceneGraph = null,
   sceneDescription = null,
@@ -2700,12 +2731,17 @@ export async function runPostProduction({
     }
 
     // ─── Stage 3 — unified creative LUT pass ───
-    logger.info(`stage 3/6: creative LUT pass (${episodeLutId})`);
+    // Phase 2: when brandLutId is provided (gated upstream by
+    // BRAND_STORY_LUT_GENERATIVE_PRIMARY), apply a two-pass grade —
+    // genre LUT first (locks cinematic register), brand LUT second (tonal
+    // trim toward brand identity at per-genre strength).
+    const lutLabel = brandLutId ? `${episodeLutId} + brand:${brandLutId}` : episodeLutId;
+    logger.info(`stage 3/6: creative LUT pass (${lutLabel})`);
     const gradedPath = tmpPath('mp4');
     tempPaths.push(gradedPath);
     // Phase 4: feed the sonic_world-mixed file (or the raw assembled file
     // if no sonic_world was applied) into the LUT pass.
-    applyCreativeLut(sonicWorldPath, gradedPath, episodeLutId);
+    applyCreativeLut(sonicWorldPath, gradedPath, episodeLutId, brandLutId);
     const durAfterLut = probeStreamDurations(gradedPath);
     logger.info(`[duration trace] after stage 3 (creative LUT): container=${durAfterLut.container.toFixed(2)}s video=${durAfterLut.video.toFixed(2)}s audio=${durAfterLut.audio.toFixed(2)}s`);
 

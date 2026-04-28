@@ -18,12 +18,18 @@ import {
   SCREENPLAY_VERDICT_SCHEMA,
   SCENE_MASTER_VERDICT_SCHEMA,
   BEAT_VERDICT_SCHEMA,
-  EPISODE_VERDICT_SCHEMA
+  EPISODE_VERDICT_SCHEMA,
+  COMMERCIAL_BRIEF_VERDICT_SCHEMA,
+  COMMERCIAL_EPISODE_VERDICT_SCHEMA
 } from './director-rubrics/verdictSchema.mjs';
 import { buildScreenplayJudgePrompt } from './director-rubrics/screenplayRubric.mjs';
 import { buildSceneMasterJudgePrompt } from './director-rubrics/sceneMasterRubric.mjs';
 import { buildBeatJudgePrompt } from './director-rubrics/beatRubric.mjs';
 import { buildEpisodeJudgePrompt } from './director-rubrics/episodeRubric.mjs';
+import {
+  buildCommercialBriefJudgePrompt,
+  buildCommercialEpisodeJudgePrompt
+} from './director-rubrics/commercialRubric.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -137,7 +143,12 @@ export const CHECKPOINTS = Object.freeze({
   SCREENPLAY: 'screenplay',
   SCENE_MASTER: 'scene_master',
   BEAT: 'beat',
-  EPISODE: 'episode'
+  EPISODE: 'episode',
+  // Phase 6 — COMMERCIAL pipeline checkpoints. The brief check (Lens 0/A combined)
+  // runs BEFORE the screenplay writer; the commercial-episode check is the
+  // Lens D variant for assembled commercial spots.
+  COMMERCIAL_BRIEF: 'commercial_brief',
+  COMMERCIAL_EPISODE: 'commercial_episode'
 });
 
 const VALID_MODES = new Set(['off', 'shadow', 'blocking', 'advisory']);
@@ -275,6 +286,41 @@ export class DirectorAgent {
       schema: BEAT_VERDICT_SCHEMA,
       checkpointLabel: CHECKPOINTS.BEAT
     });
+  }
+
+  /**
+   * Phase 6 — COMMERCIAL pre-screenplay brief verdict (Lens 0/A combined).
+   * Runs ONCE per commercial story BEFORE the screenplay writer is invoked.
+   * Validates the CreativeBriefDirector output against the commercial rubric;
+   * a soft_reject triggers a brief re-run with the director's nudge before
+   * any screenplay tokens are spent.
+   */
+  async judgeCommercialBrief(args) {
+    const { systemPrompt, userParts } = buildCommercialBriefJudgePrompt(args);
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: COMMERCIAL_BRIEF_VERDICT_SCHEMA,
+      checkpointLabel: CHECKPOINTS.COMMERCIAL_BRIEF
+    });
+  }
+
+  /**
+   * Phase 6 — COMMERCIAL picture-lock verdict (Lens D variant). Always advisory.
+   */
+  async judgeCommercialEpisode(args) {
+    const { systemPrompt, userParts } = buildCommercialEpisodeJudgePrompt(args);
+    const verdict = await this._call({
+      systemPrompt,
+      userParts,
+      schema: COMMERCIAL_EPISODE_VERDICT_SCHEMA,
+      checkpointLabel: CHECKPOINTS.COMMERCIAL_EPISODE,
+      timeoutOverrideMs: this.timeoutVideoMs
+    });
+    if (verdict && typeof verdict === 'object') {
+      verdict.retry_authorization = false;  // commercial picture lock is advisory
+    }
+    return verdict;
   }
 
   /**

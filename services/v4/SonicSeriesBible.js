@@ -383,8 +383,19 @@ export async function generateSonicSeriesBible(ctx = {}) {
     logger.info(`bible authored cleanly (refs: ${(merged.reference_shows || []).join(', ') || 'none'})`);
   }
 
-  // Annotate provenance so the Director Panel can show "Gemini-authored" vs "default"
-  merged._generated_by = merged._generated_by || 'gemini';
+  // Annotate provenance so the Director Panel can show "Gemini-authored" vs "default".
+  //
+  // 2026-04-28 fix: this previously used `merged._generated_by || 'gemini'`,
+  // which silently inherited the 'default_fallback' label baked into
+  // DEFAULT_SONIC_SERIES_BIBLE — `mergeBibleDefaults` spreads defaults FIRST
+  // (with `_generated_by: 'default_fallback'`), then the authored response
+  // SECOND. Authored responses don't carry `_generated_by`, so the default
+  // value persisted, and Gemini-authored bibles got mislabeled as
+  // 'default_fallback' in logs and the Director Panel.
+  //
+  // FORCE the label here — we only reach this line when Gemini succeeded AND
+  // validation passed, so by definition the bible IS Gemini-authored.
+  merged._generated_by = 'gemini';
   return merged;
 }
 

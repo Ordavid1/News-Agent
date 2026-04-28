@@ -20,5 +20,8 @@
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "winston": "^3.17.0"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.5"
   }
 }

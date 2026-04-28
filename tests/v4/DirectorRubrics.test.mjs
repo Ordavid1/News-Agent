@@ -119,7 +119,9 @@ test('verdict schema — dimension_scores per-checkpoint keys match rubric', () 
   assert.deepEqual(BEAT_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
     'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
     'lighting_continuity', 'lens_continuity', 'camera_move_intent',
-    'identity_lock', 'model_signature_check'
+    'identity_lock', 'model_signature_check',
+    // Phase 4 (2026-04-27) — natural product placement guardrails.
+    'product_identity_lock', 'product_subtlety'
   ]);
   assert.deepEqual(EPISODE_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
     'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
@@ -309,9 +311,14 @@ test('Lens C builder — optional previous endframe + scene master thumbnail att
 });
 
 // ─── Lens D — episode ───
-test('Lens D builder — returns systemPrompt + userParts with full video file_data', () => {
+//
+// 2026-04-28 transport rewrite: video MUST be inline_data buffer (preferred)
+// or a gs:// URI. Arbitrary HTTPS URLs are rejected — Vertex returns 400 for
+// video file_uri unless GCS or Files API.
+test('Lens D builder — accepts inline_data video buffer', () => {
+  const fakeBuffer = Buffer.from('fake-mp4-bytes');
   const { systemPrompt, userParts } = buildEpisodeJudgePrompt({
-    episodeVideoUrl: 'https://example.com/final.mp4',
+    episodeVideoBuffer: fakeBuffer,
     sceneGraph: FAKE_SCENE_GRAPH,
     storyFocus: 'drama'
   });
@@ -320,14 +327,32 @@ test('Lens D builder — returns systemPrompt + userParts with full video file_d
   assert.match(systemPrompt, /retry_authorization MUST always be false/);
   assert.match(systemPrompt, /rhythm/);
   assert.match(systemPrompt, /cliffhanger_sting/);
+  const videoPart = userParts.find(p => p.inline_data);
+  assert.ok(videoPart, 'expected an inline_data video part');
+  assert.equal(videoPart.inline_data.mime_type, 'video/mp4');
+  assert.equal(videoPart.inline_data.data, fakeBuffer.toString('base64'));
+});
+
+test('Lens D builder — accepts gs:// video URL via file_data', () => {
+  const { userParts } = buildEpisodeJudgePrompt({
+    episodeVideoUrl: 'gs://my-bucket/final.mp4',
+    sceneGraph: FAKE_SCENE_GRAPH,
+    storyFocus: 'drama'
+  });
   const videoPart = userParts.find(p => p.file_data);
-  assert.ok(videoPart);
+  assert.ok(videoPart, 'expected a file_data video part for gs:// URI');
   assert.equal(videoPart.file_data.mime_type, 'video/mp4');
 });
 
-test('Lens D builder — throws when video URL missing', () => {
+test('Lens D builder — throws when no buffer + no gs:// URI supplied', () => {
   assert.throws(() => buildEpisodeJudgePrompt({
-    episodeVideoUrl: null,
+    episodeVideoUrl: 'https://supabase.example.com/final.mp4',  // arbitrary HTTPS rejected
     sceneGraph: FAKE_SCENE_GRAPH
-  }), /episodeVideoUrl required/);
+  }), /buffer required|gs:\/\//);
+});
+
+test('Lens D builder — throws when both video sources missing', () => {
+  assert.throws(() => buildEpisodeJudgePrompt({
+    sceneGraph: FAKE_SCENE_GRAPH
+  }), /episodeVideoBuffer.*or episodeVideoUrl required/);
 });

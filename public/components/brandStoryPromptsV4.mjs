@@ -27,7 +27,8 @@
 import {
   _buildBrandKitContextBlock,
   _buildCinematicFocusBlock,
-  _buildPreviousEpisodesBlock
+  _buildPreviousEpisodesBlock,
+  _buildCommercialBriefBlock
 } from './brandStoryPrompts.mjs';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -42,7 +43,7 @@ export const V4_BEAT_TYPES = [
   'SHOT_REVERSE_SHOT',         // Compiler: expands into N alternating TALKING_HEAD_CLOSEUP. DEFAULT for multi-character dialogue.
   'SILENT_STARE',              // Mode B (silent ambient): Kling O3 Omni. Held closeup, no line, micro-expression only.
   'REACTION',                  // Veo 3.1 Standard + first/last frame. Silent 2-4s, emotional arc from neutral→reaction.
-  'INSERT_SHOT',               // Veo 3.1 Standard + first/last frame. Product hero / tight object detail. THE money beat for brands.
+  'INSERT_SHOT',               // Veo 3.1 Standard + first/last frame. Tight object/detail beat. Hero use only when product_integration_style=hero_showcase or commercial.
   'ACTION_NO_DIALOGUE',        // Kling V3 Pro. Prompt-first cinematic action, motion, environmental interaction.
   'B_ROLL_ESTABLISHING',       // Veo 3.1 Standard. Atmospheric environment, native ambient audio bed.
   'VOICEOVER_OVER_BROLL',      // Veo 3.1 Standard + ElevenLabs V.O. swap. Opt-in montage/recap beats.
@@ -303,11 +304,24 @@ Pace: slow burns punctuated by status flips.`;
 // recipe — which is how Hollywood DPs work (they pick from a shared shot
 // vocabulary, not reinvent terms).
 
+// Phase 3 expansion (2026-04-27): 7 → 20 lens types. Schema upgrade —
+// `camera_move` (string) is preserved for backwards compatibility with the
+// beat generators; `move_options` (string[]) is the canonical list. The
+// scene-graph beat may emit a `camera_move` override that picks any option
+// from `move_options` or any free-form move; otherwise the first option
+// is used by default.
+//
+// Anamorphic note: V4 ships 9:16 vertical. The "anamorphic" entries DO NOT
+// change aspect ratio — they capture the optical signature (oval bokeh,
+// blue horizontal flares, edge distortion) that anamorphic glass adds to
+// the close-up while the frame stays portrait. Reference: Greig Fraser's
+// portrait inserts in Dune.
 export const V4_FRAMING_VOCAB = {
   wide_establishing: {
     lens_mm: '24-35',
     distance: 'wide',
     camera_move: 'slow dolly back / crane reveal',
+    move_options: ['slow dolly back', 'crane reveal', 'static wide'],
     intent: 'Establish environment + subject within context. Generous headroom, subject ≤ 25% of frame.',
     use_when: 'B_ROLL_ESTABLISHING, scene openers, new location reveals.'
   },
@@ -315,6 +329,7 @@ export const V4_FRAMING_VOCAB = {
     lens_mm: '35-50',
     distance: 'medium',
     camera_move: 'locked-off or gentle drift',
+    move_options: ['locked-off', 'gentle drift'],
     intent: 'Two characters in frame at conversational distance. Eye-level. Both faces visible.',
     use_when: 'GROUP_DIALOGUE_TWOSHOT, emotional peak multi-persona exchanges.'
   },
@@ -322,27 +337,148 @@ export const V4_FRAMING_VOCAB = {
     lens_mm: '50-85',
     distance: 'medium-close',
     camera_move: 'subtle arc over shoulder',
+    move_options: ['subtle arc over shoulder', 'locked-off OTS'],
     intent: 'Protagonist in foreground (soft), listener in midground (sharp). Conversational power dynamic.',
     use_when: 'DIALOGUE_IN_SCENE when the scene has two characters and one is speaking.'
   },
+  dirty_over_shoulder: {
+    lens_mm: '50-75',
+    distance: 'medium',
+    camera_move: 'subtle drift, foreground out of focus',
+    move_options: ['subtle drift', 'locked-off'],
+    intent: 'OTS with foreground shoulder LARGE (≥30% of frame), intentionally soft. Spatial dominance.',
+    use_when: 'DIALOGUE_IN_SCENE with power asymmetry; interrogation beats.',
+    reference: 'The Bear kitchen confrontations, Slow Horses dialogue.'
+  },
   tight_closeup: {
-    lens_mm: '85-100',
+    lens_mm: '75-100',  // RELAXED from 85-100 — opens 75mm portrait sweet spot.
     distance: 'close',
     camera_move: 'locked-off, shallow DOF breathing',
+    move_options: ['locked-off', 'shallow DOF breathing', 'subtle handheld'],
     intent: 'Head-and-shoulders, eyes and mouth as the story. Intimate, emotional.',
     use_when: 'TALKING_HEAD_CLOSEUP, SILENT_STARE, REACTION where the face IS the beat.'
   },
+  portrait_75mm: {
+    lens_mm: '75-85',
+    distance: 'medium-close',
+    camera_move: 'locked-off, breath-only DOF',
+    move_options: ['locked-off', 'breath-only DOF'],
+    intent: 'Face-as-canvas. Skin separation, soft falloff, painterly. Reserve for moments where the face IS the scene.',
+    use_when: 'TALKING_HEAD_CLOSEUP at emotional peak; SILENT_STARE on protagonist; thesis-line beats.',
+    reference: 'Deakins / 1917, Bradford Young / Selma.'
+  },
+  anamorphic_signature_closeup: {
+    lens_mm: '40-50 anamorphic (1.85x squeeze)',
+    distance: 'close',
+    camera_move: 'locked-off, oval bokeh, blue horizontal flares',
+    move_options: ['locked-off', 'gentle push-in'],
+    intent: 'Close-up with anamorphic optical signature (oval bokeh, edge distortion, horizontal lens flare). Vertical-cropped — signature is in optics, not aspect.',
+    use_when: 'Hero portrait beats; thesis moments; prestige-scale character introduction.',
+    reference: 'Fraser / Dune portrait inserts, van Hoytema / Tenet.'
+  },
+  anamorphic_wide_world: {
+    lens_mm: '24-35 anamorphic',
+    distance: 'wide',
+    camera_move: 'slow crane / dolly with horizontal flare',
+    move_options: ['slow crane', 'slow dolly', 'static with horizontal flare'],
+    intent: 'Wide world reveal with anamorphic edge distortion + flare. Mythic.',
+    use_when: 'B_ROLL_ESTABLISHING for prestige stories, world reveals.',
+    reference: 'Deakins / Blade Runner 2049 desert wides.'
+  },
   macro_insert: {
-    lens_mm: '100-macro',
+    lens_mm: '60-180 macro',  // RELAXED from 100-macro — covers cinema macro range.
     distance: 'macro',
     camera_move: 'held with subtle rack focus, minimal drift',
-    intent: 'Detail beat — product, hands, object. Hero shot. Predictable endpoint.',
-    use_when: 'INSERT_SHOT, product hero, tactile detail beats.'
+    move_options: ['held with subtle rack focus', 'breathing drift', 'static macro'],
+    intent: 'Detail beat — product, hands, object. Tactile detail. Predictable endpoint.',
+    use_when: 'INSERT_SHOT, tactile detail beats.'
+  },
+  cinema_macro_product: {
+    lens_mm: '90-180 macro',
+    distance: 'macro',
+    camera_move: 'rack focus across product surface, breathing-only drift',
+    move_options: ['rack focus across surface', 'breathing-only drift', 'static macro'],
+    intent: 'Cinema macro on product. The product is subject, framed as object-of-interest, not advertisement. Tactile.',
+    use_when: 'Product detail beats where the product is being USED. Hands present in frame.',
+    reference: 'The Social Network MacBook insert, Apple keynote macros.'
+  },
+  cinema_macro_emotion: {
+    lens_mm: '60-100 macro',
+    distance: 'macro',
+    camera_move: 'rack focus eye → tear → eye, locked',
+    move_options: ['rack focus eye-to-detail', 'locked macro', 'breathing-only'],
+    intent: 'Cinema macro on a human detail (eye, hand tremor, tear, lip bite). Subtext made physical.',
+    use_when: 'INSERT_SHOT for emotional stakes; reaction beats post-revelation.',
+    reference: 'Lubezki / Tree of Life, Young / Arrival.'
+  },
+  tilt_shift_miniature: {
+    lens_mm: '24-45 tilt-shift',
+    distance: 'wide-medium',
+    camera_move: 'locked-off, wedge-of-focus diagonally across frame',
+    move_options: ['locked-off with wedge-of-focus', 'static tilted plane'],
+    intent: 'Surreal "miniature" or psychological compression effect. Selective focus on a diagonal plane.',
+    use_when: 'Specialty B_ROLL, dream/memory beats, stylized signature scenes.',
+    reference: 'Mr. Robot rooftop, Gone Girl tilt-shift inserts.'
+  },
+  fisheye_subjective: {
+    lens_mm: '8-14 fisheye',
+    distance: 'close-wide',
+    camera_move: 'handheld, rotational',
+    move_options: ['handheld rotational', 'POV handheld', 'static fisheye'],
+    intent: 'Subjective POV — intoxication, panic, dream. Horizon curves.',
+    use_when: 'POV beats under altered state; claustrophobia; signature moments.',
+    reference: 'Spring Breakers / Korine, Uncut Gems Sandler POV.'
+  },
+  fixed_telephoto_isolation: {
+    lens_mm: '200-400',
+    distance: 'medium-tight via distance',
+    camera_move: 'locked-off long, compressed background',
+    move_options: ['locked-off long', 'subtle handheld at distance', 'tripod static'],
+    intent: 'Long-lens isolation — subject pulled out of background by extreme compression. Background = blur-painting.',
+    use_when: 'SILENT_STARE in crowd; surveillance; cliffhanger reveals.',
+    reference: 'Slow Horses surveillance, Mindhunter exteriors.'
+  },
+  vintage_zoom_creep: {
+    lens_mm: '50-150 vintage zoom',
+    distance: 'medium → close',
+    camera_move: 'slow optical zoom-in (NOT dolly) over 4-6 seconds',
+    move_options: ['slow optical zoom-in over 4-6s', 'slow optical zoom-out'],
+    intent: '70s/80s optical zoom creep. Suspense build, visible perspective change.',
+    use_when: 'Tension build, paranoid beats, reveals. Use sparingly — it announces itself.',
+    reference: 'There Will Be Blood reveal zooms.'
+  },
+  speed_ramp_action: {
+    lens_mm: '24-50',
+    distance: 'medium',
+    camera_move: 'whip pan with speed ramp (60fps → 24fps mid-action)',
+    move_options: ['whip pan with speed ramp', 'tracking with speed ramp', 'handheld with speed ramp'],
+    intent: 'Real-time → slow-mo → real-time on a single gesture. Energy spike.',
+    use_when: 'SPEED_RAMP_TRANSITION beats; action peaks; commercial product reveals.',
+    reference: 'Children of Men single-take ramps.'
+  },
+  product_in_environment: {
+    lens_mm: '35-50',
+    distance: 'medium',
+    camera_move: 'subtle drift, product mid-ground, character interacting',
+    move_options: ['subtle drift', 'locked-off', 'subtle handheld'],
+    intent: 'PRODUCT-PROTECTION preset — product present and visible but NOT the framed subject. Character action is subject. Product reads as lived-in detail.',
+    use_when: 'Beats where product appears but should NOT be flagged "product hero". Default for naturalistic placement.',
+    reference: 'The Social Network MacBook (Zuckerberg coding), E.T. Reese\'s Pieces (Elliott\'s hand).'
+  },
+  product_tactile_handheld: {
+    lens_mm: '50-85',
+    distance: 'medium-close',
+    camera_move: 'handheld OTS onto hands using product',
+    move_options: ['handheld OTS onto hands', 'subtle handheld over shoulder'],
+    intent: 'PRODUCT-PROTECTION preset — character hands using the product, lens follows hands not brand mark. Brand mark in motion blur or peripheral.',
+    use_when: 'Product actively used. Brand registers subliminally.',
+    reference: 'Bond Aston Martin gear-shift inserts, prestige shows using a phone naturalistically.'
   },
   tracking_push: {
     lens_mm: '35-50',
     distance: 'medium',
     camera_move: 'slow push-in following subject motion',
+    move_options: ['slow push-in', 'tracking push following subject', 'walking handheld'],
     intent: 'Energy building — subject in motion, camera matches. Reserve for kinetic scenes.',
     use_when: 'ACTION_NO_DIALOGUE with directional momentum.'
   },
@@ -350,6 +486,7 @@ export const V4_FRAMING_VOCAB = {
     lens_mm: '24-35',
     distance: 'wide',
     camera_move: 'subject exits frame / enters new location',
+    move_options: ['subject exits frame', 'subject enters new location', 'static frame with crossing subject'],
     intent: 'Connective tissue between scenes. Shows HOW we got from A to B.',
     use_when: 'scene.bridge_to_next beats.'
   }
@@ -387,8 +524,117 @@ HARD RULES:
 Camera zoom / push-in is RESERVED: use it only on tracking_push or when
 narratively motivated. A 2-4s push-in on a still subject looks cheap.
 Default to HELD shots with subtle rack focus for detail beats — the
-Hollywood standard for product heroes.
+Hollywood standard for naturalistic product placement.
 `;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRODUCT INTEGRATION STYLES — Phase 4 (2026-04-27)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Replaces the legacy "PRODUCT IS THE HERO" + mandatory "MONEY BEAT" framing
+// with a four-level axis for how the product participates in a screenplay.
+// The default for every PRODUCT-focus story is `naturalistic_placement`
+// (Hollywood prop grammar) — the bias that produced infomercial-style
+// dialogue in pre-Phase-4 stories. `hero_showcase` is the legacy mode and
+// the default for the upcoming COMMERCIAL genre (Phase 6).
+//
+// The 8 Hollywood placement rules (rules 1-8 below) apply for every style
+// EXCEPT `hero_showcase` and `commercial`.
+
+const PRODUCT_PLACEMENT_RULES = `HOLLYWOOD PRODUCT PLACEMENT GRAMMAR — applies to every dialogue and beat unless the
+story is explicitly in hero_showcase / commercial mode:
+
+  1. The product is a NOUN, not an ADJECTIVE. Characters touch / use / hand / drop / fix / share it.
+     They do NOT describe it. NO line of dialogue may name the brand or describe a product feature.
+     (Exception: a character reading a label diegetically, max once per episode.)
+
+  2. The 4-beat ceiling. The product appears in MAX 4 beats per episode. Below the ceiling is fine;
+     above it is infomercial.
+
+  3. NO standalone INSERT_SHOT for the product without character context. Every product beat has a
+     hand, face, body, or scene context — the product is being LIVED WITH, not displayed.
+
+  4. The product participates in story. It must serve a character action, an emotional beat, a
+     thematic image, or a plot moment. Decorative product appearance is forbidden.
+
+  5. First appearance is incidental. Episode 1 introduces the product passively — on a table, in a
+     bag, on a desk — BEFORE any character interacts with it. Viewer notices before story acknowledges.
+
+  6. Brand mark RARELY centered, NEVER in solo close-up — exception: ONE earned hero frame per episode,
+     story-justified.
+
+  7. Camera does NOT linger. Product beats hold ≤ 2.5 seconds unless the product is actively involved
+     in dramatic action.
+
+  8. Product color may not contradict the LUT. Dress the product into the world; never re-grade the
+     scene to flatter it.
+
+ANTI-AD-COPY HARD-BANS in dialogue (validator-enforced):
+  - "with the new <brand>"          → cut
+  - "introducing"                   → cut
+  - "proudly powered by"            → cut
+  - "now available"                 → cut
+  - "(get|grab|try|buy) yours today"→ cut
+  - "limited time"                  → cut
+  - "free shipping"                 → cut
+  - "the only X that…"              → cut
+  - "(thanks to|because of) <brand>"→ cut
+  - "changed (my|our) life"         → cut
+  - "<brand> understands/believes"  → cut
+  - "our patented"                  → cut
+  - "built for / designed for"      → cut (when subject == product)
+  - "never been easier"             → cut
+
+These are HARD bans, not suggestions. Dialogue containing them will be rewritten by the validator.`;
+
+function _buildProductPlacementBlock(integrationStyle) {
+  const style = String(integrationStyle || 'naturalistic_placement').toLowerCase();
+
+  switch (style) {
+    case 'hero_showcase':
+      return `\nPRODUCT INTEGRATION MODE: HERO_SHOWCASE
+The product is the framed subject of the story. Up to 6 beats may feature the product, including up to 2 standalone INSERT_SHOTs. Brand-name MAY appear in dialogue once (no feature-list speeches). The Hollywood placement rules ABOVE are RELAXED in this mode. ⭐ At least ONE INSERT_SHOT beat should feature the product, but it must remain a "subtle money beat" — short hold, character context preferred, never a billboard.`;
+
+    case 'commercial':
+      return `\nPRODUCT INTEGRATION MODE: COMMERCIAL
+This is a Phase 6 commercial-genre episode. The product is encouraged to dominate. Maximum creative bravery; brand recall is a primary KPI. INSERT_SHOTs are encouraged. Money beats welcome. Anti-ad-copy bans are RELAXED — feature words are permitted when serving a creative concept.`;
+
+    case 'incidental_prop':
+      return `\n${PRODUCT_PLACEMENT_RULES}\n\nPRODUCT INTEGRATION MODE: INCIDENTAL_PROP
+The product appears in 1-3 beats per episode. ZERO standalone INSERT_SHOTs. The product is a TOOL the character happens to use, never a topic. Brand-name forbidden in dialogue. Product is not even acknowledged.`;
+
+    case 'genre_invisible':
+      return `\n${PRODUCT_PLACEMENT_RULES}\n\nPRODUCT INTEGRATION MODE: GENRE_INVISIBLE
+The product appears in EXACTLY ONE beat — the final reveal. ONE INSERT_SHOT permitted as cliffhanger / button. Brand-name appears only in the end-card overlay, never in dialogue.`;
+
+    case 'naturalistic_placement':
+    default:
+      return `\n${PRODUCT_PLACEMENT_RULES}\n\nPRODUCT INTEGRATION MODE: NATURALISTIC_PLACEMENT (DEFAULT)
+The product appears in 2-4 beats per episode. 0-1 INSERT_SHOTs, AND ONLY when a hand or face is in frame with the product (no standalone product shots). Brand-name forbidden in dialogue. Treat the product like Reese's Pieces in E.T. — a prop the character happens to use, woven into the story without comment.`;
+  }
+}
+
+function _buildSubjectIntegrationBlock(subject, storyFocus, integrationStyle) {
+  const sigFeatures = Array.isArray(subject?.signature_features) && subject.signature_features.length > 0
+    ? `\n- SIGNATURE FEATURES (preserve verbatim across all beats — these define the product's visual identity):\n${subject.signature_features.map(f => `    • ${f}`).join('\n')}`
+    : '';
+
+  const integrationGuidance = (subject?.integration_guidance || []).length > 0
+    ? `- Integration ideas:\n${subject.integration_guidance.map(g => `    • ${g}`).join('\n')}`
+    : '';
+
+  const landscapeNote = storyFocus === 'landscape'
+    ? '\nFor landscape-focus stories, the place IS the setting — characters inhabit it.'
+    : '';
+
+  return `\nBRAND SUBJECT (must appear in this episode per the integration mode below):
+- Name: ${subject.name}
+- Category: ${subject.category || ''}
+- Visual: ${subject.visual_description || ''}${sigFeatures}
+${integrationGuidance}${landscapeNote}
+
+${_buildProductPlacementBlock(integrationStyle)}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -503,7 +749,22 @@ export function getEpisodeSystemPromptV4(storyline, previousEpisodes = [], perso
     // When provided, the episode-level sonic_world MUST inherit from it
     // per the bible's inheritance_policy. When null/undefined, Gemini
     // falls back to authoring a stand-alone sonic_world (legacy stories).
-    sonicSeriesBible = null
+    sonicSeriesBible = null,
+    // Phase 4 — product integration style. Controls the narrative role of
+    // the brand subject in the screenplay:
+    //   'naturalistic_placement' (DEFAULT) — Hollywood prop grammar
+    //   'hero_showcase' — product-first, money-beat encouraged (legacy mode)
+    //   'incidental_prop' — barely visible, no INSERT_SHOT
+    //   'genre_invisible' — withheld until final reveal
+    //   'commercial' — Phase 6 commercial-genre mode (hero_showcase + relaxed dialogue)
+    productIntegrationStyle = 'naturalistic_placement',
+    // Phase 6 (2026-04-28) — CreativeBriefDirector output. When provided
+    // (commercial-genre stories), the screenplay writer receives the brief
+    // as the SUPREME directorial law (creative_concept, visual_signature,
+    // narrative_grammar, music_intent, hero_image, brand_world_lock,
+    // anti_brief). Without this, the brief was dead weight and commercials
+    // came out incoherent (logs.txt 2026-04-28 root cause).
+    commercialBrief = null
   } = options;
 
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
@@ -627,15 +888,7 @@ at story creation and will be synthesized by ElevenLabs per beat.`
     : '';
 
   const subjectIntegrationBlock = subject?.name
-    ? `\nBRAND SUBJECT (must appear in this episode):
-- Name: ${subject.name}
-- Category: ${subject.category || ''}
-- Visual: ${subject.visual_description || ''}
-${(subject.integration_guidance || []).length > 0 ? `- Integration ideas:\n${subject.integration_guidance.map(g => `    • ${g}`).join('\n')}` : ''}
-
-⭐ THE MONEY BEAT: at least ONE INSERT_SHOT beat must feature the product.
-Insert shots are 2-4s tight closeups on the subject — the hero moment of the episode.
-${storyFocus === 'landscape' ? 'For landscape-focus stories, the place IS the setting.' : ''}`
+    ? _buildSubjectIntegrationBlock(subject, storyFocus, productIntegrationStyle)
     : '';
 
   // LUT instruction — only ask Gemini to pick if the story doesn't already have one.
@@ -650,11 +903,18 @@ ${_formatLutLibraryForPrompt()}
 
 Rule: the LUT must match the mood and era suggested by visual_style_prefix.`;
 
+  // Phase 6 (2026-04-28) — render the commercial brief as the SUPREME
+  // directorial law for the screenplay writer. Splices in immediately after
+  // the showrunner role declaration so it overrides any default convention.
+  const commercialBriefBlock = commercialBrief
+    ? _buildCommercialBriefBlock(commercialBrief)
+    : '';
+
   return `You are the showrunner, screenwriter, and cinematographer of "${storyline.title || 'an ongoing brand short-film series'}".
 You write each episode as a HOLLYWOOD-GRADE BRANDED SHORT FILM in the quality bar of Higgsfield
 Original Series and AppReel Original Series. Characters speak on-camera with proper lip-sync,
 scenes have cinematic backgrounds, and every beat serves the story.
-
+${commercialBriefBlock}
 ${focusBlock}
 ${directorsBlock}
 SERIES CONTEXT:
@@ -744,11 +1004,13 @@ GENERATED BEATS (a video model generates them):
    Short emotional-arc beat: start frame neutral → end frame emotional shift.
    Fields: persona_index, duration_seconds (2-4), expression_notes (start → end arc)
 
-7. **INSERT_SHOT** — ⭐ THE MONEY BEAT FOR BRAND STORIES. Tight closeup of a product, object, or detail.
-   No character visible (or only a hand/gesture). 2-4s, pristine composition.
+7. **INSERT_SHOT** — Tight closeup of a product, object, or detail beat.
+   Hand or face usually in frame (no standalone product shots in naturalistic_placement mode).
+   2-4s, pristine composition. Camera HOLDS — never lingers ≥ 2.5s unless dramatically active.
    Fields: subject_focus (what's being shown), lighting_intent, camera_move ("slow push-in" / "rack focus" / "tilt down"),
            duration_seconds (2-4), ambient_sound (glass clink, fabric rustle, etc.)
-   At LEAST ONE insert shot per episode when subject is a product.
+   The number of product-bearing INSERT_SHOTs allowed per episode is governed by
+   product_integration_style (see HOLLYWOOD PRODUCT PLACEMENT GRAMMAR block).
 
    ⚠️ SUBJECT_FOCUS HARD RULE — never include a PERSONA NAME or POSSESSIVE
    BODY-PART phrase in subject_focus. This field drives the Veo content-safety

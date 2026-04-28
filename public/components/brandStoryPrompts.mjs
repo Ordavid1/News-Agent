@@ -13,11 +13,15 @@ import { isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs'
  * The LLM creates a narrative framework that drives an ongoing video series.
  *
  * @param {Object} brandKit - Brand Kit data (color_palette, style_characteristics, brand_summary, people, logos)
- * @param {Object} [options] - { directorsNotes }
+ * @param {Object} [options] - { directorsNotes, pipelineVersion }
+ *   - pipelineVersion: 'v4' switches the calibration anchors (episode length, beat-grammar)
+ *     to the V4 scene-graph reality (60-120s, 5-12 beats, on-camera dialogue). Anything else
+ *     (or omitted) keeps the legacy v1/v2/v3 wording (10-15s narration-style episodes).
  * @returns {string} System prompt
  */
 export function getStorylineSystemPrompt(brandKit = {}, options = {}) {
-  const { directorsNotes = '' } = options;
+  const { directorsNotes = '', pipelineVersion = '', commercialBrief = null } = options;
+  const isV4 = String(pipelineVersion).toLowerCase() === 'v4';
   const brandContextBlock = _buildBrandKitContextBlock(brandKit);
 
   const directorsBlock = directorsNotes
@@ -27,9 +31,31 @@ Interpret this as your cinematic north star. Let it shape the visual style, emot
 color palette choices, camera language, and narrative voice throughout the entire season.\n`
     : '';
 
-  return `You are an award-winning screenwriter and brand storyteller who creates compelling short-form video series for social media (Reels, Stories, TikTok). You specialize in serialized brand narratives that hook viewers episode after episode.
+  // Phase 6 (2026-04-28) — when a commercial brief is provided, prepend it as
+  // the SUPREME directorial law. The brief was authored by CreativeBriefDirector
+  // before storyline generation specifically so the storyline writer can build
+  // around the creative_concept / visual_signature / narrative_grammar /
+  // music_intent / brand_world_lock instead of producing a generic series bible.
+  const commercialBriefBlock = commercialBrief
+    ? _buildCommercialBriefBlock(commercialBrief)
+    : '';
 
-YOUR TASK: Create a complete STORY BIBLE — a serialized narrative framework that will drive a continuing video series for a brand. Each "episode" is a 10-15 second short-form video that tells one scene of a larger story.
+  // Pipeline-aware episode-grammar anchor — see plan
+  // .claude/plans/regarding-this-infrastructure-i-magical-flame.md
+  // V4 produces scene-graph episodes (~60-120s, 5-12 beats, on-camera dialogue);
+  // v1/v2/v3 produce 10-15s narrator-driven shorts. Wrong anchor here mis-calibrates
+  // the entire season bible (cliffhanger density, scene_plan beat counts, dialogue weight).
+  const episodeGrammarLine = isV4
+    ? `Each "episode" is a 60-120 second short-form video, built from 5-12 cinematic beats with on-camera dialogue, cuts, reactions, and B-roll — NOT a single static shot with narration.`
+    : `Each "episode" is a 10-15 second short-form video that tells one scene of a larger story.`;
+
+  const episodeGrammarNote = isV4
+    ? `\nEPISODE GRAMMAR (V4): Episodes are scene-graphs (scenes → beats), with multiple characters speaking on-camera. Plan stakes, dialogue weight, and scene depth for ~60-120 seconds of screen time per episode.\n`
+    : '';
+
+  return `You are an award-winning screenwriter and brand storyteller who creates compelling short-form video series for social media (Reels, Stories, TikTok). You specialize in serialized brand narratives that hook viewers episode after episode.
+${commercialBriefBlock}
+YOUR TASK: Create a complete STORY BIBLE — a serialized narrative framework that will drive a continuing video series for a brand. ${episodeGrammarLine}${episodeGrammarNote}
 
 STORYTELLING PRINCIPLES:
 - Every great story has CONFLICT, STAKES, and TRANSFORMATION
@@ -51,6 +77,94 @@ SHOWRUNNING PRINCIPLES (non-negotiable, genre-agnostic — apply before you draf
 - Genre is a container, not a content directive. Drama, Action, Comedy, Thriller, Mystery, Warm-Heart, Horror — they all obey the same rules above, just with different emotional registers.
 ${directorsBlock}${brandContextBlock}
 You MUST respond with ONLY valid JSON (no markdown code fences, no extra text). The JSON must conform to the schema described in the user prompt.`;
+}
+
+/**
+ * V4 Phase 6 (2026-04-28) — render the COMMERCIAL CREATIVE BRIEF authored by
+ * CreativeBriefDirector as the SUPREME directorial law for the storyline +
+ * screenplay layers. Every commercial story stage downstream of this block
+ * must inherit the brief's vision (creative_concept, visual_signature,
+ * narrative_grammar, music_intent, hero_image, brand_world_lock, anti_brief).
+ *
+ * Without this block, the brief is dead weight — generated and persisted but
+ * never reaching Gemini. The result of THAT bug was incoherent commercials
+ * (logs.txt 2026-04-28, "The Geometry of Light" / "The Sanctuary of Light").
+ *
+ * Rendered identically into the storyline system prompt AND episode (V4)
+ * system prompt so both layers obey the same brief.
+ *
+ * @param {Object} brief - CreativeBriefDirector output
+ * @returns {string} block to splice into the system prompt
+ */
+export function _buildCommercialBriefBlock(brief) {
+  if (!brief || typeof brief !== 'object') return '';
+
+  const lines = [
+    '',
+    '═══════════════════════════════════════════════════════════════════',
+    'COMMERCIAL CREATIVE BRIEF — SUPREME DIRECTORIAL LAW. Override any',
+    'instruction below that conflicts with this brief. The user is paying',
+    'for a Cannes Lion-caliber spot, not a generic ad.',
+    '═══════════════════════════════════════════════════════════════════'
+  ];
+
+  if (brief.creative_concept) {
+    lines.push(`CREATIVE CONCEPT (the ONE idea this spot commits to):`);
+    lines.push(`  "${brief.creative_concept}"`);
+  }
+  if (brief.visual_signature) {
+    lines.push(`VISUAL SIGNATURE (an art director can re-quote this):`);
+    lines.push(`  ${brief.visual_signature}`);
+  }
+  if (brief.style_category) {
+    lines.push(`STYLE CATEGORY: ${brief.style_category}`);
+  }
+  if (brief.narrative_grammar) {
+    lines.push(`NARRATIVE GRAMMAR: ${brief.narrative_grammar}`);
+  }
+  if (brief.emotional_arc) {
+    lines.push(`EMOTIONAL ARC: ${brief.emotional_arc}`);
+  }
+  if (brief.hero_image) {
+    lines.push(`HERO IMAGE (the single image to burn into the viewer's memory):`);
+    lines.push(`  ${brief.hero_image}`);
+  }
+  if (brief.music_intent) {
+    const mi = brief.music_intent;
+    const miStr = typeof mi === 'string'
+      ? mi
+      : `vibe: ${mi.vibe || '—'}, instrumentation: ${mi.instrumentation || '—'}, drop at ${mi.drop_point_seconds ?? '—'}s`;
+    lines.push(`MUSIC INTENT: ${miStr}`);
+    lines.push(`  → The music drop lands ON the visual beat that earns it (product reveal / hero gesture / tagline). Plan the cliffhanger and beat density to honor that landing.`);
+  }
+  if (brief.cliffhanger_style) {
+    lines.push(`CLIFFHANGER STYLE: ${brief.cliffhanger_style}`);
+  }
+  if (brief.visual_style_brief) {
+    lines.push(`VISUAL STYLE BRIEF (carries DP-level direction — color, contrast, lighting, lens, grain, framing):`);
+    lines.push(`  ${brief.visual_style_brief}`);
+  }
+  if (brief.brand_world_lock_if_two_eps) {
+    lines.push(`BRAND WORLD LOCK (when count = 2 — ep2 inherits these from ep1 verbatim):`);
+    lines.push(`  ${brief.brand_world_lock_if_two_eps}`);
+  }
+  if (Array.isArray(brief.reference_commercials) && brief.reference_commercials.length > 0) {
+    lines.push(`REFERENCE SPOTS (match the bar of these): ${brief.reference_commercials.join(', ')}`);
+  }
+  if (brief.anti_brief) {
+    lines.push(`ANTI-BRIEF (the cliché this spot REFUSES — DO NOT regress to this):`);
+    lines.push(`  ${brief.anti_brief}`);
+  }
+  if (brief.episode_count_justification?.count) {
+    lines.push(`EPISODE COUNT (locked by brief justification): ${brief.episode_count_justification.count}`);
+    if (brief.episode_count_justification.reasoning) {
+      lines.push(`  Reasoning: ${brief.episode_count_justification.reasoning}`);
+    }
+  }
+  lines.push('═══════════════════════════════════════════════════════════════════');
+  lines.push('');
+
+  return lines.join('\n');
 }
 
 /**
@@ -109,10 +223,55 @@ export function getStorylineUserPrompt(personas, subject, brandKit = {}, options
     tone = 'engaging',
     genre = 'drama',
     targetAudience = 'young professionals',
-    episodeCount = 12,
+    episodeCount: episodeCountInput = 12,
     storyFocus = 'product',
-    directorsNotes = ''
+    directorsNotes = '',
+    pipelineVersion = '',
+    commercialBrief = null
   } = options;
+  const isV4 = String(pipelineVersion).toLowerCase() === 'v4';
+
+  // Phase 6 (2026-04-28) — render the commercial brief as a USER-PROMPT preamble
+  // (in addition to the system-prompt block) so it sits ABOVE the storyline
+  // schema and explicitly instructs Gemini what episode_count, episodes[],
+  // emotional_arc, visual_motifs, season_bible should reflect.
+  const commercialBriefUserBlock = commercialBrief
+    ? _buildCommercialBriefBlock(commercialBrief)
+    : '';
+
+  // ─── Genre-aware episode-count cap (Phase 6, 2026-04-28) ───
+  //
+  // Two existing forces in this prompt fight each other on episode count:
+  //   1. The hard count: "Create a story bible for ${episodeCount} episodes"
+  //   2. The soft override (SHOWRUNNING PRINCIPLES, system prompt): "If you cannot
+  //      name why an episode exists, cut it or combine it."
+  //
+  // Force (2) was added during the screenwriting overhaul and lets Gemini drop
+  // below the hard count when justification fails. That's correct for prestige
+  // (12 → can shrink to 3 if the plot is tight). But for a 60-second commercial
+  // spot, 12 is the wrong starting ceiling — the right ceiling is 1-2.
+  //
+  // Solution: make the cap genre-aware. For commercial we send a 1-2 cap with
+  // explicit "default to 1, escalate to 2 only when justified" language. The
+  // existing soft-override clause then naturally lands at 1 or 2.
+  const isCommercial = String(genre || '').toLowerCase().trim() === 'commercial';
+  const episodeCount = isCommercial
+    ? Math.min(2, Math.max(1, Number(episodeCountInput) || 1))
+    : episodeCountInput;
+  const commercialCapNote = isCommercial
+    ? `\n\nCOMMERCIAL EPISODE-COUNT CAP — HARD CEILING:
+This is a COMMERCIAL VIDEO AD genre story. The cap is 1 OR 2 episodes — NEVER more.
+  • DEFAULT to 1 episode (a single 60-second hero spot is sufficient for almost every commercial concept).
+  • ESCALATE to 2 episodes ONLY when a second episode is creatively justified — a campaign of two
+    independent angles (ep1 = 60s hero piece, ep2 = 30s angle / cutdown / counter-position) that
+    SHARE a brand_world_lock (same LUT family, same casting, same signature optic) but each stand
+    alone watchable. If the second episode is just "more of the same", combine into 1 instead.
+  • Apply your SHOWRUNNING PRINCIPLE — "if you cannot name why an episode exists, cut it or combine it"
+    — even more aggressively here. A commercial earns its second episode or it doesn't get it.
+  • Justify your choice in the season_bible: name explicitly why count = 1 OR count = 2.
+
+The episodes[] array MUST contain exactly ${episodeCount} entr${episodeCount === 1 ? 'y' : 'ies'} (your justified count).`
+    : '';
 
   const focusBlock = _buildFocusBlock(storyFocus);
 
@@ -121,15 +280,31 @@ export function getStorylineUserPrompt(personas, subject, brandKit = {}, options
     ? personas
     : (personas ? [personas] : []);
 
+  // Pipeline-aware persona framing — see plan
+  // .claude/plans/regarding-this-infrastructure-i-magical-flame.md
+  // V4 builds on-camera dialogue with opposing-intent character exchanges
+  // (SHOT_REVERSE_SHOT, GROUP_DIALOGUE_TWOSHOT, DIALOGUE_IN_SCENE), so the
+  // "Persona 1 is the PRIMARY NARRATOR" framing biases Gemini away from V4's
+  // dialogue model. Legacy v1/v2/v3 keep the narrator framing.
+  const personaLeadLabelInline = personaArray.length > 1
+    ? (isV4 ? ', Persona 1 is the PROTAGONIST' : ', Persona 1 is the PRIMARY/narrator')
+    : '';
+  const personaLeadHeader = (i) => (i === 0 && personaArray.length > 1)
+    ? (isV4 ? ' — PROTAGONIST' : ' — PRIMARY NARRATOR')
+    : '';
+  const personaWeaveLine = isV4
+    ? `Weave ALL ${personaArray.length} persona${personaArray.length > 1 ? 's' : ''} into the narrative as on-camera characters. The protagonist's arc anchors the season; additional personas are co-leads, antagonists, foils, mentors, or love interests — all speak on-camera, none are narrators by default.`
+    : `Weave ALL ${personaArray.length} persona${personaArray.length > 1 ? 's' : ''} into the narrative. The primary narrator drives the story; additional personas serve as supporting characters, foils, love interests, mentors, or adversaries.`;
+
   const personaBlock = personaArray.length > 0
-    ? `CHARACTER${personaArray.length > 1 ? 'S' : ''}/PERSONA${personaArray.length > 1 ? 'S' : ''} (${personaArray.length} total${personaArray.length > 1 ? ', Persona 1 is the PRIMARY/narrator' : ''}):
+    ? `CHARACTER${personaArray.length > 1 ? 'S' : ''}/PERSONA${personaArray.length > 1 ? 'S' : ''} (${personaArray.length} total${personaLeadLabelInline}):
 ${personaArray.map((p, i) => `
-[Persona ${i + 1}${i === 0 && personaArray.length > 1 ? ' — PRIMARY NARRATOR' : ''}]
+[Persona ${i + 1}${personaLeadHeader(i)}]
 - Description: ${p.description || 'A compelling character'}
 - Appearance: ${p.appearance || p.visual_description || 'To be determined by the story'}
 - Voice/Personality: ${p.personality || p.voice_style || 'Charismatic and relatable'}`).join('\n')}
 
-Weave ALL ${personaArray.length} persona${personaArray.length > 1 ? 's' : ''} into the narrative. The primary narrator drives the story; additional personas serve as supporting characters, foils, love interests, mentors, or adversaries.
+${personaWeaveLine}
 `
     : '';
 
@@ -162,8 +337,8 @@ The viewer should finish the season remembering this specific subject.
 Use this as the cinematic north star for visual style, pacing, and emotional register.\n`
     : '';
 
-  return `Create a complete story bible for a ${episodeCount}-episode short-form video series.
-
+  return `Create a complete story bible for a ${episodeCount}-episode ${isCommercial ? 'commercial video ad' : 'short-form video series'}.${commercialCapNote}
+${commercialBriefUserBlock}
 ${focusBlock}
 ${directorsBlock}
 ${personaBlock}
@@ -174,7 +349,7 @@ SERIES PARAMETERS:
 - Tone: ${tone}
 - Genre: ${genre}
 - Target audience: ${targetAudience}
-- Episodes: ${episodeCount} (each 10-15 seconds of video)
+- Episodes: ${episodeCount}${isCommercial ? ' (HARD CAP — see COMMERCIAL EPISODE-COUNT CAP above)' : ' (each ~60-90 seconds of finished video, built from 5-12 beats; ~$20 production budget per episode — plan stakes, dialogue weight, and scene depth accordingly)'}
 - Platform: Short-form vertical video (TikTok/Reels/YouTube Shorts)
 
 OUTPUT JSON SCHEMA:
@@ -250,7 +425,7 @@ OUTPUT JSON SCHEMA:
         { "purpose": "Cliffhanger: the phone call changes everything", "beats_count_hint": 3 }
       ],
       "visual_direction": "Key visual elements, setting, lighting mood",
-      "dialogue_script": "What the narrator/character says (10-15 seconds of speech) — NOTE: V4 overrides this per-beat; still useful as a v3 fallback summary",
+      "dialogue_script": "${isV4 ? 'Episode-level dialogue summary in plain prose (~3-5 sentences capturing the gist of what is said across the episode). V4 generates per-beat dialogue downstream; this field is a planning summary, NOT a target speech length.' : 'What the narrator/character says (10-15 seconds of speech) — NOTE: V4 overrides this per-beat; still useful as a v3 fallback summary'}",
       "cliffhanger": "What makes the viewer want the next episode",
       "mood": "Emotional tone of this specific episode",
       "target_emotion": "The primary emotion viewers should feel (from emotional_arc)"

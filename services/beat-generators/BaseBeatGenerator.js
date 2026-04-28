@@ -381,14 +381,28 @@ class BaseBeatGenerator {
     } catch {}
     // Minimal inlined fallback — matches the vocab semantics but avoids the
     // cross-module import. Kept narrow so it doesn't drift from the prompt.
+    // Expanded Phase 3 (2026-04-27) to mirror the 20-entry vocabulary.
     const INLINE = {
-      wide_establishing: 'Lens 24-35mm, wide shot. Camera: slow dolly back / crane reveal. Establish environment + subject within context.',
-      medium_two_shot:   'Lens 35-50mm, medium shot. Camera: locked-off or gentle drift. Two characters in frame at conversational distance.',
-      over_shoulder:     'Lens 50-85mm, medium-close. Camera: subtle arc over shoulder. Protagonist foreground soft, listener midground sharp.',
-      tight_closeup:     'Lens 85-100mm, close shot. Camera: locked-off, shallow DOF breathing. Head-and-shoulders, eyes and mouth as the story.',
-      macro_insert:      'Lens 100mm+ macro, macro shot. Camera: held with subtle rack focus, minimal drift. Detail hero.',
-      tracking_push:     'Lens 35-50mm, medium shot. Camera: slow push-in following subject motion.',
-      bridge_transit:    'Lens 24-35mm, wide shot. Camera: subject exits frame / enters new location. Connective transit between scenes.'
+      wide_establishing:               'Lens 24-35mm, wide shot. Camera: slow dolly back / crane reveal. Establish environment + subject within context.',
+      medium_two_shot:                 'Lens 35-50mm, medium shot. Camera: locked-off or gentle drift. Two characters in frame at conversational distance.',
+      over_shoulder:                   'Lens 50-85mm, medium-close. Camera: subtle arc over shoulder. Protagonist foreground soft, listener midground sharp.',
+      dirty_over_shoulder:             'Lens 50-75mm, medium. Camera: subtle drift, foreground out of focus. OTS with foreground shoulder LARGE (≥30%), spatial dominance.',
+      tight_closeup:                   'Lens 75-100mm, close shot. Camera: locked-off, shallow DOF breathing. Head-and-shoulders, eyes and mouth as the story.',
+      portrait_75mm:                   'Lens 75-85mm, medium-close. Camera: locked-off, breath-only DOF. Face-as-canvas, painterly skin separation.',
+      anamorphic_signature_closeup:    'Lens 40-50mm anamorphic (1.85x squeeze), close. Camera: locked-off, oval bokeh, blue horizontal flares. Anamorphic optical signature in 9:16 vertical.',
+      anamorphic_wide_world:           'Lens 24-35mm anamorphic, wide. Camera: slow crane / dolly with horizontal flare. Mythic world reveal with edge distortion.',
+      macro_insert:                    'Lens 60-180mm macro, macro shot. Camera: held with subtle rack focus, minimal drift. Tactile detail.',
+      cinema_macro_product:            'Lens 90-180mm macro, macro. Camera: rack focus across product surface. Cinema macro on product as object-of-interest, not advertisement. Hands present.',
+      cinema_macro_emotion:            'Lens 60-100mm macro, macro. Camera: rack focus eye → tear → eye, locked. Human detail (eye, hand tremor, tear); subtext made physical.',
+      tilt_shift_miniature:            'Lens 24-45mm tilt-shift, wide-medium. Camera: locked-off, wedge-of-focus diagonally across frame. Surreal "miniature" / psychological compression.',
+      fisheye_subjective:              'Lens 8-14mm fisheye, close-wide. Camera: handheld, rotational. Subjective POV — intoxication, panic, dream. Horizon curves.',
+      fixed_telephoto_isolation:       'Lens 200-400mm, medium-tight via distance. Camera: locked-off long, compressed background. Long-lens isolation; background = blur-painting.',
+      vintage_zoom_creep:              'Lens 50-150mm vintage zoom, medium → close. Camera: slow optical zoom-in (NOT dolly) over 4-6 seconds. 70s/80s zoom creep.',
+      speed_ramp_action:               'Lens 24-50mm, medium. Camera: whip pan with speed ramp (60fps → 24fps mid-action). Real-time → slow-mo → real-time energy spike.',
+      product_in_environment:          'Lens 35-50mm, medium. Camera: subtle drift, product mid-ground, character interacting. Product present but NOT framed subject — naturalistic placement.',
+      product_tactile_handheld:        'Lens 50-85mm, medium-close. Camera: handheld OTS onto hands using product. Brand mark off-axis or in motion blur.',
+      tracking_push:                   'Lens 35-50mm, medium shot. Camera: slow push-in following subject motion.',
+      bridge_transit:                  'Lens 24-35mm, wide shot. Camera: subject exits frame / enters new location. Connective transit between scenes.'
     };
     return INLINE[framing] || '';
   }

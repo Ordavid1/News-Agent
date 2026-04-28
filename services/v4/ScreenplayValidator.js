@@ -638,6 +638,106 @@ function checkSubjectMandate(sceneGraph, storyline, options, issues) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Phase 4 — Anti-ad-copy + brand-name dialogue bans
+// ──────────────────────────────────────────────────────────────
+//
+// These bans only fire when product_integration_style is in the "naturalistic"
+// family (naturalistic_placement | incidental_prop | genre_invisible). In
+// hero_showcase and commercial modes, ad-copy register is permitted because
+// the user has explicitly opted in to a commercial format.
+
+const AD_COPY_BAN_PATTERNS = [
+  { pattern: /\bwith (the new |our )/i,                         id: 'ad_copy_with_new' },
+  { pattern: /\bintroducing\b/i,                                id: 'ad_copy_introducing' },
+  { pattern: /\bproudly powered by\b/i,                         id: 'ad_copy_proudly_powered' },
+  { pattern: /\bnow available\b/i,                              id: 'ad_copy_now_available' },
+  { pattern: /\b(get|grab|try|buy) yours? today\b/i,            id: 'ad_copy_buy_today' },
+  { pattern: /\blimited time\b/i,                               id: 'ad_copy_limited_time' },
+  { pattern: /\bfree shipping\b/i,                              id: 'ad_copy_free_shipping' },
+  { pattern: /\bclick the link\b/i,                             id: 'ad_copy_click_link' },
+  { pattern: /\bvisit (us|our)\b/i,                             id: 'ad_copy_visit_us' },
+  { pattern: /\bthe only \w+ that\b/i,                          id: 'ad_copy_only_x_that' },
+  { pattern: /\b(thanks to|because of) (our|the)\b/i,           id: 'ad_copy_thanks_to' },
+  { pattern: /\bchanged (my|our) li(fe|ves)\b/i,                id: 'ad_copy_changed_life' },
+  { pattern: /\bour patented\b/i,                               id: 'ad_copy_patented' },
+  { pattern: /\bnever been easier\b/i,                          id: 'ad_copy_never_easier' },
+  { pattern: /\bgame[- ]?chang(er|ing)\b/i,                     id: 'ad_copy_gamechanger' }
+];
+
+// Escape a string for inclusion as a literal in a RegExp source.
+function escapeRegExp(str) {
+  return str.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function checkAntiAdCopyBans(sceneGraph, options, issues) {
+  const style = String(options?.productIntegrationStyle || 'naturalistic_placement').toLowerCase();
+  if (style === 'hero_showcase' || style === 'commercial') return;
+
+  const lines = countAllDialogueLines(sceneGraph);
+  for (const line of lines) {
+    if (!line.text) continue;
+    for (const ban of AD_COPY_BAN_PATTERNS) {
+      const m = ban.pattern.exec(line.text);
+      if (m) {
+        const beatId = line.beat?.beat_id || 'unknown';
+        issues.push({
+          id: ban.id,
+          severity: 'blocker',
+          scope: `beat:${beatId}`,
+          message: `Ad-copy banned phrase "${m[0]}" detected in dialogue (integration style: ${style}). Hollywood naturalistic placement forbids commercial register in dialogue.`,
+          hint: 'Rewrite this line so the character expresses something diegetic (a feeling, a fact, a request) rather than a product claim. The product must be a noun (touched / used) — never an adjective described in speech.'
+        });
+        break;
+      }
+    }
+  }
+}
+
+function checkBrandNameInDialogue(sceneGraph, storyline, options, issues) {
+  const style = String(options?.productIntegrationStyle || 'naturalistic_placement').toLowerCase();
+  if (style === 'hero_showcase' || style === 'commercial') return;
+
+  const candidates = new Set();
+  const add = (s) => {
+    if (!s) return;
+    const word = String(s).trim();
+    if (word.length >= 3 && /^[A-Z]/.test(word)) candidates.add(word);
+  };
+  add(storyline?.brand_name);
+  add(options?.subject?.name);
+  if (options?.brandKit?.brand_summary) {
+    const firstCap = String(options.brandKit.brand_summary).match(/\b[A-Z][A-Za-z0-9]{2,}\b/);
+    if (firstCap) add(firstCap[0]);
+  }
+  if (candidates.size === 0) return;
+
+  const reList = Array.from(candidates).map(c => new RegExp(`\\b${escapeRegExp(c)}\\b`, 'i'));
+
+  let exceptionUsed = false;
+  const lines = countAllDialogueLines(sceneGraph);
+  for (const line of lines) {
+    if (!line.text) continue;
+    for (const re of reList) {
+      if (re.test(line.text)) {
+        if (!exceptionUsed) {
+          exceptionUsed = true;
+          continue;
+        }
+        const beatId = line.beat?.beat_id || 'unknown';
+        issues.push({
+          id: 'brand_name_in_dialogue',
+          severity: 'warning',
+          scope: `beat:${beatId}`,
+          message: `Brand name appears in dialogue (integration style: ${style}). Hollywood naturalistic placement permits at most ONE diegetic brand-name reference per episode.`,
+          hint: 'Replace the brand name with a generic descriptor or rewrite around it. Multiple brand-name references in dialogue is the cardinal infomercial sin.'
+        });
+        break;
+      }
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Phase 6 — V4 Audio Coherence Overhaul checks
 // ──────────────────────────────────────────────────────────────
 
@@ -892,6 +992,12 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkMouthOcclusion(repaired, issues);
   checkPersonaIndexCoverage(repaired, personas, issues);
   checkSubjectMandate(repaired, storyline, options, issues);
+  // Phase 4 — Hollywood naturalistic placement guardrails. Reject ad-copy
+  // phrases in dialogue unless the integration style allows commercial
+  // register (hero_showcase / commercial). Brand name in dialogue is
+  // forbidden in naturalistic / incidental / genre_invisible modes.
+  checkAntiAdCopyBans(repaired, options, issues);
+  checkBrandNameInDialogue(repaired, storyline, options, issues);
   // Phase 6 — V4 audio coherence overhaul rules
   checkSonicWorldStructure(repaired, issues);
   checkSonicWorldBibleInheritance(repaired, sonicSeriesBible, issues);

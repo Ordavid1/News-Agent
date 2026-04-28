@@ -49,12 +49,24 @@ export async function generateSceneMasters({
   personas = [],
   subjectReferenceImages = [],
   storyFocus = 'product',
+  // Phase 6 (2026-04-28) — when supplied, switches reference ordering AND cap
+  // for commercial-genre stories. Commercial gets persona-first ordering AND
+  // a tighter cap (4 instead of 10). The 10-ref soup was a root cause of
+  // muddy Scene Masters in commercials (logs.txt 2026-04-28): with 2 personas
+  // × multiple sheet variants × subject refs, Seedream averaged across too
+  // many conflicting visual states and produced incoherent panels.
+  genre = '',
+  productIntegrationStyle = '',
   userId,
   uploadBuffer,
   baseSeed
 }) {
   if (!Array.isArray(scenes)) throw new Error('generateSceneMasters: scenes array required');
   if (!uploadBuffer) throw new Error('generateSceneMasters: uploadBuffer helper required');
+
+  const genreLower = String(genre).toLowerCase().trim();
+  const styleLower = String(productIntegrationStyle).toLowerCase().trim();
+  const isCommercial = genreLower === 'commercial' || styleLower === 'commercial';
 
   // Collect all persona reference images (character sheet views) into one flat list.
   // Seedream accepts up to 10 reference images — ordering matters because
@@ -63,12 +75,21 @@ export async function generateSceneMasters({
     .flatMap(p => p.reference_image_urls || [])
     .filter(Boolean);
 
-  // Ordering by story focus: person → personas first, product → subject first
-  const baseRefs = storyFocus === 'product'
-    ? [...subjectReferenceImages, ...personaRefs]
-    : [...personaRefs, ...subjectReferenceImages];
+  // Ordering by story focus + commercial override:
+  //   - person                                  → personas first
+  //   - product (default)                       → subject first (legacy)
+  //   - product + commercial (Phase 6 override) → personas first (talent identity matters most for ad spots)
+  //   - landscape                               → subject first
+  const personaFirst = storyFocus === 'person' || isCommercial;
+  const baseRefs = personaFirst
+    ? [...personaRefs, ...subjectReferenceImages]
+    : [...subjectReferenceImages, ...personaRefs];
 
-  const refsCapped = baseRefs.slice(0, 10); // Seedream limit
+  // Cap: 4 for commercial (matches Kling's per-beat cap → consistent identity
+  // anchoring across Scene Master + beats), 10 for everything else (Seedream's
+  // technical max).
+  const refCap = isCommercial ? 4 : 10;
+  const refsCapped = baseRefs.slice(0, refCap);
 
   const seed = baseSeed != null ? baseSeed : Math.floor(Math.random() * 1_000_000);
 

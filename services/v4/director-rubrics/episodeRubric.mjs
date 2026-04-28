@@ -48,15 +48,24 @@ REMEDIATION DISCIPLINE FOR LENS D:
 /**
  * Build the multimodal prompt parts for Lens D.
  *
+ * VIDEO TRANSPORT (2026-04-28 fix): Vertex AI's `file_data.file_uri` only
+ * accepts gs:// URIs or Files API URIs — arbitrary public HTTPS URLs (e.g.
+ * Supabase storage URLs) trigger 400 INVALID_ARGUMENT for video MIME types.
+ * Always prefer `episodeVideoBuffer` (inline_data, base64) when available;
+ * fall back to file_uri only if a gs:// URI is supplied. Inline limit is
+ * ~20MB per Vertex docs — Lens D episodes typically come in well under that.
+ *
  * @param {Object} params
- * @param {string} params.episodeVideoUrl   - public/signed URL of the assembled MP4 (Vertex fetches via file_data)
+ * @param {Buffer} [params.episodeVideoBuffer] - assembled MP4 buffer (PREFERRED — sent as inline_data)
+ * @param {string} [params.episodeVideoUrl]   - gs:// URI (file_data) — used only when buffer not supplied
  * @param {string} [params.videoMime='video/mp4']
  * @param {Object} params.sceneGraph        - the final scene-graph used to assemble (post-judging)
  * @param {Object} [params.postProductionManifest] - { transitions, lutId, musicBedIntent, titleCard, endCard, subtitleConfig }
  * @param {string} [params.storyFocus='drama']
  */
 export function buildEpisodeJudgePrompt({
-  episodeVideoUrl,
+  episodeVideoBuffer = null,
+  episodeVideoUrl = null,
   videoMime = 'video/mp4',
   sceneGraph,
   postProductionManifest = null,
@@ -64,8 +73,8 @@ export function buildEpisodeJudgePrompt({
   sonicSeriesBible = null,
   storyFocus = 'drama'
 } = {}) {
-  if (!episodeVideoUrl) {
-    throw new Error('buildEpisodeJudgePrompt: episodeVideoUrl required');
+  if (!episodeVideoBuffer && !episodeVideoUrl) {
+    throw new Error('buildEpisodeJudgePrompt: episodeVideoBuffer (preferred) or episodeVideoUrl required');
   }
 
   const systemPrompt = [
@@ -89,12 +98,27 @@ export function buildEpisodeJudgePrompt({
     userParts.push({ text: `<episode_sonic_world>\n${JSON.stringify(sonicWorld, null, 2)}\n</episode_sonic_world>` });
   }
   userParts.push({ text: 'Assembled episode video:' });
-  userParts.push({
-    file_data: {
-      file_uri: episodeVideoUrl,
-      mime_type: videoMime
-    }
-  });
+
+  if (Buffer.isBuffer(episodeVideoBuffer) && episodeVideoBuffer.length > 0) {
+    // Inline base64 — works reliably for video < ~20MB.
+    userParts.push({
+      inline_data: {
+        mime_type: videoMime,
+        data: episodeVideoBuffer.toString('base64')
+      }
+    });
+  } else if (typeof episodeVideoUrl === 'string' && episodeVideoUrl.startsWith('gs://')) {
+    // gs:// URIs are accepted by Vertex file_data for video.
+    userParts.push({
+      file_data: {
+        file_uri: episodeVideoUrl,
+        mime_type: videoMime
+      }
+    });
+  } else {
+    throw new Error('buildEpisodeJudgePrompt: episodeVideoBuffer required (file_uri only supports gs:// for video)');
+  }
+
   userParts.push({ text: 'Grade per Lens D. Output ONLY the verdict JSON. retry_authorization MUST be false.' });
 
   return { systemPrompt, userParts };

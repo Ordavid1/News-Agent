@@ -68,8 +68,11 @@ import {
 } from './v4/VoiceAcquisition.js';
 import {
   matchBrandKitToLut,
+  matchByGenreAndMood,
   resolveEpisodeLut,
-  getLutFilePath
+  getLutFilePath,
+  isSpecSystemEnabled,
+  getStrengthForGenre
 } from './v4/BrandKitLutMatcher.js';
 import { generateSonicSeriesBible } from './v4/SonicSeriesBible.js';
 import {
@@ -78,6 +81,16 @@ import {
 } from './v4/PostProduction.js';
 import { getOrCreateProgressEmitter } from './v4/ProgressEmitter.js';
 import { generateLutFromBrandKit } from './v4/GenerativeLut.js';
+import {
+  isEnabled as isCharacterSheetDirectorEnabled,
+  generateAllVariants as csdGenerateAllVariants
+} from './v4/CharacterSheetDirector.js';
+import {
+  generateCommercialBrief,
+  resolveCommercialEpisodeCount,
+  isCommercialGenre,
+  isCommercialPipelineEnabled
+} from './v4/CreativeBriefDirector.js';
 import { validateScreenplay } from './v4/ScreenplayValidator.js';
 import { punchUpScreenplay } from './v4/ScreenplayDoctor.js';
 import { parseGeminiJson } from './v4/GeminiJsonRepair.js';
@@ -246,11 +259,17 @@ BRAND KIT CONTEXT (use this to inform your analysis):
 - Brand colors: ${(brandKit.color_palette || []).slice(0, 5).map(c => c.hex || c.name).join(', ')}
 ` : '';
 
-    // Focus-specific integration guidance — teaches Gemini HOW the subject should appear in scenes
-    // (like product placement in TV series: natural, diegetic, not forced).
+    // Focus-specific integration guidance — teaches Gemini HOW the subject should
+    // appear in scenes. Phase 4 rewrite (2026-04-27): the product brief is rewritten
+    // away from "IS the hero" framing toward Hollywood naturalistic-placement
+    // grammar (Reese's Pieces in E.T., Aston Martin in Bond, MacBook in The Social
+    // Network). The product is a side-actor / well-placed prop that lives inside
+    // a real character story — not the centerpiece. The actual integration depth
+    // is governed at the screenplay layer by `product_integration_style`
+    // (naturalistic_placement | hero_showcase | incidental_prop | genre_invisible).
     const focusIntegrationBrief = {
       person:    'This is a PERSON-focus story. The uploaded subject is something the person interacts with, wears, owns, or relates to. It should appear naturally in their hands, on their body, in their environment — as an extension of who they are.',
-      product:   'This is a PRODUCT-focus story. The uploaded subject IS the hero of every episode. Think TV-series paid product integration: characters USE it, HOLD it, UNBOX it, REACT to it. It appears in hands, on counters, on tables, on benches, in close-ups — always naturally, never a billboard.',
+      product:   'This is a PRODUCT-focus story, told as a CHARACTER STORY featuring this subject. The product is a naturalistic prop — characters USE it as part of their lives, never to demonstrate it. Think Hollywood-grade product placement: Reese\'s Pieces in E.T. (Elliott\'s hand, no dialogue describing the candy), MacBook in The Social Network (Zuckerberg coding, the laptop is just present), Aston Martin in Bond (driven, not described). The product participates in the story; the story is not about the product. It does NOT need to appear in every beat.',
       landscape: 'This is a LANDSCAPE / PLACE-focus story. The uploaded subject is the SETTING. Characters walk THROUGH it, sit IN it, gaze AT it, inhabit it. It can be a background, an environment the camera explores, an interior that frames the action, or the destination the story arrives at.'
     }[storyFocus] || 'Integrate naturally into the visual narrative.';
 
@@ -352,8 +371,54 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ? story.persona_config.personas
       : [story.persona_config]; // legacy fallback
 
+    // Pipeline-aware storyline prompts — V4 needs different episode-grammar
+    // anchors (60-120s, 5-12 beats, on-camera dialogue) than legacy v1/v2/v3
+    // (10-15s narration). Mirrors the same env-var that runEpisodePipeline
+    // routes on at line ~1813. See .claude/plans/regarding-this-infrastructure-i-magical-flame.md
+    const storylinePipelineVersion = process.env.BRAND_STORY_PIPELINE === 'v4' ? 'v4' : 'v3';
+
+    // ─── Phase 6 (2026-04-28 reorder) — COMMERCIAL pre-flight: brief BEFORE storyline ───
+    //
+    // Original Phase 6 design ran CreativeBriefDirector inside runV4Pipeline,
+    // AFTER the storyline was already locked. That meant the storyline writer
+    // never saw the creative_concept, visual_signature, narrative_grammar,
+    // music_intent, hero_image, brand_world_lock, anti_brief, or style_category.
+    // The brief was generated and persisted but its directorial vision never
+    // reached the screenplay layer. Result: incoherent commercials.
+    //
+    // The brief now runs HERE — before storyline — so it can shape the
+    // storyline (and through the storyline, every downstream stage).
+    // Idempotent: skipped when story.commercial_brief already exists.
+    let commercialBrief = story.commercial_brief || null;
+    if (!commercialBrief && isCommercialGenre(story) && isCommercialPipelineEnabled()) {
+      logger.info('commercial genre detected — running CreativeBriefDirector pre-flight (before storyline)');
+      try {
+        commercialBrief = await generateCommercialBrief({
+          story,
+          brandKit,
+          personas
+        });
+        const { count: briefCount, reasoning: briefReasoning } = resolveCommercialEpisodeCount(commercialBrief);
+        logger.info(`commercial brief: concept="${(commercialBrief.creative_concept || '').slice(0, 60)}" style=${commercialBrief.style_category} episodes=${briefCount}`);
+        await updateBrandStory(storyId, userId, {
+          commercial_brief: commercialBrief,
+          product_integration_style: 'commercial',
+          commercial_episode_count: briefCount,
+          commercial_episode_reasoning: briefReasoning
+        });
+        story.commercial_brief = commercialBrief;
+        story.product_integration_style = 'commercial';
+        story.commercial_episode_count = briefCount;
+        story.commercial_episode_reasoning = briefReasoning;
+      } catch (err) {
+        logger.warn(`commercial brief failed (${err.message}) — storyline will run without brief context`);
+      }
+    }
+
     const systemPrompt = getStorylineSystemPrompt(brandKit, {
-      directorsNotes: story.subject?.directors_notes || ''
+      directorsNotes: story.subject?.directors_notes || '',
+      pipelineVersion: storylinePipelineVersion,
+      commercialBrief
     });
     const userPrompt = getStorylineUserPrompt(
       personas,
@@ -364,7 +429,9 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         genre: story.subject?.genre || 'drama',
         targetAudience: story.subject?.target_audience || 'young professionals',
         storyFocus: story.story_focus || 'product',
-        directorsNotes: story.subject?.directors_notes || ''
+        directorsNotes: story.subject?.directors_notes || '',
+        pipelineVersion: storylinePipelineVersion,
+        commercialBrief
       }
     );
 
@@ -407,7 +474,33 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       throw new Error('Storyline generation returned invalid JSON');
     }
 
-    logger.info(`Storyline generated: "${storyline.title}" — ${storyline.episodes?.length || 0} episodes planned`);
+    // ─── Server-side safety net: clamp commercial-genre episode count ───
+    //
+    // Phase 6 (2026-04-28). The storyline prompt now teaches Gemini to cap
+    // commercial at 1-2 (see brandStoryPrompts.mjs `commercialCapNote`). If
+    // Gemini ignores that — emits 3+ episodes anyway — we trim here. The
+    // dependent arrays (emotional_arc, antagonist_curve, subplots.episodes_active)
+    // are also trimmed to stay consistent with the new episode count.
+    const isCommercialStory = String(story.subject?.genre || story.storyline?.genre || '').toLowerCase().trim() === 'commercial';
+    if (isCommercialStory && Array.isArray(storyline.episodes) && storyline.episodes.length > 2) {
+      const before = storyline.episodes.length;
+      storyline.episodes = storyline.episodes.slice(0, 2);
+      if (Array.isArray(storyline.emotional_arc)) {
+        storyline.emotional_arc = storyline.emotional_arc.filter(e => (e?.episode || 0) <= 2);
+      }
+      if (Array.isArray(storyline.antagonist_curve)) {
+        storyline.antagonist_curve = storyline.antagonist_curve.filter(e => (e?.episode || 0) <= 2);
+      }
+      if (Array.isArray(storyline.subplots)) {
+        storyline.subplots = storyline.subplots.map(s => ({
+          ...s,
+          episodes_active: Array.isArray(s.episodes_active) ? s.episodes_active.filter(n => n <= 2) : s.episodes_active
+        }));
+      }
+      logger.warn(`commercial storyline emitted ${before} episodes — clamped to 2 (HARD CAP)`);
+    }
+
+    logger.info(`Storyline generated: "${storyline.title}" — ${storyline.episodes?.length || 0} episodes planned${isCommercialStory ? ' (commercial)' : ''}`);
 
     // Save to database
     const updated = await updateBrandStory(storyId, userId, { storyline });
@@ -1452,25 +1545,48 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
   }
 
   /**
-   * Build the reference image array for Kling, prioritized by story_focus.
+   * Build the reference image array for Kling, prioritized by story_focus
+   * AND product_integration_style (Phase 4).
    * Kling 3.0 Pro accepts up to 4 reference images total (@Element1..@Element4 in prompt).
    *
    * Priority rules:
-   *   person    → persona refs first (identity locked), subject refs as secondary
-   *   product   → subject refs first (product IS the hero), persona refs secondary
-   *   landscape → subject refs first (place IS the hero), persona refs secondary
+   *   person                                        → persona refs first (identity locked), subject refs as secondary
+   *   landscape                                     → subject refs first (place IS the setting), persona refs secondary
+   *   product + hero_showcase                       → subject refs first (product IS the framed subject)
+   *   product + commercial (Phase 6, 2026-04-28)    → persona refs first — commercials need the talent to look like
+   *                                                   themselves; product fidelity is enforced by the Director Agent
+   *                                                   product_identity_lock dimension and by including product refs
+   *                                                   in slots 3-4. Subject-first was a root cause of identity drift
+   *                                                   in commercials (logs.txt 2026-04-28).
+   *   product + naturalistic_placement / incidental → persona refs first (Hollywood-style: characters are subject)
+   *   product + genre_invisible                     → persona refs first (product withheld until reveal)
+   *   product (legacy default before style set)     → subject refs first (preserves pre-Phase-4 behavior)
    */
   _buildKlingReferenceImages(story) {
     const focus = story.story_focus || 'product';
     const personaRefs = this._collectPersonaReferenceImages(story);
     const subjectRefs = this._collectSubjectReferenceImages(story);
+    const integrationStyle = story.product_integration_style || null;
 
     let combined;
     if (focus === 'person') {
-      // Persona dominant, subject supporting
       combined = [...personaRefs.slice(0, 2), ...subjectRefs.slice(0, 2)];
+    } else if (focus === 'product') {
+      // hero_showcase keeps product-first (legacy money-beat mode).
+      // commercial flips to persona-first (2026-04-28 fix).
+      // null integration_style preserves pre-Phase-4 product-first default.
+      const productHero =
+        integrationStyle === 'hero_showcase' ||
+        integrationStyle == null;
+      if (productHero) {
+        combined = [...subjectRefs.slice(0, 2), ...personaRefs.slice(0, 2)];
+      } else {
+        // commercial / naturalistic_placement / incidental_prop / genre_invisible —
+        // characters are the framed subject; product is a prop / participating element.
+        combined = [...personaRefs.slice(0, 2), ...subjectRefs.slice(0, 2)];
+      }
     } else {
-      // Subject dominant, persona supporting (product/landscape)
+      // landscape — subject (place) is the setting
       combined = [...subjectRefs.slice(0, 2), ...personaRefs.slice(0, 2)];
     }
     // Dedupe + cap at Kling's 4 total
@@ -2076,27 +2192,82 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       } catch (e) { /* fine */ }
     }
 
-    // 5. Generate 3 views
+    // 5. Build the view list — Phase 5 routes through CharacterSheetDirector
+    // (when enabled). Each variant becomes one or more views; legacy mode emits
+    // the static white-studio prompts unchanged.
     const baseSeed = Math.floor(Math.random() * 2147483647);
-    const views = [
-      {
-        label: 'hero',
-        prompt: `Cinematic film still portrait, full body shot, 3/4 front view at 45 degrees. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} ${styleHint ? 'Style: ' + styleHint + '.' : ''} Hyperrealistic, soft wrap-around studio lighting, subtle rim light from behind, even full-body illumination, slight cinematic contrast. Eye-level camera, 85mm equivalent, sharp head-to-toe focus. Pure white seamless studio background, fully isolated character. 8K, sharp material textures, photographic quality. No text, no watermark.`,
-        aspect: '9:16'
-      },
-      {
-        label: 'closeup',
-        prompt: `Close-up cinematic portrait, head and shoulders, looking directly at camera. ${description}. Dramatic shallow depth of field, catch-lights in eyes, warm skin tones, fine detail on skin texture and facial features. ${styleHint ? 'Style: ' + styleHint + '.' : ''} Soft studio lighting, slight rim light. White background. Photorealistic, 8K detail. No text, no watermark.`,
-        aspect: '1:1'
-      },
-      {
-        label: 'fullbody-side',
-        prompt: `Full body pure side profile, 90 degree angle. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} Standing tall, natural relaxed posture. Sharp head-to-toe focus, even studio lighting. White seamless background. Hyperrealistic, photographic quality. No text, no watermark.`,
-        aspect: '9:16'
+    let views;
+    let csdMeta = null;  // captured for persona record (sheet_variants field)
+
+    if (isCharacterSheetDirectorEnabled()) {
+      try {
+        // Load brand kit once for the director
+        let brandKit = null;
+        if (story.brand_kit_job_id) {
+          try {
+            const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+            brandKit = job?.brand_kit || null;
+          } catch { /* fine */ }
+        }
+        const { variants, isPrincipal } = await csdGenerateAllVariants({ persona, story, brandKit });
+        csdMeta = { variants: Object.keys(variants), is_principal: isPrincipal };
+
+        // Each arc-state variant emits TWO views: a hero (9:16) and a closeup (1:1).
+        // The principal/supporting policy already controlled how many variants we
+        // get; here we just expand each variant into the two canonical views.
+        views = [];
+        for (const [arcState, brief] of Object.entries(variants)) {
+          views.push({
+            label: `${arcState}-hero`,
+            prompt: brief.flux_prompt,
+            negative_prompt: brief.negative_prompt || undefined,
+            aspect: '9:16',
+            arc_state: arcState
+          });
+          views.push({
+            label: `${arcState}-closeup`,
+            // Closeup variant: tighten the brief to head-and-shoulders. We
+            // simply append a framing instruction; the director-authored brief
+            // already contains the dimensions-driven craft.
+            prompt: `${brief.flux_prompt}\n\nFRAMING OVERRIDE: head-and-shoulders close-up at the same emotional state and lighting register. Same wardrobe, same eye-state, same posture intent.`,
+            negative_prompt: brief.negative_prompt || undefined,
+            aspect: '1:1',
+            arc_state: arcState
+          });
+        }
+        logger.info(`CharacterSheetDirector: generated ${Object.keys(variants).length} variants × 2 views = ${views.length} views for ${name} (principal=${isPrincipal})`);
+      } catch (err) {
+        logger.warn(`CharacterSheetDirector failed (${err.message}) — falling back to legacy hardcoded prompts`);
+        views = null;
       }
-    ];
+    }
+
+    if (!views) {
+      // Legacy hardcoded fallback (preserves pre-Phase-5 behavior).
+      views = [
+        {
+          label: 'hero',
+          prompt: `Cinematic film still portrait, full body shot, 3/4 front view at 45 degrees. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} ${styleHint ? 'Style: ' + styleHint + '.' : ''} Hyperrealistic, soft wrap-around studio lighting, subtle rim light from behind, even full-body illumination, slight cinematic contrast. Eye-level camera, 85mm equivalent, sharp head-to-toe focus. Pure white seamless studio background, fully isolated character. 8K, sharp material textures, photographic quality. No text, no watermark.`,
+          aspect: '9:16'
+        },
+        {
+          label: 'closeup',
+          prompt: `Close-up cinematic portrait, head and shoulders, looking directly at camera. ${description}. Dramatic shallow depth of field, catch-lights in eyes, warm skin tones, fine detail on skin texture and facial features. ${styleHint ? 'Style: ' + styleHint + '.' : ''} Soft studio lighting, slight rim light. White background. Photorealistic, 8K detail. No text, no watermark.`,
+          aspect: '1:1'
+        },
+        {
+          label: 'fullbody-side',
+          prompt: `Full body pure side profile, 90 degree angle. ${description}. ${wardrobe ? 'Wearing: ' + wardrobe + '.' : ''} Standing tall, natural relaxed posture. Sharp head-to-toe focus, even studio lighting. White seamless background. Hyperrealistic, photographic quality. No text, no watermark.`,
+          aspect: '9:16'
+        }
+      ];
+    }
 
     const newImageUrls = [];
+    // Phase 5 — sheet_variants captures arc-state → { hero, closeup } URL map
+    // when CharacterSheetDirector ran. BeatRouter consumes this to pick the
+    // right variant per beat based on beat.arc_position. Empty in legacy mode.
+    const sheetVariants = {};
     let heroInputImages = [...inputImages];
 
     for (let v = 0; v < views.length; v++) {
@@ -2126,6 +2297,14 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         imageBuffer, userId, 'personas', filename, 'image/webp'
       );
       newImageUrls.push(imageUrl);
+
+      // Phase 5 — record per-arc-state URL into sheet_variants when present.
+      if (view.arc_state) {
+        if (!sheetVariants[view.arc_state]) sheetVariants[view.arc_state] = {};
+        const slot = view.label.includes('closeup') ? 'closeup' : 'hero';
+        sheetVariants[view.arc_state][slot] = imageUrl;
+        sheetVariants[view.arc_state].prompt = view.prompt;  // last write wins (hero variant)
+      }
 
       // After hero shot, add it as reference for subsequent views
       if (v === 0) {
@@ -2196,7 +2375,10 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ...persona,
       reference_image_urls: allRefs,
       canonical_identity_urls: canonicalIdentityUrls,
-      omnihuman_seed_image_url: newImageUrls[0] // hero shot
+      omnihuman_seed_image_url: newImageUrls[0], // hero shot
+      // Phase 5 — arc-state variant map (empty when legacy mode is active)
+      sheet_variants: Object.keys(sheetVariants).length > 0 ? sheetVariants : (persona.sheet_variants || null),
+      character_sheet_director_meta: csdMeta
     };
   }
 
@@ -2336,7 +2518,7 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     const prompt = `You are an Oscar-winning film director writing a 2-3 sentence creative brief for a branded short film series.
 
 STORY CONTEXT:
-- Focus: ${storyFocus} (${storyFocus === 'person' ? 'character-driven' : storyFocus === 'landscape' ? 'location cinema' : 'product showcase'})
+- Focus: ${storyFocus} (${storyFocus === 'person' ? 'character-driven' : storyFocus === 'landscape' ? 'location cinema' : 'character story featuring this product as a naturalistic prop (Hollywood placement, not commercial showcase)'})
 - Genre: ${genre}
 - Tone: ${tone}
 - Target audience: ${targetAudience}
@@ -2699,6 +2881,54 @@ Respond with ONLY valid JSON:
       if (!p.name || !String(p.name).trim()) p.name = `Persona ${i + 1}`;
     });
 
+    // ─── Phase 6 — COMMERCIAL pre-flight (runs ONCE per story BEFORE everything else) ───
+    //
+    // When the story's genre is 'commercial' AND the COMMERCIAL pipeline flag is on,
+    // run CreativeBriefDirector first. The brief becomes the foundation for every
+    // downstream stage:
+    //   • episode-count justification (cap 1-2 vs prestige 3-12)
+    //   • visual_style_brief → bespoke per-episode LUT (bypasses BrandKitLutMatcher)
+    //   • product_integration_style auto-set to 'commercial' (relaxed dialogue)
+    //   • Lens A/D rubrics swap to commercialRubric (creative_bravery / brand_recall / etc.)
+    //
+    // Cached on story.commercial_brief; subsequent runs skip the Gemini call.
+    if (isCommercialGenre(story) && isCommercialPipelineEnabled() && !story.commercial_brief) {
+      progress('commercial_brief', 'authoring commercial creative brief (one-time per story)');
+      try {
+        let brandKitForBrief = null;
+        if (story.brand_kit_job_id) {
+          try {
+            const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+            brandKitForBrief = job?.brand_kit || null;
+          } catch { /* fine */ }
+        }
+        const brief = await generateCommercialBrief({
+          story,
+          brandKit: brandKitForBrief,
+          personas
+        });
+        const { count, reasoning } = resolveCommercialEpisodeCount(brief);
+        progress('commercial_brief',
+          `brief: concept="${(brief.creative_concept || '').slice(0, 60)}" style=${brief.style_category} episodes=${count}`);
+        // Persist on the story so subsequent stages + the screenplay writer
+        // can read it. commercial_brief is the source of truth.
+        const briefUpdates = {
+          commercial_brief: brief,
+          // Auto-set product_integration_style to 'commercial' so the screenplay
+          // prompt + ScreenplayValidator + reference-stack priority all switch
+          // to commercial-register mode.
+          product_integration_style: 'commercial',
+          // Mirror the count + reasoning at the top level for easy UI access
+          commercial_episode_count: count,
+          commercial_episode_reasoning: reasoning
+        };
+        await updateBrandStory(storyId, userId, briefUpdates);
+        Object.assign(story, briefUpdates);
+      } catch (err) {
+        logger.warn(`commercial brief generation failed (${err.message}) — falling through to legacy pipeline`);
+      }
+    }
+
     // ─── Step 1: Persona voice acquisition (idempotent) ───
     progress('voices', `acquiring ${personas.length} persona voice(s)`);
     const voiceResult = await acquirePersonaVoicesForStory(personas);
@@ -2722,54 +2952,88 @@ Respond with ONLY valid JSON:
     }
 
     if (brandKit && !story.brand_kit_lut_id && !story.locked_lut_id) {
-      // V4 LUT resolution — library-first, generative-fallback (per user request 2026-04-23).
+      // V4 LUT resolution — TWO COEXISTING SYSTEMS gated by BRAND_STORY_LUT_SPEC_SYSTEM:
       //
-      // Previous flow was an exclusive either/or gated on BRAND_STORY_LUT_GENERATIVE:
-      //   - Flag on  → synthesize generative LUT
-      //   - Flag off → match curated library
+      // ▸ SPEC SYSTEM ON (Phase 1+2):
+      //   1. matchByGenreAndMood(story) → resolves a genre-anchored creative LUT
+      //      from the declarative spec library (no brand-vertical matching)
+      //   2. If BRAND_STORY_LUT_GENERATIVE_PRIMARY=true → also generate a
+      //      brand-palette LUT (per-genre strength) — applied as a SECOND pass
+      //      on top of the genre LUT in PostProduction stage 3
       //
-      // New flow respects the user's cinematic intent — curated library LUTs
-      // are hand-crafted by pros and always beat a math-only generative LUT
-      // when they exist on disk — while still giving a graceful color grade
-      // when .cube files haven't been dropped yet:
-      //   1. Match curated library LUT (always — fast, free, deterministic)
-      //   2. Check if that LUT's .cube file exists on disk
-      //   3. If missing AND BRAND_STORY_LUT_GENERATIVE=true AND brand kit has
-      //      a color palette → synthesize a generative LUT from the palette
-      //      and swap the lut_id
-      //   4. If still no file + no fallback → store the library id anyway;
-      //      PostProduction will gracefully skip the grade and log a clear
-      //      drop-in hint
-      progress('lut', `matching brand kit → LUT (library)`);
-      const lutMatch = await matchBrandKitToLut(brandKit);
-      let resolvedLutId = lutMatch.lutId;
-
+      // ▸ SPEC SYSTEM OFF (legacy default — preserves existing behavior):
+      //   1. matchBrandKitToLut(brandKit) → picks from 8 hand-graded library LUTs
+      //   2. If BRAND_STORY_LUT_GENERATIVE=true → synthesize generative LUT only
+      //      when the chosen library .cube is missing on disk (fallback mode)
+      const useSpecSystem = isSpecSystemEnabled();
+      // Phase 2 GA (2026-04-28): brand-palette LUT trim layered on top of the
+      // genre LUT is the new default. Set BRAND_STORY_LUT_GENERATIVE_PRIMARY=false
+      // to disable the brand pass (genre LUT only).
+      const generativePrimary =
+        String(process.env.BRAND_STORY_LUT_GENERATIVE_PRIMARY || 'true').toLowerCase() !== 'false';
+      // Legacy fallback flag — only consulted when spec system is OFF. Stays opt-in.
       const generativeFallbackMode = process.env.BRAND_STORY_LUT_GENERATIVE === 'true';
-      if (generativeFallbackMode) {
-        const libraryPath = getLutFilePath(resolvedLutId);
-        if (!libraryPath) {
-          // Library LUT .cube is missing on disk — synthesize generative as fallback
+
+      let resolvedLutId;
+      let brandLutId = null;
+
+      if (useSpecSystem) {
+        // ── SPEC SYSTEM PATH ────────────────────────────────────────────
+        progress('lut', 'spec system: matching genre + mood → genre LUT');
+        const genreMatch = await matchByGenreAndMood(story);
+        resolvedLutId = genreMatch.lutId;
+        progress('lut', `genre LUT → ${resolvedLutId}`);
+
+        if (generativePrimary) {
+          const genre = story.subject?.genre || story.storyline?.genre;
+          const strength = getStrengthForGenre(genre);
+          progress('lut', `synthesizing brand-palette LUT (genre=${genre}, strength=${strength.toFixed(2)})`);
           try {
-            progress('lut', `library LUT ${resolvedLutId} missing on disk — synthesizing generative fallback`);
-            const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
-            if (generated?.lutId) {
-              resolvedLutId = generated.lutId;
-              progress('lut', `generative fallback → ${resolvedLutId}`);
+            const brandGen = await generateLutFromBrandKit(brandKit, { strength });
+            if (brandGen?.lutId) {
+              brandLutId = brandGen.lutId;
+              progress('lut', `brand trim → ${brandLutId}`);
             } else {
-              progress('lut', `generative fallback produced no LUT (no palette) — keeping ${resolvedLutId} (ungraded)`);
+              progress('lut', 'brand palette ineligible (rejected by quality gates) — genre LUT only');
             }
           } catch (err) {
-            logger.warn(`V4: generative LUT fallback failed (${err.message}) — keeping library id ${resolvedLutId} (will render ungraded)`);
+            logger.warn(`V4: brand LUT synthesis failed (${err.message}) — genre LUT only`);
           }
-        } else {
-          progress('lut', `matched → ${resolvedLutId} (library .cube on disk — using hand-crafted)`);
         }
       } else {
-        progress('lut', `matched → ${resolvedLutId}`);
+        // ── LEGACY PATH (preserves existing behavior) ───────────────────
+        progress('lut', 'matching brand kit → LUT (legacy library)');
+        const lutMatch = await matchBrandKitToLut(brandKit);
+        resolvedLutId = lutMatch.lutId;
+
+        if (generativeFallbackMode) {
+          const libraryPath = getLutFilePath(resolvedLutId);
+          if (!libraryPath) {
+            try {
+              progress('lut', `library LUT ${resolvedLutId} missing on disk — synthesizing generative fallback`);
+              const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
+              if (generated?.lutId) {
+                resolvedLutId = generated.lutId;
+                progress('lut', `generative fallback → ${resolvedLutId}`);
+              } else {
+                progress('lut', `generative fallback produced no LUT (no palette) — keeping ${resolvedLutId} (ungraded)`);
+              }
+            } catch (err) {
+              logger.warn(`V4: generative LUT fallback failed (${err.message}) — keeping library id ${resolvedLutId} (will render ungraded)`);
+            }
+          } else {
+            progress('lut', `matched → ${resolvedLutId} (library .cube on disk — using hand-crafted)`);
+          }
+        } else {
+          progress('lut', `matched → ${resolvedLutId}`);
+        }
       }
 
-      await updateBrandStory(storyId, userId, { brand_kit_lut_id: resolvedLutId });
+      const updates = { brand_kit_lut_id: resolvedLutId };
+      if (brandLutId) updates.brand_palette_lut_id = brandLutId;
+      await updateBrandStory(storyId, userId, updates);
       story.brand_kit_lut_id = resolvedLutId;
+      if (brandLutId) story.brand_palette_lut_id = brandLutId;
     }
 
     // ─── Step 2b: Sonic Series Bible (lazy + idempotent — mirrors LUT pattern) ───
@@ -2859,9 +3123,21 @@ Respond with ONLY valid JSON:
     // we never loop, we never block. The quality_report is persisted so the
     // Director's Panel can surface Layer-1 issues and Layer-2 edits for review.
     const storyFocus = story.story_focus || 'product';
+    // Phase 4 — pass productIntegrationStyle so the validator's anti-ad-copy
+    // and brand-name-in-dialogue gates apply correctly. Default is naturalistic
+    // for product-focus stories; explicit setting (wizard or commercial-genre
+    // override) takes precedence.
+    const productIntegrationStyleForValidator = story.product_integration_style || 'naturalistic_placement';
+    const validatorOpts = {
+      storyFocus,
+      sonicSeriesBible: story.sonic_series_bible || null,
+      productIntegrationStyle: productIntegrationStyleForValidator,
+      subject: story.subject,
+      brandKit
+    };
     let qualityReport = { validator: null, doctor: null };
     try {
-      const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus, sonicSeriesBible: story.sonic_series_bible || null });
+      const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, validatorOpts);
       qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
       sceneGraph = layer1.repaired;
       const blockerList = layer1.issues.filter(i => i.severity === 'blocker');
@@ -2888,7 +3164,7 @@ Respond with ONLY valid JSON:
           progress('screenplay_qa', `Doctor applied ${layer2.applied.length} edits`);
           // Re-run Layer 1 once to capture post-doctor state in the report.
           // We do NOT loop — a second blocker list just gets logged.
-          const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, { storyFocus, sonicSeriesBible: story.sonic_series_bible || null });
+          const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, validatorOpts);
           qualityReport.validator_post_doctor = { issues: layer1b.issues, stats: layer1b.stats };
           sceneGraph = layer1b.repaired;
           const postDocBlockerList = layer1b.issues.filter(i => i.severity === 'blocker');
@@ -3049,10 +3325,7 @@ Respond with ONLY valid JSON:
                     sceneGraph,
                     story.storyline || {},
                     personas,
-                    {
-                      storyFocus: story.story_focus || 'product',
-                      sonicSeriesBible: story.sonic_series_bible || null
-                    }
+                    validatorOpts
                   );
                   sceneGraph = layer1c.repaired;
                   qualityReport.validator_post_director = {
@@ -3170,6 +3443,10 @@ Respond with ONLY valid JSON:
       personas,
       subjectReferenceImages,
       storyFocus: story.story_focus || 'product',
+      // Phase 6 (2026-04-28) — feed genre + integration style so Scene Master
+      // ref ordering / cap can switch to commercial mode (persona-first, cap 4).
+      genre: story.subject?.genre || story.storyline?.genre || '',
+      productIntegrationStyle: story.product_integration_style || '',
       userId,
       uploadBuffer: uploadBufferToStorage,
       baseSeed: previousReady.length * 100 // varies per episode, deterministic across retries
@@ -3250,6 +3527,9 @@ Respond with ONLY valid JSON:
                   personas,
                   subjectReferenceImages,
                   storyFocus: story.story_focus || 'product',
+                  // Phase 6 — same commercial-mode plumbing as the main call.
+                  genre: story.subject?.genre || story.storyline?.genre || '',
+                  productIntegrationStyle: story.product_integration_style || '',
                   userId,
                   uploadBuffer: uploadBufferToStorage,
                   baseSeed: (previousReady.length * 100) + 1 // shift seed for the retry
@@ -3549,6 +3829,10 @@ Respond with ONLY valid JSON:
                   metadata: result.metadata || null
                 },
                 storyFocus: story.story_focus || 'drama',
+                // Phase 4 — context for product_identity_lock + product_subtlety
+                productIntegrationStyle: story.product_integration_style || 'naturalistic_placement',
+                productSignatureFeatures: story.subject?.signature_features || [],
+                subjectName: story.subject?.name || null,
                 isRetry: false
               });
               directorReport.beat[beat.beat_id] = verdictC;
@@ -3658,6 +3942,9 @@ Respond with ONLY valid JSON:
                         metadata: result2.metadata || null
                       },
                       storyFocus: story.story_focus || 'drama',
+                      productIntegrationStyle: story.product_integration_style || 'naturalistic_placement',
+                      productSignatureFeatures: story.subject?.signature_features || [],
+                      subjectName: story.subject?.name || null,
                       isRetry: true
                     });
                     directorReport.beat[beat.beat_id] = verdictC;
@@ -3845,7 +4132,8 @@ Respond with ONLY valid JSON:
     });
 
     const episodeLutId = resolveEpisodeLut(story, { ...newEpisode, scene_description: sceneGraph });
-    progress('post_production', `resolved LUT → ${episodeLutId}`);
+    const brandLutId = story.brand_palette_lut_id || null;
+    progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
     // Build beatMetadata with dialogue fields so the subtitle burn-in + music
     // ducking can use them. beatMetadata is currently a thin object, but the
@@ -3886,6 +4174,7 @@ Respond with ONLY valid JSON:
       beatVideoBuffers,
       beatMetadata: enrichedBeatMetadata,
       episodeLutId,
+      brandLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
       sceneDescription: sceneGraph,
@@ -3927,7 +4216,12 @@ Respond with ONLY valid JSON:
       const lensDMode = directorModes[DIRECTOR_CHECKPOINTS.EPISODE];
       try {
         const verdictD = await directorAgent.judgeEpisode({
-          episodeVideoUrl: finalVideoUrl,
+          // 2026-04-28 fix: Vertex rejects arbitrary HTTPS URIs in file_data
+          // for video (returns 400 INVALID_ARGUMENT). Pass the buffer for
+          // inline_data transport — works reliably for assembled episodes
+          // (typically 5-20MB, well under Vertex's inline limit).
+          episodeVideoBuffer: finalVideoBuffer,
+          episodeVideoUrl: finalVideoUrl,  // kept as gs:// fallback if ever supplied
           videoMime: 'video/mp4',
           sceneGraph,
           sonicSeriesBible: story?.sonic_series_bible || null,
@@ -4274,7 +4568,8 @@ Respond with ONLY valid JSON:
     });
 
     const episodeLutId = resolveEpisodeLut(story, { ...episode, scene_description: sceneGraph });
-    progress('post_production', `resolved LUT → ${episodeLutId}`);
+    const brandLutId = story.brand_palette_lut_id || null;
+    progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
     const enrichedBeatMetadata = [];
     let idx = 0;
@@ -4308,6 +4603,7 @@ Respond with ONLY valid JSON:
       beatVideoBuffers,
       beatMetadata: enrichedBeatMetadata,
       episodeLutId,
+      brandLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
       sceneDescription: sceneGraph,
@@ -4513,7 +4809,8 @@ Respond with ONLY valid JSON:
     });
 
     const episodeLutId = resolveEpisodeLut(story, { ...episode, scene_description: sceneGraph });
-    progress('post_production', `resolved LUT → ${episodeLutId}`);
+    const brandLutId = story.brand_palette_lut_id || null;
+    progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
     const enrichedBeatMetadata = [];
     let idx = 0;
@@ -4547,6 +4844,7 @@ Respond with ONLY valid JSON:
       beatVideoBuffers,
       beatMetadata: enrichedBeatMetadata,
       episodeLutId,
+      brandLutId,
       musicBedBuffer,
       sceneGraph: sceneGraph.scenes,
       sceneDescription: sceneGraph,
@@ -4614,6 +4912,14 @@ Respond with ONLY valid JSON:
       throw new Error('V4: Vertex Gemini not configured — set GCP_PROJECT_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON (or use ADC)');
     }
 
+    // Phase 4 — resolve product_integration_style. Default for product-focus
+    // stories is `naturalistic_placement` (Hollywood-prop grammar). Stories
+    // explicitly set to other styles (via wizard or auto-set by commercial
+    // genre in Phase 6) override the default. Person- and landscape-focus
+    // stories don't use this axis (subject is not a product).
+    const productIntegrationStyle = story.product_integration_style
+      || ((story.story_focus || 'product') === 'product' ? 'naturalistic_placement' : 'naturalistic_placement');
+
     const systemPrompt = getEpisodeSystemPromptV4(story.storyline, previousEpisodes, personas, {
       subject: story.subject,
       storyFocus: story.story_focus || 'product',
@@ -4626,7 +4932,16 @@ Respond with ONLY valid JSON:
       // Phase 3 — pass the locked sonic series bible so the prompt can teach
       // Gemini to inherit from it. resolveBibleForStory returns the safe
       // default if the story doesn't have one yet (legacy stories).
-      sonicSeriesBible: story.sonic_series_bible || null
+      sonicSeriesBible: story.sonic_series_bible || null,
+      // Phase 4 — product placement mode (controls THE MONEY BEAT mandate,
+      // anti-ad-copy bans, and reference-stack priority).
+      productIntegrationStyle,
+      // Phase 6 (2026-04-28) — pass the commercial brief so the screenplay
+      // writer inherits the creative_concept / visual_signature / music_intent
+      // / brand_world_lock / anti_brief authored by CreativeBriefDirector.
+      // Without this the brief was dead weight (root cause of incoherent
+      // commercials in 2026-04-28 logs).
+      commercialBrief: story.commercial_brief || null
     });
 
     const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {
@@ -6167,7 +6482,19 @@ Respond with ONLY valid JSON:
     const updatedVoiceSamples = existingVoiceSamples;
     const updatedLedger = existingLedger;
 
-    const v4Scenes = Array.isArray(scene.scenes) ? scene.scenes : null;
+    // Explicit V4 gate — see plan
+    // .claude/plans/regarding-this-infrastructure-i-magical-flame.md.
+    // The previous code branched on Array.isArray(scene.scenes), which silently
+    // fell back to the v3 path if a V4 episode shipped a malformed scene_description
+    // and corrupted the cross-episode emotional ledger. Now: only V4 episodes take
+    // the V4 path; if a V4 episode arrives without a valid scenes[] array we surface
+    // a warning so the malformation is caught instead of absorbed.
+    const declaredV4 = episode.pipeline_version === 'v4';
+    const hasV4Scenes = Array.isArray(scene.scenes) && scene.scenes.length > 0;
+    if (declaredV4 && !hasV4Scenes) {
+      logger.warn(`Episode ${episode.id || ''} (story ${storyId}, ep ${episode.episode_number}) declared pipeline_version='v4' but scene_description.scenes[] is missing or empty — falling back to legacy story-so-far extraction. Investigate the screenplay output.`);
+    }
+    const v4Scenes = (declaredV4 && hasV4Scenes) ? scene.scenes : null;
 
     if (v4Scenes && v4Scenes.length > 0) {
       // Keyframe: prefer the episode's own cliffhanger line or a standout dialogue line
