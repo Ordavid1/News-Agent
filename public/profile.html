@@ -2709,7 +2709,7 @@
                                 </button>
                                 <p id="autoAssignAvatarHint" class="hidden text-xs text-ink-400 mb-2">Skip manual browsing &mdash; we'll pick a professional avatar that fits your story focus.</p>
 
-                                <p class="text-xs text-ink-400 mb-2">Click avatars to select (up to 3). <span id="selectedAvatarCount">0</span>/3 selected.</p>
+                                <p class="text-xs text-ink-400 mb-2">Click avatars to select (up to 4). <span id="selectedAvatarCount">0</span>/4 selected.</p>
                                 <div id="stockAvatarGrid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                                     <p class="col-span-full text-center text-ink-400 py-4">Loading avatars...</p>
                                 </div>
@@ -2768,7 +2768,7 @@
 
                             <!-- Choose from Brand Kit (hidden unless brand_kit selected) -->
                             <div id="personaBrandKitFields" class="hidden">
-                                <p class="text-xs text-ink-400 mb-2">Click cutouts to select (up to 3). <span id="selectedBrandKitCount">0</span>/3 selected.</p>
+                                <p class="text-xs text-ink-400 mb-2">Click cutouts to select (up to 4). <span id="selectedBrandKitCount">0</span>/4 selected.</p>
                                 <div id="brandKitPersonaGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                                     <p class="col-span-full text-center text-ink-400 py-4">Loading Brand Kit personas...</p>
                                 </div>
@@ -2885,6 +2885,14 @@
 
                                 <!-- Creative Direction -->
                                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-ink-700 mb-1">Language</label>
+                                        <select id="storyLanguage" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">
+                                            <option value="en" selected>English</option>
+                                            <option value="he">Hebrew (עברית)</option>
+                                        </select>
+                                        <p class="text-xs text-ink-500 mt-1">Hebrew routes through ElevenLabs eleven-v3 (multilingual-v2 doesn't support Hebrew). Hebrew stories also engage the Hebrew dialogue masterclass register.</p>
+                                    </div>
                                     <div>
                                         <label class="block text-sm font-medium text-ink-700 mb-1">Genre</label>
                                         <select id="storyGenre" class="w-full rounded-lg border border-surface-300 bg-white text-ink-800 py-2.5 px-4 text-base focus:ring-2 focus:ring-brand-500">

@@ -83,11 +83,22 @@ export function buildSharedSystemHeader() {
 }
 
 /**
- * Genre-register hint embedded into rubric prompts. Mirrors the directives
- * in brandStoryPromptsV4.mjs's GENRE REGISTER block — the generator was
- * briefed against these expectations, so the judge measures against them.
+ * Genre-register hint embedded into rubric prompts. The judge measures the
+ * generated screenplay against the same register the GENERATOR was briefed
+ * with — single source of truth lives in assets/genre-registers/library.json
+ * (Phase 2 of the V4 screenwriting refactor). When the library env flag is
+ * off, falls through to a compact legacy hint set that mirrors the inline
+ * directives historically in brandStoryPromptsV4.mjs.
  */
+import { buildGenreRegisterHint as _buildGenreRegisterHintFromLibrary, isGenreRegisterLibraryEnabled } from '../GenreRegister.js';
+
 export function buildGenreRegisterHint(storyFocus) {
+  if (isGenreRegisterLibraryEnabled()) {
+    const fromLibrary = _buildGenreRegisterHintFromLibrary(storyFocus);
+    if (fromLibrary && fromLibrary.trim().length > 0) return fromLibrary;
+    // Library returned empty (unknown genre) — fall through to legacy.
+  }
+
   const focus = String(storyFocus || '').toLowerCase();
   if (focus.includes('action')) {
     return 'GENRE REGISTER: action — expect 2-4s beats, dialogue floor lower, ACTION_NO_DIALOGUE 35-50%, default cuts, urban_grit / high_contrast_moody LUT, 130-160 BPM bed. Do NOT penalize for "low dialogue ratio" — the register expects it.';

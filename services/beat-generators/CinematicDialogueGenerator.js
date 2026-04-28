@@ -67,13 +67,19 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
 
     // ─── Stage A — ElevenLabs TTS ───
     this.logger.info(`[${beat.beat_id}] Stage A: TTS synthesis (${dialogue.length} chars, target ${targetDuration}s)`);
+    // V4 Audio Layer Overhaul Day 1 — modelId omitted so TTSService picks
+    // the engine from BRAND_STORY_TTS_ENGINE (default eleven_v3). Persona's
+    // language flows through unchanged; eleven-v3 supports 70+ languages
+    // including Hebrew (multilingual-v2 did not). Inline performance tags in
+    // the dialogue string (e.g. "[barely whispering] I had no choice.") are
+    // authored by Gemini per the DIALOGUE PERFORMANCE TAGS masterclass and
+    // preserved verbatim by TTSService for eleven-v3 to interpret.
     const ttsResult = await this.tts.synthesizeBeat({
       text: dialogue,
       voiceId: persona.elevenlabs_voice_id,
       durationTarget: targetDuration,
       options: {
         language: persona.language || 'en',
-        modelId: 'eleven_multilingual_v2',
         paceHint: beat.pace_hint || null,
         emotionalHold: beat.emotional_hold === true
       }
@@ -107,6 +113,22 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     // stays neutral to the written line; the face carries the subtext underneath.
     const subtextHint = beat.subtext
       ? ` Subtext (show on the face, not in the voice): the line is "${dialogue}" but what the character really means is "${beat.subtext}". Let that truth surface as a micro-expression under the surface emotion.`
+      : '';
+
+    // V4 Audio Layer Overhaul Day 2 — exchange context for SHOT_REVERSE_SHOT children.
+    //
+    // Pre-Day-2: each closeup expanded from a SHOT_REVERSE_SHOT was generated
+    // in ignorance of the prior speaker. The compiler dropped the exchanges[]
+    // metadata after expansion. Now the compiler stamps `beat.exchange_context`
+    // onto every child closeup carrying { position_in_exchange, prior speaker
+    // emotion / subtext / dialogue tail, speaker_sequence }. We surface that
+    // to Kling as a "this is a response shot" directive so the listener's
+    // micro-expression reflects the line that just landed (active listening,
+    // residual emotional charge from the prior turn, etc.) — not a default
+    // "first beat of a new monologue" register.
+    const exCtx = beat.exchange_context;
+    const priorContextHint = (exCtx && exCtx.prior_speaker_dialogue_tail)
+      ? ` Response shot (exchange ${(exCtx.position_in_exchange ?? 0) + 1} of ${exCtx.total_exchanges ?? '?'}): the prior speaker just said "...${exCtx.prior_speaker_dialogue_tail}" with ${exCtx.prior_speaker_emotion ? `emotion="${exCtx.prior_speaker_emotion}"` : 'unspecified emotion'}${exCtx.prior_speaker_subtext ? `, subtext "${exCtx.prior_speaker_subtext}"` : ''}. This face is RECEIVING that line — show the read first, then the response.`
       : '';
 
     // For TALKING_HEAD_CLOSEUP, the prompt focuses on the face and emotion.
@@ -164,6 +186,10 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       { priority: 'mandatory', text: framingHint },
       { priority: 'high',      text: directorNudge },
       { priority: 'high',      text: subtextHint.trim() },
+      // Day 2 — prior-speaker context for SHOT_REVERSE_SHOT children. High
+      // priority so it survives the 480-char Kling budget; condensed phrasing
+      // keeps it under ~200 chars in typical cases.
+      { priority: 'high',      text: priorContextHint.trim() },
       { priority: 'high',      text: emotionHint.trim() },
       { priority: 'medium',    text: expressionHint.trim() },
       { priority: 'medium',    text: actionHint.trim() },

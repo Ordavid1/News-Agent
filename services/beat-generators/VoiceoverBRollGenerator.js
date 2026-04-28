@@ -18,6 +18,7 @@
 // lives there with the rest of the audio-mix chain.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
+import { pickFallbackVoiceIdForPersonaInList } from '../v4/VoiceAcquisition.js';
 
 const COST_VEO_STANDARD_PER_SEC = 0.40;
 const COST_TTS_PER_CHAR = 0.0001;
@@ -46,18 +47,29 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     // ─── Stage A — ElevenLabs V.O. synthesis ───
     const voIndex = beat.voiceover_persona_index;
     const voPersona = (typeof voIndex === 'number' && personas[voIndex]) ? personas[voIndex] : null;
+    // Cast Bible follow-up — replace the literal Brian fallback with the
+    // intelligent picker. Resolution order:
+    //   1. Persona's own voice (if assigned at story-creation time)
+    //   2. Episode's defaultNarratorVoiceId (already picker-derived in BrandStoryService)
+    //   3. Fresh picker call against personas[voIndex] for gender + persona match
+    //   4. Picker against personas[0] (narrator persona) as last logical fallback
+    // Each layer is gender-aware and avoids voice collisions.
     const voiceId = voPersona?.elevenlabs_voice_id
       || episodeContext?.defaultNarratorVoiceId
-      || 'nPczCjzI2devNBz1zQrb'; // Brian fallback
+      || (typeof voIndex === 'number'
+          ? pickFallbackVoiceIdForPersonaInList(personas, voIndex, { reason: 'voiceover_broll_voPersona' })
+          : null)
+      || pickFallbackVoiceIdForPersonaInList(personas, 0, { reason: 'voiceover_broll_narrator' })
+      || 'nPczCjzI2devNBz1zQrb'; // last-resort literal — only if library is empty (config bug)
 
+    // V4 Day 1 — modelId omitted so TTSService picks per BRAND_STORY_TTS_ENGINE.
     this.logger.info(`[${beat.beat_id}] Stage A: V.O. TTS (${voiceoverText.length} chars)`);
     const ttsResult = await this.tts.synthesizeBeat({
       text: voiceoverText,
       voiceId,
       durationTarget: duration,
       options: {
-        language: voPersona?.language || 'en',
-        modelId: 'eleven_multilingual_v2'
+        language: voPersona?.language || 'en'
       }
     });
 

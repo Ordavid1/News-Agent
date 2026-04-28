@@ -318,6 +318,9 @@
     // Phase 7 — V4 Audio Coherence Overhaul. Sonic Series Bible (story-level)
     // + episode sonic_world (palette + spectral_anchor + scene_variations).
     const soundContainer = el('div', { id: 'dpSoundPanel' });
+    // Cast Bible Phase 4 — Casting Room. View/lock/edit story-level
+    // cast_bible.principals[] + per-persona gender chip + voice mismatch chip.
+    const castingContainer = el('div', { id: 'dpCastingPanel' });
 
     // Left pane: beat editor — always visible, scrolls independently of the
     // right rail so the director can edit a beat without losing QA context.
@@ -343,7 +346,7 @@
     // Stash the right-pane containers on the panel root so renderRightPane()
     // can mount them without rebuilding their internals.
     panelRoot._dpContainers = {
-      personasContainer, lutContainer, scriptQaContainer, directorNotesContainer, soundContainer
+      personasContainer, lutContainer, scriptQaContainer, directorNotesContainer, soundContainer, castingContainer
     };
 
     const body = el('div', {
@@ -393,9 +396,25 @@
       return Boolean(dr.lens_a) || Boolean(dr.lens_b) || Boolean(dr.lens_c) || Boolean(dr.lens_d);
     })();
 
+    // Cast Bible Phase 4 — surface Casting Room badges:
+    //   - red dot when any principal has voice_gender_match === false
+    //   - amber dot when any principal has gender_resolved_from === 'unknown'
+    // Both are invisible when the bible is null or all principals are clean.
+    const castingBadge = (() => {
+      const principals = activeStory?.cast_bible?.principals;
+      if (!Array.isArray(principals) || principals.length === 0) return null;
+      const anyMismatch = principals.some(p => p && p.voice_gender_match === false);
+      if (anyMismatch) return '!';
+      const anyUnknown = principals.some(p => p && p.gender_resolved_from === 'unknown');
+      if (anyUnknown) return '?';
+      const isLocked = activeStory?.cast_bible?.status === 'locked';
+      return isLocked ? '🔒' : null;
+    })();
+
     const tabs = [
       { id: 'qa', label: 'Script QA', badge: issuesCount > 0 ? String(issuesCount) : null },
       { id: 'personas', label: 'Personas & LUT', badge: null },
+      { id: 'casting', label: 'Casting', badge: castingBadge },
       { id: 'sound', label: 'Sound', badge: null },
       { id: 'notes', label: 'Director\u2019s Notes', badge: hasL3Notes ? 'L3' : null }
     ];
@@ -435,6 +454,13 @@
       rightContent.appendChild(containers.lutContainer);
       renderPersonasSidebar();
       renderLutPicker();
+    } else if (activeRightTab === 'casting') {
+      rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+        'Casting Room',
+        el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded border border-blue-200' }, 'V4')
+      ]));
+      rightContent.appendChild(containers.castingContainer);
+      renderCastingPanel();
     } else if (activeRightTab === 'sound') {
       rightContent.appendChild(el('h4', { class: 'text-sm font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
         'Sound design',
@@ -1417,6 +1443,374 @@
       flashStatus(`Clear failed: ${err.message}`, true);
     }
   };
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Cast Bible Phase 4 — Casting Room
+  //
+  // Mirrors the Sonic Series Bible's SOUND tab pattern. Renders story-level
+  // cast_bible.principals[] with:
+  //   - persona index badge + name (read-only at this phase)
+  //   - role chip
+  //   - gender chip — green (explicit/persona_signal), amber (storyline_signal),
+  //     red (unknown). Click to open gender override dropdown.
+  //   - voice dropdown (lock-aware via voiceTakenBy from renderPersonasSidebar
+  //     pattern — disables options taken by OTHER principals)
+  //   - voice mismatch chip — red when voice_gender_match === false. Click to
+  //     open the re-acquisition confirmation dialog.
+  //
+  // All field rendering goes through el() — no innerHTML with dynamic data
+  // (XSS-safe pattern shared by every render in this file).
+  // ─────────────────────────────────────────────────────────────────────
+  function renderCastingPanel() {
+    const node = document.getElementById('dpCastingPanel');
+    if (!node) return;
+    clear(node);
+
+    const bible = activeStory?.cast_bible;
+    const personas = activeStory?.persona_config?.personas
+      || (activeStory?.persona_config ? [activeStory.persona_config] : []);
+
+    // Header: provenance badge + lock status + actions
+    const headerSection = el('section', { class: 'mb-4 pb-3 border-b border-surface-200' });
+    headerSection.appendChild(el('h5', { class: 'text-xs font-semibold text-ink-700 mb-2 flex items-center gap-2' }, [
+      'Cast Bible',
+      el('span', { class: 'text-[10px] font-mono px-1.5 py-0.5 bg-ink-100 text-ink-600 rounded' }, 'STORY-LEVEL')
+    ]));
+
+    if (!bible || typeof bible !== 'object' || !Array.isArray(bible.principals) || bible.principals.length === 0) {
+      headerSection.appendChild(el('div', { class: 'text-xs text-ink-500 italic' },
+        'No cast bible derived yet — will be created on the next episode generation (lazy + idempotent, derived from storyline.characters[] + persona_config.personas[]).'
+      ));
+      node.appendChild(headerSection);
+      return;
+    }
+
+    const generatedBy = bible._generated_by || 'derived_from_storyline';
+    const status = bible.status || 'derived';
+    const isLocked = status === 'locked';
+
+    const provBadgeClass = isLocked
+      ? 'text-[10px] font-mono px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded border border-emerald-200'
+      : generatedBy === 'manual_override'
+        ? 'text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200'
+        : 'text-[10px] font-mono px-1.5 py-0.5 bg-ink-100 text-ink-600 rounded border border-ink-200';
+
+    headerSection.appendChild(el('div', { class: 'mb-2 flex items-center gap-2 flex-wrap' }, [
+      el('span', { class: provBadgeClass }, isLocked ? `🔒 locked (${generatedBy})` : generatedBy),
+      el('span', { class: 'text-[10px] font-mono text-ink-500' },
+        `${bible.principals.length} principal${bible.principals.length === 1 ? '' : 's'}`
+      )
+    ]));
+
+    // Action buttons row
+    const actions = el('div', { class: 'flex items-center gap-2 flex-wrap' });
+    if (!isLocked) {
+      actions.appendChild(el('button', {
+        type: 'button',
+        class: 'text-xs px-2.5 py-1 border border-emerald-300 rounded text-emerald-700 hover:bg-emerald-50',
+        onclick: () => window._dpLockCastBible()
+      }, 'Lock cast'));
+    } else {
+      actions.appendChild(el('span', { class: 'text-[11px] text-ink-500 italic' },
+        'Cast is locked — clear to make structural changes.'
+      ));
+    }
+    actions.appendChild(el('button', {
+      type: 'button',
+      class: 'text-xs px-2.5 py-1 border border-surface-300 rounded text-ink-600 hover:bg-surface-50',
+      onclick: () => window._dpResetCastBible()
+    }, isLocked ? 'Unlock & re-derive' : 'Reset & re-derive'));
+    headerSection.appendChild(actions);
+    node.appendChild(headerSection);
+
+    // Voice-lock map — same pattern as renderPersonasSidebar at lines 1158-1200
+    const voiceTakenBy = new Map();
+    personas.forEach((other, j) => {
+      if (other?.elevenlabs_voice_id) {
+        voiceTakenBy.set(other.elevenlabs_voice_id, {
+          personaIdx: j,
+          personaName: other.name || `Persona ${j + 1}`
+        });
+      }
+    });
+
+    // Principals list
+    const principalsSection = el('section', { class: 'space-y-3' });
+    bible.principals.forEach((p, i) => {
+      principalsSection.appendChild(_renderPrincipalCard(p, i, personas, voiceTakenBy, isLocked));
+    });
+    node.appendChild(principalsSection);
+  }
+
+  // Helper: render a single principal card. Extracted so the tab function
+  // stays readable.
+  function _renderPrincipalCard(principal, displayIdx, personas, voiceTakenBy, isLocked) {
+    const personaIdx = principal.persona_index;
+    const persona = personas[personaIdx] || {};
+
+    const card = el('div', { class: 'p-3 border border-surface-200 rounded' });
+
+    // Top row: persona index badge + name + role + lock indicator
+    const topRow = el('div', { class: 'flex items-center gap-2 mb-2 flex-wrap' });
+    topRow.appendChild(el('div', {
+      class: 'flex-shrink-0 w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold'
+    }, String(personaIdx + 1)));
+    topRow.appendChild(el('div', { class: 'text-sm font-medium text-ink-800 flex-1 min-w-0 truncate' },
+      principal.name || `Persona ${personaIdx + 1}`
+    ));
+    if (principal.role) {
+      topRow.appendChild(el('span', {
+        class: 'text-[10px] font-mono px-1.5 py-0.5 bg-surface-100 text-ink-600 rounded'
+      }, principal.role));
+    }
+    card.appendChild(topRow);
+
+    // Phase 3.5 — Gender chip + override
+    const genderRow = el('div', { class: 'flex items-center gap-2 mb-2 flex-wrap' });
+    genderRow.appendChild(el('span', { class: 'text-[11px] text-ink-500' }, 'Gender:'));
+
+    const inferredGender = principal.gender_inferred || 'unknown';
+    const resolvedFrom = principal.gender_resolved_from || 'unknown';
+
+    let genderChipClass;
+    let genderChipText;
+    if (resolvedFrom === 'persona_explicit' || resolvedFrom === 'persona_signal') {
+      genderChipClass = 'text-[10px] font-mono px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded border border-emerald-200';
+      genderChipText = `${inferredGender} (${resolvedFrom === 'persona_explicit' ? 'explicit' : 'inferred'})`;
+    } else if (resolvedFrom === 'storyline_signal') {
+      genderChipClass = 'text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded border border-amber-200';
+      genderChipText = `${inferredGender} (storyline)`;
+    } else {
+      genderChipClass = 'text-[10px] font-mono px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200';
+      genderChipText = 'unknown — set explicitly';
+    }
+    genderRow.appendChild(el('span', { class: genderChipClass }, genderChipText));
+
+    // Override dropdown — always shown unless locked
+    if (!isLocked) {
+      const genderSelect = document.createElement('select');
+      genderSelect.className = 'text-xs border border-surface-300 rounded px-1 py-0.5 ml-auto';
+      const options = [
+        { value: '', label: '— set —' },
+        { value: 'male', label: '♂ Male' },
+        { value: 'female', label: '♀ Female' },
+        { value: 'neutral', label: 'Neutral' },
+        { value: 'unknown', label: 'Unknown' }
+      ];
+      options.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        if (persona.gender && o.value === String(persona.gender).toLowerCase()) opt.selected = true;
+        genderSelect.appendChild(opt);
+      });
+      genderSelect.addEventListener('change', () => {
+        if (!genderSelect.value) return;
+        window._dpSetPersonaGender(personaIdx, genderSelect.value);
+      });
+      genderRow.appendChild(genderSelect);
+    }
+    card.appendChild(genderRow);
+
+    // Voice dropdown — lock-aware (same pattern as renderPersonasSidebar)
+    const voiceRow = el('div', { class: 'flex items-center gap-2 mb-2 flex-wrap' });
+    voiceRow.appendChild(el('span', { class: 'text-[11px] text-ink-500' }, 'Voice:'));
+
+    const voiceName = principal.elevenlabs_voice_name
+      || (principal.elevenlabs_voice_id ? principal.elevenlabs_voice_id.slice(0, 8) : '—');
+    voiceRow.appendChild(el('span', { class: 'text-xs text-ink-700 font-mono' }, voiceName));
+
+    if (!isLocked) {
+      const voiceSelect = document.createElement('select');
+      voiceSelect.className = 'text-xs border border-surface-300 rounded px-1 py-0.5 ml-auto';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '— override —';
+      voiceSelect.appendChild(placeholder);
+      (voiceLibrary || []).forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.voice_id;
+        const takenInfo = voiceTakenBy.get(v.voice_id);
+        const takenByOther = takenInfo && takenInfo.personaIdx !== personaIdx;
+        if (takenByOther) {
+          opt.disabled = true;
+          opt.textContent = `${v.name} (${v.gender}) — locked to ${takenInfo.personaName}`;
+        } else {
+          opt.textContent = `${v.name} (${v.gender})`;
+        }
+        if (v.voice_id === principal.elevenlabs_voice_id) opt.selected = true;
+        voiceSelect.appendChild(opt);
+      });
+      voiceSelect.addEventListener('change', () => {
+        if (!voiceSelect.value) return;
+        // Reuse the EXISTING canonical voice override path — Casting Room
+        // does NOT have its own voice PATCH (Failure Mode #2 contract).
+        window._dpOverridePersonaVoice(
+          personaIdx,
+          voiceSelect.value,
+          voiceSelect.options[voiceSelect.selectedIndex].textContent
+        );
+      });
+      voiceRow.appendChild(voiceSelect);
+    }
+    card.appendChild(voiceRow);
+
+    // Phase 3.5 — Voice mismatch chip + re-acquisition button
+    if (principal.voice_gender_match === false) {
+      const mismatchRow = el('div', { class: 'flex items-center gap-2 mt-1' }, [
+        el('span', {
+          class: 'text-[10px] font-mono px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200'
+        }, `⚠ voice gender (${principal.elevenlabs_voice_gender || '?'}) ≠ persona (${principal.gender_inferred || '?'})`)
+      ]);
+      if (!isLocked) {
+        mismatchRow.appendChild(el('button', {
+          type: 'button',
+          class: 'text-[10px] px-2 py-0.5 border border-red-300 rounded text-red-700 hover:bg-red-50 ml-auto',
+          onclick: () => window._dpReacquirePersonaVoice(personaIdx)
+        }, 'Re-pick'));
+      }
+      card.appendChild(mismatchRow);
+    }
+
+    // Arc preview (read-only)
+    if (principal.arc) {
+      card.appendChild(el('div', { class: 'text-[11px] text-ink-500 italic mt-2 line-clamp-2' },
+        `Arc: ${principal.arc}`
+      ));
+    }
+
+    return card;
+  }
+
+  // Reset / unlock — clears the cast bible so the next runV4Pipeline re-derives.
+  // This is the ONLY way to undo a lock (Failure Mode #3 contract).
+  window._dpResetCastBible = async function () {
+    if (!activeStoryId) return;
+    const isLocked = activeStory?.cast_bible?.status === 'locked';
+    const msg = isLocked
+      ? 'Unlock & clear the Cast Bible? The next episode will re-derive it from the storyline + personas.'
+      : 'Clear the Cast Bible? The next episode will re-derive it from scratch.';
+    if (!confirm(msg)) return;
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/cast-bible`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ bible: null })
+      });
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || 'Clear failed');
+      if (activeStory) activeStory.cast_bible = null;
+      renderCastingPanel();
+      renderRightPane(); // refresh tab badge
+      flashStatus('Cast cleared — next episode will re-derive it');
+    } catch (err) {
+      flashStatus(`Clear failed: ${err.message}`, true);
+    }
+  };
+
+  // Lock the cast bible. PATCHes status: 'locked' + locked_at timestamp.
+  // Lock is total — all structural mutations (principal count, persona_index,
+  // name, role, gender, voice) are rejected by the API until the user clears
+  // via _dpResetCastBible.
+  window._dpLockCastBible = async function () {
+    if (!activeStoryId || !activeStory?.cast_bible) return;
+    if (!confirm('Lock the cast? This freezes principals + voices. To make structural changes you\'ll need to clear and re-derive.')) return;
+    try {
+      const lockedBible = {
+        ...activeStory.cast_bible,
+        status: 'locked',
+        locked_at: new Date().toISOString()
+      };
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/cast-bible`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ bible: lockedBible })
+      });
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || 'Lock failed');
+      activeStory.cast_bible = data.bible;
+      renderCastingPanel();
+      renderRightPane();
+      flashStatus('Cast locked');
+    } catch (err) {
+      flashStatus(`Lock failed: ${err.message}`, true);
+    }
+  };
+
+  // Phase 3.5 — set explicit gender on a persona. Writes to persona_config
+  // (canonical truth path, Failure Mode #2). Cast bible's gender_inferred
+  // field re-resolves on next read.
+  window._dpSetPersonaGender = async function (personaIdx, gender) {
+    if (!activeStoryId || personaIdx == null || !gender) return;
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/personas/${personaIdx}/gender`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ gender })
+      });
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || 'Set gender failed');
+      // Update local state — gender writes to persona_config canonical path
+      const personas = activeStory.persona_config?.personas
+        || [activeStory.persona_config];
+      if (personas[personaIdx]) personas[personaIdx].gender = gender.toLowerCase();
+      // Re-fetch the cast bible so derived fields (gender_inferred,
+      // gender_resolved_from, voice_gender_match) reflect the new gender.
+      await _refreshCastBible();
+      renderCastingPanel();
+      renderRightPane();
+      flashStatus(`Gender set: ${gender}`);
+    } catch (err) {
+      renderCastingPanel(); // revert dropdown on error
+      flashStatus(`Set gender failed: ${err.message}`, true);
+    }
+  };
+
+  // Phase 3.5 — voice re-acquisition confirmation. Clears the persona's voice
+  // (PATCH /personas/:idx/voice with voice_id: null) so the next runV4Pipeline
+  // picks a fresh voice with the correct gender filter.
+  window._dpReacquirePersonaVoice = async function (personaIdx) {
+    if (!activeStoryId || personaIdx == null) return;
+    const personas = activeStory.persona_config?.personas
+      || [activeStory.persona_config];
+    const persona = personas[personaIdx];
+    if (!persona) return;
+    const msg = `Voice "${persona.elevenlabs_voice_name || persona.elevenlabs_voice_id || '(unknown)'}" doesn't match the persona's gender. Clear it so the next episode picks a fresh voice?`;
+    if (!confirm(msg)) return;
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/personas/${personaIdx}/voice`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ voice_id: null })
+      });
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || 'Clear voice failed');
+      personas[personaIdx].elevenlabs_voice_id = null;
+      personas[personaIdx].elevenlabs_voice_name = null;
+      personas[personaIdx].elevenlabs_voice_gender = null;
+      await _refreshCastBible();
+      renderCastingPanel();
+      renderRightPane();
+      flashStatus('Voice cleared — will re-pick on next generation');
+    } catch (err) {
+      flashStatus(`Clear voice failed: ${err.message}`, true);
+    }
+  };
+
+  // Helper: fetch the resolved cast bible from the server (re-resolves voice
+  // fields + voice_gender_match per the canonical-source contract).
+  async function _refreshCastBible() {
+    if (!activeStoryId) return;
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/cast-bible`);
+      const data = await resp.json();
+      if (data && data.success && data.bible) {
+        if (activeStory) activeStory.cast_bible = data.bible;
+      }
+    } catch {
+      // Silent — UI stays on local state until next refresh
+    }
+  }
 
   function renderLutPicker() {
     const node = document.getElementById('dpLutPicker');

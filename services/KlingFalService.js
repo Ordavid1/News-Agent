@@ -81,6 +81,18 @@ export function buildKlingElementsFromPersonas(personas) {
   const elements = [];
   const elementTokens = [];
 
+  // Cast Bible Phase 5a — structured truncation logging. The validator's
+  // checkKlingElementBudget surfaces the overflow as a warning at screenplay
+  // time so the user can see it BEFORE rendering. This compile-time slice is
+  // the safety-net: if the validator path didn't catch it (legacy episode,
+  // disabled validator), we still truncate gracefully but log the dropped
+  // persona indexes for visibility.
+  const personaCount = Array.isArray(personas) ? personas.length : 0;
+  if (personaCount > KLING_MAX_ELEMENTS) {
+    const droppedIndexes = [];
+    for (let i = KLING_MAX_ELEMENTS; i < personaCount; i++) droppedIndexes.push(i);
+    console.warn(`[KlingFalService] kling_element_overflow: ${personaCount} personas exceeds KLING_MAX_ELEMENTS=${KLING_MAX_ELEMENTS}. Dropping persona indexes [${droppedIndexes.join(', ')}] from element pack. Their dialogue track still plays — only their visual element is missing.`);
+  }
   const capped = Array.isArray(personas) ? personas.slice(0, KLING_MAX_ELEMENTS) : [];
   for (let i = 0; i < capped.length; i++) {
     const persona = capped[i];
@@ -415,18 +427,33 @@ class KlingFalService {
       generateAudio = true
     } = options;
 
+    // 2026-04-28 fix: Kling V3 Pro Custom Multi-Shot's `multi_prompt[].duration`
+    // is validated as a Pydantic Literal — the API ONLY accepts string-typed
+    // durations '1' through '15'. Numeric durations trigger a 422 with the
+    // Pydantic literal_error message. Caught in production logs.txt 08:04
+    // when scene `plaza_tactile_walk` montage failed and the entire scene
+    // shipped without video.
+    //
+    // Old upper bound was 8s; bumping to Kling's actual 15s ceiling.
+    // numericDuration is kept for the totalDuration sum (string addition
+    // would concatenate, not add).
     const multiPrompt = shots.map((s, i) => {
       if (!s.prompt) throw new Error(`KlingFalService: shot ${i} missing prompt`);
+      const numericDuration = clamp(Math.round(s.duration || 3), 1, 15);
       return {
         prompt: truncate(s.prompt, KLING_MAX_PROMPT_CHARS_PER_SHOT),
-        duration: clamp(s.duration || 3, 2, 8)
+        duration: String(numericDuration),  // Kling expects '1'..'15' literal strings
+        _numericDuration: numericDuration   // local-only — stripped before send
       };
     });
 
-    const totalDuration = multiPrompt.reduce((sum, s) => sum + s.duration, 0);
+    const totalDuration = multiPrompt.reduce((sum, s) => sum + s._numericDuration, 0);
+
+    // Strip our local-only field before sending to Kling.
+    const apiMultiPrompt = multiPrompt.map(({ _numericDuration, ...rest }) => rest);
 
     const inputPayload = {
-      multi_prompt: multiPrompt,
+      multi_prompt: apiMultiPrompt,
       aspect_ratio: aspectRatio,
       generate_audio: generateAudio
     };
@@ -436,7 +463,7 @@ class KlingFalService {
     if (cappedElements.length > 0) inputPayload.elements = cappedElements;
 
     this.v3Pro.logger.info(
-      `montage sequence — ${multiPrompt.length} shots, ${totalDuration}s total, ${cappedElements.length} element(s), ${aspectRatio}`
+      `montage sequence — ${apiMultiPrompt.length} shots, ${totalDuration}s total, ${cappedElements.length} element(s), ${aspectRatio}`
     );
 
     const result = await this.v3Pro.run(inputPayload);

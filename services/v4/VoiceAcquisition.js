@@ -512,3 +512,189 @@ export async function acquirePersonaVoicesForStory(personas, options = {}) {
 export function getVoiceLibrary() {
   return loadVoiceLibrary();
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Cast Bible Phase 5a follow-up — intelligent fallback picker
+// ─────────────────────────────────────────────────────────────────────
+//
+// PROBLEM: three production code paths fall back to the literal Brian voice
+// (voice_id = 'nPczCjzI2devNBz1zQrb', male) when a persona record is missing
+// `elevenlabs_voice_id`:
+//
+//   1. services/TTSService.js:38 — DEFAULT_VOICE_ID emergency last resort
+//   2. services/beat-generators/VoiceoverBRollGenerator.js:51 — V.O. fallback
+//   3. services/BrandStoryService.js:3660 + :4511 — defaultNarratorVoiceId
+//
+// This means a missing voice acquisition silently casts a male American voice
+// over a female persona's narration. The user sees no error; the audio is
+// just wrong.
+//
+// FIX: synchronous gender + persona-aware library picker. Used at every
+// fallback site instead of the literal Brian voice. No Gemini call, no
+// network — purely deterministic selection from the curated library.
+//
+// Logic:
+//   1. Infer gender (local regex; or use caller-supplied genderOverride)
+//   2. Filter library by gender + takenVoiceIds
+//   3. If gender filter empties pool, soften by dropping takenVoiceIds
+//      (gender correctness > uniqueness for fallback path)
+//   4. If gender STILL empties pool (library has no voices of that gender),
+//      fall back to library-wide
+//   5. Score remaining candidates by descriptor↔personality word overlap
+//      (same heuristic as the deterministic-fallback path inside
+//      acquirePersonaVoice — produces a creatively-sensible match)
+//   6. Loud warn so the upstream miss is visible in production logs
+//
+// Returns the FULL library entry (voice_id, name, gender, descriptor, etc.)
+// so the caller can persist all relevant fields.
+//
+// Callers must NEVER use the picker as a primary path — voice acquisition
+// (acquirePersonaVoice) is the only correct primary site. This is a defense
+// in depth.
+/**
+ * @param {Object} persona - persona_config.personas[i]
+ * @param {Object} [options]
+ * @param {Set<string>} [options.takenVoiceIds] - voices already assigned to other personas
+ * @param {'male'|'female'|'unknown'} [options.genderOverride] - skip local inference
+ * @param {string} [options.languageOverride] - ISO 639-1 to skip persona.language read (Day 4)
+ * @param {string} [options.reason] - short string for log context (which fallback fired)
+ * @returns {Object|null} library entry or null if library is empty
+ */
+export function pickFallbackVoiceForPersona(persona, options = {}) {
+  const library = loadVoiceLibrary();
+  if (library.length === 0) {
+    logger.error(`pickFallbackVoiceForPersona: voice library is empty — cannot pick`);
+    return null;
+  }
+
+  const {
+    takenVoiceIds = new Set(),
+    genderOverride,
+    languageOverride,
+    reason = 'unspecified'
+  } = options;
+
+  const personaName = persona?.name || 'unnamed';
+  const gender = genderOverride || inferPersonaGender(persona || {});
+  // V4 Audio Layer Overhaul Day 4 — language-aware filter.
+  //
+  // Resolution order: explicit languageOverride → persona.language → null.
+  // null means "any language" — the picker behaves like pre-Day-4 (legacy).
+  // When set, the filter chain runs language → gender → uniqueness, with
+  // language taking PRECEDENCE over gender on softening: a wrong-LANGUAGE
+  // voice synthesizing in a foreign accent sounds worse than a wrong-gender
+  // voice in the right language.
+  //
+  // A voice without an explicit `languages[]` field is assumed to support
+  // the library's default_language ('en' — see _meta.language_filter_contract
+  // in elevenlabs-presets.json). Hebrew personas only match voices that
+  // EXPLICITLY declare 'he' (or any case-insensitive prefix match like 'heb').
+  const rawLanguage = languageOverride || persona?.language || null;
+  const language = rawLanguage ? String(rawLanguage).trim().toLowerCase() : null;
+  const DEFAULT_LIBRARY_LANGUAGE = 'en';
+
+  const voiceSupportsLanguage = (v, langCode) => {
+    if (!langCode) return true; // null = any language matches
+    const declared = Array.isArray(v.languages) && v.languages.length > 0
+      ? v.languages.map(l => String(l).toLowerCase())
+      : [DEFAULT_LIBRARY_LANGUAGE];
+    return declared.some(d => d === langCode || d.startsWith(langCode) || langCode.startsWith(d));
+  };
+
+  // Stage 1 — strict filter (language + gender + uniqueness)
+  let pool = library.filter(v => {
+    if (takenVoiceIds.has(v.voice_id)) return false;
+    if (!voiceSupportsLanguage(v, language)) return false;
+    if (gender === 'unknown') return true;
+    return String(v.gender || '').toLowerCase() === gender;
+  });
+
+  // Stage 2 — gender filter empties pool (all gender-matched voices in this
+  // language are taken). Soften by ignoring takenVoiceIds. Language stays
+  // strict; gender stays strict; only uniqueness relaxes.
+  let stage = 'strict';
+  if (pool.length === 0 && gender !== 'unknown') {
+    pool = library.filter(v => voiceSupportsLanguage(v, language)
+      && String(v.gender || '').toLowerCase() === gender);
+    stage = 'softened_uniqueness';
+  }
+
+  // Stage 3 — gender STILL empties pool. Soften gender (e.g. Hebrew library
+  // has only male voices — better to ship a wrong-gender Hebrew voice than
+  // an English voice synthesizing Hebrew). Language stays locked.
+  if (pool.length === 0 && language) {
+    pool = library.filter(v => voiceSupportsLanguage(v, language));
+    stage = 'softened_gender';
+  }
+
+  // Stage 4 — language pool is empty (library has zero voices declaring
+  // this language). LAST RESORT: fall back to library-wide on the
+  // assumption that a TTS engine (eleven-v3) can still render the language
+  // with a base voice, even at lower quality. Loud warn so the upstream
+  // library-expansion miss is visible.
+  if (pool.length === 0) {
+    pool = library.filter(v => {
+      if (takenVoiceIds.has(v.voice_id)) return false;
+      if (gender !== 'unknown' && String(v.gender || '').toLowerCase() !== gender) return false;
+      return true;
+    });
+    stage = 'softened_language';
+  }
+  if (pool.length === 0) {
+    pool = library;
+    stage = 'softened_all';
+  }
+
+  // Score by descriptor↔personality word overlap. Same heuristic as
+  // acquirePersonaVoice's deterministic fallback at line 304-309.
+  const personalityLower = String(persona?.personality || persona?.description || '').toLowerCase();
+  const scored = pool.map(v => {
+    const words = (v.descriptor || '').toLowerCase().split(/\s+/);
+    const overlap = words.filter(w => w.length > 3 && personalityLower.includes(w)).length;
+    return { v, overlap };
+  }).sort((a, b) => b.overlap - a.overlap);
+
+  const picked = scored[0].v;
+
+  // Loud log — fallback firing means something failed upstream. Visibility
+  // matters more than terseness here.
+  logger.warn(
+    `pickFallbackVoiceForPersona [${reason}]: persona "${personaName}" had no elevenlabs_voice_id — ` +
+    `picked ${picked.name} (${picked.voice_id}, ${picked.gender}) ` +
+    `[language=${language || 'any'}, gender=${gender}, stage=${stage}, ${takenVoiceIds.size} taken, pool=${pool.length}]. ` +
+    `This is a defense-in-depth fallback; investigate why voice acquisition didn't run for this persona.`
+  );
+
+  return picked;
+}
+
+/**
+ * Convenience wrapper for the very common case: caller has personas[] and
+ * wants the fallback voice for personas[idx], avoiding collisions with the
+ * other personas' voices. Returns just the voice_id string for drop-in
+ * compatibility with the legacy `'nPczCjzI2devNBz1zQrb'` literal sites.
+ *
+ * @param {Object[]} personas - the full persona_config.personas[]
+ * @param {number} idx - which persona to pick a fallback for
+ * @param {Object} [options] - { reason, genderOverride }
+ * @returns {string|null} voice_id or null if library is empty
+ */
+export function pickFallbackVoiceIdForPersonaInList(personas, idx, options = {}) {
+  if (!Array.isArray(personas) || !personas[idx]) {
+    // No persona at this index — pick a generic library voice (no gender
+    // signal, no collisions to avoid). Still better than a hardcoded literal.
+    const entry = pickFallbackVoiceForPersona({}, { reason: options.reason || 'no_persona_at_index' });
+    return entry?.voice_id || null;
+  }
+  const taken = new Set(
+    personas
+      .filter((_, i) => i !== idx)
+      .map(p => p?.elevenlabs_voice_id)
+      .filter(Boolean)
+  );
+  const entry = pickFallbackVoiceForPersona(personas[idx], {
+    takenVoiceIds: taken,
+    ...options
+  });
+  return entry?.voice_id || null;
+}

@@ -193,12 +193,15 @@ test('shared header — contains layer-3 discipline and verdict contract reminde
 });
 
 test('genre register hint — drama and action produce distinct directives', () => {
+  // Phase 2 — both legacy inline and library renderings must produce DISTINCT
+  // directives per genre. The assertion is on differentiation + presence of
+  // genre-substantive vocabulary (broadened to match BOTH renderings).
   const drama = buildGenreRegisterHint('drama');
   const action = buildGenreRegisterHint('action');
   assert.match(drama, /drama/i);
-  assert.match(drama, /SHOT_REVERSE_SHOT|subtext/);
+  assert.match(drama, /SHOT_REVERSE_SHOT|subtext|deflection|REACTION/i);
   assert.match(action, /action/i);
-  assert.match(action, /ACTION_NO_DIALOGUE|130-160 BPM/);
+  assert.match(action, /ACTION_NO_DIALOGUE|130-160 BPM|kinetic|clipped/i);
   assert.notEqual(drama, action);
 });
 

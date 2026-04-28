@@ -7146,7 +7146,7 @@ function updatePersonaFields(type) {
  * Load person cutouts extracted from the user's Brand Kits.
  */
 // ─────────────────────────────────────────────────────
-// MULTI-PERSONA SUPPORT (up to 3 personas per story)
+// MULTI-PERSONA SUPPORT (up to MAX_PERSONAS personas per story — currently 4)
 // ─────────────────────────────────────────────────────
 
 // Selection state for each persona type
@@ -7286,7 +7286,11 @@ async function generateBrandKitAutoPersona() {
     }
 }
 
-const MAX_PERSONAS = 3;
+// Cast Bible Phase 5a (2026-04-28) — bumped 3 → 4 to enable ensemble pairings
+// (protag + antag + foil + mentor). Backend audit (cast-bible-n-audit-report.md)
+// confirmed all downstream code paths are N-aware. Bumps beyond 4 require
+// re-auditing voice library size + Kling element packing.
+const MAX_PERSONAS = 4;
 
 // ═══ DESCRIBED TYPE ═══
 
@@ -7612,7 +7616,7 @@ function toggleBrandKitPersona(el, url, description, brandKitJobId) {
         personaSelectionState.brand_kit.splice(idx, 1);
     } else {
         if (personaSelectionState.brand_kit.length >= MAX_PERSONAS) {
-            showToast('Maximum 3 personas allowed', 'warning');
+            showToast(`Maximum ${MAX_PERSONAS} personas allowed`, 'warning');
             return;
         }
         personaSelectionState.brand_kit.push({ cutout_url: url, description, brand_kit_job_id: brandKitJobId });
@@ -7922,7 +7926,7 @@ async function createBrandStory() {
         const personaType = document.querySelector('input[name="personaType"]:checked')?.value || 'described';
         let personaConfig = {};
 
-        // Build personas array (up to 3) from persona selection state
+        // Build personas array (up to MAX_PERSONAS) from persona selection state
         let personas = [];
         if (personaType === 'described') {
             personas = personaSelectionState.described
@@ -8007,7 +8011,13 @@ async function createBrandStory() {
             tone: document.getElementById('storyTone')?.value || 'engaging',
             genre: document.getElementById('storyGenre')?.value || 'drama',
             target_audience: document.getElementById('storyAudience')?.value || 'young professionals',
-            directors_notes: document.getElementById('storyDirectorsNotes')?.value || ''
+            directors_notes: document.getElementById('storyDirectorsNotes')?.value || '',
+            // V4 Audio Layer Overhaul Day 3 — language is read by:
+            //   • screenplay system prompt (Hebrew register block when 'he')
+            //   • runV4Pipeline (propagates to persona.language)
+            //   • TTSService (eleven-v3 always; multilingual-v2 cannot do Hebrew)
+            //   • VoiceAcquisition picker (filters voice library by languages[])
+            language: document.getElementById('storyLanguage')?.value || 'en'
         };
         const enrichedSubject = { ...subject, ...creativeSettings };
 

@@ -2,7 +2,19 @@
   "_meta": {
     "description": "Curated ElevenLabs premade voices for V4 persona voice acquisition. Premade voices work on all ElevenLabs tiers including free. Library voices (like Rachel) require a paid plan. Each entry has voice_id, display name, and descriptive tags that Gemini matches against persona briefs.",
     "source": "https://elevenlabs-sdk.mintlify.app/voices/premade-voices",
-    "updated": "2026-04-08"
+    "updated": "2026-04-28",
+    "default_language": "en",
+    "language_filter_contract": "voices without an explicit `languages` field are assumed to support the default_language only ('en'). Voices that work in multiple languages declare languages: ['en', 'he', ...]. The V4 picker (services/v4/VoiceAcquisition.js) filters by the persona's language BEFORE gender + uniqueness when story.language is set.",
+    "hebrew_voice_strategy": {
+      "phase_a_current": "6 of the existing English-base premade voices are tagged languages: ['en','he'] because they render Hebrew with acceptable quality via fal-ai/elevenlabs/tts/eleven-v3 + language_code='he' (eleven-v3 supports 70+ languages including Hebrew; multilingual-v2 does NOT). Quality: decent — accent inflection is mid-Atlantic-leaning rather than Israeli-native, but the prosody and intelligibility are usable for prestige TV Hebrew dialogue.",
+      "phase_b_recommended": "When the user has access to ElevenLabs Voice Library (paid tier), curate 6 Hebrew-native voices with declared languages: ['he'] and add them to this file alongside the existing premade entries. The picker automatically prefers single-language native voices over multi-language base voices when a Hebrew pool exists.",
+      "phase_b_acceptance_criteria": [
+        "≥ 3 male + ≥ 3 female Hebrew-native voices in the library",
+        "spanning age (young_adult / middle_aged / old)",
+        "spanning register (warm / neutral / clipped / theatrical)",
+        "tag_responsive audit completed against full eleven-v3 tag taxonomy"
+      ]
+    }
   },
   "voices": [
     {
@@ -13,7 +25,9 @@
       "accent": "american",
       "descriptor": "deep, resonant, narrative-friendly",
       "best_for": ["narrator", "confident male lead", "business executive", "dramatic male role"],
-      "tags": ["warm", "deep", "resonant", "authoritative", "calm"]
+      "tags": ["warm", "deep", "resonant", "authoritative", "calm"],
+      "languages": ["en", "he"],
+      "register": "warm"
     },
     {
       "voice_id": "21m00Tcm4TlvDq8ikWAM",
@@ -23,7 +37,9 @@
       "accent": "american",
       "descriptor": "calm, measured, professional",
       "best_for": ["narrator", "professional female", "educator", "brand voice"],
-      "tags": ["calm", "measured", "professional", "clear", "neutral"]
+      "tags": ["calm", "measured", "professional", "clear", "neutral"],
+      "languages": ["en", "he"],
+      "register": "neutral"
     },
     {
       "voice_id": "AZnzlk1XvdvUeBnXmlld",
@@ -43,7 +59,9 @@
       "accent": "american",
       "descriptor": "soft, gentle, warm",
       "best_for": ["romantic lead", "wellness brand", "intimate storytelling", "lifestyle"],
-      "tags": ["soft", "gentle", "warm", "intimate", "calming"]
+      "tags": ["soft", "gentle", "warm", "intimate", "calming"],
+      "languages": ["en", "he"],
+      "register": "warm"
     },
     {
       "voice_id": "ErXwobaYiN019PkySvjV",
@@ -73,7 +91,9 @@
       "accent": "american",
       "descriptor": "deep, measured, trustworthy",
       "best_for": ["trusted advisor", "expert interviewee", "serious narrator"],
-      "tags": ["deep", "measured", "trustworthy", "grounded", "thoughtful"]
+      "tags": ["deep", "measured", "trustworthy", "grounded", "thoughtful"],
+      "languages": ["en", "he"],
+      "register": "neutral"
     },
     {
       "voice_id": "yoZ06aMxZJJ28mfd3POQ",
@@ -163,7 +183,9 @@
       "accent": "swedish",
       "descriptor": "seductive, sultry, mysterious",
       "best_for": ["mysterious female lead", "perfume brand", "noir thriller"],
-      "tags": ["seductive", "sultry", "mysterious", "european"]
+      "tags": ["seductive", "sultry", "mysterious", "european"],
+      "languages": ["en", "he"],
+      "register": "theatrical"
     },
     {
       "voice_id": "IKne3meq5aSn9XLyUdCD",
@@ -253,7 +275,9 @@
       "accent": "british",
       "descriptor": "deep, British, authoritative",
       "best_for": ["British male lead", "news anchor tone", "prestige drama"],
-      "tags": ["british", "deep", "authoritative", "prestigious"]
+      "tags": ["british", "deep", "authoritative", "prestigious"],
+      "languages": ["en", "he"],
+      "register": "neutral"
     },
     {
       "voice_id": "g5CIjZEefAph4nQFvHAz",

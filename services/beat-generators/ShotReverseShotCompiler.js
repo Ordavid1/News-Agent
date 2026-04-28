@@ -50,35 +50,73 @@ class ShotReverseShotCompiler {
     const parentId = parentBeat.beat_id || 'srs';
     const suffixes = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
 
-    return exchanges.map((exchange, i) => ({
-      // Generate unique child beat IDs that preserve the parent for traceability
-      beat_id: `${parentId}_${suffixes[i] || i}`,
-      type: 'TALKING_HEAD_CLOSEUP',
-      persona_index: exchange.persona_index,
-      dialogue: exchange.dialogue,
-      emotion: exchange.emotion || exchange.mood || 'neutral',
-      duration_seconds: exchange.duration_seconds || 4,
-      lens: exchange.lens || '85mm',
-      expression_notes: exchange.expression_notes || '',
-      // V4 director metadata — propagated from exchange (preferred) or parent
-      // so downstream generators / post-production / director panel see the
-      // same intent on each child closeup as on the parent SHOT_REVERSE_SHOT.
-      subtext: exchange.subtext || parentBeat.subtext || null,
-      narrative_purpose: exchange.narrative_purpose || parentBeat.narrative_purpose || null,
-      beat_intent: exchange.beat_intent || parentBeat.beat_intent || null,
-      emotional_hold: exchange.emotional_hold ?? parentBeat.emotional_hold ?? null,
-      pace_hint: exchange.pace_hint || parentBeat.pace_hint || null,
-      // Preserve parent context so the generator can still see it if needed.
-      _parent_beat_id: parentId,
-      _compiled_from: 'SHOT_REVERSE_SHOT',
-      // Beat-pipeline state fields default to pending
-      status: 'pending',
-      generated_video_url: null,
-      endframe_url: null,
-      model_used: null,
-      cost_usd: null,
-      error_message: null
-    }));
+    // V4 Audio Layer Overhaul Day 2 — preserve EXCHANGE CONTEXT.
+    //
+    // Pre-Day-2: each child closeup was synthesized in ignorance of the
+    // prior speaker. Even though `subtext` and `emotion` flowed through to
+    // Kling, the TTS call had no awareness of "you're responding to the
+    // line that just landed". Result: SHOT_REVERSE_SHOT exchanges sounded
+    // like alternating monologues, not a conversation.
+    //
+    // The fix: each child carries an `exchange_context` block snapshotting
+    // the prior turn's emotion + subtext + dialogue tail + position-in-
+    // exchange. CinematicDialogueGenerator reads it to bias the Kling
+    // micro-expression prompt and (when applicable) inform tag selection
+    // for the response line. The parent beat's audio still synthesizes
+    // line-by-line — director cut rhythm is preserved — but the per-beat
+    // TTS prompt now knows what it's responding to.
+    return exchanges.map((exchange, i) => {
+      const prior = i > 0 ? exchanges[i - 1] : null;
+      const exchangeContext = {
+        position_in_exchange: i,                         // 0-indexed; 0 = scene-opener
+        total_exchanges: exchanges.length,               // sized by Gemini
+        prior_speaker_persona_index: prior?.persona_index ?? null,
+        prior_speaker_emotion: prior?.emotion || prior?.mood || null,
+        prior_speaker_subtext: prior?.subtext || null,
+        // Dialogue tail — the last 12 words of the prior speaker's line.
+        // Bounded so the downstream prompt budget isn't blown by a long
+        // monologue spilling into the closeup's Kling prompt.
+        prior_speaker_dialogue_tail: prior?.dialogue
+          ? String(prior.dialogue).trim().split(/\s+/).slice(-12).join(' ')
+          : null,
+        // The full sequence of speakers across the exchange — useful for
+        // detecting overlap patterns ("A interrupts B") and for the
+        // director-panel exchange-flow visualization.
+        speaker_sequence: exchanges.map(ex => ex?.persona_index ?? null)
+      };
+
+      return {
+        // Generate unique child beat IDs that preserve the parent for traceability
+        beat_id: `${parentId}_${suffixes[i] || i}`,
+        type: 'TALKING_HEAD_CLOSEUP',
+        persona_index: exchange.persona_index,
+        dialogue: exchange.dialogue,
+        emotion: exchange.emotion || exchange.mood || 'neutral',
+        duration_seconds: exchange.duration_seconds || 4,
+        lens: exchange.lens || '85mm',
+        expression_notes: exchange.expression_notes || '',
+        // V4 director metadata — propagated from exchange (preferred) or parent
+        // so downstream generators / post-production / director panel see the
+        // same intent on each child closeup as on the parent SHOT_REVERSE_SHOT.
+        subtext: exchange.subtext || parentBeat.subtext || null,
+        narrative_purpose: exchange.narrative_purpose || parentBeat.narrative_purpose || null,
+        beat_intent: exchange.beat_intent || parentBeat.beat_intent || null,
+        emotional_hold: exchange.emotional_hold ?? parentBeat.emotional_hold ?? null,
+        pace_hint: exchange.pace_hint || parentBeat.pace_hint || null,
+        // Day 2 — exchange-aware context (read by CinematicDialogueGenerator).
+        exchange_context: exchangeContext,
+        // Preserve parent context so the generator can still see it if needed.
+        _parent_beat_id: parentId,
+        _compiled_from: 'SHOT_REVERSE_SHOT',
+        // Beat-pipeline state fields default to pending
+        status: 'pending',
+        generated_video_url: null,
+        endframe_url: null,
+        model_used: null,
+        cost_usd: null,
+        error_message: null
+      };
+    });
   }
 
   /**

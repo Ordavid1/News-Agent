@@ -52,14 +52,15 @@ class TalkingHeadCloseupGenerator extends BaseBeatGenerator {
     const targetDuration = beat.duration_seconds || 4;
 
     // ─── Stage A — ElevenLabs TTS ───
+    // V4 Day 1 — modelId omitted so TTSService picks per BRAND_STORY_TTS_ENGINE
+    // (default eleven_v3, with multilingual_v2 rollback path).
     this.logger.info(`[${beat.beat_id}] Stage A: TTS (${dialogue.length} chars)`);
     const ttsResult = await this.tts.synthesizeBeat({
       text: dialogue,
       voiceId: persona.elevenlabs_voice_id,
       durationTarget: targetDuration,
       options: {
-        language: persona.language || 'en',
-        modelId: 'eleven_multilingual_v2'
+        language: persona.language || 'en'
       }
     });
 

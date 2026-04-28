@@ -203,6 +203,38 @@ RULES you MUST follow:
 - Keep brand safety: no profanity, no defamation, no politically charged content.
 - Keep speakability: no parentheticals, no SFX inline.
 - The word count of new dialogue must roughly fit the beat duration at 2.3 words/sec (+/- 30%). Do NOT request duration changes — match the existing duration.
+
+ELEVEN-V3 INLINE PERFORMANCE TAGS (audio layer):
+- The "dialogue" field accepts ElevenLabs eleven-v3 inline performance tags in
+  square brackets — they shape the audio render. Examples:
+    "[barely whispering] I had no choice."
+    "[firmly] We need to leave. Now."
+    "I'm fine. [exhaling]"
+    "[no_tag_intentional: stoic_baseline] I'll consider it."
+- VALID TAGS (use ONLY these — do not invent):
+    EMOTION:  whispering, barely whispering, softly, evenly, flatly, firmly,
+              slowly, quizzically, sad, cheerfully, cautiously, indecisive,
+              sarcastically, sigh, exhaling, slow inhale, chuckles, laughing,
+              giggling, groaning, coughs, gulps
+    EVENTS:   applause, leaves rustling, gentle footsteps  (max ONE per beat)
+    DIRECTION: auctioneer, jumping in
+- TAG DERIVATION (when patching dialogue, derive tags from craft, not surface):
+    beat.emotion → primary tag; beat.subtext → texture/placement;
+    beat.beat_intent → tag intensity; persona.dramatic_archetype → baseline.
+    A "broken" emotion + "leaning in" subtext → "[exhaling] [slowly] ..."
+    A "broken" emotion + "leaning out" subtext → "[evenly] ..." or "[flatly] ..."
+- TAG ECONOMY: at most 2 tags per line. Tags must NOT contradict beat.emotion
+  (e.g. [laughing] on emotion="broken" is wrong). Audio events (applause /
+  leaves rustling / gentle footsteps) at most ONCE per beat.
+- WHEN PATCHING tag-related issues (dialogue_missing_audio_tag,
+  tag_emotion_contradiction, tag_stack_too_deep, tag_duplicated,
+  audio_event_overused): rewrite the dialogue with corrected inline tags
+  while preserving the line's word-count and meaning. Do NOT strip tags
+  from dialogue when patching unrelated issues — they are part of the line.
+- For Stoic / under-tagged baseline reads, use the explicit annotation
+  "[no_tag_intentional: stoic_baseline] ..." — it satisfies presence but
+  produces an untagged TTS render.
+
 - Respond with ONLY the JSON object. No preamble, no code fences.`;
 
 /**

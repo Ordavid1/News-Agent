@@ -32,6 +32,7 @@ import klingService from './KlingService.js';
 import omniHumanService from './OmniHumanService.js';
 import seedanceService from './SeedanceService.js';
 import ttsService from './TTSService.js';
+import dialogueTTSService from './DialogueTTSService.js';
 
 import {
   getStorylineSystemPrompt,
@@ -64,7 +65,8 @@ import {
 } from './v4/StoryboardHelpers.js';
 import { runQualityGate } from './v4/QualityGate.js';
 import {
-  acquirePersonaVoicesForStory
+  acquirePersonaVoicesForStory,
+  pickFallbackVoiceIdForPersonaInList
 } from './v4/VoiceAcquisition.js';
 import {
   matchBrandKitToLut,
@@ -75,6 +77,7 @@ import {
   getStrengthForGenre
 } from './v4/BrandKitLutMatcher.js';
 import { generateSonicSeriesBible } from './v4/SonicSeriesBible.js';
+import { deriveCastBibleFromStory } from './v4/CastBible.js';
 import {
   runPostProduction,
   estimateEpisodeDuration
@@ -1141,7 +1144,12 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     }
 
     const dialogueLine = shot.dialogue_line || shot.visual_direction || 'Continue the story.';
-    const voiceId = persona.elevenlabs_voice_id || undefined;
+    // Cast Bible follow-up — replace silent Brian fallback with intelligent
+    // gender + persona-aware library picker. Avoids voice-id collisions with
+    // other personas in the story; logs a warn so the upstream miss is visible.
+    const voiceId = persona.elevenlabs_voice_id
+      || pickFallbackVoiceIdForPersonaInList(personas, idx, { reason: 'omnihuman_dialogue' })
+      || undefined;
 
     // Step 1: ElevenLabs TTS → audio
     logger.info(`[Shot ${shotIdx + 1}] OmniHuman dialogue — TTS for persona ${idx}, ${dialogueLine.length} chars`);
@@ -2541,13 +2549,15 @@ Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
     // Token budget: 4096 (was 512). Gemini 3 Flash Preview uses thinking
     // tokens before the visible output; 512 truncates even short prompts.
     // See Day 0 2026-04-11 fix notes in services/v4/VoiceAcquisition.js.
+    // Timeout: 90s — thinking-token latency on Gemini 3 Flash regularly
+    // exceeds the 30s previously hard-coded here, causing ECONNABORTED.
     const hint = (await callVertexGeminiText({
       userPrompt: prompt,
       config: {
         maxOutputTokens: 4096,
         temperature: 1.0
       },
-      timeoutMs: 30000
+      timeoutMs: 90000
     }))?.trim();
 
     if (!hint) throw new Error('Gemini returned empty hint');
@@ -2670,7 +2680,7 @@ Respond with ONLY valid JSON:
         temperature: 0.9,
         responseMimeType: 'application/json'
       },
-      timeoutMs: 30000
+      timeoutMs: 90000
     });
     if (!raw) throw new Error('Gemini returned empty response for persona generation');
 
@@ -2881,6 +2891,44 @@ Respond with ONLY valid JSON:
       if (!p.name || !String(p.name).trim()) p.name = `Persona ${i + 1}`;
     });
 
+    // V4 Audio Layer Overhaul Day 3 — propagate story.language → persona.language.
+    //
+    // story.language is the user's authorship-language choice from the wizard
+    // (ISO 639-1: 'en', 'he', etc.). Personas that already declare a language
+    // are preserved verbatim — wizard-explicit always wins. Personas without a
+    // language inherit story.language so the dialogue authorship layer (Hebrew
+    // masterclass) and the audio layer (eleven-v3 with language_code) both
+    // receive a consistent signal.
+    //
+    // Resolution order (matches _generateV4Screenplay):
+    //   story.language → story.subject?.language → null (no propagation)
+    // Today the wizard at public/js/marketing.js bundles `language` into
+    // creativeSettings → enrichedSubject → story.subject.language. A future
+    // top-level `brand_stories.language` column is read first if present.
+    //
+    // This is a write-back-to-personas pass that runs BEFORE voice acquisition
+    // (Day 4 picker filters on persona.language) and BEFORE screenplay
+    // generation (Day 3 storyLanguage block reads from story.language with
+    // persona[0].language as fallback). Order matters here: personas[] is
+    // mutated in-place; the persisted update happens after voice acquisition
+    // so a single DB write captures both the language sync and the voice IDs.
+    const _rawLang = story.language || story.subject?.language || null;
+    const storyLanguage = (_rawLang && typeof _rawLang === 'string')
+      ? String(_rawLang).trim().toLowerCase()
+      : null;
+    if (storyLanguage) {
+      let synced = 0;
+      personas.forEach((p) => {
+        if (!p.language || typeof p.language !== 'string' || !p.language.trim()) {
+          p.language = storyLanguage;
+          synced++;
+        }
+      });
+      if (synced > 0) {
+        progress('voices', `language sync: ${synced} persona(s) inherited story.language="${storyLanguage}"`);
+      }
+    }
+
     // ─── Phase 6 — COMMERCIAL pre-flight (runs ONCE per story BEFORE everything else) ───
     //
     // When the story's genre is 'commercial' AND the COMMERCIAL pipeline flag is on,
@@ -2938,6 +2986,42 @@ Respond with ONLY valid JSON:
       await updateBrandStory(storyId, userId, {
         persona_config: { ...(story.persona_config || {}), personas }
       });
+    }
+
+    // ─── Step 1b: Cast Bible (lazy-derive + idempotent) ───
+    //
+    // Derive a structural snapshot of the show's cast from storyline.characters[] +
+    // persona_config.personas[]. NO Gemini call — purely structural.
+    //
+    // Sits ABOVE the future Phase-6 commercial-genre branch (per the Cast Bible plan)
+    // so commercials also receive a bible. Voice IDs are already on personas at
+    // this point thanks to Step 1.
+    //
+    // Idempotency (Failure Mode #5 in plan): re-derive when bible is missing OR
+    // has empty principals AND _generated_by !== 'manual_override'. This protects
+    // partial-failure runs (sticky-broken empty bibles) AND preserves manual
+    // overrides set via PATCH /cast-bible.
+    //
+    // Phase 3.5: deriveCastBibleFromStory uses inferPersonaGenderForCast which
+    // reads BOTH persona + storyline.characters[i] fields, salvaging gender
+    // signal for sparse "Persona N" placeholder personas (the bug surfaced in
+    // 2026-04-28 production logs).
+    {
+      const existing = story.cast_bible;
+      const needsDerive = !existing
+        || !Array.isArray(existing.principals)
+        || existing.principals.length === 0;
+      const isManualOverride = existing?._generated_by === 'manual_override';
+      if (needsDerive && !isManualOverride) {
+        progress('cast_bible', 'deriving cast bible from storyline + personas');
+        const bible = deriveCastBibleFromStory({ ...story, persona_config: { ...(story.persona_config || {}), personas } });
+        await updateBrandStory(storyId, userId, { cast_bible: bible });
+        story.cast_bible = bible;
+        const principalCount = bible.principals.length;
+        const unknownGenderCount = bible.principals.filter(p => p.gender_inferred === 'unknown').length;
+        const mismatchCount = bible.principals.filter(p => p.voice_gender_match === false).length;
+        progress('cast_bible', `bible derived (${principalCount} principal(s), unknown_gender=${unknownGenderCount}, voice_mismatch=${mismatchCount})`);
+      }
     }
 
     // ─── Step 2: Brand Kit → LUT (cached, idempotent) ───
@@ -3128,7 +3212,13 @@ Respond with ONLY valid JSON:
     // for product-focus stories; explicit setting (wizard or commercial-genre
     // override) takes precedence.
     const productIntegrationStyleForValidator = story.product_integration_style || 'naturalistic_placement';
+    // Phase 3 — pass genre into validatorOpts so the genre-aware dialogue
+    // floor (resolveDialogueFloor) can fire when BRAND_STORY_VALIDATOR_PARAMETERIZED
+    // and BRAND_STORY_GENRE_REGISTER_LIBRARY are both true. Genre lives on the
+    // storyline payload; falls back to drama if absent (matches the prompt
+    // default).
     const validatorOpts = {
+      genre: story.storyline?.genre || 'drama',
       storyFocus,
       sonicSeriesBible: story.sonic_series_bible || null,
       productIntegrationStyle: productIntegrationStyleForValidator,
@@ -3413,7 +3503,12 @@ Respond with ONLY valid JSON:
         flux: fluxFalService,
         omniHuman: omniHumanService
       },
-      tts: ttsService
+      tts: ttsService,
+      // V4 Audio Layer Overhaul Day 2 — multi-speaker dialogue endpoint.
+      // GROUP_DIALOGUE_TWOSHOT routes through this service for shared
+      // prosodic context across speakers. Falls back to per-beat TTS
+      // (this.tts) when the beat exceeds the 2,000-char or 10-voice limit.
+      dialogueTTS: dialogueTTSService
     });
 
     const preflight = router.preflight({
@@ -3620,7 +3715,9 @@ Respond with ONLY valid JSON:
       locationBible: story.location_bible || null,
       // Brand Kit — drives branded title/end cards, subtitle styling, color-aware overlays
       brandKit: brandKit || null,
-      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id || 'nPczCjzI2devNBz1zQrb',
+      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id
+        || pickFallbackVoiceIdForPersonaInList(personas, 0, { reason: 'v4_default_narrator' })
+        || 'nPczCjzI2devNBz1zQrb',
       // Audio uploader injected so beat generators can stash TTS to a public URL
       uploadAudio: async ({ buffer, filename, mimeType }) => {
         return this._uploadBufferToStorage(buffer, userId, 'audio/v4', filename, mimeType);
@@ -3631,10 +3728,46 @@ Respond with ONLY valid JSON:
       uploadBuffer: uploadBufferToStorage
     };
 
+    // ─── Phase 6 (2026-04-28) — commercial scene-failure halt guardrail ───
+    //
+    // For non-commercial stories, a failed scene is non-fatal — the pipeline
+    // continues with the surviving scenes (the assembled cut may have a hole
+    // but a 12-episode prestige series can absorb that). For COMMERCIAL spots
+    // (1-2 episodes, 1-3 scenes per episode), a single scene failure means
+    // losing 33-100% of the spot. The pipeline must halt and escalate to
+    // user_review instead of shipping a half-spot.
+    //
+    // Caught: 2026-04-28 logs.txt — `plaza_tactile_walk` montage failed with
+    // a Kling 422 (now fixed at the source), pipeline kept going to scene 3,
+    // would have produced a final cut missing the entire middle scene.
+    const isCommercialStory = String(story?.subject?.genre || story?.storyline?.genre || '').toLowerCase().trim() === 'commercial';
+    let sceneFailureCount = 0;
+    const failedSceneIds = [];
+
+    // Helper: count usable beats in a scene (a scene "succeeded" if at least
+    // one beat produced a video). Called after each scene to detect failure.
+    const countSceneBeatsWithVideo = (scn) =>
+      (scn.beats || []).filter(b => b.generated_video_url && b.status !== 'failed').length;
+
     // Sequential generation within scenes to support endframe chaining,
     // parallel between scenes for speed.
     for (const scene of sceneGraph.scenes) {
       let previousBeat = null;
+      const beatsWithVideoBefore = countSceneBeatsWithVideo(scene);
+
+      // ─── Commercial halt check (before each scene's work begins) ───
+      // If a previous scene failed and this is a commercial spot, abort
+      // the rest of the loop and escalate. We check at the TOP of each
+      // iteration so the failed-scene's halting work isn't wasted on the
+      // remaining scenes (saves money + time).
+      if (isCommercialStory && sceneFailureCount > 0) {
+        logger.error(`commercial halt: ${sceneFailureCount} scene(s) failed [${failedSceneIds.join(', ')}] — refusing to ship a half-spot. Aborting remaining scenes; episode will be marked awaiting_user_review.`);
+        progress('beats', `commercial halt: ${sceneFailureCount} scene failure(s) — aborting`, {
+          failedSceneIds,
+          remainingScenes: sceneGraph.scenes.length - sceneGraph.scenes.indexOf(scene)
+        });
+        break;
+      }
 
       // MONTAGE_SEQUENCE handling: scenes flagged as 'montage' are generated
       // as a single Kling V3 Pro multi-shot call instead of per-beat.
@@ -3699,6 +3832,8 @@ Respond with ONLY valid JSON:
             beat.status = 'failed';
             beat.error_message = err.message;
           }
+          sceneFailureCount++;
+          failedSceneIds.push(scene.scene_id || '(unnamed)');
         }
         continue; // skip per-beat loop for this scene
       }
@@ -4032,6 +4167,22 @@ Respond with ONLY valid JSON:
       // endframe to the next scene's master. The bridge is spliced into the
       // beat stream as a synthetic SCENE_BRIDGE beat so the assembly picks
       // it up without any additional post-production wiring.
+      // ─── End-of-scene failure detection (per-beat scenes) ───
+      // A scene that emerges from the per-beat loop with zero usable beat
+      // videos counts as a failure. Track it for the commercial halt guardrail
+      // (the next iteration's top-of-loop check will trigger the halt).
+      const beatsWithVideoAfter = countSceneBeatsWithVideo(scene);
+      if (scene.type !== 'montage' && beatsWithVideoAfter === beatsWithVideoBefore) {
+        // No new beats produced video this scene → scene failed.
+        const generativeBeatCount = (scene.beats || []).filter(b => b.type !== 'SPEED_RAMP_TRANSITION' && b.type !== 'TEXT_OVERLAY_CARD').length;
+        if (generativeBeatCount > 0) {
+          // Only flag as failure if there were generative beats expected.
+          sceneFailureCount++;
+          failedSceneIds.push(scene.scene_id || '(unnamed)');
+          logger.warn(`scene ${scene.scene_id} produced 0/${generativeBeatCount} beat videos — flagged as failed scene${isCommercialStory ? ' (commercial halt may trigger on next scene)' : ''}`);
+        }
+      }
+
       if (process.env.V4_BRIDGE_BEATS !== 'false' && scene.bridge_to_next && typeof scene.bridge_to_next === 'object') {
         const sceneIdx = sceneGraph.scenes.indexOf(scene);
         const nextScene = sceneGraph.scenes[sceneIdx + 1];
@@ -4099,6 +4250,23 @@ Respond with ONLY valid JSON:
         error_message: 'no beats generated successfully'
       });
       throw new Error('V4: no beats generated successfully');
+    }
+
+    // ─── Commercial halt escalation (post-loop) ───
+    // If the commercial halt fired (one or more scenes failed for a commercial
+    // spot), mark the episode awaiting_user_review and STOP the pipeline.
+    // We do NOT proceed to music / LUT / assembly / Lens D for a half-spot —
+    // there's nothing for the Director to grade and shipping it would be worse
+    // than not shipping at all.
+    if (isCommercialStory && sceneFailureCount > 0) {
+      const reason = `commercial halt: ${sceneFailureCount} scene(s) failed [${failedSceneIds.join(', ')}]. Episode aborted; user must review and trigger fixes via Director Panel.`;
+      logger.error(reason);
+      await updateBrandStoryEpisode(newEpisode.id, userId, {
+        status: 'awaiting_user_review',
+        error_message: reason
+      });
+      progress('halt', reason, { failedSceneIds, sceneFailureCount });
+      throw new Error(`V4: ${reason}`);
     }
 
     // ─── Step 8: Music bed (ElevenLabs Music sized to assembled duration) ───
@@ -4390,7 +4558,11 @@ Respond with ONLY valid JSON:
         flux: fluxFalService,
         omniHuman: omniHumanService
       },
-      tts: ttsService
+      tts: ttsService,
+      // V4 Audio Layer Overhaul Day 2 — same multi-speaker service as the
+      // primary pipeline so per-beat retakes pick up the dialogue endpoint
+      // when the user regenerates a GROUP_DIALOGUE_TWOSHOT beat.
+      dialogueTTS: dialogueTTSService
     });
 
     const subjectReferenceImages = (story.subject?.reference_image_urls || []).filter(Boolean);
@@ -4400,7 +4572,9 @@ Respond with ONLY valid JSON:
       episodeId,
       userId,
       subjectReferenceImages,
-      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id || 'nPczCjzI2devNBz1zQrb',
+      defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id
+        || pickFallbackVoiceIdForPersonaInList(personas, 0, { reason: 'v4_default_narrator' })
+        || 'nPczCjzI2devNBz1zQrb',
       uploadAudio: async ({ buffer, filename, mimeType }) => {
         return this._uploadBufferToStorage(buffer, userId, 'audio/v4', filename, mimeType);
       }
@@ -4941,7 +5115,27 @@ Respond with ONLY valid JSON:
       // / brand_world_lock / anti_brief authored by CreativeBriefDirector.
       // Without this the brief was dead weight (root cause of incoherent
       // commercials in 2026-04-28 logs).
-      commercialBrief: story.commercial_brief || null
+      commercialBrief: story.commercial_brief || null,
+      // Cast Bible Phase 3 — pass the story-level cast bible so the screenplay
+      // prompt can quote it as a HARD CONSTRAINT (permitted persona_index
+      // values). Eliminates phantom-character invention at source. When null
+      // (legacy stories without a derived bible), _buildCastBibleBlock emits
+      // empty string and behavior is identical to today.
+      castBible: story.cast_bible || null,
+      // V4 Audio Layer Overhaul Day 3 — Hebrew authorship register.
+      // Resolution order:
+      //   1. story.language (top-level column, future-proof)
+      //   2. story.subject?.language (current wizard path: marketing.js
+      //      bundles `language` into creativeSettings → enrichedSubject
+      //      → story.subject.language at story-creation time)
+      //   3. personas[0].language (legacy stories with persona-level language)
+      //   4. 'en' default
+      // _buildHebrewMasterclassBlock emits an empty string for any
+      // non-Hebrew language so English stories see no change.
+      storyLanguage: story.language
+        || story.subject?.language
+        || (personas?.[0]?.language)
+        || 'en'
     });
 
     const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {
@@ -5361,7 +5555,11 @@ Respond with ONLY valid JSON:
     // Determine voice from persona config
     const story = await getBrandStoryById(storyId, userId);
     const personas = story?.persona_config?.personas || [];
-    const voiceId = personas[0]?.elevenlabs_voice_id || undefined;
+    // Cast Bible follow-up — intelligent fallback when personas[0] has no voice.
+    // Picker is gender + persona-aware; respects collisions with other personas.
+    const voiceId = personas[0]?.elevenlabs_voice_id
+      || pickFallbackVoiceIdForPersonaInList(personas, 0, { reason: 'v3_narration' })
+      || undefined;
 
     const ttsResult = await ttsService.synthesize({
       text: fullScript,

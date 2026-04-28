@@ -39,6 +39,12 @@ import {
   DEFAULT_SONIC_SERIES_BIBLE
 } from '../services/v4/SonicSeriesBible.js';
 import {
+  resolveCastBibleForStory,
+  validateCastBible,
+  mergeCastBibleDefaults,
+  DEFAULT_CAST_BIBLE
+} from '../services/v4/CastBible.js';
+import {
   v4RegenerateLimiter,
   v4ReassembleLimiter,
   v4PatchLimiter,
@@ -1197,7 +1203,35 @@ router.patch('/:id/personas/:personaIndex/voice', csrfProtection, async (req, re
       return res.status(404).json({ success: false, error: `Persona ${idx} not found` });
     }
 
+    // Cast Bible Failure Mode #3 — locked-bible REJECT contract.
+    // When the cast bible is locked AND inheritance_policy.voice_assignments
+    // is 'immutable_when_locked' (default), all voice changes are rejected.
+    // Lock can only be undone via PATCH /cast-bible { bible: null }.
+    if (story.cast_bible?.status === 'locked' &&
+        (story.cast_bible.inheritance_policy?.voice_assignments || 'immutable_when_locked') === 'immutable_when_locked') {
+      return res.status(409).json({
+        success: false,
+        error: 'Cast bible is locked — voice assignments are immutable. Clear via PATCH /cast-bible { bible: null } first to change voices.',
+        conflict: { reason: 'cast_bible_locked' }
+      });
+    }
+
     const { voice_id, voice_name } = req.body;
+    // Allow voice_id: null to CLEAR a voice (used by the Casting Room
+    // re-acquisition confirmation dialog — Phase 4). Skip the rest of the
+    // validation in that case and persist the cleared state directly.
+    if (voice_id === null) {
+      personas[idx].elevenlabs_voice_id = null;
+      personas[idx].elevenlabs_voice_name = null;
+      personas[idx].elevenlabs_voice_brief = null;
+      personas[idx].elevenlabs_voice_justification = null;
+      personas[idx].elevenlabs_voice_gender = null;
+      personas[idx].kling_voice_id = null;
+      await updateBrandStory(req.params.id, req.user.id, {
+        persona_config: { ...(story.persona_config || {}), personas }
+      });
+      return res.json({ success: true, persona: personas[idx], cleared: true });
+    }
     if (!voice_id) return res.status(400).json({ success: false, error: 'voice_id required' });
 
     // ─── Voice-lock validation (Phase 1 hardening — 2026-04-25) ───
@@ -1262,6 +1296,67 @@ router.patch('/:id/personas/:personaIndex/voice', csrfProtection, async (req, re
   } catch (error) {
     logger.error('Error overriding persona voice:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to override voice' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/personas/:personaIndex/gender
+ *
+ * Set or clear an explicit gender on a persona. Used by the Casting Room
+ * gender override dropdown (Phase 4) — surfaces the persistent "Persona N
+ * → unknown gender → potentially wrong-gender voice pick" bug from the
+ * 2026-04-28 production logs and lets the user fix it explicitly.
+ *
+ * Writes to persona_config.personas[idx].gender — the CANONICAL TRUTH path
+ * (Failure Mode #2). cast_bible.principals[].gender_inferred is a derived
+ * view re-resolved on next read.
+ *
+ * Body: { gender: 'male' | 'female' | 'neutral' | 'unknown' }
+ *
+ * Locked-bible contract (Failure Mode #3): when cast_bible.status === 'locked',
+ * returns 409.
+ */
+router.patch('/:id/personas/:personaIndex/gender', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const idx = parseInt(req.params.personaIndex, 10);
+    const personas = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : [story.persona_config];
+
+    if (!personas[idx]) {
+      return res.status(404).json({ success: false, error: `Persona ${idx} not found` });
+    }
+
+    if (story.cast_bible?.status === 'locked') {
+      return res.status(409).json({
+        success: false,
+        error: 'Cast bible is locked — clear via PATCH /cast-bible { bible: null } first to change persona gender.',
+        conflict: { reason: 'cast_bible_locked' }
+      });
+    }
+
+    const { gender } = req.body;
+    const VALID_GENDERS = ['male', 'female', 'neutral', 'unknown'];
+    if (gender !== null && (typeof gender !== 'string' || !VALID_GENDERS.includes(gender.toLowerCase()))) {
+      return res.status(400).json({
+        success: false,
+        error: `gender must be one of ${VALID_GENDERS.join(', ')} or null. Got: ${JSON.stringify(gender)}`
+      });
+    }
+
+    personas[idx].gender = gender ? gender.toLowerCase() : null;
+
+    await updateBrandStory(req.params.id, req.user.id, {
+      persona_config: { ...(story.persona_config || {}), personas }
+    });
+
+    res.json({ success: true, persona: personas[idx] });
+  } catch (error) {
+    logger.error('Error setting persona gender:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to set persona gender' });
   }
 });
 
@@ -1388,6 +1483,164 @@ router.patch('/:id/sonic-series-bible', csrfProtection, async (req, res) => {
   } catch (error) {
     logger.error('Error overriding sonic_series_bible:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to override bible' });
+  }
+});
+
+/**
+ * GET /api/brand-stories/:id/cast-bible
+ *
+ * Read the story's cast bible. Always returns something:
+ *   - If a bible exists, runs it through resolveCastBibleForStory which
+ *     re-resolves voice fields from persona_config (canonical-truth contract,
+ *     Failure Mode #2) and recomputes voice_gender_match per principal.
+ *   - If no bible, returns DEFAULT_CAST_BIBLE (empty principals — Director
+ *     Panel renders "not yet derived" placeholder).
+ *
+ * Response:
+ *   {
+ *     success: true,
+ *     authored: boolean,                  // true if story.cast_bible exists
+ *     bible: <CastBible>,                  // resolved (voice fields re-synced)
+ *     default: <DEFAULT_CAST_BIBLE>        // for Director Panel diff display
+ *   }
+ */
+router.get('/:id/cast-bible', async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const authored = !!story.cast_bible;
+    const bible = resolveCastBibleForStory(story);
+
+    res.json({
+      success: true,
+      authored,
+      bible,
+      default: { ...DEFAULT_CAST_BIBLE, principals: [], guest_pool: [] }
+    });
+  } catch (error) {
+    logger.error('Error reading cast_bible:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to read cast bible' });
+  }
+});
+
+/**
+ * PATCH /api/brand-stories/:id/cast-bible
+ *
+ * Override the story's cast bible.
+ *
+ * Body shape (any of):
+ *   { bible: <full or partial bible> }   — replace bible (subject to validation
+ *                                           and locked-bible contract)
+ *   { bible: null }                       — clear override; next runV4Pipeline
+ *                                           re-derives from storyline+personas
+ *
+ * INVARIANTS (Cast Bible plan):
+ *   - Voice IDs (Failure Mode #2) — REJECT changes to principals[].elevenlabs_voice_id.
+ *     Voice IDs are owned by persona_config; use PATCH /personas/:idx/voice.
+ *   - Locked bible (Failure Mode #3) — when status === 'locked' on the STORED
+ *     bible, REJECT all structural mutations except setting bible: null.
+ *     Lock can only be undone via { bible: null }.
+ */
+router.patch('/:id/cast-bible', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const { bible } = req.body;
+
+    // Clear-the-override path: bible=null. Always permitted (this is the only
+    // way to undo a lock).
+    if (bible === null) {
+      await updateBrandStory(req.params.id, req.user.id, { cast_bible: null });
+      return res.json({
+        success: true,
+        cleared: true,
+        next_episode_will_redrive: true
+      });
+    }
+
+    if (!bible || typeof bible !== 'object') {
+      return res.status(400).json({ success: false, error: 'Body must be { bible: <object> } or { bible: null }' });
+    }
+
+    // Voice canonical-source contract (Failure Mode #2): voice_id changes
+    // come through PATCH /personas/:idx/voice, not here. Reject silently
+    // (rather than ignoring) so callers don't believe the write succeeded.
+    if (Array.isArray(bible.principals)) {
+      for (const p of bible.principals) {
+        if (p && Object.prototype.hasOwnProperty.call(p, 'elevenlabs_voice_id')) {
+          const stored = story.cast_bible?.principals?.find(sp => sp?.persona_index === p.persona_index);
+          if (!stored || stored.elevenlabs_voice_id !== p.elevenlabs_voice_id) {
+            return res.status(400).json({
+              success: false,
+              error: 'Voice IDs are owned by persona_config; use PATCH /api/brand-stories/:id/personas/:idx/voice to change them.'
+            });
+          }
+        }
+      }
+    }
+
+    // Locked bible REJECT contract (Failure Mode #3). Compare proposed
+    // structural fields against stored — if anything differs, reject.
+    const stored = story.cast_bible;
+    if (stored?.status === 'locked') {
+      const storedPrincipals = Array.isArray(stored.principals) ? stored.principals : [];
+      const proposedPrincipals = Array.isArray(bible.principals) ? bible.principals : [];
+
+      // Principal count change → 422
+      if (proposedPrincipals.length !== storedPrincipals.length) {
+        return res.status(422).json({
+          success: false,
+          error: 'Cast bible is locked — principal count cannot change. Clear via PATCH /cast-bible { bible: null } first to make structural changes.'
+        });
+      }
+      // Per-principal structural mutations → 422 (allows status flip locked→unlocked
+      // ONLY via {bible: null} clear path, which is handled above)
+      const STRUCTURAL_FIELDS = ['persona_index', 'name', 'role'];
+      for (let i = 0; i < storedPrincipals.length; i++) {
+        for (const f of STRUCTURAL_FIELDS) {
+          const proposed = proposedPrincipals[i]?.[f];
+          if (proposed !== undefined && proposed !== storedPrincipals[i][f]) {
+            return res.status(422).json({
+              success: false,
+              error: `Cast bible is locked — ${f} on principal ${i} cannot change. Clear via PATCH /cast-bible { bible: null } first to make structural changes.`,
+              conflict: { principal_index: i, field: f }
+            });
+          }
+        }
+      }
+    }
+
+    // Merge defaults so partial overrides are valid (preserves inheritance_policy
+    // and other fields the caller didn't touch).
+    const merged = mergeCastBibleDefaults(bible);
+    const issues = validateCastBible(merged);
+    const blockers = issues.filter(i => i.severity === 'blocker');
+
+    if (blockers.length > 0) {
+      return res.status(422).json({
+        success: false,
+        error: 'cast bible failed validation',
+        blockers,
+        warnings: issues.filter(i => i.severity === 'warning')
+      });
+    }
+
+    // Annotate provenance so the Director Panel can show "manually overridden"
+    merged._generated_by = 'manual_override';
+    merged.status = merged.status || 'derived';
+
+    await updateBrandStory(req.params.id, req.user.id, { cast_bible: merged });
+
+    res.json({
+      success: true,
+      bible: merged,
+      warnings: issues
+    });
+  } catch (error) {
+    logger.error('Error overriding cast_bible:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to override cast bible' });
   }
 });
 

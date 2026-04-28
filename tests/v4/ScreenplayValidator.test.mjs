@@ -351,3 +351,354 @@ describe('ScreenplayValidator — persona-index coverage', () => {
     assert.ok(!r.issues.find(i => i.id === 'persona_index_missing'));
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// Phase 3 — validator parameterization tests
+// These run with BRAND_STORY_VALIDATOR_PARAMETERIZED + BRAND_STORY_GENRE_REGISTER_LIBRARY
+// both set to 'true' so the genre-aware code paths fire. Each test sets/restores
+// the env vars itself so the suite stays order-independent.
+// ────────────────────────────────────────────────────────────────────────
+
+function withFlags(flags, fn) {
+  const prev = {};
+  for (const [k, v] of Object.entries(flags)) { prev[k] = process.env[k]; process.env[k] = v; }
+  try { return fn(); } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+const FLAGS_ON = {
+  BRAND_STORY_VALIDATOR_PARAMETERIZED: 'true',
+  BRAND_STORY_GENRE_REGISTER_LIBRARY: 'true'
+};
+
+function actionGraph(overrides = {}) {
+  // Clipped action register — 3-word avg, 35% dialogue runtime is healthy.
+  return {
+    title: 'Action episode',
+    dramatic_question: 'Will Maya make the extraction?',
+    emotional_state: 'taut',
+    scenes: [
+      {
+        scene_id: 's1',
+        hook_types: ['CLIFFHANGER'],
+        opposing_intents: { '[0]': 'Maya wants the package', '[1]': 'Daniel wants Maya alive' },
+        beats: [
+          { beat_id: 's1b1', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Hands.', duration_seconds: 2 },
+          { beat_id: 's1b2', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Down.', duration_seconds: 2 },
+          { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Slower.', duration_seconds: 2 },
+          { beat_id: 's1b4', type: 'ACTION_NO_DIALOGUE', duration_seconds: 4, action_prompt: 'Maya pivots.' },
+          { beat_id: 's1b5', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Reload.', duration_seconds: 2 },
+          { beat_id: 's1b6', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Move.', duration_seconds: 2 }
+        ]
+      }
+    ],
+    ...overrides
+  };
+}
+
+describe('Phase 3 — Genre-aware dialogue floor', () => {
+  test('ACTION with avg 3-word clipped dialogue + 30% density does NOT trip dialogue_too_sparse', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = actionGraph();
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'action', storyFocus: 'product' });
+      assert.ok(
+        !r.issues.find(i => i.id === 'dialogue_too_sparse'),
+        `action with clipped lines should NOT trigger dialogue_too_sparse — issues: ${JSON.stringify(r.issues.map(i => i.id))}`
+      );
+    });
+  });
+
+  test('DRAMA with avg 3-word clipped dialogue AND <45% density STILL trips dialogue_too_sparse', () => {
+    withFlags(FLAGS_ON, () => {
+      // Drama test fixture: clipped dialogue (3 words avg) AND low dialogue
+      // runtime % (~25%, below drama's 0.45 floor). The Phase 3.1 contract is
+      // "block only when BOTH avg-words AND density-pct fall below floors" —
+      // drama's high target_dialogue_runtime_pct (0.45) is the safety net so
+      // a clipped-but-dialogue-heavy drama (lots of short lines) is still
+      // permitted as a stylistic choice, but truly sparse drama gets blocked.
+      const g = {
+        title: 'Sparse drama',
+        dramatic_question: 'Will Maya leave?',
+        emotional_state: 'cold',
+        scenes: [{
+          scene_id: 's1',
+          hook_types: ['REVELATION'],
+          opposing_intents: { '[0]': 'Maya wants out', '[1]': 'Daniel wants her to stay' },
+          beats: [
+            { beat_id: 's1b1', type: 'B_ROLL_ESTABLISHING', duration_seconds: 6, location: 'kitchen', atmosphere: 'cold morning' },
+            { beat_id: 's1b2', type: 'B_ROLL_ESTABLISHING', duration_seconds: 6, location: 'hallway', atmosphere: 'silent' },
+            { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Hands.', duration_seconds: 2 },
+            { beat_id: 's1b4', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Down.', duration_seconds: 2 },
+            { beat_id: 's1b5', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Slower.', duration_seconds: 2 }
+          ]
+        }]
+      };
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'drama', storyFocus: 'product' });
+      assert.ok(
+        r.issues.find(i => i.id === 'dialogue_too_sparse'),
+        `drama with clipped lines AND low density MUST trigger dialogue_too_sparse — issues: ${JSON.stringify(r.issues.map(i => i.id))}`
+      );
+    });
+  });
+
+  test('FLAGS OFF preserves legacy uniform floor (drama+action both blocked when sparse)', () => {
+    // Legacy path: uniform 6-word floor regardless of genre. Explicit
+    // flag-off invocation so the test is order- and parent-env-independent.
+    withFlags({
+      BRAND_STORY_VALIDATOR_PARAMETERIZED: 'false',
+      BRAND_STORY_GENRE_REGISTER_LIBRARY: 'false'
+    }, () => {
+      const g = actionGraph();
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'action', storyFocus: 'product' });
+      assert.ok(
+        r.issues.find(i => i.id === 'dialogue_too_sparse'),
+        'with flags OFF, uniform legacy floor should still block clipped action — proves backwards compatibility'
+      );
+    });
+  });
+
+  test('ACTION genre disables the bare-short-lines cap (max_bare_short_lines=-1)', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = actionGraph();
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'action', storyFocus: 'product' });
+      assert.ok(
+        !r.issues.find(i => i.id === 'too_many_bare_short_lines'),
+        'action register disables the bare-short cap'
+      );
+    });
+  });
+});
+
+describe('Phase 3 — dialogue_density_intent escape hatch', () => {
+  test('silent_register intent lets a sparse drama episode pass dialogue_too_sparse', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = actionGraph(); // sparse, drama-genre, but silent_register
+      g.dialogue_density_intent = 'silent_register';
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'drama', storyFocus: 'product' });
+      assert.ok(
+        !r.issues.find(i => i.id === 'dialogue_too_sparse'),
+        'silent_register intent must let drama with clipped dialogue pass'
+      );
+    });
+  });
+
+  test('balanced (default) intent on drama still blocks sparse+clipped dialogue', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = {
+        title: 'Sparse drama',
+        dramatic_question: 'Will Maya leave?',
+        emotional_state: 'cold',
+        dialogue_density_intent: 'balanced',
+        scenes: [{
+          scene_id: 's1',
+          hook_types: ['REVELATION'],
+          opposing_intents: { '[0]': 'Maya wants out', '[1]': 'Daniel wants her to stay' },
+          beats: [
+            { beat_id: 's1b1', type: 'B_ROLL_ESTABLISHING', duration_seconds: 6, location: 'kitchen', atmosphere: 'cold morning' },
+            { beat_id: 's1b2', type: 'B_ROLL_ESTABLISHING', duration_seconds: 6, location: 'hallway', atmosphere: 'silent' },
+            { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Hands.', duration_seconds: 2 },
+            { beat_id: 's1b4', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Down.', duration_seconds: 2 },
+            { beat_id: 's1b5', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Slower.', duration_seconds: 2 }
+          ]
+        }]
+      };
+      const r = validateScreenplay(g, {}, PERSONAS, { genre: 'drama', storyFocus: 'product' });
+      assert.ok(
+        r.issues.find(i => i.id === 'dialogue_too_sparse'),
+        'balanced drama with sparse+clipped dialogue MUST block'
+      );
+    });
+  });
+});
+
+describe('Phase 3 — Brand-name dialogue rule (parameterised)', () => {
+  function makeBrandGraph(brandMentions) {
+    const beats = brandMentions.map((line, i) => ({
+      beat_id: `s1b${i + 1}`,
+      type: 'TALKING_HEAD_CLOSEUP',
+      persona_index: i % 2,
+      dialogue: line,
+      subtext: 'placeholder subtext for substance',
+      duration_seconds: 5
+    }));
+    return {
+      title: 'Brand mentions',
+      dramatic_question: 'Will Maya stay loyal to Aurora?',
+      emotional_state: 'reflective',
+      scenes: [{
+        scene_id: 's1',
+        hook_types: ['REVELATION'],
+        opposing_intents: { '[0]': 'Maya wants', '[1]': 'Daniel wants' },
+        beats
+      }]
+    };
+  }
+
+  test('max_brand_name_mentions=0 blocks the FIRST occurrence', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = makeBrandGraph([
+        'I love Aurora coffee in the morning, every single day',
+        'Maya, you really should drink something else for once'
+      ]);
+      const opts = {
+        genre: 'drama',
+        productIntegrationStyle: 'naturalistic_placement',
+        subject: { name: 'Aurora', integration_mandate: { max_brand_name_mentions: 0 } }
+      };
+      const r = validateScreenplay(g, { brand_name: 'Aurora' }, PERSONAS, opts);
+      assert.ok(
+        r.issues.find(i => i.id === 'brand_name_in_dialogue'),
+        'max_brand_name_mentions=0 must block the FIRST occurrence'
+      );
+    });
+  });
+
+  test('max_brand_name_mentions=3 allows 3, blocks the 4th', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = makeBrandGraph([
+        'I tasted Aurora yesterday and it was perfect for me',
+        'Aurora is what brings me back here every Tuesday morning',
+        'Daniel, did you order Aurora again at this hour today?',
+        'Aurora, Aurora, Aurora — I cannot stop saying that name lately'
+      ]);
+      const opts = {
+        genre: 'drama',
+        productIntegrationStyle: 'naturalistic_placement',
+        subject: { name: 'Aurora', integration_mandate: { max_brand_name_mentions: 3 } }
+      };
+      const r = validateScreenplay(g, { brand_name: 'Aurora' }, PERSONAS, opts);
+      const brandIssues = r.issues.filter(i => i.id === 'brand_name_in_dialogue');
+      assert.ok(brandIssues.length >= 1, 'the 4th brand mention must trigger the warning');
+    });
+  });
+});
+
+describe('Phase 3 — Diegetic label reading exemption', () => {
+  function makeAdCopyGraph(diegetic) {
+    return {
+      title: 'Ad-copy guard',
+      dramatic_question: 'Will Maya read the billboard?',
+      emotional_state: 'reflective',
+      scenes: [{
+        scene_id: 's1',
+        hook_types: ['REVELATION'],
+        opposing_intents: { '[0]': 'Maya wants', '[1]': 'Daniel wants' },
+        beats: [
+          {
+            beat_id: 's1b1',
+            type: 'TALKING_HEAD_CLOSEUP',
+            persona_index: 0,
+            dialogue: 'Now available — limited time, free shipping for everyone',
+            subtext: 'Reading the billboard text aloud',
+            duration_seconds: 5,
+            diegetic_label_reading: diegetic
+          },
+          {
+            beat_id: 's1b2',
+            type: 'TALKING_HEAD_CLOSEUP',
+            persona_index: 1,
+            dialogue: 'I cannot believe what they put on that sign over the highway',
+            subtext: 'placeholder',
+            duration_seconds: 5
+          }
+        ]
+      }]
+    };
+  }
+
+  test('diegetic_label_reading=true exempts ONE beat from ad-copy regex', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = makeAdCopyGraph(true);
+      const r = validateScreenplay(g, {}, PERSONAS, {
+        genre: 'drama',
+        productIntegrationStyle: 'naturalistic_placement'
+      });
+      const adCopyIssues = r.issues.filter(i => i.id?.startsWith('ad_copy_'));
+      assert.strictEqual(adCopyIssues.length, 0, 'diegetic_label_reading must exempt the beat');
+    });
+  });
+
+  test('diegetic_label_reading=false (or absent) still blocks ad-copy', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = makeAdCopyGraph(false);
+      const r = validateScreenplay(g, {}, PERSONAS, {
+        genre: 'drama',
+        productIntegrationStyle: 'naturalistic_placement'
+      });
+      const adCopyIssues = r.issues.filter(i => i.id?.startsWith('ad_copy_'));
+      assert.ok(adCopyIssues.length >= 1, 'without exemption, ad-copy phrases must block');
+    });
+  });
+});
+
+describe('Phase 3 — Externalised forbidden-registers.json drives bans', () => {
+  test('a banned phrase from the JSON file fires when integration style matches applies_to_styles', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = {
+        title: 'Test',
+        dramatic_question: 'Will Maya act?',
+        emotional_state: 'engaged',
+        scenes: [{
+          scene_id: 's1',
+          hook_types: ['REVELATION'],
+          opposing_intents: { '[0]': 'Maya wants', '[1]': 'Daniel wants' },
+          beats: [
+            {
+              beat_id: 's1b1',
+              type: 'TALKING_HEAD_CLOSEUP',
+              persona_index: 0,
+              dialogue: 'It is a real game-changer if you ask me, Daniel',
+              subtext: 'placeholder',
+              duration_seconds: 5
+            },
+            {
+              beat_id: 's1b2',
+              type: 'TALKING_HEAD_CLOSEUP',
+              persona_index: 1,
+              dialogue: 'You always say that about everything you bring home',
+              subtext: 'placeholder',
+              duration_seconds: 5
+            }
+          ]
+        }]
+      };
+      const r = validateScreenplay(g, {}, PERSONAS, {
+        genre: 'drama',
+        productIntegrationStyle: 'naturalistic_placement'
+      });
+      assert.ok(
+        r.issues.find(i => i.id === 'ad_copy_gamechanger'),
+        'externalised regex from JSON must fire on game-changer phrase'
+      );
+    });
+  });
+
+  test('hero_showcase mode bypasses ad-copy bans (data-driven applies_to_styles)', () => {
+    withFlags(FLAGS_ON, () => {
+      const g = {
+        title: 'Test',
+        dramatic_question: 'Will Maya act?',
+        emotional_state: 'engaged',
+        scenes: [{
+          scene_id: 's1',
+          hook_types: ['REVELATION'],
+          opposing_intents: { '[0]': 'Maya wants', '[1]': 'Daniel wants' },
+          beats: [
+            { beat_id: 's1b1', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Now available everywhere', subtext: 'p', duration_seconds: 4 },
+            { beat_id: 's1b2', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Tell me more about this product really', subtext: 'p', duration_seconds: 5 }
+          ]
+        }]
+      };
+      const r = validateScreenplay(g, {}, PERSONAS, {
+        genre: 'commercial',
+        productIntegrationStyle: 'hero_showcase'
+      });
+      const adCopyIssues = r.issues.filter(i => i.id?.startsWith('ad_copy_'));
+      assert.strictEqual(adCopyIssues.length, 0, 'hero_showcase bypasses ad-copy bans');
+    });
+  });
+});

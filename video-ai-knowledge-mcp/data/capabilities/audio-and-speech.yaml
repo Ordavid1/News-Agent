@@ -12,14 +12,191 @@ subcapabilities:
     recommended_models:
       - id: elevenlabs-v3
         provider: ElevenLabs
-        endpoint: "fal-ai/elevenlabs/tts/eleven-v3 (on fal.ai)"
-        notes: "Industry-leading naturalness, voice cloning, 29+ languages"
+        endpoint: "fal-ai/elevenlabs/tts/eleven-v3"
+        vendor_docs: "https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3"
+        languages_supported: "70+ (including Hebrew, Arabic, Thai, Vietnamese, Hindi, etc.)"
+        max_text_length: "5,000 characters"
+        latency: "standard"
+        pricing: "1 credit per character (~$0.05–0.15 per 1k chars depending on tier)"
+        notes: >
+          Most expressive ElevenLabs model. Supports inline audio tags ([whispers], [laughs],
+          [excited]). REQUIRED for non-English languages NOT covered by multilingual-v2 —
+          notably Hebrew (heb), which is NOT supported on multilingual-v2.
+        prompt_tips:
+          - Pass `language_code` as ISO 639-1 (e.g. 'he' for Hebrew, 'ar' for Arabic)
+          - Voice IDs are 21-char alphanumeric strings (e.g. 'JBFqnCBsd6RMkjVDRZzb')
+          - Use audio tags inline for emotion control
+      - id: elevenlabs-multilingual-v2
+        provider: ElevenLabs
+        endpoint: "fal-ai/elevenlabs/tts/multilingual-v2"
+        vendor_docs: "https://fal.ai/models/fal-ai/elevenlabs/tts/multilingual-v2"
+        languages_supported: "29 (English, Spanish, French, German, Italian, Portuguese, Polish, Turkish, Russian, Dutch, Czech, Arabic, Chinese, Japanese, Korean, Hindi, etc.) — Hebrew NOT supported"
+        max_text_length: "10,000 characters"
+        latency: "standard"
+        pricing: "$0.10 per 1,000 characters"
+        notes: >
+          Strong accent accuracy and stability. Default choice for English narration.
+          Use eleven-v3 instead if Hebrew or other v2-unsupported languages are needed.
+      - id: elevenlabs-flash-v2.5
+        provider: ElevenLabs
+        endpoint: "fal-ai/elevenlabs/tts/turbo-v2.5"
+        vendor_docs: "https://fal.ai/models/fal-ai/elevenlabs/tts/turbo-v2.5"
+        languages_supported: "32"
+        max_text_length: "40,000 characters"
+        latency: "~75ms (ultra-low, streaming-capable)"
+        pricing: "$0.05 per 1,000 characters (50% cheaper than multilingual-v2)"
+        notes: "Best for real-time / interactive use cases and long-form batch narration."
       - id: heygen-tts
         provider: HeyGen
         notes: "175+ languages, integrated with avatar platform"
+    voice_sourcing:
+      premade_voices:
+        count: "~25 default premade voices via public API"
+        sample_ids:
+          male: ["Roger", "Charlie", "Will", "Chris", "Eric", "Brian", "Harry", "Callum", "Liam", "Daniel", "Bill", "George"]
+          female: ["Laura", "Jessica", "Alice", "Matilda", "Bella", "Sarah", "River", "Lily", "Charlotte"]
+        endpoint: "https://api.elevenlabs.io/v1/voices"
+      voice_library:
+        description: "ElevenLabs Voice Library — paid feature for community/professional voices filterable by language"
+        url: "https://elevenlabs.io/voice-library"
+        notes: >
+          For language-specific narrators (e.g. native Hebrew speakers), filter Voice Library
+          by Language. Voice IDs from Voice Library are not exposed in the public /v1/voices
+          endpoint — must be sourced manually from the authenticated UI.
+      voice_design:
+        description: "Generate custom voices from text prompts"
+        url: "https://elevenlabs.io/docs/eleven-creative/voices/voice-design"
+      hebrew_strategies:
+        - strategy: "Use any premade voice with eleven-v3 + language_code='he'"
+          quality: "Decent — accent varies by source voice; deeper voices (e.g. Brian, Sarah, Liam) tend to sound more natural in Hebrew"
+        - strategy: "Source Hebrew-trained voices from Voice Library"
+          quality: "Best — purpose-trained native Hebrew narrators, requires authenticated account"
+        - strategy: "Voice Design with Hebrew-style prompt"
+          quality: "Variable — useful for brand-specific voice creation"
+    endpoint_routing_guidance:
+      english: "fal-ai/elevenlabs/tts/multilingual-v2 (default) or turbo-v2.5 (fastest/cheapest)"
+      hebrew: "fal-ai/elevenlabs/tts/eleven-v3 (ONLY supported endpoint)"
+      arabic_thai_vietnamese_hindi: "fal-ai/elevenlabs/tts/eleven-v3 (multilingual-v2 may not cover all)"
+      realtime: "fal-ai/elevenlabs/tts/turbo-v2.5 (~75ms latency)"
+    when_to_use_dialogue_endpoint_instead: >
+      For scripts with TWO OR MORE speakers (podcasts, interviews, multi-character ads,
+      game NPC dialogue), DO NOT loop TTS calls — use the Multi-Speaker Dialogue
+      capability below (fal-ai/elevenlabs/text-to-dialogue/eleven-v3). The dialogue
+      endpoint generates all turns in a single request with shared emotional context
+      between speakers, which produces more natural conversational pacing, reactions,
+      and timing than independent TTS calls.
     used_in_workflows:
       - "fal.ai Documentary (narration)"
       - "n8n Automated Video (voiceover)"
+
+  - name: Multi-Speaker Dialogue
+    description: >
+      Generate multi-speaker conversational audio in a single API call. Multiple voices
+      interact with shared emotional context, inline audio tags ([laughs], [whispers],
+      [sigh]), and natural turn-taking timing. Architecturally distinct from regular
+      TTS — TTS treats each speaker as an isolated request, while Text-to-Dialogue
+      preserves prosodic continuity across turns.
+    recommended_models:
+      - id: elevenlabs-text-to-dialogue-v3
+        provider: ElevenLabs
+        endpoint: "fal-ai/elevenlabs/text-to-dialogue/eleven-v3"
+        vendor_docs: "https://fal.ai/models/fal-ai/elevenlabs/text-to-dialogue/eleven-v3"
+        api_reference: "https://fal.ai/models/fal-ai/elevenlabs/text-to-dialogue/eleven-v3/api"
+        elevenlabs_direct: "POST https://api.elevenlabs.io/v1/text-to-dialogue"
+        regional_endpoints:
+          - "https://api.us.elevenlabs.io"
+          - "https://api.eu.residency.elevenlabs.io"
+          - "https://api.in.residency.elevenlabs.io"
+        languages_supported: "70+ (including Hebrew (heb), Arabic, Thai, Vietnamese, Hindi, Mandarin, Japanese, Korean, all major European languages)"
+        max_text_length: "2,000 characters total across all inputs[].text per request"
+        max_unique_voices: "10 per request"
+        max_turns: "no fixed limit (only 2,000-char total cap)"
+        latency: "standard (streaming supported)"
+        pricing: "$0.10 per 1,000 characters"
+        commercial_use: true
+        notes: >
+          The ONLY ElevenLabs model offering multi-speaker dialogue mode. Same per-char
+          pricing as multilingual-v2 TTS but produces conversational audio in one call
+          with cross-turn emotional/prosodic continuity. Hebrew is fully supported via
+          language_code='he'. Audio tags are voice- and context-dependent.
+    input_schema:
+      description: "DialogueBlock list — each block pairs text with a voice"
+      required:
+        - inputs: "array of {text, voice} — voice can be a name (e.g. 'Aria', 'Charlotte') or 21-char ElevenLabs voice ID"
+      optional:
+        - stability: "float — must be 0.0, 0.5, or 1.0 (rounds to nearest); lower = broader emotional range"
+        - use_speaker_boost: "boolean — increases similarity to original voice; adds latency"
+        - language_code: "string ISO 639-1 (e.g. 'he', 'ar', 'es'); errors if unsupported"
+        - seed: "integer 0–4294967295 for reproducibility"
+        - pronunciation_dictionary_locators: "array, max 3 per request"
+        - audio_isolation: "boolean — removes background noise post-generation"
+        - apply_text_normalization: "enum: auto | on | off (default auto)"
+        - output_format: "enum, default 'mp3_44100_128'; supports mp3 / pcm / ulaw / alaw / opus at multiple sample rates and bitrates"
+    output_schema:
+      audio:
+        url: "https://v3.fal.media/files/.../{output}.mp3"
+        content_type: "audio/mpeg (default) or per output_format"
+      seed: "integer (returned for reproducibility)"
+    example_request:
+      inputs:
+        - text: "[applause] Thank you all for coming tonight!"
+          voice: "Aria"
+        - text: "[gulps] ... Hello everyone!"
+          voice: "Charlotte"
+      stability: 0.5
+      use_speaker_boost: true
+      language_code: "en"
+      output_format: "mp3_44100_128"
+    audio_tags:
+      description: >
+        Inline markup tokens that direct emotion, sound effects, and delivery style.
+        Tags are voice- and context-dependent; some voices interpret them more
+        expressively than others. Place tags inline within the text field.
+      emotion:
+        - "[sad]"
+        - "[laughing]"
+        - "[whispering]"
+        - "[giggling]"
+        - "[groaning]"
+        - "[sigh]"
+        - "[cheerfully]"
+        - "[cautiously]"
+        - "[indecisive]"
+        - "[quizzically]"
+        - "[chuckles]"
+        - "[coughs]"
+        - "[sarcastically]"
+        - "[slowly]"
+      audio_events:
+        - "[leaves rustling]"
+        - "[gentle footsteps]"
+        - "[applause]"
+        - "[gulps]"
+      direction_context:
+        - "[football]"
+        - "[wrestling match]"
+        - "[auctioneer]"
+        - "[jumping in]"
+    differs_from_tts:
+      single_call: "Generates all dialogue turns in one request — no client-side stitching needed"
+      shared_context: "Speakers react to each other's emotional tone; pacing and timing flow naturally between turns"
+      audio_tags: "Full emotion / event / direction tag support (TTS multilingual-v2 only supports basic pause/break tags)"
+      dialogue_mode: "Only ElevenLabs model with native multi-speaker dialogue mode (v2 family does not support this)"
+    v3_vs_v2:
+      multi_speaker: "v3 yes / v2 no"
+      audio_tag_support: "v3 full emotion+direction+effects / v2 pauses and breaks only"
+      languages: "v3 70+ / v2 29"
+    use_cases:
+      - "Video game NPC dialogue and cutscene voice acting"
+      - "Multi-host podcast generation"
+      - "Audiobook narration with character voices"
+      - "Two-character commercial / brand-story dialogue scenes"
+      - "Interview-style ad spots"
+      - "Educational content with teacher/student exchanges"
+    voice_sourcing_note: >
+      Same voice catalog as TTS endpoints — premade voices (~25), Voice Library (paid),
+      and Voice Design all work. See voice_sourcing block under Text-to-Speech (TTS) above.
+    used_in_workflows: []
 
   - name: Lip-Sync / Talking Head
     description: "Animate a portrait to speak with synchronized lip movements"
@@ -63,3 +240,65 @@ subcapabilities:
       - "fal-ai/ffmpeg-api/merge-audio-video"
       - "LTX Studio Audio-to-Video feature"
       - "Creatomate (template-based assembly)"
+
+elevenlabs_tier_comparison:
+  description: >
+    Side-by-side comparison of the three production-grade ElevenLabs endpoints on fal.ai.
+    These represent different tiers of performance — from ultra-low latency speech to
+    high-expression multi-speaker dialogue. Use this matrix to pick the right endpoint
+    per use case.
+  models:
+    - id: turbo-v2.5
+      label: "Turbo v2.5"
+      endpoint: "fal-ai/elevenlabs/tts/turbo-v2.5"
+      primary_goal: "Speed & efficiency"
+      latency: "Ultra-low (~75ms – 250ms)"
+      languages: 32
+      audio_tags: "Not supported (literal text interpretation only)"
+      multi_speaker: "Single speaker per request"
+      cost_per_1k_chars_usd: 0.05
+      best_for: "Real-time AI agents, customer support bots, in-app notifications, basic gaming NPCs"
+    - id: eleven-v3-tts
+      label: "Eleven v3 (TTS)"
+      endpoint: "fal-ai/elevenlabs/tts/eleven-v3"
+      primary_goal: "Maximum expressiveness"
+      latency: "Moderate (~500ms+)"
+      languages: "70+"
+      audio_tags: "Supported (e.g. [whisper], [laughs], [sighs])"
+      multi_speaker: "Single speaker per request"
+      cost_per_1k_chars_usd: 0.10
+      best_for: "Audiobooks, long-form narration, commercials, YouTube/social voiceovers, multilingual hero content"
+    - id: eleven-v3-dialogue
+      label: "Eleven v3 (Dialogue)"
+      endpoint: "fal-ai/elevenlabs/text-to-dialogue/eleven-v3"
+      primary_goal: "Multi-character interaction"
+      latency: "Variable (processing dependent)"
+      languages: "70+"
+      audio_tags: "Supported (e.g. [shout], [whispers], [applause])"
+      multi_speaker: "Native multi-speaker scripts (single API call, shared emotional context)"
+      cost_per_1k_chars_usd: 0.10
+      best_for: "Podcasts, scripted scenes, film/game script prototyping, dynamic storytelling, interactive interviews"
+  key_differences:
+    latency_vs_emotion: >
+      Turbo v2.5 is engineered for speed — it sacrifices some 'acting' capability of v3
+      to start playback almost instantly, and is roughly 2x cheaper. Eleven v3 uses a
+      newer architecture that reads emotional intent directly from the text (sarcasm,
+      excitement) but takes longer to generate.
+    audio_tag_control: >
+      v3 models (both TTS and Dialogue) support inline audio tags like [laughs], [sighs],
+      [whispers] for fine-grained delivery control. Turbo v2.5 does NOT support tags —
+      it interprets text literally and relies on base-model prosody.
+    single_vs_multi_speaker: >
+      TTS endpoints (Turbo, v3 TTS) take a string and output a single voice file. The
+      Text-to-Dialogue endpoint takes a script with multiple characters and handles
+      transitions + emotional 'vibe' consistency across the entire conversation in one call.
+  selection_guide:
+    customer_support_bots: "Turbo v2.5 — every millisecond of latency matters in live chat/voice"
+    in_app_notifications: "Turbo v2.5 — short functional bursts ('Your ride is here')"
+    basic_npc_dialogue: "Turbo v2.5 — instant reaction to player input"
+    audiobooks: "Eleven v3 (TTS) — performance quality and emotional variety beat speed"
+    commercials_marketing: "Eleven v3 (TTS) — actor-grade tone of voice"
+    multilingual_hero_content: "Eleven v3 (TTS) — native-level accents across 70+ languages"
+    podcast_generation: "Eleven v3 (Dialogue) — multi-host interviews/discussions in one call"
+    film_game_prototyping: "Eleven v3 (Dialogue) — hear scenes with multiple actors before recording"
+    interactive_storytelling: "Eleven v3 (Dialogue) — characters interrupt and react naturally"

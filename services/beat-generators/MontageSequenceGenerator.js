@@ -65,9 +65,13 @@ class MontageSequenceGenerator extends BaseBeatGenerator {
         beat.ambient_sound ? `Ambient: ${beat.ambient_sound}` : ''
       ].filter(Boolean).join('. ');
 
+      // 2026-04-28: Kling V3 Pro Custom Multi-Shot accepts 1-15s per shot
+      // (was capped at 6 here; that was a stricter local cap, not an API
+      // limit). KlingFalService.generateMontageSequence still does its own
+      // clamp + string-cast on each duration before send.
       return {
         prompt: beatPrompt,
-        duration: Math.max(2, Math.min(6, beat.duration_seconds || 3))
+        duration: Math.max(1, Math.min(15, Math.round(beat.duration_seconds || 3)))
       };
     });
 

@@ -7,10 +7,28 @@
 //
 // Generates via Kling O3 Omni Standard with both personas in the reference
 // stack + multi-shot mode + native audio. Sync Lipsync v3 post-pass runs
-// twice (once per speaker) to correct both mouths against the respective
-// ElevenLabs TTS audio.
+// over the combined dialogue audio.
 //
-// If either sync pass fails, the generator returns the Kling-raw video with
+// V4 Audio Layer Overhaul Day 2 — TWO Stage A paths:
+//
+//   PATH 1 (PREFERRED): eleven-v3 dialogue endpoint
+//     Single call with both speakers; shared prosodic context — turn-taking,
+//     response-to-emotion, natural breath rhythm are LEARNED across the
+//     dialogue rather than stitched. One combined audio file out, fed
+//     directly to Sync Lipsync v3. Runs when:
+//       (a) deps.dialogueTTS is wired (BrandStoryService passes it),
+//       (b) total dialogue chars ≤ 2,000,
+//       (c) all speakers share a language,
+//       (d) BRAND_STORY_DIALOGUE_ENDPOINT is not set to 'false' (rollback).
+//
+//   PATH 2 (FALLBACK): legacy parallel TTS + concat
+//     Per-speaker TTS in parallel, time-aligned with 0.3s silence gap, fed
+//     to Sync Lipsync v3 as a single combined track. Used when path 1 is
+//     unavailable (no deps.dialogueTTS, char overflow, mixed-language,
+//     rollback flag, or any path-1 failure). Preserves the pre-Day-2
+//     behavior so retakes and tests work without the new service.
+//
+// If the sync pass fails, the generator returns the Kling-raw video with
 // a warning — the beat is still usable, just with Kling's native lip-sync.
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
@@ -20,6 +38,21 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+
+const DIALOGUE_ENDPOINT_MAX_CHARS = 2000;
+const NO_TAG_ANNOTATION_RE = /\[no_tag_intentional\s*:\s*[^\]]+\]\s*/gi;
+
+/** Strip the internal `[no_tag_intentional: ...]` marker for char-count math. */
+function _spokenCharLength(text) {
+  if (!text || typeof text !== 'string') return 0;
+  return text.replace(NO_TAG_ANNOTATION_RE, '').trim().length;
+}
+
+function isDialogueEndpointEnabled() {
+  // Default ON. Set BRAND_STORY_DIALOGUE_ENDPOINT=false to revert the
+  // GROUP_DIALOGUE_TWOSHOT path to the legacy parallel-TTS-concat behavior.
+  return String(process.env.BRAND_STORY_DIALOGUE_ENDPOINT || 'true').toLowerCase() !== 'false';
+}
 
 /**
  * Phase 4.3 — time-align two speaker audio tracks into ONE mp3 that Sync
@@ -116,36 +149,110 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
 
     const duration = beat.duration_seconds || 6;
 
-    // Render TTS for each speaker in parallel
-    this.logger.info(`[${beat.beat_id}] Stage A: TTS × ${resolvedPersonas.length} (parallel)`);
-    const ttsResults = await Promise.all(
-      resolvedPersonas.map((persona, i) => {
-        if (!persona.elevenlabs_voice_id) {
-          throw new Error(`beat ${beat.beat_id}: persona ${i} missing elevenlabs_voice_id`);
-        }
-        return this.tts.synthesizeBeat({
-          text: dialogues[i],
-          voiceId: persona.elevenlabs_voice_id,
-          durationTarget: duration / 2, // rough half each
-          options: {
-            language: persona.language || 'en',
-            modelId: 'eleven_multilingual_v2'
-          }
-        });
-      })
-    );
-
-    // Upload audio files
+    // Pre-flight per-speaker voice + language sanity (used by both Stage A paths).
+    for (let i = 0; i < resolvedPersonas.length; i++) {
+      if (!resolvedPersonas[i].elevenlabs_voice_id) {
+        throw new Error(`beat ${beat.beat_id}: persona ${i} missing elevenlabs_voice_id`);
+      }
+    }
     if (!episodeContext?.uploadAudio) {
       throw new Error(`beat ${beat.beat_id}: episodeContext.uploadAudio required`);
     }
-    const audioUrls = await Promise.all(
-      ttsResults.map((tts, i) => episodeContext.uploadAudio({
-        buffer: tts.audioBuffer,
-        filename: `beat-${beat.beat_id}-speaker${i}.mp3`,
-        mimeType: 'audio/mpeg'
-      }))
-    );
+
+    // ─── Stage A — multi-speaker dialogue audio ───
+    //
+    // Decide which Stage A path to take. The dialogue endpoint is preferred
+    // because it gives shared prosodic context (turn-taking, breath, response
+    // to emotion). Per-beat single-speaker TTS is the fallback that preserves
+    // legacy behavior when the endpoint is unavailable or overflows its limits.
+    let combinedAudioUrl = null;
+    let combinedAudioBuffer = null;
+    let perSpeakerAudioUrls = []; // populated only on the fallback path
+    let stageAPath = 'unknown';
+    let dialogueEndpointAttempted = false;
+    let dialogueEndpointError = null;
+
+    // Total spoken chars across all speakers (after stripping internal markers).
+    const totalSpokenChars = dialogues.reduce((n, d) => n + _spokenCharLength(d), 0);
+    // All speakers must share a language for the dialogue endpoint (single
+    // language_code per request).
+    const personaLangs = new Set(resolvedPersonas.map(p => String(p.language || 'en').toLowerCase()));
+    const sharedLanguage = personaLangs.size === 1 ? [...personaLangs][0] : null;
+
+    const canUseDialogueEndpoint = !!this.dialogueTTS
+      && this.dialogueTTS.isAvailable()
+      && isDialogueEndpointEnabled()
+      && totalSpokenChars > 0
+      && totalSpokenChars <= DIALOGUE_ENDPOINT_MAX_CHARS
+      && sharedLanguage !== null;
+
+    if (canUseDialogueEndpoint) {
+      dialogueEndpointAttempted = true;
+      try {
+        this.logger.info(
+          `[${beat.beat_id}] Stage A: eleven-v3 dialogue endpoint — ${resolvedPersonas.length} speakers, ` +
+          `${totalSpokenChars} chars, lang=${sharedLanguage}`
+        );
+        const dialogueInputs = resolvedPersonas.map((persona, i) => ({
+          text: dialogues[i],
+          voice: persona.elevenlabs_voice_id
+        }));
+        const dialogueResult = await this.dialogueTTS.synthesizeDialogue({
+          inputs: dialogueInputs,
+          options: {
+            stability: 0.5,
+            useSpeakerBoost: true,
+            languageCode: sharedLanguage
+          }
+        });
+        combinedAudioBuffer = dialogueResult.audioBuffer;
+        combinedAudioUrl = await episodeContext.uploadAudio({
+          buffer: combinedAudioBuffer,
+          filename: `beat-${beat.beat_id}-dialogue.mp3`,
+          mimeType: 'audio/mpeg'
+        });
+        // Per-speaker URLs intentionally empty — eleven-v3 dialogue returns
+        // ONE combined file. Sync Lipsync v3 sees the whole exchange.
+        stageAPath = 'dialogue_endpoint';
+      } catch (err) {
+        dialogueEndpointError = err.message;
+        this.logger.warn(`[${beat.beat_id}] dialogue endpoint failed (${err.message}); falling back to per-speaker TTS + concat`);
+      }
+    } else if (this.dialogueTTS) {
+      this.logger.info(
+        `[${beat.beat_id}] dialogue endpoint NOT used — ` +
+        `chars=${totalSpokenChars}/${DIALOGUE_ENDPOINT_MAX_CHARS}, ` +
+        `langs=${[...personaLangs].join('|')}, ` +
+        `enabled=${isDialogueEndpointEnabled()}, ` +
+        `available=${this.dialogueTTS.isAvailable()}`
+      );
+    }
+
+    // ─── Stage A FALLBACK — legacy parallel TTS + concat ───
+    let ttsResults = null;
+    if (stageAPath !== 'dialogue_endpoint') {
+      this.logger.info(`[${beat.beat_id}] Stage A: TTS × ${resolvedPersonas.length} (parallel, fallback path)`);
+      ttsResults = await Promise.all(
+        resolvedPersonas.map((persona, i) =>
+          this.tts.synthesizeBeat({
+            text: dialogues[i],
+            voiceId: persona.elevenlabs_voice_id,
+            durationTarget: duration / 2,
+            options: {
+              language: persona.language || 'en'
+            }
+          })
+        )
+      );
+      perSpeakerAudioUrls = await Promise.all(
+        ttsResults.map((tts, i) => episodeContext.uploadAudio({
+          buffer: tts.audioBuffer,
+          filename: `beat-${beat.beat_id}-speaker${i}.mp3`,
+          mimeType: 'audio/mpeg'
+        }))
+      );
+      stageAPath = dialogueEndpointAttempted ? 'fallback_after_endpoint_failure' : 'fallback_per_beat_tts';
+    }
 
     // Build the Kling two-shot prompt
     const stylePrefix = episodeContext?.visual_style_prefix || '';
@@ -247,72 +354,88 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
       }
     });
 
-    // Stage C — Sync Lipsync v3 corrective pass.
+    // ─── Stage C — Sync Lipsync v3 corrective pass ───
     //
-    // Phase 4.3: we concatenate the two speaker TTS tracks time-aligned
-    // (speaker 1 → 0.3s breath → speaker 2) into ONE combined audio track and
-    // feed that to Sync Lipsync v3. The corrective pass then sees audio for
-    // both speakers sequentially and repairs both mouth regions in a single
-    // pass — eliminating the old "only speaker 1 is lipsynced" artifact.
-    //
-    // If ffmpeg concat fails, we gracefully fall back to speaker 1's track
-    // only (the pre-Phase-4.3 behavior) rather than losing the beat.
+    // The dialogue-endpoint path already produced one combined audio file
+    // with shared prosodic context — we feed it directly to Sync v3.
+    // The fallback path requires the legacy ffmpeg concat (speaker 1 →
+    // 0.3s breath → speaker 2) so Sync v3 sees both speakers sequentially.
     let finalVideoBuffer = klingResult.videoBuffer;
     let finalVideoUrl = klingResult.videoUrl;
     let syncPassSucceeded = false;
-    let combinedAudioUrl = null;
 
-    if (syncLipsync && audioUrls.length > 0) {
+    if (syncLipsync) {
       try {
-        this.logger.info(`[${beat.beat_id}] Stage C: concatenating ${ttsResults.length} speaker track(s) for combined lipsync pass`);
-        let audioUrlForSync = audioUrls[0];
-        if (ttsResults.length >= 2) {
-          try {
-            const combinedBuffer = concatSpeakerAudioBuffers(
-              ttsResults.map(r => r.audioBuffer),
-              0.3
-            );
-            combinedAudioUrl = await episodeContext.uploadAudio({
-              buffer: combinedBuffer,
-              filename: `beat-${beat.beat_id}-twoshot-combined.mp3`,
-              mimeType: 'audio/mpeg'
-            });
-            audioUrlForSync = combinedAudioUrl;
-          } catch (concatErr) {
-            this.logger.warn(`[${beat.beat_id}] audio concat failed, falling back to speaker 0: ${concatErr.message}`);
+        let audioUrlForSync = combinedAudioUrl;
+        if (!audioUrlForSync && ttsResults && ttsResults.length > 0) {
+          // Fallback path — concatenate per-speaker tracks with a small gap.
+          this.logger.info(`[${beat.beat_id}] Stage C: ffmpeg concat ${ttsResults.length} speaker track(s) for combined lipsync`);
+          if (ttsResults.length >= 2) {
+            try {
+              const concatBuffer = concatSpeakerAudioBuffers(
+                ttsResults.map(r => r.audioBuffer),
+                0.3
+              );
+              combinedAudioUrl = await episodeContext.uploadAudio({
+                buffer: concatBuffer,
+                filename: `beat-${beat.beat_id}-twoshot-combined.mp3`,
+                mimeType: 'audio/mpeg'
+              });
+              audioUrlForSync = combinedAudioUrl;
+            } catch (concatErr) {
+              this.logger.warn(`[${beat.beat_id}] audio concat failed, falling back to speaker 0: ${concatErr.message}`);
+              audioUrlForSync = perSpeakerAudioUrls[0];
+            }
+          } else {
+            audioUrlForSync = perSpeakerAudioUrls[0];
           }
         }
 
-        const syncResult = await syncLipsync.applyLipsync({
-          videoUrl: klingResult.videoUrl,
-          audioUrl: audioUrlForSync
-          // syncMode default 'bounce' applies — mirrors final frame back-and-forth
-          // on tail mismatch instead of clipping mid-phoneme.
-        });
-        finalVideoBuffer = syncResult.videoBuffer;
-        finalVideoUrl = syncResult.videoUrl;
-        syncPassSucceeded = true;
+        if (audioUrlForSync) {
+          this.logger.info(`[${beat.beat_id}] Stage C: Sync Lipsync v3 (path=${stageAPath})`);
+          const syncResult = await syncLipsync.applyLipsync({
+            videoUrl: klingResult.videoUrl,
+            audioUrl: audioUrlForSync
+            // syncMode default 'bounce' applies — mirrors final frame
+            // back-and-forth on tail mismatch instead of clipping mid-phoneme.
+          });
+          finalVideoBuffer = syncResult.videoBuffer;
+          finalVideoUrl = syncResult.videoUrl;
+          syncPassSucceeded = true;
+        } else {
+          this.logger.warn(`[${beat.beat_id}] no audio URL available for Sync v3 — using Kling raw`);
+        }
       } catch (err) {
         this.logger.warn(`[${beat.beat_id}] Sync pass failed, falling back to Kling raw: ${err.message}`);
       }
     }
 
+    // Cost — dialogue endpoint and fallback path both bill at $0.0001/char.
+    // The dialogue endpoint replaces 2 separate TTS calls with 1 combined
+    // call but the underlying ElevenLabs char-billing is identical.
     const klingCost = COST_KLING_OMNI_STANDARD_PER_SEC * duration;
     const ttsCost = dialogues.reduce((n, d) => n + (d || '').length * COST_TTS_PER_CHAR, 0);
     const syncCost = syncPassSucceeded ? COST_SYNC_LIPSYNC_V3_FLAT : 0;
     const totalCost = klingCost + ttsCost + syncCost;
 
+    const modelUsed = stageAPath === 'dialogue_endpoint'
+      ? (syncPassSucceeded ? 'kling-o3-omni-twoshot+dialogue-v3+sync' : 'kling-o3-omni-twoshot+dialogue-v3')
+      : (syncPassSucceeded ? 'kling-o3-omni-twoshot+sync' : 'kling-o3-omni-twoshot');
+
     return {
       videoBuffer: finalVideoBuffer,
       durationSec: duration,
-      modelUsed: syncPassSucceeded ? 'kling-o3-omni-twoshot+sync' : 'kling-o3-omni-twoshot',
+      modelUsed,
       costUsd: totalCost,
       metadata: {
         personaCount: resolvedPersonas.length,
         klingVideoUrl: klingResult.videoUrl,
         finalVideoUrl,
         syncPassSucceeded,
-        audioUrls,
+        audioPath: stageAPath,
+        dialogueEndpointAttempted,
+        dialogueEndpointError,
+        audioUrls: perSpeakerAudioUrls,
         combinedAudioUrl
       }
     };

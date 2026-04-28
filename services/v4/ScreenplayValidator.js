@@ -19,8 +19,25 @@
 // conservative so legit creative choices (a deliberately short episode,
 // a single-persona landscape story) don't trip the validator.
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import winston from 'winston';
 import { detectAmbientBedPhrasing } from '../SoundEffectsService.js';
+import { resolveDialogueFloor, isGenreRegisterLibraryEnabled } from './GenreRegister.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Phase 3 feature flag — when true, the validator reads its thresholds and
+// pattern lists from data files (assets/genre-registers/library.json,
+// assets/screenplay/forbidden-registers.json) instead of the inline
+// THRESHOLDS / AD_COPY_BAN_PATTERNS constants. Default false during
+// migration; flip to true after Phase 2 + 3 soak in staging for >=1 release
+// cycle. The legacy code paths stay until Phase 4 cleanup.
+function isValidatorParameterized() {
+  return String(process.env.BRAND_STORY_VALIDATOR_PARAMETERIZED || 'false').toLowerCase() === 'true';
+}
 
 const logger = winston.createLogger({
   level: 'info',
@@ -69,6 +86,96 @@ const DIALOGUE_BEARING_TYPES = new Set([
   'SHOT_REVERSE_SHOT',
   'VOICEOVER_OVER_BROLL'
 ]);
+
+// ──────────────────────────────────────────────────────────────
+// V4 Audio Layer — eleven-v3 inline performance tag taxonomy
+// ──────────────────────────────────────────────────────────────
+//
+// The DIALOGUE PERFORMANCE TAGS masterclass block in
+// public/components/brandStoryPromptsV4.mjs teaches Gemini to author dialogue
+// with inline tags (e.g. `[barely whispering] I had no choice.`). This block
+// is the deterministic check that confirms (a) tags are present where the
+// craft warrants them, (b) tag-emotion coherence holds, (c) tags aren't
+// stacked beyond eleven-v3's tolerance, and (d) audio events aren't
+// over-used. Severity is warning across the board — Stoic-baseline reads
+// legitimately want flat dialogue, and a missing tag is rarely fatal. The
+// Doctor patches the worst offenders. Hard-blocker behaviour is gated
+// behind BRAND_STORY_AUDIO_TAGS_REQUIRED for future tightening.
+const ELEVEN_V3_EMOTION_TAGS = new Set([
+  'whispering', 'barely whispering', 'softly', 'evenly', 'flatly',
+  'firmly', 'slowly', 'quizzically',
+  'sad', 'cheerfully', 'cautiously', 'indecisive',
+  'sarcastically', 'sigh', 'exhaling', 'slow inhale',
+  'chuckles', 'laughing', 'giggling',
+  'groaning', 'coughs', 'gulps'
+]);
+const ELEVEN_V3_AUDIO_EVENT_TAGS = new Set([
+  'applause', 'leaves rustling', 'gentle footsteps'
+]);
+const ELEVEN_V3_DIRECTION_TAGS = new Set([
+  'auctioneer', 'jumping in'
+]);
+const ELEVEN_V3_ALL_TAGS = new Set([
+  ...ELEVEN_V3_EMOTION_TAGS,
+  ...ELEVEN_V3_AUDIO_EVENT_TAGS,
+  ...ELEVEN_V3_DIRECTION_TAGS
+]);
+
+// Tag-emotion coherence map. Keys are emotion-family tokens (lowercase
+// substring match against beat.emotion); values are tag-name sets that
+// CONFLICT with that emotion. A coherence violation is when the dialogue
+// carries a tag from the conflict set while the beat's declared emotion
+// matches the family. Authored from the DIALOGUE PERFORMANCE TAGS block's
+// 12 worked examples — keep in sync if the masterclass adds new families.
+const TAG_EMOTION_CONFLICTS = [
+  {
+    emotion_keywords: ['broken', 'resigned', 'defeated', 'grief', 'crushed', 'sad'],
+    conflicting_tags: new Set(['laughing', 'chuckles', 'giggling', 'cheerfully', 'firmly'])
+  },
+  {
+    emotion_keywords: ['cheerful', 'amused', 'delighted', 'happy', 'playful'],
+    conflicting_tags: new Set(['sad', 'groaning', 'sigh', 'exhaling', 'barely whispering', 'slow inhale'])
+  },
+  {
+    emotion_keywords: ['urgent', 'panicked', 'frantic', 'desperate', 'fearful'],
+    conflicting_tags: new Set(['slowly', 'evenly', 'chuckles', 'cheerfully', 'flatly'])
+  },
+  {
+    emotion_keywords: ['defiant', 'firm', 'commanding', 'resolute'],
+    conflicting_tags: new Set(['barely whispering', 'sad', 'indecisive', 'cautiously', 'quizzically'])
+  },
+  {
+    emotion_keywords: ['stunned', 'dazed', 'shellshocked', 'numb'],
+    conflicting_tags: new Set(['cheerfully', 'laughing', 'firmly', 'chuckles'])
+  }
+];
+
+// Annotation pattern that signals an intentionally untagged read (matches
+// the DIALOGUE PERFORMANCE TAGS masterclass — `[no_tag_intentional: <baseline>]`).
+// Recognised for coverage but stripped before TTS synthesis.
+const NO_TAG_ANNOTATION_PATTERN = /\[no_tag_intentional\s*:\s*[a-z0-9_\- ]+\]/i;
+
+// Bracketed-token extractor. eleven-v3 tags live inside [square brackets] in
+// the dialogue string. Multi-word tags (`[barely whispering]`) and
+// stacked-comma tags (`[sarcastically, slowly]`) both supported.
+function extractBracketTokens(text) {
+  if (!text || typeof text !== 'string') return [];
+  const matches = text.matchAll(/\[([^\]]+)\]/g);
+  const tokens = [];
+  for (const m of matches) {
+    const inner = String(m[1]).trim();
+    if (NO_TAG_ANNOTATION_PATTERN.test(`[${inner}]`)) {
+      tokens.push({ raw: inner, kind: 'baseline_annotation' });
+      continue;
+    }
+    // Stacked comma form — `[sarcastically, slowly]` → two tokens.
+    const parts = inner.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    for (const p of parts) {
+      tokens.push({ raw: p, kind: ELEVEN_V3_ALL_TAGS.has(p) ? 'eleven_v3_tag' : 'unknown' });
+    }
+  }
+  return tokens;
+}
 
 // ──────────────────────────────────────────────────────────────
 // Helpers
@@ -274,7 +381,7 @@ function checkDialogueBeatRatio(sceneGraph, personas, issues, storyFocus) {
   }
 }
 
-function checkAvgDialogueLength(sceneGraph, issues) {
+function checkAvgDialogueLength(sceneGraph, options, issues) {
   const allLines = countAllDialogueLines(sceneGraph);
   // Exempt only EARNED emotional_hold beats (flag + substantive justification).
   // An unearned hold is gameable — count it normally so dialogue_too_sparse
@@ -283,15 +390,70 @@ function checkAvgDialogueLength(sceneGraph, issues) {
   if (lines.length === 0) return;
   const totalWords = lines.reduce((s, l) => s + wordCount(l.text), 0);
   const avg = totalWords / lines.length;
-  if (avg < THRESHOLDS.minDialogueWordsAvg) {
+
+  // Phase 3.1 — genre-aware floor. When the validator-parameterized flag is
+  // ON, the floor comes from assets/genre-registers/library.json per the
+  // story's genre, optionally further relaxed/raised by the episode's
+  // dialogue_density_intent. When OFF, the legacy uniform floor (6 words)
+  // is the source — preserves pre-Phase-3 behavior for in-flight stories.
+  let floor = THRESHOLDS.minDialogueWordsAvg;
+  let floorSource = 'legacy';
+  if (isValidatorParameterized() && isGenreRegisterLibraryEnabled()) {
+    const resolved = resolveDialogueFloor(options?.genre, sceneGraph?.dialogue_density_intent);
+    if (resolved && typeof resolved.min_dialogue_words_avg === 'number') {
+      floor = resolved.min_dialogue_words_avg;
+      floorSource = `genre:${options?.genre || 'default'}${sceneGraph?.dialogue_density_intent ? `+${sceneGraph.dialogue_density_intent}` : ''}`;
+    }
+  }
+
+  if (avg < floor) {
+    // Complementary density-pct check — when the genre register EXPLICITLY
+    // authorises a clipped register (i.e. genre is known AND its declared
+    // floor is < 6.0, the legacy default), dialogue_too_sparse blocks ONLY
+    // when BOTH avg-words AND density-pct fall below the genre's floors.
+    // This protects ACTION / HORROR / MYSTERY (clipped lines, but still 25%+
+    // runtime) without weakening DRAMA, ROMANCE, or unknown-genre defaults.
+    if (isValidatorParameterized() && isGenreRegisterLibraryEnabled()) {
+      const resolved = resolveDialogueFloor(options?.genre, sceneGraph?.dialogue_density_intent);
+      if (resolved?.density_check_skipped) return; // silent_register escape hatch
+      // Only run the density-compensation carve-out when the resolved floor
+      // is below the legacy uniform floor (6) — i.e. the genre is one that
+      // CHOSE clipped dialogue. Genres with floor >= 6 (drama, romance,
+      // documentary, period) get the strict "block on avg-words alone"
+      // behavior so a clipped passage in a drama doesn't sneak through on
+      // density math alone.
+      const ALLOW_COMPENSATION = floor < 6;
+      if (ALLOW_COMPENSATION) {
+        const densityPctMin = (resolved?.target_dialogue_runtime_pct || [0.35])[0];
+        const dialogueRuntimePct = computeDialogueRuntimePct(sceneGraph);
+        if (dialogueRuntimePct >= densityPctMin) return;
+      }
+    }
     issues.push({
       id: 'dialogue_too_sparse',
       severity: 'blocker',
       scope: 'episode',
-      message: `Average dialogue length is ${avg.toFixed(1)} words per line — below the ${THRESHOLDS.minDialogueWordsAvg}-word bar. Lines are too sparse to carry character or conflict.`,
+      message: `Average dialogue length is ${avg.toFixed(1)} words per line — below the ${floor}-word ${floorSource} floor. Lines are too sparse to carry character or conflict.`,
       hint: 'Write FEWER but DENSER dialogue beats (5-8s each). Apply the "One Great Line" principle: one real line beats six fillers.'
     });
   }
+}
+
+/**
+ * Sum of duration_seconds across all dialogue-bearing beats / total duration.
+ * Used by the density-pct complementary check (Phase 3.1).
+ */
+function computeDialogueRuntimePct(sceneGraph) {
+  let dialogueDur = 0;
+  let totalDur = 0;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      const dur = Number(beat.duration_seconds) || 0;
+      totalDur += dur;
+      if (DIALOGUE_BEARING_TYPES.has(beat.type)) dialogueDur += dur;
+    }
+  }
+  return totalDur > 0 ? dialogueDur / totalDur : 0;
 }
 
 function checkSubtextCoverage(sceneGraph, issues) {
@@ -336,13 +498,26 @@ function checkEmotionalHoldEarned(sceneGraph, issues) {
   }
 }
 
-function checkOneGreatLinePrinciple(sceneGraph, issues) {
+function checkOneGreatLinePrinciple(sceneGraph, options, issues) {
   let bareShort = 0;
   const lines = countAllDialogueLines(sceneGraph);
   for (const l of lines) {
     if (wordCount(l.text) <= 3 && !isEmotionalHoldEarned(l.beat)) bareShort++;
   }
-  if (bareShort > THRESHOLDS.maxBareShortLines) {
+
+  // Phase 3.1 — genre-aware bare-short cap. action / horror / mystery
+  // explicitly encourage clipped lines; the legacy uniform cap of 2 was
+  // silently penalising them. -1 means no cap.
+  let cap = THRESHOLDS.maxBareShortLines;
+  if (isValidatorParameterized() && isGenreRegisterLibraryEnabled()) {
+    const resolved = resolveDialogueFloor(options?.genre, sceneGraph?.dialogue_density_intent);
+    if (resolved && typeof resolved.max_bare_short_lines === 'number') {
+      cap = resolved.max_bare_short_lines;
+    }
+  }
+  if (cap === -1) return; // genre disables this check entirely
+
+  if (bareShort > cap) {
     issues.push({
       id: 'too_many_bare_short_lines',
       severity: 'warning',
@@ -583,6 +758,53 @@ function checkPersonaIndexCoverage(sceneGraph, personas, issues) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Cast Bible Phase 5a — Kling element-budget check (lossless-split contract)
+// ──────────────────────────────────────────────────────────────
+//
+// When a beat references more distinct persona elements than Kling's @Element
+// API accepts (KLING_MAX_ELEMENTS = 3), the renderer today silently truncates
+// via slice(0, KLING_MAX_ELEMENTS) — the 4th persona's visual element is
+// dropped, although their dialogue still plays. With MAX_PERSONAS bumped to 4
+// (Phase 5a), this can now happen on any beat that puts all four cast members
+// in one shot.
+//
+// Phase 5a contract: surface the overflow as a WARNING (not blocker) so the
+// user sees it in Script QA. The Doctor's lossless-split remedy is deferred
+// to a follow-up; today the truncation continues as the safety net but is
+// logged with structured context at the renderer (services/KlingFalService.js).
+const KLING_ELEMENT_BUDGET = 3;
+function checkKlingElementBudget(sceneGraph, personas, issues) {
+  const personaCount = Array.isArray(personas) ? personas.length : 0;
+  if (personaCount <= KLING_ELEMENT_BUDGET) return; // common case — no possible overflow
+
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      const elementIndexes = new Set();
+      if (Number.isInteger(beat.persona_index)) elementIndexes.add(beat.persona_index);
+      if (Array.isArray(beat.persona_indexes)) {
+        beat.persona_indexes.forEach(i => Number.isInteger(i) && elementIndexes.add(i));
+      }
+      if (Array.isArray(beat.personas_present)) {
+        beat.personas_present.forEach(i => Number.isInteger(i) && elementIndexes.add(i));
+      }
+      if (Array.isArray(beat.exchanges)) {
+        beat.exchanges.forEach(ex => Number.isInteger(ex?.persona_index) && elementIndexes.add(ex.persona_index));
+      }
+
+      if (elementIndexes.size > KLING_ELEMENT_BUDGET) {
+        issues.push({
+          id: 'kling_element_overflow',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id}`,
+          message: `Beat ${beat.beat_id} [${beat.type}] references ${elementIndexes.size} distinct persona elements (${[...elementIndexes].join(', ')}). Kling's @Element API caps at ${KLING_ELEMENT_BUDGET}; the renderer will truncate the visual element pack to the first ${KLING_ELEMENT_BUDGET} (dialogue track is unaffected — every persona's voice still plays).`,
+          hint: `Split this beat into two consecutive beats with persona elements partitioned across them, or remove a persona reference if their visual presence is incidental.`
+        });
+      }
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Phase 1.1 — Subject mandate check
 // ──────────────────────────────────────────────────────────────
 //
@@ -664,6 +886,28 @@ const AD_COPY_BAN_PATTERNS = [
   { pattern: /\bgame[- ]?chang(er|ing)\b/i,                     id: 'ad_copy_gamechanger' }
 ];
 
+// Phase 3.2 — externalised forbidden-register library. Loaded lazily so that
+// when the validator-parameterized flag is OFF the file isn't even read
+// (preserves zero-touch behavior for pre-Phase-3 deployments).
+let _forbiddenRegistersCache = null;
+function loadForbiddenRegisters() {
+  if (_forbiddenRegistersCache) return _forbiddenRegistersCache;
+  const filepath = path.resolve(__dirname, '..', '..', 'assets', 'screenplay', 'forbidden-registers.json');
+  const raw = fs.readFileSync(filepath, 'utf-8');
+  const parsed = JSON.parse(raw);
+  if (!parsed || !Array.isArray(parsed.ad_copy)) {
+    throw new Error('forbidden-registers.json must export ad_copy[]');
+  }
+  // Compile regexes once — pattern is a regex source string + flags.
+  const compiled = parsed.ad_copy.map((entry) => ({
+    id: entry.id,
+    pattern: new RegExp(entry.pattern, entry.flags || ''),
+    applies_to_styles: Array.isArray(entry.applies_to_styles) ? entry.applies_to_styles : []
+  }));
+  _forbiddenRegistersCache = { ad_copy: compiled };
+  return _forbiddenRegistersCache;
+}
+
 // Escape a string for inclusion as a literal in a RegExp source.
 function escapeRegExp(str) {
   return str.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
@@ -671,21 +915,43 @@ function escapeRegExp(str) {
 
 function checkAntiAdCopyBans(sceneGraph, options, issues) {
   const style = String(options?.productIntegrationStyle || 'naturalistic_placement').toLowerCase();
-  if (style === 'hero_showcase' || style === 'commercial') return;
+
+  // Phase 3.2 — pattern source is data-driven when the validator-parameterized
+  // flag is on, hardcoded array otherwise. Mode-gating moves from a hardcoded
+  // if/return into per-pattern applies_to_styles[] in the data file.
+  const useLibrary = isValidatorParameterized();
+  let patterns;
+  if (useLibrary) {
+    const lib = loadForbiddenRegisters();
+    patterns = lib.ad_copy.filter(p => p.applies_to_styles.includes(style));
+    if (patterns.length === 0) return;
+  } else {
+    if (style === 'hero_showcase' || style === 'commercial') return;
+    patterns = AD_COPY_BAN_PATTERNS;
+  }
+
+  // Phase 3.3 — diegetic_label_reading per-beat exemption. Allows ONE beat per
+  // episode (max) where a character authentically reads a label / billboard /
+  // TV ad in-world — exempt from the regex. Mad Men prop grammar.
+  let diegeticUsed = false;
 
   const lines = countAllDialogueLines(sceneGraph);
   for (const line of lines) {
     if (!line.text) continue;
-    for (const ban of AD_COPY_BAN_PATTERNS) {
-      const m = ban.pattern.exec(line.text);
-      if (m) {
+    for (const ban of patterns) {
+      const matchResult = ban.pattern.exec(line.text);
+      if (matchResult) {
+        if (line.beat?.diegetic_label_reading === true && !diegeticUsed) {
+          diegeticUsed = true;
+          break;
+        }
         const beatId = line.beat?.beat_id || 'unknown';
         issues.push({
           id: ban.id,
           severity: 'blocker',
           scope: `beat:${beatId}`,
-          message: `Ad-copy banned phrase "${m[0]}" detected in dialogue (integration style: ${style}). Hollywood naturalistic placement forbids commercial register in dialogue.`,
-          hint: 'Rewrite this line so the character expresses something diegetic (a feeling, a fact, a request) rather than a product claim. The product must be a noun (touched / used) — never an adjective described in speech.'
+          message: `Ad-copy banned phrase "${matchResult[0]}" detected in dialogue (integration style: ${style}). Hollywood naturalistic placement forbids commercial register in dialogue.`,
+          hint: 'Rewrite this line so the character expresses something diegetic (a feeling, a fact, a request) rather than a product claim. The product must be a noun (touched / used) — never an adjective described in speech. If the line is authentic in-world copy-reading (a billboard, a TV ad, a label), set beat.diegetic_label_reading: true to exempt ONE such beat per episode.'
         });
         break;
       }
@@ -695,7 +961,36 @@ function checkAntiAdCopyBans(sceneGraph, options, issues) {
 
 function checkBrandNameInDialogue(sceneGraph, storyline, options, issues) {
   const style = String(options?.productIntegrationStyle || 'naturalistic_placement').toLowerCase();
-  if (style === 'hero_showcase' || style === 'commercial') return;
+
+  // Phase 3.4 — parameterised max-mentions ceiling.
+  //   Lookup precedence: subject.integration_mandate.max_brand_name_mentions
+  //   -> styleDefaults[style] -> legacy (1 for any non-commercial style).
+  // When the validator-parameterized flag is OFF, fall through to the legacy
+  // semantics: hero_showcase / commercial bypass; everything else permits 1.
+  const STYLE_DEFAULTS = {
+    naturalistic_placement: 1,
+    incidental_prop: 1,
+    genre_invisible: 0,
+    hero_showcase: Infinity,
+    commercial: Infinity
+  };
+
+  let maxMentions;
+  if (isValidatorParameterized()) {
+    const mandate = options?.subject?.integration_mandate || storyline?.subject_bible?.integration_mandate;
+    if (mandate && Number.isFinite(mandate.max_brand_name_mentions)) {
+      maxMentions = mandate.max_brand_name_mentions;
+    } else if (Object.prototype.hasOwnProperty.call(STYLE_DEFAULTS, style)) {
+      maxMentions = STYLE_DEFAULTS[style];
+    } else {
+      maxMentions = 1;
+    }
+  } else {
+    if (style === 'hero_showcase' || style === 'commercial') return;
+    maxMentions = 1;
+  }
+
+  if (!Number.isFinite(maxMentions)) return; // Infinity: no cap
 
   const candidates = new Set();
   const add = (s) => {
@@ -713,24 +1008,23 @@ function checkBrandNameInDialogue(sceneGraph, storyline, options, issues) {
 
   const reList = Array.from(candidates).map(c => new RegExp(`\\b${escapeRegExp(c)}\\b`, 'i'));
 
-  let exceptionUsed = false;
+  let mentionsSoFar = 0;
   const lines = countAllDialogueLines(sceneGraph);
   for (const line of lines) {
     if (!line.text) continue;
     for (const re of reList) {
       if (re.test(line.text)) {
-        if (!exceptionUsed) {
-          exceptionUsed = true;
-          continue;
+        mentionsSoFar++;
+        if (mentionsSoFar > maxMentions) {
+          const beatId = line.beat?.beat_id || 'unknown';
+          issues.push({
+            id: 'brand_name_in_dialogue',
+            severity: 'warning',
+            scope: `beat:${beatId}`,
+            message: `Brand name appears ${mentionsSoFar} time(s) in dialogue (integration style: ${style}, cap: ${maxMentions}). Hollywood naturalistic placement permits a finite ceiling per episode.`,
+            hint: 'Replace the brand name with a generic descriptor or rewrite around it. Multiple brand-name references in dialogue is the cardinal infomercial sin. Override via subject.integration_mandate.max_brand_name_mentions if a higher count is intentional.'
+          });
         }
-        const beatId = line.beat?.beat_id || 'unknown';
-        issues.push({
-          id: 'brand_name_in_dialogue',
-          severity: 'warning',
-          scope: `beat:${beatId}`,
-          message: `Brand name appears in dialogue (integration style: ${style}). Hollywood naturalistic placement permits at most ONE diegetic brand-name reference per episode.`,
-          hint: 'Replace the brand name with a generic descriptor or rewrite around it. Multiple brand-name references in dialogue is the cardinal infomercial sin.'
-        });
         break;
       }
     }
@@ -945,6 +1239,258 @@ function checkMusicBedRespectsNoFlyList(sceneGraph, bible, issues) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// V4 Audio Layer — dialogue audio-tag presence + coherence checks
+// ──────────────────────────────────────────────────────────────
+//
+// Pipeline contract (Day 1 of audio-layer overhaul):
+//   1. checkDialogueTagPresence walks every dialogue line and confirms
+//      either an eleven-v3 tag or a [no_tag_intentional: ...] baseline
+//      annotation is present. Severity = warning by default. When
+//      BRAND_STORY_AUDIO_TAGS_REQUIRED=true the warning is escalated to
+//      blocker so the Doctor (or a manual edit) is forced to author tags.
+//   2. checkTagEmotionCoherence catches the four obvious contradictions
+//      ([laughing] on a "broken" emotion, [firmly] on "indecisive", etc.).
+//      Always warning — coherence is craft, not safety.
+//   3. checkTagStackDepth catches >2 comma-stacked tags AND duplicate tags
+//      (`[whispering] [whispering]`) — eleven-v3 either ignores or distorts.
+//   4. checkAudioEventOveruse caps audio events ([applause], [leaves
+//      rustling], [gentle footsteps]) at one occurrence per beat.
+//
+// All checks read the helper-extracted tokens from extractBracketTokens()
+// so the dialogue string is parsed exactly once per line. The Doctor's
+// EDITABLE_FIELDS already includes 'dialogue' — no Doctor schema change.
+function isAudioTagsRequired() {
+  return String(process.env.BRAND_STORY_AUDIO_TAGS_REQUIRED || 'false').toLowerCase() === 'true';
+}
+
+function checkDialogueTagPresence(sceneGraph, issues) {
+  const required = isAudioTagsRequired();
+  const lines = countAllDialogueLines(sceneGraph);
+  let untagged = 0;
+  for (const line of lines) {
+    if (!line.text) continue;
+    // Earned emotional_hold beats are exempt — the silence IS the read,
+    // and the closing breath is captured by tag-presence on the line itself
+    // (separate check at checkEmotionalHoldClosingBreath if desired). We
+    // treat the hold beat as opting out of mandatory tagging.
+    if (isEmotionalHoldEarned(line.beat)) continue;
+    const tokens = extractBracketTokens(line.text);
+    const hasV3Tag = tokens.some(t => t.kind === 'eleven_v3_tag');
+    const hasBaselineAnnotation = tokens.some(t => t.kind === 'baseline_annotation');
+    if (!hasV3Tag && !hasBaselineAnnotation) {
+      untagged++;
+      const beatId = line.beat?.beat_id || 'unknown';
+      issues.push({
+        id: 'dialogue_missing_audio_tag',
+        severity: required ? 'blocker' : 'warning',
+        scope: `beat:${beatId}`,
+        message: `Beat ${beatId} dialogue carries no eleven-v3 performance tag and no [no_tag_intentional:...] baseline annotation — the audio layer will inherit the model's default contour instead of an authored read.`,
+        hint: 'Add an inline tag derived from beat.emotion + subtext + opposing_intents + archetype (see DIALOGUE PERFORMANCE TAGS masterclass), e.g. "[barely whispering] I had no choice.", "[firmly] We need to leave. Now.", or "I\'m fine. [exhaling]". For Stoic / under-tagged baseline reads, use "[no_tag_intentional: stoic_baseline] ..." to signal intent.'
+      });
+    }
+  }
+  if (untagged > 0) {
+    logger.info(`audio-tag presence: ${untagged}/${lines.length} dialogue line(s) untagged${required ? ' (BLOCKING)' : ''}`);
+  }
+}
+
+function checkTagEmotionCoherence(sceneGraph, issues) {
+  const lines = countAllDialogueLines(sceneGraph);
+  for (const line of lines) {
+    if (!line.text) continue;
+    const tokens = extractBracketTokens(line.text);
+    const tagsOnLine = tokens.filter(t => t.kind === 'eleven_v3_tag').map(t => t.raw);
+    if (tagsOnLine.length === 0) continue;
+    const emotionStr = String(line.beat?.emotion || line.exchange?.emotion || '').toLowerCase();
+    if (!emotionStr) continue;
+    for (const conflict of TAG_EMOTION_CONFLICTS) {
+      const emotionMatches = conflict.emotion_keywords.some(k => emotionStr.includes(k));
+      if (!emotionMatches) continue;
+      const offenders = tagsOnLine.filter(t => conflict.conflicting_tags.has(t));
+      if (offenders.length === 0) continue;
+      const beatId = line.beat?.beat_id || 'unknown';
+      issues.push({
+        id: 'tag_emotion_contradiction',
+        severity: 'warning',
+        scope: `beat:${beatId}`,
+        message: `Beat ${beatId} dialogue carries audio tag(s) [${offenders.join(', ')}] that contradict the beat's declared emotion "${emotionStr}". The audio layer will fight the screenplay's emotional intent.`,
+        hint: `Either (a) re-pick the tag — for emotion "${emotionStr}", consider tags that LEAN INTO the read instead of fighting it (see DIALOGUE PERFORMANCE TAGS → derivation rules), or (b) update beat.emotion if the original emotion field was the wrong adjective.`
+      });
+    }
+  }
+}
+
+function checkTagStackDepth(sceneGraph, issues) {
+  const lines = countAllDialogueLines(sceneGraph);
+  for (const line of lines) {
+    if (!line.text) continue;
+    const tokens = extractBracketTokens(line.text);
+    const v3Tags = tokens.filter(t => t.kind === 'eleven_v3_tag');
+    const beatId = line.beat?.beat_id || 'unknown';
+
+    // >2 tags total → eleven-v3 mushes them. Threshold from the masterclass
+    // BAD example #2 ("[whispering, sad, slowly, defeated]" stacked four-deep).
+    if (v3Tags.length > 2) {
+      issues.push({
+        id: 'tag_stack_too_deep',
+        severity: 'warning',
+        scope: `beat:${beatId}`,
+        message: `Beat ${beatId} dialogue carries ${v3Tags.length} eleven-v3 tags (limit: 2). eleven-v3 mushes ≥3 tags into a generic "soft sad" timbre — pick the one that matters most.`,
+        hint: 'Reduce to AT MOST 2 tags per line — typically a prefix tag (entry register) plus one mid-line shift if the line truly turns. Drop the rest.'
+      });
+    }
+
+    // Duplicate tag — `[whispering] ... [whispering]` — eleven-v3 ignores or distorts.
+    const seen = new Set();
+    for (const t of v3Tags) {
+      if (seen.has(t.raw)) {
+        issues.push({
+          id: 'tag_duplicated',
+          severity: 'warning',
+          scope: `beat:${beatId}`,
+          message: `Beat ${beatId} dialogue uses tag "[${t.raw}]" more than once on the same line — eleven-v3 ignores or distorts duplicates.`,
+          hint: 'Author the tag once at the entry of the line. If the line truly turns mid-way, use a DIFFERENT tag for the shift (e.g. "[firmly] entry, [exhaling] before the final clause").'
+        });
+        break; // one report per line
+      }
+      seen.add(t.raw);
+    }
+  }
+}
+
+// V4 Audio Layer Overhaul Day 2 — eleven-v3 dialogue endpoint pre-flight.
+//
+// GROUP_DIALOGUE_TWOSHOT routes through `fal-ai/elevenlabs/text-to-dialogue/
+// eleven-v3` which has hard limits enforced server-side:
+//   - 2,000 chars total across all inputs[].text
+//   - 10 unique voices per request
+//   - single language_code per request (mixed languages → 422)
+//
+// We catch overflow at the screenplay layer (warning severity) so the Doctor
+// can split the offending beat into two consecutive beats BEFORE generation.
+// The DialogueTTSService also enforces the same checks at submission time as
+// defense-in-depth. Mixed-language is escalated to blocker — there is no
+// graceful auto-split for it; the user must re-cast the scene with a single
+// language or accept fallback to per-beat TTS.
+const DIALOGUE_ENDPOINT_MAX_CHARS = 2000;
+const DIALOGUE_ENDPOINT_MAX_VOICES = 10;
+
+function _personaLanguagesForBeat(beat, personas) {
+  const seen = new Set();
+  const indexes = new Set();
+  if (Number.isInteger(beat.persona_index)) indexes.add(beat.persona_index);
+  if (Array.isArray(beat.persona_indexes)) {
+    beat.persona_indexes.forEach(i => Number.isInteger(i) && indexes.add(i));
+  }
+  if (Array.isArray(beat.exchanges)) {
+    beat.exchanges.forEach(ex => Number.isInteger(ex?.persona_index) && indexes.add(ex.persona_index));
+  }
+  for (const i of indexes) {
+    const lang = personas?.[i]?.language || 'en';
+    seen.add(String(lang).toLowerCase());
+  }
+  return [...seen];
+}
+
+function _stripBracketTokensForCharCount(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text.replace(/\[[^\]]+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function checkDialogueEndpointBudget(sceneGraph, personas, issues) {
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (beat.type !== 'GROUP_DIALOGUE_TWOSHOT') continue;
+      // Collect every dialogue line that will be packed into one dialogue
+      // endpoint call. Char budget is measured AFTER bracket-token strip
+      // (eleven-v3 doesn't bill for tag instructions in the rendered audio).
+      const lines = [];
+      if (Array.isArray(beat.dialogues)) lines.push(...beat.dialogues);
+      else if (beat.dialogue) lines.push(beat.dialogue);
+      if (lines.length === 0) continue;
+
+      const totalChars = lines.reduce((s, l) => s + _stripBracketTokensForCharCount(l).length, 0);
+      const beatId = beat.beat_id || '?';
+
+      if (totalChars > DIALOGUE_ENDPOINT_MAX_CHARS) {
+        issues.push({
+          id: 'dialogue_endpoint_char_overflow',
+          severity: 'warning',
+          scope: `beat:${beatId}`,
+          message: `Beat ${beatId} GROUP_DIALOGUE_TWOSHOT total dialogue is ${totalChars} chars — exceeds eleven-v3 dialogue endpoint's ${DIALOGUE_ENDPOINT_MAX_CHARS}-char hard limit.`,
+          hint: 'Split this beat into two consecutive GROUP_DIALOGUE_TWOSHOT beats with the dialogue partitioned across them, OR shorten one of the lines. The DialogueTTSService will fall back to per-beat single-speaker TTS if you do not split.'
+        });
+      }
+
+      // Voice-count check — count unique persona_indexes resolved to voice ids
+      // via personas[]. Defensive — V4's MAX_PERSONAS=4 means this should
+      // never trip in practice, but it would trip on a contrived hand-edit.
+      const voiceIds = new Set();
+      for (const i of (beat.persona_indexes || [beat.persona_index]).filter(x => Number.isInteger(x))) {
+        const vid = personas?.[i]?.elevenlabs_voice_id;
+        if (vid) voiceIds.add(vid);
+      }
+      if (voiceIds.size > DIALOGUE_ENDPOINT_MAX_VOICES) {
+        issues.push({
+          id: 'dialogue_endpoint_voice_overflow',
+          severity: 'blocker',
+          scope: `beat:${beatId}`,
+          message: `Beat ${beatId} references ${voiceIds.size} unique voices — exceeds eleven-v3 dialogue endpoint's ${DIALOGUE_ENDPOINT_MAX_VOICES}-voice limit.`,
+          hint: `Reduce the speaking cast in this beat, or split into multiple beats with ≤ ${DIALOGUE_ENDPOINT_MAX_VOICES} voices each.`
+        });
+      }
+
+      // Mixed-language check — the dialogue endpoint accepts a single
+      // language_code per request. A scene mixing English + Hebrew personas
+      // in one beat must fall back to per-beat TTS.
+      const langs = _personaLanguagesForBeat(beat, personas);
+      if (langs.length > 1) {
+        issues.push({
+          id: 'dialogue_endpoint_mixed_language',
+          severity: 'blocker',
+          scope: `beat:${beatId}`,
+          message: `Beat ${beatId} GROUP_DIALOGUE_TWOSHOT mixes languages [${langs.join(', ')}] across speakers. The eleven-v3 dialogue endpoint accepts only one language_code per request.`,
+          hint: 'Either re-cast the scene so both speakers share a language, OR change the beat type so each speaker gets their own per-beat TTS call (TALKING_HEAD_CLOSEUP × 2 with a SHOT_REVERSE_SHOT compiler step).'
+        });
+      }
+    }
+  }
+}
+
+function checkAudioEventOveruse(sceneGraph, issues) {
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (!DIALOGUE_BEARING_TYPES.has(beat.type)) continue;
+      // Aggregate every audio-event tag across the beat (single dialogue,
+      // dialogues[], exchanges[]) — the cap is per-beat, not per-line.
+      let eventCount = 0;
+      const collected = [];
+      const collect = (text) => {
+        if (!text) return;
+        for (const t of extractBracketTokens(text)) {
+          if (t.kind === 'eleven_v3_tag' && ELEVEN_V3_AUDIO_EVENT_TAGS.has(t.raw)) {
+            eventCount++;
+            collected.push(t.raw);
+          }
+        }
+      };
+      collect(beat.dialogue);
+      if (Array.isArray(beat.dialogues)) for (const d of beat.dialogues) collect(d);
+      if (Array.isArray(beat.exchanges)) for (const ex of beat.exchanges) collect(ex.dialogue);
+      if (eventCount > 1) {
+        issues.push({
+          id: 'audio_event_overused',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `Beat ${beat.beat_id || '?'} stacks ${eventCount} audio-event tags (${[...new Set(collected)].join(', ')}). eleven-v3 fails or produces noise when audio events stack.`,
+          hint: 'Use AT MOST ONE audio-event tag per beat (e.g. [gentle footsteps]). If you need multiple ambient cues, author them in beat.ambient_sound instead — that goes through the SoundEffectsService SFX overlay path.'
+        });
+      }
+    }
+  }
+}
+
 /**
  * Validate a V4 scene-graph against the Layer-1 checklist.
  *
@@ -984,13 +1530,14 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkOpposingIntents(repaired, issues);
   checkVoiceDistinctness(repaired, issues);
   checkDialogueBeatRatio(repaired, personas, issues, storyFocus);
-  checkAvgDialogueLength(repaired, issues);
+  checkAvgDialogueLength(repaired, options, issues);
   checkSubtextCoverage(repaired, issues);
-  checkOneGreatLinePrinciple(repaired, issues);
+  checkOneGreatLinePrinciple(repaired, options, issues);
   checkEmotionalHoldEarned(repaired, issues);
   checkIntensityRamp(repaired, storyline, issues);
   checkMouthOcclusion(repaired, issues);
   checkPersonaIndexCoverage(repaired, personas, issues);
+  checkKlingElementBudget(repaired, personas, issues);
   checkSubjectMandate(repaired, storyline, options, issues);
   // Phase 4 — Hollywood naturalistic placement guardrails. Reject ad-copy
   // phrases in dialogue unless the integration style allows commercial
@@ -1003,6 +1550,16 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkSonicWorldBibleInheritance(repaired, sonicSeriesBible, issues);
   checkPerBeatAmbientSoundIsFoley(repaired, issues);
   checkMusicBedRespectsNoFlyList(repaired, sonicSeriesBible, issues);
+  // V4 Audio Layer Overhaul Day 1 — eleven-v3 inline performance tag checks.
+  // Tag-presence is warning by default; escalates to blocker when
+  // BRAND_STORY_AUDIO_TAGS_REQUIRED=true. Coherence + stack-depth + audio-event
+  // overuse are always warnings — they catch craft failures the Doctor can fix.
+  checkDialogueTagPresence(repaired, issues);
+  checkTagEmotionCoherence(repaired, issues);
+  checkTagStackDepth(repaired, issues);
+  checkAudioEventOveruse(repaired, issues);
+  // Day 2 — eleven-v3 dialogue endpoint pre-flight checks (GROUP_DIALOGUE_TWOSHOT)
+  checkDialogueEndpointBudget(repaired, personas, issues);
   repairBeatSizing(repaired, issues);
 
   const { total, dialogue } = countAllDialogueBeats(repaired);

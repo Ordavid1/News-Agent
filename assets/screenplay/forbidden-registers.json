@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "description": "V4 Brand Story screenplay forbidden-register library. Externalised from services/v4/ScreenplayValidator.js (Phase 3.2). Source of truth for ad-copy / infomercial / tagline-register phrase bans applied to dialogue. Adding new banned phrases or new product_integration_styles is a JSON edit.",
+    "schema": "Each ad_copy entry: { id, pattern (regex source), flags, applies_to_styles[] }. The applies_to_styles array replaces the hardcoded mode-gate previously baked into ScreenplayValidator.checkAntiAdCopyBans.",
+    "updated": "2026-04-28"
+  },
+  "ad_copy": [
+    { "id": "ad_copy_with_new",        "pattern": "\\bwith (the new |our )",                "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_introducing",     "pattern": "\\bintroducing\\b",                       "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_proudly_powered", "pattern": "\\bproudly powered by\\b",                "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_now_available",   "pattern": "\\bnow available\\b",                     "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_buy_today",       "pattern": "\\b(get|grab|try|buy) yours? today\\b",   "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_limited_time",    "pattern": "\\blimited time\\b",                      "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_free_shipping",   "pattern": "\\bfree shipping\\b",                     "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_click_link",      "pattern": "\\bclick the link\\b",                    "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_visit_us",        "pattern": "\\bvisit (us|our)\\b",                    "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_only_x_that",     "pattern": "\\bthe only \\w+ that\\b",                "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_thanks_to",       "pattern": "\\b(thanks to|because of) (our|the)\\b",  "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_changed_life",    "pattern": "\\bchanged (my|our) li(fe|ves)\\b",       "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_patented",        "pattern": "\\bour patented\\b",                      "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_never_easier",    "pattern": "\\bnever been easier\\b",                 "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] },
+    { "id": "ad_copy_gamechanger",     "pattern": "\\bgame[- ]?chang(er|ing)\\b",            "flags": "i", "applies_to_styles": ["naturalistic_placement", "incidental_prop", "genre_invisible"] }
+  ],
+  "future_register_categories": []
+}

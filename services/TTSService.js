@@ -9,6 +9,18 @@
 //   - Google (Vertex Gemini for screenplay + Vertex Veo for first/last frame)
 //   - ElevenLabs (voice library browsing only — the preset catalog isn't on fal.ai)
 //
+// V4 Audio Layer Overhaul Day 1 (2026-04-28): default endpoint upgrades from
+// `tts/multilingual-v2` → `tts/eleven-v3`. eleven-v3 supports:
+//   - Inline performance tags (`[whispering]`, `[sigh]`, `[exhaling]`,
+//     `[firmly]`, etc.) — 22 emotion / event / direction tags total. The
+//     screenplay layer (DIALOGUE PERFORMANCE TAGS masterclass) authors them
+//     inline in beat.dialogue; we pass the string through untouched.
+//   - 70+ languages (vs multilingual-v2's 29) — including Hebrew (`he`),
+//     Arabic, Russian. Hebrew was unsupported on multilingual-v2.
+//   - Slightly higher cost-per-char on premium tiers; same fal.ai pricing.
+// Rollback: set `BRAND_STORY_TTS_ENGINE=multilingual_v2` in the environment
+// to flip back to the legacy endpoint without code changes.
+//
 // The external API shape is preserved exactly — synthesize() and
 // synthesizeBeat() still return the same { audioBuffer, durationEstimate,
 // actualDurationSec, format } shape so existing call sites in
@@ -19,34 +31,96 @@
 //   - voice (voice_id string from ElevenLabs preset library)
 //   - stability, similarity_boost, style (all 0-1)
 //   - speed (0.7-1.2 — same clamp as the direct ElevenLabs API)
-//   - model_id override (multilingual_v2 / flash_v2_5 / turbo_v2_5)
+//   - model_id override (eleven_v3 / multilingual_v2 / flash_v2_5 / turbo_v2_5)
 //   - language_code (ISO 639-1)
 // Returns: { audio: { url, content_type, file_size } } — we download the URL
 // into a Buffer so the caller shape is identical to the old direct-REST shape.
 
 import FalAiBaseService from './FalAiBaseService.js';
 
-// fal.ai TTS endpoint — multilingual v2 is the highest-quality ElevenLabs model
-// on fal.ai, same model as the direct `eleven_multilingual_v2` path we used
-// before. Flash / Turbo are available as overrides via options.modelId.
+// V4 Audio Layer Overhaul Day 1 — endpoint slug routing.
+//
+// `BRAND_STORY_TTS_ENGINE` selects the default fal.ai endpoint:
+//   - `eleven_v3` (DEFAULT) → `fal-ai/elevenlabs/tts/eleven-v3`
+//        Supports inline performance tags + 70+ languages including Hebrew.
+//   - `multilingual_v2`     → `fal-ai/elevenlabs/tts/multilingual-v2`
+//        Legacy fallback. No tags, 29 languages, no Hebrew.
+//
+// The Day 3 Hebrew rollout adds language-driven routing on top of this:
+// when persona.language='he' (or any v2-unsupported language), the router
+// always picks eleven-v3 regardless of this flag, because v2 cannot handle
+// it. This flag controls the DEFAULT path for languages v2 supports.
+const ENDPOINT_ELEVENLABS_TTS_ELEVEN_V3 = 'fal-ai/elevenlabs/tts/eleven-v3';
 const ENDPOINT_ELEVENLABS_TTS_MULTILINGUAL_V2 = 'fal-ai/elevenlabs/tts/multilingual-v2';
 
-// Default "Brian" premade voice — safe fallback, male, American, narrative-friendly.
-// Used ONLY when no voiceId is passed AND no persona voice is configured.
-// V4 hard-fails before reaching this path (see VoiceAcquisition) to prevent
-// silent gender mismatches, but keeping the default for non-V4 legacy paths.
+function _selectDefaultEndpoint() {
+  const flag = String(process.env.BRAND_STORY_TTS_ENGINE || 'eleven_v3').toLowerCase();
+  if (flag === 'multilingual_v2' || flag === 'eleven_multilingual_v2') {
+    return ENDPOINT_ELEVENLABS_TTS_MULTILINGUAL_V2;
+  }
+  // Default + any unrecognised value → eleven-v3 (the new default).
+  return ENDPOINT_ELEVENLABS_TTS_ELEVEN_V3;
+}
+
+function _selectDefaultModelId() {
+  const flag = String(process.env.BRAND_STORY_TTS_ENGINE || 'eleven_v3').toLowerCase();
+  if (flag === 'multilingual_v2' || flag === 'eleven_multilingual_v2') {
+    return 'eleven_multilingual_v2';
+  }
+  return 'eleven_v3';
+}
+
+// Default "Brian" premade voice — TRUE LAST-RESORT fallback. Should NEVER
+// fire in V4 (synthesizeBeat throws on missing voiceId; V4 callers route
+// through pickFallbackVoiceIdForPersonaInList in services/v4/VoiceAcquisition.js
+// which is gender + persona-aware). If this constant is ever read, it means
+// (a) a legacy non-V4 path called synthesize() with undefined voiceId, OR
+// (b) the picker returned null because the library is empty (config bug).
+//
+// Either way it's wrong-by-construction. The synthesize() function logs a
+// loud warning when this fires so the upstream miss is visible in production.
 const DEFAULT_VOICE_ID = 'nPczCjzI2devNBz1zQrb';
 
 // ElevenLabs speed constraint — same on fal.ai's proxy. Exported for clarity.
 const ELEVENLABS_MIN_SPEED = 0.7;
 const ELEVENLABS_MAX_SPEED = 1.2;
 
+// V4 Audio Layer Overhaul Day 1 — eleven-v3 inline-tag prep helpers.
+//
+// `[no_tag_intentional: stoic_baseline]` is a SCREENPLAY-AUTHORSHIP annotation
+// recognised by the Validator (counts as opt-in baseline, not a violation) but
+// it is NOT a real eleven-v3 tag. It must be stripped before submission so it
+// doesn't appear in the rendered audio (eleven-v3 would either pass it through
+// as garbled speech or fail). Real eleven-v3 tags in [brackets] are kept as-is
+// — eleven-v3's parser handles them.
+const NO_TAG_ANNOTATION_RE = /\[no_tag_intentional\s*:\s*[^\]]+\]\s*/gi;
+
+// Strip the internal annotation, leave eleven-v3 tags alone.
+function stripInternalAnnotations(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(NO_TAG_ANNOTATION_RE, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+// Strip ALL bracket-enclosed tokens from text — used for word-count
+// calibration so tagged dialogue ("[barely whispering] I had no choice.")
+// is counted as 4 spoken words, not 6 tokens. eleven-v3 renders tags as
+// non-spoken prosody instructions; their word weight is effectively zero.
+function stripAllBracketTokens(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(/\[[^\]]+\]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 class TTSService {
   constructor() {
     // Wrap FalAiBaseService for the queue/submit/poll/download pattern.
     // TTS is fast (~1-3s) so we use a tighter poll interval and shorter max wait.
+    // Day 1 of audio-layer overhaul: endpoint slug is selected from env at
+    // module construction so a single restart flip-flops between eleven-v3
+    // (default) and multilingual-v2 (rollback). Per-request override via
+    // options.modelId still works for callers that want to force a specific
+    // model for one synthesis call.
     this.base = new FalAiBaseService({
-      modelSlug: ENDPOINT_ELEVENLABS_TTS_MULTILINGUAL_V2,
+      modelSlug: _selectDefaultEndpoint(),
       displayName: 'TTSService',
       pollIntervalMs: 2000,
       maxPollDurationMs: 120000, // 2 min hard cap
@@ -85,7 +159,7 @@ class TTSService {
     if (!text || text.trim().length === 0) throw new Error('text is required for TTS synthesis');
 
     const {
-      voiceId = DEFAULT_VOICE_ID,
+      voiceId: voiceIdInput,
       modelId, // optional, fal.ai defaults to multilingual_v2 on this endpoint
       language,
       outputFormat = 'mp3_44100_128',
@@ -95,12 +169,37 @@ class TTSService {
       speed = 1.0
     } = options;
 
+    // Cast Bible follow-up (2026-04-28) — voiceIdInput should ALWAYS be set
+    // by V4 callers (per the picker contract in VoiceAcquisition.js). If we
+    // land here without one it's an upstream miss. Loud warn so the
+    // production log shows the offending caller stack. Falls through to the
+    // literal Brian voice ONLY as a true last resort.
+    let voiceId;
+    if (voiceIdInput) {
+      voiceId = voiceIdInput;
+    } else {
+      voiceId = DEFAULT_VOICE_ID;
+      this.base.logger.warn(
+        `[TTSService] synthesize() called without a voiceId — falling back to literal DEFAULT_VOICE_ID=${DEFAULT_VOICE_ID} ("Brian", male). ` +
+        `This is wrong-by-construction: the caller should resolve a gender-correct voice via ` +
+        `pickFallbackVoiceIdForPersonaInList() in services/v4/VoiceAcquisition.js BEFORE calling synthesize. ` +
+        `Stack: ${(new Error().stack || '').split('\n').slice(2, 5).join(' | ')}`
+      );
+    }
+
+    // V4 Day 1 — strip the internal `[no_tag_intentional: ...]` annotation
+    // before submission. eleven-v3 performance tags ([whispering], [sigh],
+    // etc.) are kept verbatim because eleven-v3 parses them; the
+    // no_tag_intentional annotation is a screenplay-authorship marker that
+    // would otherwise be rendered as garbled speech.
+    const textForSubmission = stripInternalAnnotations(text);
+
     // fal.ai ElevenLabs TTS request payload.
-    // Spec: https://fal.ai/models/fal-ai/elevenlabs/tts/multilingual-v2
+    // Spec: https://fal.ai/models/fal-ai/elevenlabs/tts/eleven-v3
     // NOTE: fal.ai proxies to ElevenLabs directly so field names match the
     // ElevenLabs TTS API but are flattened (no nested voice_settings).
     const inputPayload = {
-      text,
+      text: textForSubmission,
       voice: voiceId,
       stability,
       similarity_boost: similarityBoost,
@@ -110,7 +209,7 @@ class TTSService {
     if (modelId) inputPayload.model_id = modelId;
     if (language) inputPayload.language_code = language;
 
-    const textLength = text.length;
+    const textLength = textForSubmission.length;
     this.base.logger.info(`Synthesizing TTS via fal.ai — ${textLength} chars, voice: ${voiceId}${modelId ? `, model: ${modelId}` : ''}`);
 
     const startTime = Date.now();
@@ -167,14 +266,15 @@ class TTSService {
    *     can pass exact lengths to video generators (first/last frame, etc.)
    *   - supports optional durationTarget for auto-calibration of speed
    *     against the fixed beat window
-   *   - uses eleven_multilingual_v2 by default for short-line quality
+   *   - default modelId follows BRAND_STORY_TTS_ENGINE (eleven_v3 default;
+   *     eleven_multilingual_v2 when the rollback flag is set)
    *
    * @param {Object} params
-   * @param {string} params.text - the dialogue line
+   * @param {string} params.text - the dialogue line (may carry inline eleven-v3 tags)
    * @param {string} params.voiceId - persona's ElevenLabs voice id
    * @param {number} [params.durationTarget] - optional target duration in seconds
    * @param {Object} [params.options]
-   * @param {string} [params.options.modelId='eleven_multilingual_v2']
+   * @param {string} [params.options.modelId] - default = active engine (eleven_v3 / eleven_multilingual_v2)
    * @param {string} [params.options.language]
    * @param {number} [params.options.stability=0.5]
    * @param {number} [params.options.similarityBoost=0.75]
@@ -187,7 +287,7 @@ class TTSService {
     if (!voiceId) throw new Error('voiceId is required for synthesizeBeat');
 
     const {
-      modelId = 'eleven_multilingual_v2',
+      modelId = _selectDefaultModelId(),
       language,
       stability = 0.5,
       similarityBoost = 0.75,
@@ -209,7 +309,14 @@ class TTSService {
       this.base.logger.info(`emotional_hold: skipping speed auto-calibration — intentional trailing silence preserved`);
     } else if (typeof durationTarget === 'number' && durationTarget > 0) {
       const wordsPerSec = (language && language.startsWith('he')) ? 2.0 : 2.5;
-      const wordCount = text.trim().split(/\s+/).length;
+      // V4 Day 1 — count SPOKEN words only. Tagged dialogue like
+      // "[barely whispering] I had no choice." is 4 spoken words, not 6.
+      // eleven-v3 renders tags as prosody instructions (zero spoken weight);
+      // counting them inflates naturalSec and over-clamps the speed.
+      const spokenText = stripAllBracketTokens(text);
+      const wordCount = spokenText.length > 0
+        ? spokenText.trim().split(/\s+/).filter(Boolean).length
+        : 1; // safety floor for tag-only edge case
       const naturalSec = Math.max(wordCount / wordsPerSec, 0.5);
       const rawSpeed = naturalSec / durationTarget;
 

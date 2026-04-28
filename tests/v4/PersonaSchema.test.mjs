@@ -123,51 +123,79 @@ describe('V4 system prompt — character cheat-sheet', () => {
   });
 });
 
-describe('V4 system prompt — genre register guide', () => {
+// Phase 2 of the V4 screenwriting refactor moved the genre register from an
+// inline if/elif chain in brandStoryPromptsV4.mjs into the declarative
+// assets/genre-registers/library.json. The library is feature-flagged behind
+// BRAND_STORY_GENRE_REGISTER_LIBRARY (default false during the migration
+// window). These legacy-content tests assert the inline phrasing — they lock
+// the legacy contract so flipping the flag default in Phase 4 cleanup will
+// require an intentional test update rather than a silent regression.
+function _withLegacyGenreRegisterFlag(fn) {
+  const prev = process.env.BRAND_STORY_GENRE_REGISTER_LIBRARY;
+  process.env.BRAND_STORY_GENRE_REGISTER_LIBRARY = 'false';
+  try { return fn(); }
+  finally {
+    if (prev === undefined) delete process.env.BRAND_STORY_GENRE_REGISTER_LIBRARY;
+    else process.env.BRAND_STORY_GENRE_REGISTER_LIBRARY = prev;
+  }
+}
+
+describe('V4 system prompt — genre register guide (LEGACY inline contract)', () => {
   test('action genre injects the ACTION kinetic register block', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'action' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    assert.ok(prompt.includes('GENRE REGISTER — ACTION'));
-    assert.ok(prompt.includes('kinetic, high-pressure, high-BPM'));
-    assert.ok(prompt.includes('ACTION_NO_DIALOGUE carries the episode'));
-    assert.ok(prompt.includes('130-160 BPM'));
-    assert.ok(prompt.includes('bs_urban_grit'));
-    assert.ok(prompt.includes('speed_ramp'));
-    assert.ok(prompt.includes('CLIPPED'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'action' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(prompt.includes('GENRE REGISTER — ACTION'));
+      assert.ok(prompt.includes('kinetic, high-pressure, high-BPM'));
+      assert.ok(prompt.includes('ACTION_NO_DIALOGUE carries the episode'));
+      assert.ok(prompt.includes('130-160 BPM'));
+      assert.ok(prompt.includes('bs_urban_grit'));
+      assert.ok(prompt.includes('speed_ramp'));
+      assert.ok(prompt.includes('CLIPPED'));
+    });
   });
 
   test('thriller genre injects the THRILLER register block', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'thriller' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    assert.ok(prompt.includes('GENRE REGISTER — THRILLER'));
-    assert.ok(prompt.includes('DRAMATIC_IRONY'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'thriller' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(prompt.includes('GENRE REGISTER — THRILLER'));
+      assert.ok(prompt.includes('DRAMATIC_IRONY'));
+    });
   });
 
   test('comedy genre injects the COMEDY register block', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'comedy' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    assert.ok(prompt.includes('GENRE REGISTER — COMEDY'));
-    assert.ok(prompt.includes('swerve'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'comedy' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(prompt.includes('GENRE REGISTER — COMEDY'));
+      assert.ok(prompt.includes('swerve'));
+    });
   });
 
   test('drama (default) emits no genre register override', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'drama' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    assert.ok(!prompt.includes('GENRE REGISTER —'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'drama' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(!prompt.includes('GENRE REGISTER —'));
+    });
   });
 
   test('unknown genre falls back to no register block (genre-as-container mode)', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'slice-of-life' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    assert.ok(!prompt.includes('GENRE REGISTER —'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'slice-of-life' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(!prompt.includes('GENRE REGISTER —'));
+    });
   });
 
   test('action register reinforces ambient bed + per-beat SFX (sound continuity preserved)', () => {
-    const sl = { ...FULL_STORYLINE, genre: 'action' };
-    const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
-    // Action genre explicitly reinforces scene.ambient_bed_prompt + beat.ambient_sound
-    assert.ok(prompt.includes('scene.ambient_bed_prompt'));
-    assert.ok(prompt.includes('beat.ambient_sound'));
+    _withLegacyGenreRegisterFlag(() => {
+      const sl = { ...FULL_STORYLINE, genre: 'action' };
+      const prompt = getEpisodeSystemPromptV4(sl, [], [FULL_PERSONA], { costCapUsd: 20 });
+      assert.ok(prompt.includes('scene.ambient_bed_prompt'));
+      assert.ok(prompt.includes('beat.ambient_sound'));
+    });
   });
 });
 

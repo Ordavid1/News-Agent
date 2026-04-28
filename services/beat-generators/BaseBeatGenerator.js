@@ -26,13 +26,19 @@ class BaseBeatGenerator {
   /**
    * @param {Object} deps - dependency injection object
    * @param {Object} deps.falServices - { kling, veo, syncLipsync, seedream, flux, omniHuman }
-   * @param {Object} deps.tts - TTSService singleton
+   * @param {Object} deps.tts - TTSService singleton (single-speaker eleven-v3)
+   * @param {Object} [deps.dialogueTTS] - DialogueTTSService singleton — V4 Audio
+   *   Layer Overhaul Day 2. Multi-speaker eleven-v3 dialogue endpoint, used by
+   *   GROUP_DIALOGUE_TWOSHOT generator for shared prosodic context. Optional —
+   *   when missing, GROUP_DIALOGUE_TWOSHOT falls back to the legacy parallel-TTS
+   *   + concat path (defense-in-depth for tests, smoke scripts, partial deps).
    * @param {Object} [deps.ffmpeg] - optional ffmpeg helper bag
    */
   constructor(deps = {}) {
     this.deps = deps;
     this.falServices = deps.falServices || {};
     this.tts = deps.tts;
+    this.dialogueTTS = deps.dialogueTTS;
     this.ffmpeg = deps.ffmpeg;
 
     this.logger = winston.createLogger({

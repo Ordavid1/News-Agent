@@ -1,0 +1,812 @@
+{
+  "_meta": {
+    "description": "V4 Brand Story genre register library. Single source of truth for genre-specific craft directives consumed by both the screenplay GENERATOR (services/v4/GenreRegister.js → public/components/brandStoryPromptsV4.mjs) and the Layer-3 JUDGE (services/v4/director-rubrics/sharedHeader.mjs). Mirrors the assets/luts/library.json declarative pattern.",
+    "strategy": "Each entry encodes a director's brief: pacing rules, dialogue floor, beat-type mix, camera register, ambient bed, music intent, LUT recommendations, transition defaults, character-stakes posture, do-nots. Tier-A genres (drama / romance / action / thriller / comedy / horror / commercial / documentary / noir-mystery) ship full briefs; Tier-B genres (sci-fi / fantasy / period / inspirational / adventure / slice-of-life) ship lightweight briefs.",
+    "invariant": "NO field on any entry contains a quoted dialogue line, character name, premise sample, or scripted exchange. Tests/v4/GenreRegisterLibrary.test.mjs enforces this invariant.",
+    "schema": "see schema.json",
+    "updated": "2026-04-28"
+  },
+  "registers": [
+    {
+      "genre_id": "drama",
+      "display_name": "Drama",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Scenes breathe — alternate dialogue with REACTION and INSERT_SHOT every 2-3 beats. Pauses are part of the rhythm; do not fill every second with words. Held silences after a confession or refusal are the scene's punctuation.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Movement I (~25%) plants want and wound through small social pressure. Movement II (~50%) is the real ask, the deflection, the second ask. Movement III (~25%) is the cost — what was lost, what cannot be unsaid."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 7.0,
+        "target_dialogue_runtime_pct": [0.45, 0.65],
+        "line_length_register": "Lines vary in length — some short and surface, some longer and revealing. Avoid uniform sentence rhythm. The line that lands the scene should usually be longer than the lines around it. Subtext is the iron rule — surface meaning differs from real meaning on most lines.",
+        "max_bare_short_lines": 2
+      },
+      "beat_type_mix": {
+        "TALKING_HEAD_CLOSEUP": [0.25, 0.40],
+        "SHOT_REVERSE_SHOT": [0.20, 0.35],
+        "REACTION": [0.10, 0.20],
+        "SILENT_STARE": [0.05, 0.15],
+        "INSERT_SHOT": [0.05, 0.15],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "75-100mm portraiture; 35-50mm two-shots",
+        "movement_style": "Locked-off or breath-only DOF on closeups; gentle drift on two-shots; over-shoulder for power asymmetry. Camera is patient, never restless.",
+        "framing_defaults": ["tight_closeup", "portrait_75mm", "over_shoulder", "dirty_over_shoulder", "medium_two_shot", "anamorphic_signature_closeup"],
+        "lighting_motifs": ["motivated natural light", "single window source", "shallow falloff", "skin-led palette"]
+      },
+      "ambient_bed": "Domestic, lived-in, restrained — distant traffic through closed windows, refrigerator hum, building HVAC, a clock somewhere. The bed is what life sounds like when no one is performing.",
+      "music_bed_intent": {
+        "bpm_range": [50, 80],
+        "instrumentation": "Solo piano, sparse strings, a single sustained cello line, occasional held wind instrument. Music enters AFTER an emotional reveal, never under it.",
+        "composer_references": ["Hildur Guðnadóttir", "Mica Levi", "Nick Cave & Warren Ellis", "Mark Bradshaw"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_drama_motivated_natural", "bs_drama_kelvin_window", "bs_drama_phantom_thread", "bs_naturalistic"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolves between scenes for emotional continuity. Fadeblack reserved for the act-end held silence (a confession, a death, a leaving). Hard cut only for an interruption that re-frames the scene's question. Speed_ramp is wrong for drama — never use it."
+      },
+      "character_stakes": "Characters reveal themselves through what they refuse to say, what they keep doing after the room has changed, and what tiny domestic detail they cannot let go of. The wound shows in the deflection, not in the speech.",
+      "do_nots": [
+        "Do not write dialogue at uniform line-length; vary cadence within every scene.",
+        "Do not let a character explain what they are feeling; let the gesture or the deflection carry it.",
+        "Do not resolve the dramatic question in the dialogue; let the act of refusing/conceding/leaving be the answer.",
+        "Do not fill silence with music; the silence IS the music until the scene earns the cue."
+      ],
+      "hook_type_priorities": ["REVELATION", "STATUS_FLIP", "CONTRADICTION_REVEAL", "ESCALATION_OF_ASK"]
+    },
+
+    {
+      "genre_id": "romance",
+      "display_name": "Romance",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Romance breathes through SILENT_STARE and REACTION beats more than any other genre — the look IS the line. Alternate every 2 dialogue beats with a held closeup or a small physical move.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Movement I (~25%) is the orbit — characters circling without naming the want. Movement II (~50%) is the approach, the small offering, the misread. Movement III (~25%) is the choice — to stay, to leave, to wait, to forgive."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 7.5,
+        "target_dialogue_runtime_pct": [0.40, 0.60],
+        "line_length_register": "Romance dialogue uses indirection — characters talk about everything except the want. Lines are conversational on the surface, weighted underneath. The character closest to confession deflects with the smallest, most specific noun (the time, the weather, the chair). Longing is shown, not stated.",
+        "max_bare_short_lines": 3
+      },
+      "beat_type_mix": {
+        "TALKING_HEAD_CLOSEUP": [0.20, 0.35],
+        "SHOT_REVERSE_SHOT": [0.15, 0.25],
+        "SILENT_STARE": [0.15, 0.25],
+        "REACTION": [0.15, 0.25],
+        "INSERT_SHOT": [0.05, 0.15],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "85mm portraiture; 50mm two-shots; macro inserts on hands",
+        "movement_style": "Locked-off intimacy; gentle push-ins on the moment of recognition; dirty over-shoulder when a character is choosing whether to speak.",
+        "framing_defaults": ["tight_closeup", "portrait_75mm", "anamorphic_signature_closeup", "over_shoulder", "cinema_macro_emotion", "medium_two_shot"],
+        "lighting_motifs": ["golden-hour warmth", "single practical source (lamp, candle, screen)", "soft fill on faces", "negative fill in the background"]
+      },
+      "ambient_bed": "Intimate, contained — restaurant chatter behind glass, rain on a different window, a kettle in another room, the city continuing without them. The world keeps moving; the scene is the one place that has stopped.",
+      "music_bed_intent": {
+        "bpm_range": [60, 95],
+        "instrumentation": "Piano, solo guitar, restrained strings, occasional voice (humming, never lyrics). Music carries longing, never matches it; under-cuts the dialogue so the words feel earned.",
+        "composer_references": ["Jonny Greenwood", "Carter Burwell", "Sufjan Stevens", "Ryuichi Sakamoto"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_romance_kodak_portra_warm", "bs_romance_sayombhu_bloom", "bs_warm_cinematic", "bs_dreamy_ethereal"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_horror_clinical_pale", "bs_noir_classic_bw_silver"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve is the romance default — temporal blur supports emotional continuity. Fadeblack for an unanswered cliffhanger (did they kiss, did they leave). Hard cut for an interruption (a door, a phone) that defers the moment. Never speed_ramp."
+      },
+      "character_stakes": "Romance reveals character through what each person notices about the other and what they refuse to ask for. The risk is the ask. The cost of NOT asking is the ache the scene carries.",
+      "do_nots": [
+        "Do not let characters declare love directly; deflect into a noun, a memory, a question about the other's day.",
+        "Do not skip the silent stare — the held look does more than any line of dialogue.",
+        "Do not score under the confession; let the silence carry it.",
+        "Do not resolve the romance through speech — resolve through return, through staying, through one small act."
+      ],
+      "hook_type_priorities": ["REVELATION", "STATUS_FLIP", "CRESCENDO", "ESCALATION_OF_ASK"]
+    },
+
+    {
+      "genre_id": "action",
+      "display_name": "Action",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [2, 4],
+        "dialogue_breath_rule": "Action breathes through cuts, not through lines. Every 1-2 dialogue beats must be broken by ACTION_NO_DIALOGUE, REACTION, or INSERT_SHOT. Never stack three dialogue beats in a row. The viewer must hear a human voice every ~15 seconds — silence is a CHOICE, not a default.",
+        "typical_scene_count": [3, 4],
+        "movement_breakdown": "Movement I (~20%) drops the viewer into pressure already running. Movement II (~55%) is escalation across location changes. Movement III (~25%) ends mid-motion (jumping, ticking, exploding) — the cliffhanger lands inside the kinetic, never after the cool-down."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 3.0,
+        "target_dialogue_runtime_pct": [0.20, 0.40],
+        "line_length_register": "Lines are CLIPPED — fragments, imperatives, names, single words. Full sentences are reserved for the moment a character stops moving. Banter is the relief valve — quip mid-firefight is genre canon. Command dialogue is muscular — short imperatives with opposing intents (push forward / fall back).",
+        "max_bare_short_lines": -1
+      },
+      "beat_type_mix": {
+        "ACTION_NO_DIALOGUE": [0.35, 0.50],
+        "INSERT_SHOT": [0.10, 0.20],
+        "REACTION": [0.10, 0.15],
+        "TALKING_HEAD_CLOSEUP": [0.05, 0.15],
+        "DIALOGUE_IN_SCENE": [0.05, 0.15],
+        "B_ROLL_ESTABLISHING": [0.05, 0.10],
+        "GROUP_DIALOGUE_TWOSHOT": [0.00, 0.05]
+      },
+      "camera_register": {
+        "typical_lens_mm": "24-35mm wide for immersion; 50mm handheld for closeups",
+        "movement_style": "UNSETTLED — handheld, whip-pans, Dutch angles, snap-zooms, motion blur. Camera follows the action with intent, never floats above it.",
+        "framing_defaults": ["wide_establishing", "speed_ramp_action", "tight_closeup", "tracking_push", "fixed_telephoto_isolation"],
+        "lighting_motifs": ["harsh sodium-vapour street lamps", "muzzle flash", "rain on sheet metal", "smoke + sparks", "underexposed shadows"]
+      },
+      "ambient_bed": "Industrial, charged — generator hum, chopper rotors distant, engine idle, radio static chatter, wind at speed. The bed is PRESSURE, not serenity.",
+      "music_bed_intent": {
+        "bpm_range": [130, 160],
+        "instrumentation": "Driving percussion, sub-bass pulse, sustained low strings or modular synth drones, aggressive rhythmic elements. Music builds through the kinetic, drops or silences at the kill/reveal, re-enters on the cliffhanger.",
+        "composer_references": ["Junkie XL (Fury Road, Deadpool 2)", "Tyler Bates (John Wick)", "Lorne Balfe (Mission: Impossible — Fallout)", "Hildur Guðnadóttir kinetic cues"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_action_teal_orange_punch", "bs_action_arid_sicario", "bs_urban_grit", "bs_high_contrast_moody"],
+        "avoid": ["bs_warm_cinematic", "bs_dreamy_ethereal", "bs_golden_hour", "bs_romance_kodak_portra_warm"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Mix transitions — do not stack the same type. Cut within action-to-action boundaries (firefight → pursuit). Dissolve between action and breather (pursuit → safe house). Speed_ramp at most ONCE per episode, only on the hit-the-action-beat transition. Fadeblack for end-of-act dead air (a death, the dust settling)."
+      },
+      "character_stakes": "Action characters reveal themselves through what they DO under pressure, not through speeches. The wound shows in the gesture (the way they reload, the way they don't run, the way they do). One line, one move, you know them.",
+      "do_nots": [
+        "Do not pad scenes with dialogue to meet duration.",
+        "Do not write monologues — villain speech is at most 3 lines.",
+        "Do not let a scene go 15s without a kinetic cut, insert, or reaction.",
+        "Do not resolve a cliffhanger in the opening beat — action cliffhangers land mid-motion and the next episode picks up from the exact frame."
+      ],
+      "hook_type_priorities": ["CLIFFHANGER", "STATUS_FLIP", "CRESCENDO", "DRAMATIC_IRONY"]
+    },
+
+    {
+      "genre_id": "thriller",
+      "display_name": "Thriller",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Thriller breathes through coiled stillness. Hold longer on REACTION and SILENT_STARE than any other genre except horror. The viewer's nervous system must stay calibrated forward — cuts should make them more anxious, not less.",
+        "typical_scene_count": [2, 4],
+        "movement_breakdown": "Movement I (~20%) plants the asymmetry — viewer knows something a character doesn't, or suspects it. Movement II (~55%) sustains pressure through dialogue that never releases it. Movement III (~25%) tilts but never resolves — the answer arrives off-screen or after the cut to black."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 5.0,
+        "target_dialogue_runtime_pct": [0.30, 0.50],
+        "line_length_register": "Thriller dialogue is low-affect on the surface and double-meaning underneath. Every line must land at two elevations simultaneously — what one character hears, what the viewer hears. Lines are evenly weighted and procedurally polite while the room is collapsing.",
+        "max_bare_short_lines": 4
+      },
+      "beat_type_mix": {
+        "SHOT_REVERSE_SHOT": [0.20, 0.30],
+        "REACTION": [0.15, 0.25],
+        "SILENT_STARE": [0.10, 0.20],
+        "TALKING_HEAD_CLOSEUP": [0.10, 0.20],
+        "INSERT_SHOT": [0.10, 0.20],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "50-85mm; long lenses for surveillance feel",
+        "movement_style": "Locked-off or slow push-ins. The camera is patient and watchful — never restless, never explanatory.",
+        "framing_defaults": ["tight_closeup", "fixed_telephoto_isolation", "over_shoulder", "dirty_over_shoulder", "macro_insert", "wide_establishing"],
+        "lighting_motifs": ["practical sources only", "deep shadow", "cool unmotivated fill", "single backlight on the listener"]
+      },
+      "ambient_bed": "Almost-silence with one wrong texture — HVAC that's a hair too loud, a clock ticking irregularly, distant sirens that don't resolve, the buzz of fluorescents in another room. The bed is absence + a single intrusion.",
+      "music_bed_intent": {
+        "bpm_range": [55, 85],
+        "instrumentation": "Low sustained strings, sparse piano, occasional pulse from sub-bass synth. Stingers ONLY on reveals. Music sits under the dialogue and never resolves.",
+        "composer_references": ["Trent Reznor & Atticus Ross", "Geoff Barrow (Annihilation)", "Hildur Guðnadóttir (Joker, Chernobyl)", "Mica Levi (Under the Skin)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_thriller_fincher_amber_teal", "bs_thriller_villeneuve_haze", "bs_cool_noir", "bs_high_contrast_moody"],
+        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_dreamy_ethereal", "bs_golden_hour"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cuts for the dramatic-irony pivot — viewer needs the room change to land. Dissolve for a temporal jump that holds suspense (a night → next morning). Fadeblack for the act-end stinger. Speed_ramp is wrong for thriller; never use it."
+      },
+      "character_stakes": "Thriller characters reveal through what they choose NOT to say — the line they swallow, the question they refuse to ask, the answer they accept. The viewer reads them through what they're omitting.",
+      "do_nots": [
+        "Do not release tension through dialogue or image; the scene ends MORE coiled than it started.",
+        "Do not score the threat; let the absence of music do the work.",
+        "Do not let a character narrate their fear; show the body's tells (a held breath, a swallow, a hand that doesn't move).",
+        "Do not explain the dramatic irony; the viewer reads the gap between what they know and what the characters know."
+      ],
+      "hook_type_priorities": ["DRAMATIC_IRONY", "REVELATION", "CLIFFHANGER", "STATUS_FLIP"]
+    },
+
+    {
+      "genre_id": "comedy",
+      "display_name": "Comedy",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [2, 5],
+        "dialogue_breath_rule": "Comedy breathes through the REACTION beat — the joke lands on the face, not in the next line. Hold the silent reaction for 1-2 seconds longer than feels safe. The pause is where the laugh lives.",
+        "typical_scene_count": [2, 4],
+        "movement_breakdown": "Movement I (~25%) sets up the misunderstanding or the awkward ask. Movement II (~50%) escalates through swerves and status flips. Movement III (~25%) pays off the running misunderstanding with the smallest, most specific revelation."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 6.0,
+        "target_dialogue_runtime_pct": [0.45, 0.65],
+        "line_length_register": "Comedy lives in the SECOND line — the denial of the expected emotional beat. Rhythm is short-short-LONG (the punch is the long line, not the short one). Specificity is the comedy — proper nouns, exact times, brand names, model numbers. Vague comedy is no comedy.",
+        "max_bare_short_lines": 3
+      },
+      "beat_type_mix": {
+        "SHOT_REVERSE_SHOT": [0.20, 0.35],
+        "REACTION": [0.20, 0.30],
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "DIALOGUE_IN_SCENE": [0.10, 0.20],
+        "GROUP_DIALOGUE_TWOSHOT": [0.05, 0.15],
+        "INSERT_SHOT": [0.05, 0.10]
+      },
+      "camera_register": {
+        "typical_lens_mm": "35-50mm two-shots; 75-85mm for the reaction",
+        "movement_style": "Mostly locked-off — comedy is in the WORDS not the shot. Subtle push-in on the punchline reaction.",
+        "framing_defaults": ["medium_two_shot", "tight_closeup", "over_shoulder", "wide_establishing", "fisheye_subjective"],
+        "lighting_motifs": ["bright clean key", "even fill", "high-key palette", "minimal shadow"]
+      },
+      "ambient_bed": "Bright, busy, ordinary — office chatter, café espresso machines, retail beeps, school hallways, kitchen clatter. The bed is daily life proceeding obliviously while the characters fail at it.",
+      "music_bed_intent": {
+        "bpm_range": [85, 120],
+        "instrumentation": "Light, playful, rhythm-forward — pizzicato strings, plucky piano, gentle horns, occasional ukulele or upright bass. Music sets tempo, never carries the joke.",
+        "composer_references": ["Mark Mothersbaugh (Wes Anderson)", "Carter Burwell (Coen Brothers)", "Nick Urata (Little Miss Sunshine)", "Hauschka (Lion)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_comedy_bright_clean", "bs_comedy_wes_anderson_pastel", "bs_naturalistic", "bs_warm_cinematic"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_horror_clinical_pale", "bs_noir_classic_bw_silver", "bs_high_contrast_moody"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut is the comedy default — it's the punctuation. The cut itself can carry the punchline (cut from setup to absurd consequence). Dissolve for a montage gag. Fadeblack for an extended awkward held silence. Speed_ramp is wrong for comedy."
+      },
+      "character_stakes": "Comedy characters reveal through the TINY truth they're trying to hide — the embarrassing want, the petty grudge, the specific status they're protecting. The funnier the hiding, the more honest the character.",
+      "do_nots": [
+        "Do not write the joke in the verb; comedy lives in the noun and the timing.",
+        "Do not let two characters laugh at the joke on screen — the audience laughs, the characters stay in.",
+        "Do not over-explain the punchline through a follow-up line.",
+        "Do not score the joke; the silence after the swerve is the laugh track."
+      ],
+      "hook_type_priorities": ["CONTRADICTION_REVEAL", "STATUS_FLIP", "REVELATION", "CRESCENDO"]
+    },
+
+    {
+      "genre_id": "horror",
+      "display_name": "Horror",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 7],
+        "dialogue_breath_rule": "Horror breathes through extended SILENT_STARE and REACTION beats. The viewer must be HELD on a face longer than feels comfortable. Pacing is slow — until it isn't.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Movement I (~25%) establishes the wrong-feeling ordinary. Movement II (~50%) accumulates dread through underreaction and missed details. Movement III (~25%) tilts on something the viewer saw and the character didn't — never the other way around."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 4.0,
+        "target_dialogue_runtime_pct": [0.20, 0.40],
+        "line_length_register": "Horror dialogue is BANAL — characters speak at scale appropriate to a normal day while the world has tilted. Underreaction is the iron rule. The character who notices the wrong thing first speaks shortest. The character in denial speaks normally about ordinary subjects.",
+        "max_bare_short_lines": -1
+      },
+      "beat_type_mix": {
+        "SILENT_STARE": [0.15, 0.25],
+        "REACTION": [0.15, 0.25],
+        "TALKING_HEAD_CLOSEUP": [0.10, 0.20],
+        "INSERT_SHOT": [0.15, 0.25],
+        "B_ROLL_ESTABLISHING": [0.10, 0.20],
+        "DIALOGUE_IN_SCENE": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "35-50mm wide-creep; 85mm reaction",
+        "movement_style": "Slow push-ins, almost-imperceptible drift, locked-off holds. The camera notices what the characters don't. Sudden movement only at the tilt.",
+        "framing_defaults": ["fixed_telephoto_isolation", "wide_establishing", "tight_closeup", "macro_insert", "tilt_shift_miniature", "anamorphic_wide_world"],
+        "lighting_motifs": ["unmotivated cold fill", "single practical at distance", "deep shadow with one detail visible", "fluorescent flicker"]
+      },
+      "ambient_bed": "Almost-silence with one wrong texture — refrigerator hum slightly off-pitch, distant footsteps with no clear source, wind that doesn't match the weather, a TV in another room. The bed is the absence of the soundtrack the scene should have.",
+      "music_bed_intent": {
+        "bpm_range": [40, 75],
+        "instrumentation": "Drones, ticking, breathing, single held notes, sub-bass shudder. Cellos that don't resolve. Vocals only as wordless texture. Music drops to silence on the tilt.",
+        "composer_references": ["Mica Levi (Under the Skin)", "Colin Stetson (Hereditary)", "Disasterpeace (It Follows)", "Mark Korven (The Witch)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_horror_clinical_pale", "bs_horror_warm_dread", "bs_high_contrast_moody", "bs_cool_noir"],
+        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_golden_hour", "bs_romance_kodak_portra_warm"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut at the tilt. Dissolve to extend a held silence into the next scene. Fadeblack for the post-event banal aftermath. Speed_ramp is wrong for horror — slowness is the weapon."
+      },
+      "character_stakes": "Horror characters reveal through what they refuse to NOTICE. The dread is in the gap between what the viewer sees and what the character continues to ignore.",
+      "do_nots": [
+        "Do not let characters narrate their fear ('Oh god', 'I'm scared').",
+        "Do not score the dread; the silence is the instrument.",
+        "Do not have the character notice the threat at the same moment as the viewer — the horror lives in the lag.",
+        "Do not resolve the dread through speech; resolve through stillness or a small wrong action."
+      ],
+      "hook_type_priorities": ["DRAMATIC_IRONY", "CRESCENDO", "REVELATION", "CLIFFHANGER"]
+    },
+
+    {
+      "genre_id": "commercial",
+      "display_name": "Commercial",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [2, 4],
+        "dialogue_breath_rule": "Commercial breathes through the product moment — every 2-3 beats, a tactile or emotional gesture connects character to product. Pacing is faster than drama, slower than action. The 30-90s arc must complete.",
+        "typical_scene_count": [1, 3],
+        "movement_breakdown": "Movement I (~25%) is the world-with-tension — what the protagonist needs, what is missing. Movement II (~50%) is the encounter / use / discovery. Movement III (~25%) is the changed state — the small emotional payoff that makes the brand the silent third character."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 5.0,
+        "target_dialogue_runtime_pct": [0.20, 0.50],
+        "line_length_register": "Commercial dialogue is SHORT and felt — characters speak at the scale of real life, not testimonial register. The brand is a noun in the world, not an adjective in the dialogue. Tagline registers, infomercial cadence, and ad-copy phrasings are forbidden.",
+        "max_bare_short_lines": -1
+      },
+      "beat_type_mix": {
+        "B_ROLL_ESTABLISHING": [0.10, 0.20],
+        "INSERT_SHOT": [0.15, 0.25],
+        "TALKING_HEAD_CLOSEUP": [0.10, 0.20],
+        "REACTION": [0.10, 0.20],
+        "ACTION_NO_DIALOGUE": [0.10, 0.25],
+        "VOICEOVER_OVER_BROLL": [0.00, 0.20],
+        "DIALOGUE_IN_SCENE": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "macro for product; 35-50mm for character; 75-85mm for emotional beats",
+        "movement_style": "Hybrid — macro stillness on product inserts, gentle handheld on character beats, occasional sweeping wide for the world-context. Camera is intentional, never showy.",
+        "framing_defaults": ["product_in_environment", "product_tactile_handheld", "cinema_macro_product", "tight_closeup", "wide_establishing", "anamorphic_signature_closeup"],
+        "lighting_motifs": ["aspirational sunlight", "single hero key on product", "atmospheric depth (smoke, dust, breath)", "mid-key honesty on faces"]
+      },
+      "ambient_bed": "World-specific — coffee shop, atelier, racetrack, kitchen, gym, studio, street. The bed roots the brand in a real place. Music does NOT replace ambient.",
+      "music_bed_intent": {
+        "bpm_range": [70, 120],
+        "instrumentation": "Genre-shaped to brand identity — could be cinematic strings (luxury), ambient electronic (tech), folk-acoustic (heritage), modular synth (modern). The cue follows a 30-90s arc with a clear emotional landing.",
+        "composer_references": ["Daniel Pemberton (Spider-Man: Across the Spider-Verse)", "Nicholas Britell (Succession)", "Mica Levi", "Anna Meredith"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_commercial_hyperreal_punch", "bs_commercial_sundance_indie", "bs_commercial_neon_dream", "bs_warm_cinematic"],
+        "avoid": ["bs_horror_clinical_pale", "bs_noir_classic_bw_silver"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut for tempo and brand confidence — commercial cinema is its own discipline (W+K, Droga5, Apple register). Dissolve only for an explicit emotional bridge. Speed_ramp is permitted for kinetic commercials. Fadeblack for the end-card transition."
+      },
+      "character_stakes": "Commercial characters reveal through HOW they engage the product — their gesture, their pause before the use, the small smile after. The product witnesses the change in the character. That witnessing IS the brand story.",
+      "do_nots": [
+        "Do not write tagline-register dialogue or infomercial cadence.",
+        "Do not let the brand name appear more than once in dialogue (the integration_mandate may further restrict this).",
+        "Do not show the product without earned context — the gesture of use must be specific to this character in this world.",
+        "Do not resolve the commercial through dialogue (no 'and that's why I love it'); resolve through the gesture."
+      ],
+      "hook_type_priorities": ["REVELATION", "CONTRADICTION_REVEAL", "STATUS_FLIP", "CRESCENDO"]
+    },
+
+    {
+      "genre_id": "documentary",
+      "display_name": "Documentary",
+      "tier": "A",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 8],
+        "dialogue_breath_rule": "Documentary breathes through B_ROLL_ESTABLISHING and INSERT_SHOT — the camera-as-witness carries the rhythm. Voiceover threads the visuals. On-camera dialogue is rare and weighted; when it lands, it is treated as testimony.",
+        "typical_scene_count": [3, 5],
+        "movement_breakdown": "Movement I (~25%) establishes the world and the question through observed detail. Movement II (~55%) accumulates evidence, voices, contexts. Movement III (~20%) is the unresolved truth — documentaries do not tie bows."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 8.5,
+        "target_dialogue_runtime_pct": [0.30, 0.55],
+        "line_length_register": "Documentary dialogue is testimonial register — natural, conversational, unscripted-feeling. Sentence rhythm should mirror real speech (pauses, repairs, qualifiers). VOICEOVER is third-person observational — never 'we', never selling. The witness register is honest, specific, and grounded in physical detail.",
+        "max_bare_short_lines": 1
+      },
+      "beat_type_mix": {
+        "VOICEOVER_OVER_BROLL": [0.20, 0.35],
+        "B_ROLL_ESTABLISHING": [0.20, 0.30],
+        "INSERT_SHOT": [0.15, 0.25],
+        "TALKING_HEAD_CLOSEUP": [0.10, 0.20],
+        "REACTION": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "24-50mm wide observation; 85mm for sit-down testimony",
+        "movement_style": "Observational handheld for the world; locked-off interview for testimony. Camera is patient and respectful — never intrusive, never flashy.",
+        "framing_defaults": ["wide_establishing", "product_in_environment", "macro_insert", "tight_closeup", "fixed_telephoto_isolation", "tracking_push"],
+        "lighting_motifs": ["available light only", "window-key for interviews", "natural shadow", "honest skin tones"]
+      },
+      "ambient_bed": "Pure-place — the actual sound of the location, recorded honestly. No designed bed. Diegetic sound carries the spatial and temporal texture.",
+      "music_bed_intent": {
+        "bpm_range": [50, 90],
+        "instrumentation": "Restrained — solo piano, sparse strings, ambient synth pads, occasional voice as wordless texture. Music ENTERS to mark a chapter shift, never to manipulate emotion in the testimony itself.",
+        "composer_references": ["Jóhann Jóhannsson", "Philip Glass (Errol Morris docs)", "Dustin O'Halloran", "Hauschka"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_doc_natural_window", "bs_naturalistic", "bs_drama_motivated_natural", "bs_warm_cinematic"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white", "bs_dreamy_ethereal"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut between observed moments — preserves the documentary's claim to honesty. Dissolve for temporal compression (montage of related observations). Fadeblack for chapter breaks. Speed_ramp is wrong for documentary — anti-documentary in fact."
+      },
+      "character_stakes": "Documentary stakes are in the GAP between what is shown and what is not yet understood. The protagonist is the question itself; subjects reveal through what they choose to recount and what they refuse to.",
+      "do_nots": [
+        "Do not write scripted-fiction dialogue dressed as testimony — the cadence will be wrong.",
+        "Do not let the voiceover narrate the visuals literally; let the voiceover and image carry different layers of the same story.",
+        "Do not resolve the documentary's question; let the open-end be the truth.",
+        "Do not score under the testimony itself; only between/around it."
+      ],
+      "hook_type_priorities": ["REVELATION", "CONTRADICTION_REVEAL", "ESCALATION_OF_ASK", "DRAMATIC_IRONY"]
+    },
+
+    {
+      "genre_id": "mystery",
+      "display_name": "Noir / Mystery",
+      "tier": "A",
+      "aliases": ["noir"],
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Mystery breathes through information asymmetry. Every dialogue beat plants OR withholds a piece. Hold REACTION beats on the listener for 1-2 beats longer than feels natural — the viewer needs to read the silence.",
+        "typical_scene_count": [2, 4],
+        "movement_breakdown": "Movement I (~25%) plants the question through observed detail. Movement II (~55%) accumulates information through deflection — what the characters refuse to say. Movement III (~20%) tilts on a small object, a recognised face, a returned word; the answer is still off-screen."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 4.5,
+        "target_dialogue_runtime_pct": [0.30, 0.50],
+        "line_length_register": "Mystery dialogue is ELLIPTICAL — characters answer questions with questions, refuse to clarify, return single nouns instead of explanations. Lines are weighted with what they DON'T say. Refusal-to-elaborate IS the move.",
+        "max_bare_short_lines": -1
+      },
+      "beat_type_mix": {
+        "SHOT_REVERSE_SHOT": [0.20, 0.30],
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "REACTION": [0.10, 0.20],
+        "INSERT_SHOT": [0.15, 0.25],
+        "SILENT_STARE": [0.05, 0.15],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "50-85mm; long lens for surveillance",
+        "movement_style": "Locked-off and slow. The camera is a detective — patient, watchful, returning to small details.",
+        "framing_defaults": ["tight_closeup", "over_shoulder", "dirty_over_shoulder", "macro_insert", "fixed_telephoto_isolation", "wide_establishing"],
+        "lighting_motifs": ["venetian blind shadows", "cigarette smoke or breath in cold air", "single-source practicals (lamp, neon, headlights)", "rim-lit silhouettes"]
+      },
+      "ambient_bed": "Urban-nocturnal — distant traffic, rain on pavement, neon hum, late-night radio in another room, an elevator running somewhere. The bed is the city continuing while one person notices what the others don't.",
+      "music_bed_intent": {
+        "bpm_range": [55, 90],
+        "instrumentation": "Saxophone, double-bass, pizzicato strings, brushed drums, occasional vibraphone. Cool, restrained, never ironic. Music sits under the dialogue and never resolves.",
+        "composer_references": ["Bernard Herrmann", "Cliff Martinez (Drive, Solaris)", "David Holmes (Out of Sight)", "Trent Reznor & Atticus Ross (Mank)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_noir_classic_bw_silver", "bs_noir_neon_modern", "bs_cool_noir", "bs_high_contrast_moody"],
+        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_dreamy_ethereal", "bs_golden_hour"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut for the information reveal — the cut itself can be the answer. Dissolve for temporal jumps the viewer should sense without timestamping. Fadeblack for the act-end stinger. Speed_ramp is wrong for mystery."
+      },
+      "character_stakes": "Mystery characters reveal through what they DON'T ask and what they DO notice. Every line hides more than it says. The detective and the suspect are both withholding; the gap between them is the case.",
+      "do_nots": [
+        "Do not let a character explain motive directly; the explanation arrives sideways through evidence.",
+        "Do not resolve the question through dialogue — resolve through an object, a recognised face, a returned location.",
+        "Do not write procedural Q&A; mystery dialogue is evasion-heavy and information-asymmetric.",
+        "Do not summarize what the viewer just saw; trust the viewer to assemble the pattern."
+      ],
+      "hook_type_priorities": ["REVELATION", "CONTRADICTION_REVEAL", "ESCALATION_OF_ASK", "DRAMATIC_IRONY"]
+    },
+
+    {
+      "genre_id": "sci-fi",
+      "display_name": "Science Fiction",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Sci-fi breathes through INSERT_SHOT and B_ROLL_ESTABLISHING — the world IS the rhythm. Dialogue density adjusts to the world-density required.",
+        "typical_scene_count": [2, 4],
+        "movement_breakdown": "Standard three-movement; world-rules planted early through specific details, never through monologue."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 6.5,
+        "target_dialogue_runtime_pct": [0.30, 0.55],
+        "line_length_register": "Sci-fi dialogue is PROCEDURAL on the surface — characters speak about the world's operating rules as if they were ordinary. World-building lives in incidental detail, never in expository monologue.",
+        "max_bare_short_lines": 3
+      },
+      "beat_type_mix": {
+        "INSERT_SHOT": [0.10, 0.20],
+        "B_ROLL_ESTABLISHING": [0.10, 0.20],
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "SHOT_REVERSE_SHOT": [0.15, 0.25],
+        "REACTION": [0.10, 0.20]
+      },
+      "camera_register": {
+        "typical_lens_mm": "35-85mm; anamorphic for prestige sci-fi",
+        "movement_style": "Patient, world-curious. Wide compositions hold the architecture of the world.",
+        "framing_defaults": ["wide_establishing", "anamorphic_wide_world", "tight_closeup", "macro_insert", "fixed_telephoto_isolation"],
+        "lighting_motifs": ["cool key with practical accent colors", "single warm source against cool fill", "fluorescent / LED sources, motivated"]
+      },
+      "ambient_bed": "World-specific — designed soundscapes that reveal the rules of the place. Industrial, electronic, or organic depending on the world.",
+      "music_bed_intent": {
+        "bpm_range": [55, 100],
+        "instrumentation": "Modular synthesis, processed strings, ambient pads, occasional acoustic intrusion. Score builds the world more than it underscores emotion.",
+        "composer_references": ["Hans Zimmer (Interstellar)", "Jóhann Jóhannsson (Arrival)", "Cliff Martinez (Solaris)", "Mica Levi (Under the Skin)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_scifi_blade_runner_amber", "bs_scifi_clinical_white", "bs_high_contrast_moody"],
+        "avoid": ["bs_warm_cinematic", "bs_romance_kodak_portra_warm"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve supports temporal/spatial vastness. Cut between perspectives or scales. Fadeblack for chapter transitions."
+      },
+      "character_stakes": "Sci-fi characters reveal through how they navigate the world's rules — what they accept, what they question, what costs them. The world tests them; their stakes are visible in the friction.",
+      "do_nots": [
+        "Do not explain the world through expository monologue — let the world be visible in incidental detail.",
+        "Do not let dialogue run the exposition tax; trust the viewer to assemble the rules from what characters do.",
+        "Do not score the world-reveal; let the visual carry it."
+      ],
+      "hook_type_priorities": ["REVELATION", "DRAMATIC_IRONY", "ESCALATION_OF_ASK"]
+    },
+
+    {
+      "genre_id": "fantasy",
+      "display_name": "Fantasy",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 7],
+        "dialogue_breath_rule": "Fantasy breathes through wide world-reveals (B_ROLL_ESTABLISHING) and ritualised closeups. The world's logic carries the rhythm.",
+        "typical_scene_count": [2, 4],
+        "movement_breakdown": "Standard three-movement; mythic stakes anchored by character-scale specificity."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 7.5,
+        "target_dialogue_runtime_pct": [0.30, 0.55],
+        "line_length_register": "Fantasy dialogue carries elevated register — formal cadence, archaic vocabulary where motivated, characters speak from inside the world's logic. Never modern apologetics in a mythic frame.",
+        "max_bare_short_lines": 2
+      },
+      "beat_type_mix": {
+        "B_ROLL_ESTABLISHING": [0.10, 0.20],
+        "INSERT_SHOT": [0.10, 0.15],
+        "SHOT_REVERSE_SHOT": [0.15, 0.25],
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "REACTION": [0.10, 0.20]
+      },
+      "camera_register": {
+        "typical_lens_mm": "24-50mm for world; 85mm portraiture for character",
+        "movement_style": "Patient and wide; the camera honours the world. Closeups are formal, almost statuary.",
+        "framing_defaults": ["anamorphic_wide_world", "wide_establishing", "portrait_75mm", "macro_insert", "fixed_telephoto_isolation"],
+        "lighting_motifs": ["motivated firelight or daylight", "atmospheric haze", "rim-lit silhouettes against world", "painterly chiaroscuro"]
+      },
+      "ambient_bed": "World-specific natural sound — wind, water, fire, fabric, distant horns or bells. The bed roots myth in physical reality.",
+      "music_bed_intent": {
+        "bpm_range": [55, 100],
+        "instrumentation": "Orchestral with folk instruments, choirs, period instruments. Score carries mythic scale; restraint at character beats.",
+        "composer_references": ["Howard Shore (LOTR)", "Ramin Djawadi (Game of Thrones)", "James Newton Howard", "Ennio Morricone (The Mission)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_fantasy_painterly_emerald", "bs_warm_cinematic", "bs_drama_phantom_thread"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve for mythic temporal continuity. Fadeblack for chapter shifts. Hard cut for the prophesied moment landing."
+      },
+      "character_stakes": "Fantasy characters reveal through how they hold the weight of the world's myth — what they accept as fate, what they refuse, what they sacrifice. The world's largeness pressures them into specificity.",
+      "do_nots": [
+        "Do not let modern informalities ('yeah', 'okay', 'cool') break the era's register.",
+        "Do not over-explain the magic system through dialogue.",
+        "Do not let mythic scale erase character-scale stakes."
+      ],
+      "hook_type_priorities": ["REVELATION", "CRESCENDO", "STATUS_FLIP"]
+    },
+
+    {
+      "genre_id": "period",
+      "display_name": "Period",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [4, 8],
+        "dialogue_breath_rule": "Period breathes through formality — pauses are part of the manners. Long beats are appropriate; the era's tempo is slower than contemporary.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Standard three-movement; the period's social rules constrain the characters and pressure the dramatic question."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 9.0,
+        "target_dialogue_runtime_pct": [0.40, 0.65],
+        "line_length_register": "Period dialogue is FORMAL — vocabulary, syntax, address all locate the viewer in time. Modern feeling translated into era register. Class is in the word choice. Sentence construction is longer and more complete than contemporary.",
+        "max_bare_short_lines": 1
+      },
+      "beat_type_mix": {
+        "GROUP_DIALOGUE_TWOSHOT": [0.10, 0.20],
+        "SHOT_REVERSE_SHOT": [0.20, 0.30],
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "REACTION": [0.10, 0.20],
+        "INSERT_SHOT": [0.05, 0.15],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "35-85mm; classical lens choices",
+        "movement_style": "Locked-off, formal compositions. Movement is deliberate and motivated.",
+        "framing_defaults": ["medium_two_shot", "tight_closeup", "portrait_75mm", "wide_establishing", "anamorphic_signature_closeup"],
+        "lighting_motifs": ["candle / lamp / window single-source", "natural daylight only", "deep period-appropriate shadow", "skin tones lit honestly"]
+      },
+      "ambient_bed": "Era-specific natural sound — fabric movement, wood, fire, hooves, distant church bells, period mechanical objects. The bed is the era's physical reality.",
+      "music_bed_intent": {
+        "bpm_range": [55, 95],
+        "instrumentation": "Period instruments — harpsichord, lute, strings, woodwinds. Where modern score works, restraint is essential.",
+        "composer_references": ["Carter Burwell (Carol)", "Alexandre Desplat (The Grand Budapest Hotel)", "Daniel Pemberton (The Counterfeiters)", "Volker Bertelmann (Conclave)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_period_kodachrome_60s", "bs_period_silver_painterly", "bs_drama_phantom_thread", "bs_warm_cinematic"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve for temporal grace. Fadeblack for act endings. Hard cut for the social-rupture moment."
+      },
+      "character_stakes": "Period characters reveal through what their era's social rules forbid them from saying. The longing or rage is present-tense; the construction holds it at the era's distance and amplifies the pressure.",
+      "do_nots": [
+        "Do not write contemporary cadence in period costume.",
+        "Do not let anachronistic informalities slip through.",
+        "Do not score over period-instrument source music; choose one or the other."
+      ],
+      "hook_type_priorities": ["REVELATION", "STATUS_FLIP", "CONTRADICTION_REVEAL"]
+    },
+
+    {
+      "genre_id": "inspirational",
+      "display_name": "Inspirational",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 6],
+        "dialogue_breath_rule": "Inspirational breathes through small gestures and earned silence. Avoid speech-making; let the character's choice carry the inspiration.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Standard three-movement; emotional payoff lands on a quiet act, not a declaration."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 7.0,
+        "target_dialogue_runtime_pct": [0.40, 0.60],
+        "line_length_register": "Inspirational dialogue avoids platitudes — characters speak in specifics, not in claims. The inspiring moment is grounded in domestic detail. Tagline-register is forbidden.",
+        "max_bare_short_lines": 2
+      },
+      "beat_type_mix": {
+        "TALKING_HEAD_CLOSEUP": [0.20, 0.30],
+        "REACTION": [0.10, 0.20],
+        "INSERT_SHOT": [0.10, 0.15],
+        "SHOT_REVERSE_SHOT": [0.15, 0.25],
+        "B_ROLL_ESTABLISHING": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "50-85mm",
+        "movement_style": "Mostly locked-off; gentle push-ins on the moment of recognition.",
+        "framing_defaults": ["tight_closeup", "portrait_75mm", "over_shoulder", "wide_establishing"],
+        "lighting_motifs": ["natural daylight", "single warm key", "honest skin tones"]
+      },
+      "ambient_bed": "Domestic, earned, specific — workplaces, kitchens, classrooms, training spaces. Real life, real sound.",
+      "music_bed_intent": {
+        "bpm_range": [60, 100],
+        "instrumentation": "Restrained — piano, single guitar, strings entering late. Music supports the choice, never carries it.",
+        "composer_references": ["Nicholas Britell", "Jonny Greenwood", "Justin Hurwitz", "Daniel Pemberton"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_drama_motivated_natural", "bs_naturalistic", "bs_warm_cinematic"],
+        "avoid": ["bs_commercial_hyperreal_punch", "bs_horror_clinical_pale"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve for emotional continuity. Fadeblack for the post-decision held moment. Hard cut for the small, earned action that crowns the arc."
+      },
+      "character_stakes": "Inspirational characters reveal through the small choice that costs them, not the speech that announces it. The inspiration is in the act of doing the harder right thing.",
+      "do_nots": [
+        "Do not write declaration-register or motivational-tagline dialogue.",
+        "Do not let music make the moment; let the gesture make it.",
+        "Do not resolve through speech."
+      ],
+      "hook_type_priorities": ["REVELATION", "STATUS_FLIP", "CRESCENDO"]
+    },
+
+    {
+      "genre_id": "adventure",
+      "display_name": "Adventure",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [3, 5],
+        "dialogue_breath_rule": "Adventure breathes through ACTION and B_ROLL — the world is the journey. Dialogue carries character voice between locations.",
+        "typical_scene_count": [3, 4],
+        "movement_breakdown": "Standard three-movement; the journey itself is the plot, characters reveal under physical pressure."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 5.5,
+        "target_dialogue_runtime_pct": [0.25, 0.45],
+        "line_length_register": "Adventure dialogue is GROUNDED — characters speak from inside the journey's physical reality. Banter and camaraderie carry voice across locations. Quips earn their place but never dominate.",
+        "max_bare_short_lines": 3
+      },
+      "beat_type_mix": {
+        "ACTION_NO_DIALOGUE": [0.20, 0.35],
+        "B_ROLL_ESTABLISHING": [0.10, 0.20],
+        "DIALOGUE_IN_SCENE": [0.10, 0.20],
+        "TALKING_HEAD_CLOSEUP": [0.10, 0.20],
+        "REACTION": [0.10, 0.15],
+        "INSERT_SHOT": [0.05, 0.15]
+      },
+      "camera_register": {
+        "typical_lens_mm": "24-50mm for world; 85mm closeups",
+        "movement_style": "Steady wides with tracking moves; handheld for the kinetic. The camera travels with the characters.",
+        "framing_defaults": ["wide_establishing", "anamorphic_wide_world", "tracking_push", "tight_closeup", "fixed_telephoto_isolation"],
+        "lighting_motifs": ["natural daylight", "golden-hour landscapes", "single-source motivated", "atmospheric depth"]
+      },
+      "ambient_bed": "World-specific — wind, water, terrain, weather, distant wildlife. The journey's physical reality.",
+      "music_bed_intent": {
+        "bpm_range": [80, 120],
+        "instrumentation": "Orchestral with folk instruments, sweeping themes, percussion-driven through kinetic beats. Music marks geographic / emotional distance traveled.",
+        "composer_references": ["John Williams (Indiana Jones)", "Howard Shore (LOTR)", "James Horner (Avatar)", "Michael Giacchino (Up)"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_warm_cinematic", "bs_naturalistic", "bs_action_arid_sicario"],
+        "avoid": ["bs_horror_clinical_pale", "bs_noir_classic_bw_silver", "bs_commercial_hyperreal_punch"]
+      },
+      "transitions": {
+        "default": "dissolve",
+        "notes": "Dissolve for geographic transit. Hard cut within action set-pieces. Fadeblack for chapter / day transitions."
+      },
+      "character_stakes": "Adventure characters reveal through how they handle physical and psychological pressure on the road. Camaraderie is built and tested through specific shared challenges.",
+      "do_nots": [
+        "Do not let action overwhelm character — the journey serves the people.",
+        "Do not over-score the wide; sometimes the silence of the landscape IS the score.",
+        "Do not resolve the adventure through victory alone; resolve through the changed-by-the-journey character."
+      ],
+      "hook_type_priorities": ["CLIFFHANGER", "REVELATION", "CRESCENDO"]
+    },
+
+    {
+      "genre_id": "slice-of-life",
+      "display_name": "Slice of Life",
+      "tier": "B",
+      "pacing_rules": {
+        "typical_beat_duration_s": [4, 8],
+        "dialogue_breath_rule": "Slice-of-life breathes through patience. Long beats, observed detail, the texture of ordinary time. The deliberate absence of plot is the form.",
+        "typical_scene_count": [2, 3],
+        "movement_breakdown": "Three movements are looser — episode shape may be a single sustained mood. Inciting / pressure / cost replaced by the small recurring observation."
+      },
+      "dialogue_floor": {
+        "min_dialogue_words_avg": 6.5,
+        "target_dialogue_runtime_pct": [0.35, 0.55],
+        "line_length_register": "Slice-of-life dialogue is the texture of ordinary speech — small talk, repairs, qualifiers, half-finished thoughts. The mundane is the material. Domestic specificity is the depth.",
+        "max_bare_short_lines": 4
+      },
+      "beat_type_mix": {
+        "TALKING_HEAD_CLOSEUP": [0.15, 0.25],
+        "DIALOGUE_IN_SCENE": [0.10, 0.20],
+        "B_ROLL_ESTABLISHING": [0.15, 0.25],
+        "INSERT_SHOT": [0.10, 0.20],
+        "REACTION": [0.10, 0.20]
+      },
+      "camera_register": {
+        "typical_lens_mm": "35-50mm; observational",
+        "movement_style": "Locked-off and patient. The camera notices what life arranges.",
+        "framing_defaults": ["medium_two_shot", "wide_establishing", "tight_closeup", "macro_insert", "fixed_telephoto_isolation"],
+        "lighting_motifs": ["available light", "domestic practicals", "honest natural daylight"]
+      },
+      "ambient_bed": "Domestic — exactly what the place sounds like at exactly that time. Refrigerator, traffic, distant TV, kettle, school bell. Honest texture.",
+      "music_bed_intent": {
+        "bpm_range": [50, 85],
+        "instrumentation": "Sparse, restrained, often diegetic (a radio, a record). When score enters, it is small and respectful of the ordinary.",
+        "composer_references": ["Hauschka (Lion)", "Dustin O'Halloran", "Jóhann Jóhannsson", "Hirokazu Kore-eda's typical music supervision"]
+      },
+      "lut_recommendations": {
+        "preferred": ["bs_naturalistic", "bs_drama_motivated_natural", "bs_warm_cinematic"],
+        "avoid": ["bs_commercial_hyperreal_punch", "bs_horror_clinical_pale", "bs_action_teal_orange_punch"]
+      },
+      "transitions": {
+        "default": "cut",
+        "notes": "Hard cut between observed moments preserves the slice's claim to the ordinary. Dissolve for temporal compression of small daily routines. Fadeblack for held emotional moments."
+      },
+      "character_stakes": "Slice-of-life characters reveal through their relationship with time itself — what they wait for, what they continue, what tiny kindness or refusal carries the whole episode.",
+      "do_nots": [
+        "Do not impose a plot the form is refusing.",
+        "Do not score over the ordinary; let the texture be the score.",
+        "Do not resolve through dramatic action; the form is anti-climax."
+      ],
+      "hook_type_priorities": ["REVELATION", "CONTRADICTION_REVEAL"]
+    }
+  ]
+}

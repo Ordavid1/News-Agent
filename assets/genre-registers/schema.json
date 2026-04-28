@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "V4 Genre Register",
+  "description": "Validation contract for assets/genre-registers/library.json. Every entry must be a parameter / craft directive / external reference — NEVER a quoted dialogue line, character name, or premise sample.",
+  "type": "object",
+  "required": ["genre_id", "display_name", "tier", "pacing_rules", "dialogue_floor", "beat_type_mix", "camera_register", "ambient_bed", "music_bed_intent", "lut_recommendations", "transitions", "character_stakes", "do_nots"],
+  "additionalProperties": false,
+  "properties": {
+    "genre_id": {
+      "type": "string",
+      "description": "Stable identifier matching the value attribute of the corresponding option in public/profile.html. Used for case-insensitive lookup with noir→mystery aliasing.",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 60
+    },
+    "tier": {
+      "enum": ["A", "B"],
+      "description": "Tier-A genres render as full director's-brief register blocks (~80-130 lines). Tier-B genres render as lightweight blocks (~25-40 lines)."
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+      "description": "Alternate genre_ids that should resolve to this entry. e.g. noir → mystery."
+    },
+    "pacing_rules": {
+      "type": "object",
+      "required": ["typical_beat_duration_s", "dialogue_breath_rule", "typical_scene_count", "movement_breakdown"],
+      "additionalProperties": false,
+      "properties": {
+        "typical_beat_duration_s": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 1, "maximum": 12 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "dialogue_breath_rule": { "type": "string", "minLength": 10 },
+        "typical_scene_count": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 8 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "movement_breakdown": { "type": "string", "minLength": 10 }
+      }
+    },
+    "dialogue_floor": {
+      "type": "object",
+      "required": ["min_dialogue_words_avg", "target_dialogue_runtime_pct", "line_length_register"],
+      "additionalProperties": false,
+      "properties": {
+        "min_dialogue_words_avg": {
+          "type": "number",
+          "minimum": 2.5,
+          "maximum": 12,
+          "description": "Hard floor of 2.5 — schema validation refuses anything lower so a malformed register cannot defeat the validator's safety net."
+        },
+        "target_dialogue_runtime_pct": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0.05, "maximum": 0.85 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "line_length_register": { "type": "string", "minLength": 10 },
+        "max_bare_short_lines": {
+          "description": "Genre-aware ceiling on dialogue beats with ≤ 3 words and no emotional_hold. -1 means no cap (action/horror/mystery). Defaults to 2 if omitted.",
+          "oneOf": [
+            { "type": "integer", "minimum": -1, "maximum": 20 }
+          ]
+        }
+      }
+    },
+    "beat_type_mix": {
+      "type": "object",
+      "description": "Approximate share of each beat type in this genre's typical episode. Each entry is [min_pct, max_pct] in 0..1. Beat types not listed are left at the universal default.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "camera_register": {
+      "type": "object",
+      "required": ["typical_lens_mm", "movement_style", "framing_defaults"],
+      "additionalProperties": false,
+      "properties": {
+        "typical_lens_mm": { "type": "string", "minLength": 2 },
+        "movement_style": { "type": "string", "minLength": 5 },
+        "framing_defaults": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "minItems": 1
+        },
+        "lighting_motifs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "ambient_bed": { "type": "string", "minLength": 20 },
+    "music_bed_intent": {
+      "type": "object",
+      "required": ["bpm_range", "instrumentation", "composer_references"],
+      "additionalProperties": false,
+      "properties": {
+        "bpm_range": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 30, "maximum": 240 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "instrumentation": { "type": "string", "minLength": 10 },
+        "composer_references": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 3 },
+          "minItems": 2,
+          "description": "3-4 prestige composer / film references. Director's edict: 'broaden Gemini's register to the convex hull of all four.'"
+        }
+      }
+    },
+    "lut_recommendations": {
+      "type": "object",
+      "required": ["preferred", "avoid"],
+      "additionalProperties": false,
+      "properties": {
+        "preferred": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^bs_[a-z0-9_]+$" },
+          "minItems": 1,
+          "description": "LUT IDs from assets/luts/library.json. Boot-time validation cross-checks IDs exist."
+        },
+        "avoid": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^bs_[a-z0-9_]+$" }
+        }
+      }
+    },
+    "transitions": {
+      "type": "object",
+      "required": ["default", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "default": { "enum": ["cut", "dissolve", "fadeblack", "speed_ramp"] },
+        "notes": { "type": "string", "minLength": 10 }
+      }
+    },
+    "character_stakes": { "type": "string", "minLength": 20 },
+    "do_nots": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 5 },
+      "minItems": 1
+    },
+    "hook_type_priorities": {
+      "type": "array",
+      "items": {
+        "enum": ["CLIFFHANGER", "REVELATION", "CRESCENDO", "DRAMATIC_IRONY", "STATUS_FLIP", "CONTRADICTION_REVEAL", "ESCALATION_OF_ASK"]
+      }
+    }
+  }
+}

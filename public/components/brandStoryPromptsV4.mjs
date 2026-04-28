@@ -31,6 +31,15 @@ import {
   _buildCommercialBriefBlock
 } from './brandStoryPrompts.mjs';
 
+// Phase 2 — single-source-of-truth genre register library. Behind env flag
+// `BRAND_STORY_GENRE_REGISTER_LIBRARY` (default false during migration);
+// when off, the legacy inline `_buildGenreRegisterBlock` defined below is
+// the source. Both consumer paths share the same prompt-shape contract.
+import {
+  buildGenreRegisterBlock as _buildGenreRegisterBlockFromLibrary,
+  isGenreRegisterLibraryEnabled
+} from '../../services/v4/GenreRegister.js';
+
 // ═══════════════════════════════════════════════════════════════════════
 // BEAT TYPE TAXONOMY — 13 total (9 generated + 4 post-production / modifiers)
 // ═══════════════════════════════════════════════════════════════════════
@@ -286,6 +295,22 @@ Pace: slow burns punctuated by status flips.`;
   // Default — the universal directive. Genre is a container, tone sits in
   // the brand context, characters carry the weight.
   return '';
+}
+
+// Phase 2 wrapper — when BRAND_STORY_GENRE_REGISTER_LIBRARY=true, the
+// declarative library at assets/genre-registers/library.json is the source
+// of truth. When off (default during migration), fall back to the legacy
+// inline _buildGenreRegisterBlock above. The library returns '' for
+// unknown genres → mirror that fallthrough so a missing library entry
+// doesn't drop a non-zero genre register on the floor.
+function _resolveGenreRegisterBlock(genre) {
+  if (isGenreRegisterLibraryEnabled()) {
+    const fromLibrary = _buildGenreRegisterBlockFromLibrary(genre);
+    if (fromLibrary && fromLibrary.trim().length > 0) return fromLibrary;
+    // Library returned empty — fall through to legacy so partial coverage
+    // (genre present in legacy but missing from library) doesn't regress.
+  }
+  return _buildGenreRegisterBlock(genre);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -638,6 +663,84 @@ ${_buildProductPlacementBlock(integrationStyle)}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// V4 CAST BIBLE — episode-prompt injector
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Phase 3 of the Cast Coherence Overhaul. The story-level cast_bible is
+// rendered into the episode system prompt as a HARD CONSTRAINT — Gemini
+// must reference ONLY the listed persona_index values when authoring
+// dialogue. Eliminates phantom-character invention at source (the bug
+// surfaced in 2026-04-25 production logs).
+//
+// Empty principals OR null bible → returns empty string (legacy stories
+// without a bible are unaffected; checkPersonaIndexCoverage stays as the
+// safety net).
+//
+// Flags (read at prompt-assembly time):
+//   BRAND_STORY_CAST_BIBLE_HARD_CONSTRAINT (default 'true')
+//     — when 'false', emit guidance framing instead of HARD CONSTRAINT.
+//       Validator's checkPersonaIndexCoverage continues as safety net.
+//   BRAND_STORY_BIBLES_DISABLE (default 'false')
+//     — when 'true', kill switch — emit empty string (also disables SSB).
+//       Used to disengage both bibles cleanly without code rollback if
+//       SSB pattern regresses.
+function _buildCastBibleBlock(bible) {
+  if (process.env.BRAND_STORY_BIBLES_DISABLE === 'true') return '';
+  if (!bible || typeof bible !== 'object') return '';
+  const principals = Array.isArray(bible.principals) ? bible.principals : [];
+  if (principals.length === 0) return '';
+
+  const hardConstraint = process.env.BRAND_STORY_CAST_BIBLE_HARD_CONSTRAINT !== 'false';
+  const indexes = principals.map(p => p.persona_index).filter(i => Number.isInteger(i));
+  const indexList = `[${indexes.join(', ')}]`;
+
+  const principalLines = principals.map(p => {
+    const pieces = [
+      `[${p.persona_index}] ${p.name || 'Unnamed'}`,
+      p.role ? `role=${p.role}` : null,
+      p.gender_inferred && p.gender_inferred !== 'unknown' ? `gender=${p.gender_inferred}` : null,
+      p.elevenlabs_voice_name ? `voice=${p.elevenlabs_voice_name}` : null
+    ].filter(Boolean);
+    return `  - ${pieces.join(' · ')}`;
+  }).join('\n');
+
+  if (hardConstraint) {
+    return `═══════════════════════════════════════════════════════════════
+CAST BIBLE — HARD CONSTRAINT (locked at story creation):
+═══════════════════════════════════════════════════════════════
+
+This story has a fixed cast. You MUST only reference persona_index values ${indexList}
+in this episode's screenplay. Any character not in this list is non-speaking.
+Render incidental characters via B_ROLL or REACTION cutaways. Do NOT invent
+persona_index values outside this range — the validator will reject any
+dialogue line that does, and the user will have to retake the screenplay.
+
+PRINCIPALS (the only characters who may speak in this episode):
+${principalLines}
+
+If the storyline mentions a character not in this list, they are NON-SPEAKING.
+Frame them as B_ROLL_ESTABLISHING, REACTION cutaways, or off-screen presence —
+never give them a dialogue line, never assign them a persona_index outside ${indexList}.
+`;
+  }
+
+  // Guidance framing (BRAND_STORY_CAST_BIBLE_HARD_CONSTRAINT=false)
+  return `═══════════════════════════════════════════════════════════════
+CAST BIBLE (story-level guidance):
+═══════════════════════════════════════════════════════════════
+
+This story has principals at persona_index values ${indexList}. Strongly prefer
+to keep dialogue with these characters. If the narrative genuinely demands a
+foil character, prefer B_ROLL/REACTION cutaways over inventing a new speaking
+persona_index — but the validator will not block dialogue with a new
+persona_index if it is essential to the scene.
+
+PRINCIPALS:
+${principalLines}
+`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // V4 SONIC SERIES BIBLE — episode-prompt injector
 // ═══════════════════════════════════════════════════════════════════════
 //
@@ -649,7 +752,11 @@ ${_buildProductPlacementBlock(integrationStyle)}`;
 // through to default), the block returns an empty string. The episode prompt
 // then teaches Gemini to author a stand-alone sonic_world (the schema rules
 // in Rule 13 still bind regardless of bible presence).
+//
+// Kill switch: BRAND_STORY_BIBLES_DISABLE=true emits empty string (parity
+// with Cast Bible — when SSB pattern regresses, both bibles disengage).
 function _buildSonicSeriesBibleBlock(bible) {
+  if (process.env.BRAND_STORY_BIBLES_DISABLE === 'true') return '';
   if (!bible || typeof bible !== 'object') return '';
 
   const drone = bible.signature_drone || {};
@@ -713,6 +820,172 @@ and the Doctor will rewrite them — but you should author them correctly the
 first time.`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// V4 Audio Layer Overhaul Day 3 — Hebrew dialogue register
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The DIALOGUE MASTERCLASS examples in this file are English (Fleabag,
+// Succession, The Bear, etc.) and the principles are language-universal —
+// Five Jobs, Voice as a Weapon, Subtext Iron Rule. What is NOT universal is
+// the prosodic contour of Hebrew dialogue and the way subtext is encoded.
+// Hebrew is grammatically more direct (verb-subject-object cadence, fewer
+// articles, clipped imperatives), leans on different rhetorical structures
+// (rabbinic argument, IDF brevity, Levantine warmth), and the
+// subtext-vs-said gap operates differently than in English. Translating
+// English masterclass examples into Hebrew makes the dialogue sound like
+// a translation. This block adds a Hebrew-specific register so Gemini
+// authors Hebrew dialogue from the right priors.
+//
+// Returns empty string for any non-Hebrew story so the block is a pure
+// addition to Hebrew episodes — zero impact on English/other-language
+// stories. Gated by BRAND_STORY_HEBREW_MASTERCLASS (default ON for `he`).
+function _buildHebrewMasterclassBlock(storyLanguage) {
+  if (!storyLanguage || typeof storyLanguage !== 'string') return '';
+  if (!storyLanguage.toLowerCase().startsWith('he')) return '';
+  if (String(process.env.BRAND_STORY_HEBREW_MASTERCLASS || 'true').toLowerCase() === 'false') return '';
+
+  return `═══════════════════════════════════════════════════════════════
+DIALOGUE MASTERCLASS — HEBREW REGISTER (when story.language === 'he')
+═══════════════════════════════════════════════════════════════
+
+The principles above (Five Jobs, Voice as a Weapon, Subtext Iron Rule, Hooks
+Taxonomy, Archetype Pair Dynamics, Pacing & Rhythm, the One Great Line, the
+8 craft moves) ALL apply to Hebrew dialogue. The block below is what
+CHANGES — the prosodic contour, the rhetorical cadence, and the references
+that anchor Gemini to the right Hebrew register. DO NOT translate the
+English masterclass examples. Author each line in Hebrew from this register
+directly. The audio layer (eleven-v3 with language_code='he') will render
+the line natively; English-style cadence forced into Hebrew syntax sounds
+like a foreign news anchor reading from a script.
+
+CADENCE FAMILIES (pick one per character, lock it across the season)
+
+1) RABBINIC / TALMUDIC ARGUMENT
+   Hebrew has a thousand years of rhetorical structure built around
+   answer-by-counter-question, citing-by-allusion, and refusing-to-conclude.
+   In dialogue, this surfaces as: counter-questions instead of answers,
+   "וַדאי" / "אבל בדיוק" / "ואם כך" as turn-pivots, and a habit of opening
+   with the contrary case before stating one's own. The character's status
+   is the precision of their refusal to settle, not the loudness of their
+   claim. References: Shtisel (Yehonatan Indursky / Ori Elon — Akiva and Shulem
+   table debates); Srugim (rabbinical-college register without the comedy);
+   Beauty Queen of Jerusalem (Sephardic family debates with the same
+   refuse-to-conclude move).
+
+2) IDF / SECURITY-SERVICE CLIPPED IMPERATIVE
+   Hebrew under operational pressure compresses to 1-3 word imperatives,
+   call-signs, and verb-only commands. Civilians under stress code-switch
+   into this register too — it's the cultural pressure-language. References:
+   Fauda (Lior Raz / Avi Issacharoff — Doron's command rhythm); Tehran (Moshe
+   Zonder — Tamar's civilian-under-cover pressure speech); Hatufim (Gideon
+   Raff — POW de-briefings, where every clipped answer hides a fault line).
+
+3) LEVANTINE WARMTH / FAMILY KITCHEN
+   Hebrew warmth is built on diminutives ("חמודה", "מותק"), endearments
+   that can sting ("נשמה", "שלי"), and relentless feeding-as-conversation.
+   Subtext lives in what's offered (food, coffee, a chair) more than in
+   the words. References: Beauty Queen of Jerusalem; Shtisel (Friday-night
+   dinner scenes); Hashoter Hatov (the affection-disguised-as-mockery
+   between partners).
+
+4) SECULAR TEL AVIV / INFORMAL URBAN
+   Code-switched English loanwords ("בייסיק", "סבבה", "אחי", "דאחק"),
+   sentence-final particles ("נו", "כאילו"), and an under-statement floor
+   that performs being unimpressed. References: Srugim's secular-leaning
+   characters; Shababnikim's young-adult banter; the everyday register of
+   most modern Tel Aviv prestige TV.
+
+5) MIZRAHI / SEPHARDIC FAMILY REGISTER
+   Distinct prosodic stress, code-switching with Arabic and Ladino loanwords
+   ("יא חביבי", "אמא'לה"), and the family-elder-as-final-authority structure
+   threaded through dialogue. References: Beauty Queen of Jerusalem; Zaguri
+   Imperia (Maor Zaguri — multi-generational Mizrahi family rhythm).
+
+GRAMMAR YOU MUST RESPECT (the structural floor)
+
+- VERB-SUBJECT-OBJECT order is normative; SUBJECT-VERB-OBJECT reads as
+  English-translation cadence. Author "אמרתי לך כבר", not "אני כבר אמרתי לך".
+- Hebrew has no auxiliary "do/does"; questions land via intonation only.
+  Use them — the absence of a marker IS the move.
+- The "Yes-No question with implied answer" (תשובה ידועה מראש) is a major
+  rhetorical device. "אתה לא חושב שזה מספיק?" — the speaker isn't asking.
+- Diminutives are weaponizable: "חמודה" between strangers can be patronising
+  or warm depending on intonation; the screenplay must signal which via
+  expression_notes + subtext.
+- Definiteness ("ה־") shifts emphasis. "הילד" vs "ילד" is not "the boy" vs
+  "a boy" — it's "the (specific, known) boy" vs "(any) boy". Use the gap
+  to encode information asymmetry.
+
+REGISTER COLLISIONS (where Hebrew dialogue naturally tilts)
+
+- Religious vs secular characters: don't make this a costume choice. It's a
+  vocabulary choice. A religious character says "בעזרת השם", "אם ירצה השם";
+  a secular character avoids the pious register and may parody it. The
+  collision IS the dramatic engine in Shtisel-adjacent material.
+- Native Hebrew vs immigrant Hebrew: Russian-Israeli, Ethiopian-Israeli,
+  Anglo-Israeli, Mizrahi-Sephardic, Arab-Israeli speakers each carry
+  distinct prosodic contours and word choices. Author the appropriate
+  inflection layer if the character bible names it; do not flatten everyone
+  to "neutral Israeli Hebrew".
+- Generational shift: 60+ characters use formal verb conjugations and
+  direct pronouns; under-30s code-switch and elide. The generational
+  collision is one of Israeli prestige TV's most reliable conflict engines.
+
+HEBREW-REGISTER CRAFT MOVES — principles + references (4 categories, 2-3 moves each)
+(These are PRINCIPLES, not templates. Author Hebrew dialogue from THIS
+character's cadence family + this episode's pressure, not from translated
+English priors. The references anchor the corpus Gemini has Hebrew priors
+on; cite the rubric, then compose your own line.)
+
+1) IDIOMATIC HEBREW STRUCTURE — the line that does not read like a translation
+   MOVE A — VERB-FIRST IMPERATIVES, SUBJECT ELIDED: Hebrew imperatives drop the pronoun. "בוא נזוז" carries decision + status in two words. Authoring "אני מוכן ללכת" reads as English-translated dressing.
+   MOVE B — INDIRECTION OVER DECLARATION: empathy / loss / regret are acknowledged BY THEIR EFFECT, not named. "לא חשבתי שזה ייקח אותה ככה" lands harder than "אני מצטערת על מה שקרה לאמא שלך" — Hebrew prestige refuses on-the-nose emotional declarations.
+   MOVE C — DEFINITENESS AS INFORMATION ASYMMETRY: the article "ה־" is not just "the". "הילד" presumes a known referent; "ילד" leaves it open. Use the gap to encode who-knows-what between the speakers.
+   ANTI-PATTERN: SVO order in narrative speech; Hebrew vocabulary draped over English syntax; over-marked subject pronouns ("אני אמרתי לך"); filler "כן" before every answer.
+   REFERENCES: Hagai Levi / In Treatment Hebrew session work; Yehonatan Indursky + Ori Elon / Shtisel kitchen-table register; Lior Raz + Avi Issacharoff / Fauda command-rhythm; Moshe Zonder / Tehran civilian-pressure speech.
+
+2) REGISTER LOCK — character's cadence family does not drift mid-scene
+   MOVE A — RELIGIOUS REGISTER USES THE FORMULAS: "בעזרת השם", "אם ירצה השם", "ברוך השם" are mood-rings of observance level. A religious character authored without them reads secular; subtext lives in HOW the formula is delivered.
+   MOVE B — IDF / OPERATIONAL REGISTER COMPRESSES UNDER PRESSURE: even civilians code-switch into clipped imperatives when stakes rise — that's the cultural pressure-language. Author the compression, don't translate around it.
+   MOVE C — TEL AVIV INFORMAL REGISTER USES THE PARTICLES: "סבבה", "בכלל", "כאילו", "נו" are not filler — they are the secular urban under-30 voice's signature. Their absence reads as stiffness; their misuse reads as parody.
+   ANTI-PATTERN: religious character speaking in secular phrasing; full sentences in Hebrew under operational pressure where clipped is normative; over-formal speech in a Tel Aviv young-adult character; mixing all four registers within a single character.
+   REFERENCES: Eliezer Shapira + Hava Divon / Srugim rabbinical-college register; Lior Raz / Fauda IDF-civilian code-switch; Maor Zaguri / Zaguri Imperia generational register-stack; Shababnikim young-adult banter.
+
+3) CULTURAL ENCODING — Hebrew family / domestic scenes work through gesture, not declaration
+   MOVE A — OFFER IS THE EMOTIONAL ACKNOWLEDGEMENT: "שבי, שתי קפה" is the love. The line names the gesture; expression_notes carries the rest. Hebrew warmth is OFFERED, not announced.
+   MOVE B — DIMINUTIVES CARRY DOUBLE-VALENCE: "אמא'לה", "מותק", "חמודה" can be tender or weaponised depending on the speaker's relation and the scene's pressure. Author the diminutive; let subtext flag which valence is loaded.
+   MOVE C — FOOD / OBJECT / RITUAL AS PROXY: the kitchen, the chair, the kettle, the shabbos candle do the emotional work the dialogue refuses. The line orbits the object; the affection lives in the orbit.
+   ANTI-PATTERN: family scenes that monologue feelings ("אני אוהבת אותך כל כך" stated directly in a domestic beat); diminutives stripped to read as "neutral Israeli Hebrew"; the object that should carry meaning treated as decoration.
+   REFERENCES: Beauty Queen of Jerusalem (Sephardic kitchen rhythm); Shtisel Friday-night dinner scenes; Hashoter Hatov partner-banter; Hagai Levi / Our Boys grief-around-objects.
+
+4) GENERATIONAL + ETHNIC REGISTER COLLISION — distinct voices in the same room
+   MOVE A — 60+ CHARACTERS USE FORMAL CONJUGATION + DIRECT PRONOUNS: their syntax is unhurried, their pronouns explicit. The under-30s opposite them code-switch and elide. The collision IS the dramatic engine.
+   MOVE B — MIZRAHI-SEPHARDIC ELDER STACKS WARMTH WITH AUTHORITY: "אמא שלי, אמא'לה — שב, תקשיב לי טוב" — diminutive + imperative are SIMULTANEOUS, not sequential. Authority is delivered through warmth, not despite it.
+   MOVE C — IMMIGRANT INFLECTION IS A VOCAL FACT, NOT A COSTUME: Russian-Israeli, Anglo-Israeli, Ethiopian-Israeli, Arab-Israeli speakers each carry distinct prosodic contours and word-choice patterns. If the character bible names the inflection, author from inside it — don't flatten to "neutral Israeli Hebrew".
+   ANTI-PATTERN: family elder addressing adult son in identical register to a stranger; immigrant character authored without the prosodic inflection their bible names; under-30 character speaking like a 60+ formal-conjugation register; Mizrahi register collapsed into Ashkenazi neutral.
+   REFERENCES: Maor Zaguri / Zaguri Imperia multi-generational Mizrahi rhythm; Jadayef Bachari + Eitan Anaki / The Boys 1990s ethnic-register collision; Sayed Kashua / Arab Labor Arabic-Hebrew code-switch; Anat Gov / Best Friends generational-cadence pairing.
+
+ELEVEN-V3 PERFORMANCE TAGS WORK IN HEBREW
+The DIALOGUE PERFORMANCE TAGS taxonomy above ([whispering], [firmly],
+[exhaling], etc.) is voice-and-context dependent but NOT language-dependent.
+Author tags inline on Hebrew lines using the same English bracket
+notation — eleven-v3 parses tags before language-aware synthesis. Example:
+  "[barely whispering] לא ידעתי. באמת לא ידעתי."
+  "[firmly] תפסיק. עכשיו."
+  "אני בסדר. [exhaling]"
+The tag derivation rules (emotion → tag selection, subtext → placement,
+archetype → baseline) ALL apply identically to Hebrew dialogue.
+
+LANGUAGE CONSISTENCY (the hard rule)
+Every dialogue line in this episode MUST be in Hebrew when story.language is
+'he'. Do not slip into English mid-line. Code-switching English loanwords is
+LEGITIMATE within secular Tel Aviv register ("סבבה", "בייסיק") — that is
+Israeli speech. Authoring full English clauses inside Hebrew dialogue is NOT.
+The TTS layer will route Hebrew lines through eleven-v3 with language_code='he';
+mid-line English will render in an English contour and break the spell.
+`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // V4 EPISODE SCREENPLAY PROMPT
 // ═══════════════════════════════════════════════════════════════════════
@@ -764,13 +1037,32 @@ export function getEpisodeSystemPromptV4(storyline, previousEpisodes = [], perso
     // narrative_grammar, music_intent, hero_image, brand_world_lock,
     // anti_brief). Without this, the brief was dead weight and commercials
     // came out incoherent (logs.txt 2026-04-28 root cause).
-    commercialBrief = null
+    commercialBrief = null,
+    // Cast Bible Phase 3 — story-level cast contract. When provided, the
+    // prompt's HARD CONSTRAINT block lists the permitted persona_index
+    // values; Gemini must reference ONLY those when authoring dialogue.
+    // Eliminates phantom-character invention at source. Null (legacy
+    // stories) → empty block emitted, behavior identical to today.
+    castBible = null,
+    // V4 Audio Layer Overhaul Day 3 — Hebrew authorship register.
+    // ISO 639-1 language code for the story (storyline.language, propagated
+    // by BrandStoryService when the user selects Hebrew at story creation).
+    // Default 'en' preserves the current English-authorship pipeline. When
+    // 'he', _buildHebrewMasterclassBlock injects the Hebrew register block
+    // (rabbinic / IDF / Levantine / Israeli prestige TV cadence).
+    storyLanguage = 'en'
   } = options;
 
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
   const brandContextBlock = brandKit ? _buildBrandKitContextBlock(brandKit) : '';
   const focusBlock = _buildCinematicFocusBlock(storyFocus);
+  // Cast comes BEFORE sonic — every downstream block (sonic, character cheat-sheet,
+  // beat-type guidance) may reference persona names by index, so the cast
+  // contract is established first.
+  const castBibleBlock = _buildCastBibleBlock(castBible);
   const sonicBibleBlock = _buildSonicSeriesBibleBlock(sonicSeriesBible);
+  // Day 3 — Hebrew register block (empty string for English / non-Hebrew stories).
+  const hebrewMasterclassBlock = _buildHebrewMasterclassBlock(storyLanguage);
 
   const nextEpNumber = previousEpisodes.length + 1;
   const emotionalArc = storyline.emotional_arc || [];
@@ -924,7 +1216,7 @@ SERIES CONTEXT:
 - Total planned episodes: ${storyline.episodes?.length || 12}
 ${emotionalBlock}${visualContinuityBlock}${motifsBlock}
 
-${_buildGenreRegisterBlock(storyline.genre)}
+${_resolveGenreRegisterBlock(storyline.genre)}
 
 ${_buildCinematicFramingBlock()}
 
@@ -950,6 +1242,8 @@ ${subjectIntegrationBlock}
 ${lutBlock}
 
 ${prevBlock}
+
+${castBibleBlock}
 
 ${sonicBibleBlock}
 
@@ -1240,59 +1534,220 @@ When you emit a SHOT_REVERSE_SHOT beat, its exchanges[] is a mini-scene:
     reaction beat — rather than words. The compiler will expand it as a REACTION
     or SILENT_STARE wedged between closeups.
 
-BAD vs GOOD — 8 worked examples across genres
-(Each shows the current pipeline tendency, then the rewrite. Study the DIFFERENCE —
-that is the craft level expected everywhere.)
+DIALOGUE CRAFT MOVES — principles + references (8 categories, 2-3 moves each)
+(These are PRINCIPLES, not templates. Do not echo any phrasing implied by the
+references — read them as a direction-of-travel signal, then write your own
+dialogue from this story's characters, this episode's pressure, and this
+scene's opposing intents. The references are corpora Gemini has rich priors
+on; citing 3-4 per category broadens the register's convex hull instead of
+collapsing it to one show's voice.)
 
-1) DRAMA — DEFLECTION CARRIES THE LOSS
-   BAD:  A: "Are you okay?"
-         B: "I'm fine."
-   GOOD: A: "You didn't eat."
-         B: "I wasn't hungry."
-         A: "You weren't hungry yesterday either."
-         B: "Then I'm consistent."    ← flaw-driven deflection = subtext = voice
+1) DRAMA — what carries a loss
+   MOVE A — DEFLECTION CARRIES THE LOSS: surface line refuses the ask; the refusal IS the answer. The wound deflects with a small, factual statement that admits everything by hiding it.
+   MOVE B — CONFESSION-AS-ATTACK: a character truth-tells precisely to wound the listener; the "honesty" is weaponised. The vulnerable thing is said with steel.
+   MOVE C — RITUALIZED POLITENESS AS DISTANCE: characters stay inside scripted social register (formality, professional courtesy, family-dinner pleasantries) while the room cracks underneath the words.
+   ANTI-PATTERN: the question is asked once, answered once; both lines carry the same emotional charge; nobody loses any ground.
+   REFERENCES: Mike White / The White Lotus dinner-table beats; Sharon Horgan / Bad Sisters interrogations; Jesse Armstrong / Succession family-dinner evasions; Hagai Levi / In Treatment session deflections.
 
-2) ACTION — ECONOMY AS MENACE
-   BAD:  A: "Stop right there or I'll shoot you immediately!"
-         B: "Please don't shoot me!"
-   GOOD: A: "Hands."
-         B: (silence, hands rising — SILENT_STARE or REACTION beat)
-         A: "Slower."    ← three words, full scene, power asymmetry
+2) ACTION — what speech does under pressure
+   MOVE A — CLIPPED IMPERATIVES AS POWER ASYMMETRY: 1-3 word commands establish hierarchy without explanation. The shorter line wins the scene.
+   MOVE B — BANTER AS RELIEF VALVE: quip mid-firefight is the genre's signature breath; the humour carries character voice the kinetic beats had no room for.
+   MOVE C — OVERLAP-AND-INTERRUPT: dialogue clips itself — gunshot, explosion, engine roar, another character cutting in — write the aborted line and trust the cut.
+   ANTI-PATTERN: full sentences and complete thoughts under fire; characters explaining what they are doing while doing it; villain monologues longer than three lines.
+   REFERENCES: Michael Mann / Heat command-radio rhythms; Doug Liman / Bourne brittle technical chatter; Chad Stahelski / John Wick economy of language; George Miller / Mad Max: Fury Road minimalist exchange.
 
-3) COMEDY — SWERVE ON THE SECOND LINE
-   BAD:  A: "I think I'm in love with you."
-         B: "Oh my god, I love you too!"
-   GOOD: A: "I think I'm in love with you."
-         B: "That's so inconvenient."    ← denial of expected emotional beat = comedy
+3) COMEDY — where the laugh lands
+   MOVE A — SWERVE ON THE SECOND LINE: setup invites the expected emotional beat; the reply denies it. The denial IS the joke.
+   MOVE B — STATUS-FLIP ON THE LAUGH: the character with low status takes the room with one line; the room realigns under the punch.
+   MOVE C — SPECIFIC-NOUN COMEDY: ordinary objects named with surgical precision do more work than adjectives; the proper noun (a brand, a model, a year) carries the laugh.
+   ANTI-PATTERN: the joke is in the verb, the line is over-explained, the punchline is a feeling instead of a fact.
+   REFERENCES: Phoebe Waller-Bridge / Fleabag confessional rhythm; Armando Iannucci / Veep oval-office register; Christopher Storer / The Bear kitchen-chaos overlap; Jesse Armstrong / Succession bureaucratic acid.
 
-4) THRILLER — DRAMATIC IRONY (viewer knows more than A)
-   BAD:  A: "Are you the one who called the police?"
-         B: "Yes, I was worried about you."
-   GOOD: A: "Thanks for calling. You saved my life."
-         B: "I'm glad I could help."    ← viewer knows B didn't call. Every word now has two meanings.
+4) THRILLER — the room knows more than they do
+   MOVE A — DRAMATIC IRONY DOUBLE-MEANING: every word in the line lands at two elevations simultaneously; the viewer hears both, the speakers hear one.
+   MOVE B — COILED STILLNESS THEN FLIP: low-affect dialogue holds for 2-3 beats; one line then changes the room's temperature without raising volume.
+   MOVE C — WITHHOLDING AS PRESSURE: the character refuses to name the thing in the room; the refusal IS the pressure the scene sustains.
+   ANTI-PATTERN: tension released by the dialogue; characters narrating their fear; the threat made explicit before the reveal.
+   REFERENCES: David Fincher / Zodiac procedural restraint; Park Chan-wook / The Handmaiden information asymmetry; Tony Gilroy / Andor interrogations; Jane Campion / The Power of the Dog quiet menace.
 
-5) MYSTERY — THE TILTED QUESTION
-   BAD:  A: "Where were you Tuesday night?"
-         B: "I was at home, alone."
-   GOOD: A: "Tuesday."
-         B: "What about it."
-         A: "That's what I'm asking."    ← refusal to clarify IS the pressure
+5) MYSTERY — what a question hides
+   MOVE A — THE TILTED QUESTION: a single noun thrown at a character functions as the whole interrogation; refusal-to-elaborate IS the move.
+   MOVE B — REFUSAL TO CLARIFY: when asked to explain, the character returns the question; pressure builds through the unanswered ask.
+   MOVE C — ANSWER-WITH-QUESTION: the response is itself a question; both speakers now hold information neither will surface; the room becomes the puzzle.
+   ANTI-PATTERN: full procedural question-and-answer; the suspect explains motive; the detective summarises what we just saw.
+   REFERENCES: Nic Pizzolatto / True Detective S1 interrogation grammar; Phoebe Waller-Bridge / Killing Eve evasion register; David Lynch + Mark Frost / Twin Peaks oblique exchanges; Steven Knight / Peaky Blinders elliptical threats.
 
-6) WARM-HEART / BRAND — INDIRECTION IS STILL DIRECT
-   BAD:  A: "This coffee is amazing. You really make the best coffee in town."
-   GOOD: A: "I came back yesterday. You weren't open."
-         B: "You came back."
-         A: "I came back."    ← the product never named; the loyalty is the story.
+6) WARM-HEART / BRAND — loyalty is a noun, not an adjective
+   MOVE A — INDIRECTION IS STILL DIRECT: the product is never named in dialogue; the character returns to it, sits with it, depends on it; the action carries the loyalty the words refuse.
+   MOVE B — THE SMALL FACT THAT IS THE STORY: a tiny domestic detail (the door, the order, the chair, the Tuesday) becomes the relationship's whole symbol; specific-noun does what claim-language cannot.
+   MOVE C — SILENCE AROUND THE PRODUCT: the brand sits in frame, named once if at all; the dialogue moves around it like furniture; the affection is in the orbit, not the praise.
+   ANTI-PATTERN: testimonial-register dialogue ("amazing", "the best", "changed my life"); the character speaks about the product instead of with it in their hands.
+   REFERENCES: Phoebe Waller-Bridge / Fleabag café scenes; Matthew Weiner / Mad Men prop grammar; Hirokazu Kore-eda / Shoplifters family ritual around objects; Taika Waititi / Hunt for the Wilderpeople loyalty by indirection.
 
-7) HORROR — UNDERREACTION PLANTS THE DREAD
-   BAD:  A: "Oh my god, what was that noise?! I'm so scared!"
-   GOOD: A: (beat) "That's the third time."
-         B: "Go to bed."    ← denial as a character move = dread
+7) HORROR — what stays calm
+   MOVE A — UNDERREACTION: the character speaks at scale appropriate to a normal day while the world has tilted; the gap between affect and event is the dread.
+   MOVE B — THE TOO-LATE NOTICING: dialogue acknowledges the wrong thing first — a small detail — long after the viewer has seen the larger one. Recognition arrives at the wrong moment.
+   MOVE C — THE BANAL AFTER THE UNCANNY: post-event dialogue is procedural, domestic, ordinary; the refusal to dramatize is what plants the dread retroactively.
+   ANTI-PATTERN: characters narrating their fear ("Oh god"), full-volume reaction, dialogue that releases the tension the image just earned.
+   REFERENCES: Ari Aster / Hereditary kitchen-table aftermath; Jordan Peele / Get Out polite small-talk pressure; Robert Eggers / The Witch period-register dread; Mike Flanagan / The Haunting of Hill House underreacted grief.
 
-8) PERIOD / DRAMA — REGISTER IS THE VOICE
-   BAD:  A: "I'm sorry, sir. I didn't mean to offend you."
-   GOOD: A: "If I have given offence, I withdraw the words. Not the feeling."
-         ← baroque register tells you where and when we are without a title card
+8) PERIOD — the era is the voice
+   MOVE A — REGISTER AS PLACEMENT: vocabulary, syntax, formality all locate the viewer in time without a title card; modern feeling translated into period speech.
+   MOVE B — CLASS AS VOCABULARY: a single word choice signals education, station, region; characters speak from inside their class, not at it.
+   MOVE C — FORMAL SYNTAX HIDING MODERN FEELING: the longing, the rage, the desire are present-tense; the construction holds them at the era's distance and amplifies the pressure.
+   ANTI-PATTERN: period costume with contemporary cadence; characters speaking in modern apologetics; anachronistic informalities ("yeah", "okay", "cool") in the wrong century.
+   REFERENCES: Andrew Davies / Bleak House adaptations; Julian Fellowes / Downton Abbey class-marked dialogue; Yorgos Lanthimos / The Favourite formal cruelty; Greta Gerwig / Little Women interlocking sisterly voices.
+
+═══════════════════════════════════════════════════════════════
+DIALOGUE PERFORMANCE TAGS (the audio layer — eleven-v3 ONLY)
+═══════════════════════════════════════════════════════════════
+
+The TTS engine that renders your dialogue (ElevenLabs eleven-v3) accepts INLINE
+PERFORMANCE TAGS — bracketed instructions inside the dialogue string that shape
+the voice's prosody. THIS IS HOW THE AUDIO LAYER MAKES A CHOICE INSTEAD OF
+INHERITING A DEFAULT. Without tags, every line — angry, broken, tender, tilted —
+synthesizes with the same neutral contour. With tags, suppression has texture,
+fear has a held breath, defiance has steel. You author them inline alongside
+each line. They are NOT a downstream wrapper.
+
+TAG TAXONOMY — verbatim from the eleven-v3 spec (do not invent new tags)
+  EMOTION & DELIVERY (most common):
+    [whispering]   [barely whispering]   [softly]   [evenly]   [flatly]
+    [firmly]       [slowly]              [quizzically]
+    [sad]          [cheerfully]          [cautiously]   [indecisive]
+    [sarcastically][sigh]                [exhaling]     [slow inhale]
+    [chuckles]     [laughing]            [giggling]
+    [groaning]     [coughs]              [gulps]
+  AUDIO EVENTS (use sparingly — once per beat at most):
+    [applause]     [leaves rustling]     [gentle footsteps]
+  DIRECTION (use only when context truly demands it):
+    [auctioneer]   [jumping in]
+
+PLACEMENT — where the bracket goes inside the line
+  PREFIX (most common): [barely whispering] I had no choice.
+  MID-LINE (texture shift inside the line): I'm fine [exhaling] really.
+  STACKED (rare — at most TWO tags, separated by comma): [sarcastically, slowly] You really thought that would work.
+  END-OF-LINE BREATH (paired with emotional_hold): I'm sorry. [slow inhale]
+
+TAG DERIVATION — translate the V4 craft fields into tags
+THIS IS THE LOAD-BEARING TABLE. Read it before you author any tagged dialogue.
+
+  beat.emotion — primary tag selection (the SURFACE register)
+    "broken"               → [barely whispering] or [sigh]
+    "defiant"              → [firmly]
+    "resigned"             → [exhaling] or [slowly]
+    "amused but hiding it" → [chuckles] mid-line
+    "stunned"              → [slow inhale] before the line
+    "cheerful (fake)"      → [cheerfully] (irony lands BECAUSE the subtext disagrees)
+    "composed"             → [evenly] or no tag (composed often = the absence)
+
+  beat.subtext — tag PLACEMENT and TEXTURE (overrides naive emotion mapping)
+    Same emotion lands different tags depending on whether the character
+    is leaning IN (vulnerable, leaning toward truth) or OUT (defended,
+    pulling back from truth). Subtext tells you which.
+    Example —
+      surface:  "I'm fine."
+      subtext:  "I am drowning."
+      → [exhaling] before the line + [slowly] on it (leaning in, almost saying)
+    Example (same surface, opposite subtext) —
+      surface:  "I'm fine."
+      subtext:  "I am protecting myself from you."
+      → [evenly] or [flatly] (leaning out, sealed off)
+
+  beat.beat_intent — tag INTENSITY
+    "persuade" / "reveal" → softer, leaning-in tags ([softly], [slowly])
+    "wound" / "escalate"  → clipped, defended tags ([firmly], [flatly])
+    "cooldown" / "payoff" → contemplative ([exhaling], [slow inhale])
+
+  beat.pace_hint — pairs with the speed param
+    pace_hint=slow on a weighted beat → [slowly] inline (tag shapes contour;
+    speed param scales clock — they are NOT the same lever)
+    pace_hint=fast → no tag (speed param does the work)
+
+  scene.opposing_intents — tag patterns ACROSS speakers
+    Per-speaker bias — encode the dynamic in the tags:
+      A wants intimacy, B wants distance:
+        A's lines lean IN  → [softly], [barely whispering]
+        B's lines lean OUT → [evenly], [flatly], [exhaling]
+      A wants information, B wants to withhold:
+        A's lines press   → [firmly]
+        B's lines deflect → [chuckles], [slowly], [quizzically]
+
+  beat.emotional_hold — author the breath that owns the silence
+    A line ending in emotional_hold:true earns a paired audio choice:
+      "I'm sorry. [slow inhale]" — silence carries breath.
+      "I know. [exhaling]"        — silence carries release.
+    Silence-with-breath is a different beat from silence. Author both.
+
+  persona.dramatic_archetype — establishes the BASELINE before any tag
+    Stoic / Mentor / Authority      → baseline [evenly] floor (under-tag)
+    Volatile / Trickster / Rebel    → no baseline (let it run)
+    Wounded_healer / Ingenue        → baseline [softly] for vulnerable beats
+    Hero / Antihero                 → context-dependent (no baseline)
+  Match the archetype's baseline so the four cast members do NOT collapse
+  into the same v3 default register.
+
+TAG ECONOMY — when NOT to tag
+  Not every line needs a tag. The Stoic baseline IS a choice. When the
+  character's intentional read is flat / composed / withheld, mark the
+  beat with the literal annotation [no_tag_intentional: stoic_baseline]
+  inline at the start of the dialogue:
+    "[no_tag_intentional: stoic_baseline] I'll consider it."
+  The validator recognises this as a legitimate untagged line. The TTS
+  layer strips this annotation before synthesis.
+
+TAG CRAFT MOVES — principles + references (5 categories, 2-3 moves each)
+(These are PRINCIPLES, not templates. Do not echo any phrasing implied by
+the references — read them as a direction-of-travel signal, then choose
+the tag from THIS character's archetype, this beat's emotion+subtext, and
+this scene's opposing intents. The references are voice-direction corpora
+that anchor each category; cite the rubric, then author from your own
+scene.)
+
+1) TAG SELECTION — what the audio choice IS
+   MOVE A — TAG IS THE SUPPRESSION, NOT THE DECLARATION: when surface line refuses what subtext is admitting, author the tag for the BREATH that fails the line, not the emotion the words name. Composed surface + drowning subtext earns [exhaling] / [slowly], not [sad].
+   MOVE B — TAG MIRRORS ARCHETYPE BASELINE BEFORE BEAT EMOTION: a Stoic does not get [softly] on a tender line — they get [evenly] or [no_tag_intentional: stoic_baseline]. A Volatile does not get a tag at all on the high-affect lines — let the v3 default carry the rage. Archetype is the tuning fork; emotion is the inflection on top.
+   MOVE C — IRONIC TAGS LAND BECAUSE SUBTEXT DISAGREES: [cheerfully] on a "fake-cheerful" emotion lands as cruelty BECAUSE the subtext flags the lie. The same tag without a disagreeing subtext just reads as cheerful. Pair the tag with the subtext that exposes it.
+   ANTI-PATTERN: tag echoes the surface emotion verbatim ([sad] on a "broken" line); tag homogenisation across cast ([softly] on every persona); tag contradicts the beat_intent (e.g. [chuckles] on an "escalate" beat).
+   REFERENCES: the under-acted register of Bryan Cranston / Breaking Bad confessions; Saoirse Ronan / Lady Bird kitchen-fights; Lena Headey / Game of Thrones court delivery; Tilda Swinton / The Souvenir tonal control; Ben Whishaw / This Is Going To Hurt suppressed vocal collapse.
+
+2) TAG PLACEMENT — where the bracket goes
+   MOVE A — PREFIX SETS THE ROOM TEMPERATURE: opening tag tells the listener what register to expect before the words land. Use prefix when the WHOLE line carries one read — [firmly] We are leaving now.
+   MOVE B — MID-LINE TAG MARKS THE TURN: line that pivots gets the tag where the pivot lives — I'm fine [exhaling] really. The breath IS the admission the words deny.
+   MOVE C — END-OF-LINE BREATH OWNS THE SILENCE THAT FOLLOWS: when the beat carries emotional_hold:true, author the breath that lives in that silence — I'm sorry. [slow inhale]. Without it, post-production reads the silence and the audio gives nothing back.
+   ANTI-PATTERN: tag at the start of every line by default; mid-line tag inserted at a clause boundary that the line doesn't actually turn on; emotional_hold beat with no closing breath cue.
+   REFERENCES: Phoebe Waller-Bridge / Fleabag direct-address breath placement; Christopher Storer / The Bear interrupted-clause rhythm; Jane Campion / The Power of the Dog held-silence work; Hagai Levi / In Treatment session-room pauses.
+
+3) TAG ECONOMY — when NOT to tag, and how few to use
+   MOVE A — THE STOIC BASELINE IS A CHOICE: under-tagged is a directorial register, not a gap. [no_tag_intentional: stoic_baseline] is an explicit declaration that this character's read is intentionally flat, and the validator honours it. Use it for archetypes whose vocal restraint IS the character.
+   MOVE B — TWO TAGS MAX, ONE PREFERRED: comma-stacked tags ([sarcastically, slowly]) work in eleven-v3 only as a pair — three or more mush into a generic "soft sad" timbre. One tag is almost always the right number.
+   MOVE C — ONE AUDIO EVENT PER BEAT, MAX: [applause] / [leaves rustling] / [gentle footsteps] are diegetic-sound tokens, not prosody. Stacking them across one beat fails or produces noise. If the scene needs more environmental sound, that's beat.ambient_sound territory — not the dialogue string.
+   ANTI-PATTERN: stacking 3+ tags ([whispering, sad, slowly, defeated]); using audio events as decoration on every beat; reaching for a tag when the archetype's baseline is the right read.
+   REFERENCES: Tilda Swinton / Suspiria controlled non-speech; Mads Mikkelsen / Hannibal under-tagged delivery; Daniel Day-Lewis / There Will Be Blood saved-affect economy; Toni Collette / Hereditary baseline-then-rupture rhythm.
+
+4) TAG–CRAFT COHERENCE — tag must serve the screenplay's existing intent
+   MOVE A — TAG MUST NOT FIGHT THE BEAT.EMOTION: [laughing] on emotion="urgent" reads as glitch, not character. The Validator's checkTagEmotionCoherence catches the obvious cases — but coherence is craft, not just compliance. Earn the disagreement (irony) or remove it.
+   MOVE B — TAG MUST NOT DUPLICATE WITHIN A LINE: [whispering] ... [whispering] is ignored or distorted by eleven-v3. If the line truly turns mid-way, use a DIFFERENT second tag — [firmly] entry, [exhaling] mid-clause.
+   MOVE C — TAG INHERITS FROM OPPOSING_INTENTS, NOT JUST OWN EMOTION: speaker A leaning IN gets [softly] / [barely whispering]; speaker B leaning OUT gets [evenly] / [flatly] / [exhaling]. Same scene, opposing intents, distinct tag patterns — voices stay distinct.
+   ANTI-PATTERN: tag chosen from beat.emotion alone with no reference to the scene's opposing intents; same tag on both sides of an exchange; tag whose presence the scriptwriter cannot defend in one sentence.
+   REFERENCES: Jesse Armstrong / Succession lean-in vs lean-out vocal pairing; Sharon Horgan / Bad Sisters interrogations (one prosecutorial, one withholding); Park Chan-wook / The Handmaiden information-asymmetry exchanges; Tony Gilroy / Andor interrogator-vs-prisoner register split.
+
+5) EXCHANGE-LEVEL TAG RHYTHM — varying tags across the cut
+   MOVE A — VARY TAGS ACROSS A SHOT_REVERSE_SHOT, NOT WITHIN A LINE: every closeup tagged [firmly] is no rhythm — the exchange flatlines. Vary the per-closeup tag across the exchange — [firmly] / [exhaling] / [slowly] / [barely whispering] — so the cut earns its prosodic shift.
+   MOVE B — INTERLOCK TAGS WITH THE PRIOR SPEAKER'S READ: when exchange_context shows the prior turn ended on [firmly], the response tag carries the receive-the-blow register ([exhaling], [slowly]). The exchange must respond, not parallel.
+   MOVE C — A LONG MONOLOGUE GETS AT MOST TWO TAGS TOTAL: rapid tag-cycling within one line produces glitchy contour breaks. Use a prefix tag (entry register) plus ONE mid-line shift only when the line truly turns.
+   ANTI-PATTERN: every line in an exchange tagged identically; long monologue with a tag per clause; per-line tag cycling that ignores the prior speaker's exit register.
+   REFERENCES: Vince Gilligan / Better Call Saul cross-cut interrogation rhythm; Mike White / The White Lotus dinner-table interlocking voices; Hiro Murai / Atlanta call-and-response cadence; Nicole Holofcener / Enough Said back-and-forth pacing.
+
+EMIT YOUR TAGS INLINE — they go INSIDE the dialogue string, not in a
+separate field. Author them from craft (subtext + opposing_intents +
+archetype + beat_intent), not from surface emotion alone. The TTS layer
+parses the brackets verbatim; the Validator checks that what you authored
+is coherent (not contradicting beat.emotion, not stacking 3+ tags, not
+using events more than once per beat); the Doctor patches missing tags
+on flagged beats. AUTHORSHIP IS YOURS — not the Doctor's, not the model's.
+
+${hebrewMasterclassBlock}
 
 ═══════════════════════════════════════════════════════════════
 EPISODE SHAPE (micro three-act — guideline, not formula)
@@ -1449,6 +1904,21 @@ BEAT-LEVEL OPTIONAL FIELDS (emit only when applicable):
   layers use it to drive micro-expressions and reaction beats. See DIALOGUE
   MASTERCLASS → "The Subtext Field" for examples.
 
+- "dialogue" (inline performance tags): the dialogue field accepts ElevenLabs
+  eleven-v3 inline performance tags in square brackets. They shape the audio
+  layer's prosody — the difference between an inherited default contour and
+  an authored read. Author them INLINE, not in a separate field. See DIALOGUE
+  MASTERCLASS → DIALOGUE PERFORMANCE TAGS for the tag taxonomy, derivation
+  rules from subtext / beat_intent / opposing_intents / archetype, and the
+  12 BAD→GOOD examples. Examples of correct usage:
+    "[barely whispering] I had no choice."
+    "[firmly] We need to leave. Now."
+    "I'm fine. [exhaling]"
+    "[no_tag_intentional: stoic_baseline] I'll consider it."
+  At most TWO tags per line. Use audio events ([applause], [leaves rustling],
+  [gentle footsteps]) sparingly — once per beat at most. Tag must NOT
+  contradict beat.emotion (validator flags tag_emotion_contradiction).
+
 - "beat_intent": one of "reveal" | "setup" | "payoff" | "escalate" | "de-escalate" | "cooldown" | "hook".
   Shapes post-production pacing (music-duck depth, cut rhythm).
 
@@ -1494,15 +1964,16 @@ OUTPUT JSON SCHEMA (match exactly):
   "title": "Episode title — intriguing and specific",
   "hook": "What happens in the first 2-3 seconds to grab attention (1 sentence)",
   "narrative_beat": "The story beat this episode covers (1 sentence)",
-  "dramatic_question": "The ONE high-stakes question this episode poses that keeps the viewer watching (one sentence, ends with '?'). Example: 'Will Maya finally confront what she buried six years ago?'",
+  "dramatic_question": "<the ONE high-stakes question this episode poses that keeps the viewer watching — one sentence, ends with '?', specific to THIS character's want and THIS episode's pressure>",
   "mood": "Episode's emotional register (e.g. 'quiet tension building to release')",
   "continuity_from_previous": "How this connects to what came before",
   "continuity_check": "How this episode's opening resolves the previous cliffhanger",
   "cliffhanger": "What makes the viewer want episode ${episodeNumber + 1}",
   "emotional_state": "Where the viewer's emotional journey stands at the END of this episode",
   "visual_motif_used": "Which recurring visual motif (from season bible) appears and how",
-  "visual_style_prefix": "UNIFIED cinematography brief for ALL beats: color temperature, lighting quality, lens feel, film stock reference. Example: 'Warm golden-hour tones, shallow DOF, anamorphic lens flare, Kodak Portra 400 grain, soft backlit highlights'. This prefix applies to every scene_visual_anchor_prompt.",${lutField}
-  "music_bed_intent": "Music brief for ElevenLabs Music. Describe instrumentation, mood, arc. Example: 'Low brooding strings with sparse piano, building tension through the confrontation, resolving to a single held cello note at the cliffhanger'. Keep under 200 chars.${hasBible ? ' MUST NOT include any prohibited_instruments from the Sonic Series Bible.' : ''}",
+  "visual_style_prefix": "<UNIFIED cinematography brief that runs across every beat in the episode: color temperature, lighting quality, lens feel, film stock reference; concrete enough that the Scene Master panels carry the same look>",${lutField}
+  "dialogue_density_intent": "<balanced (default) | silent_register (Drive-style: dialogue is rare and weighted, scenes carry through image and sound) | dialogue_dense (Sorkin/Mamet: the room talks, lines overlap, density itself is the rhythm)>",
+  "music_bed_intent": "<music brief for ElevenLabs Music — instrumentation + mood + arc through the episode; ≤ 200 chars${hasBible ? '; MUST NOT include any prohibited_instruments from the Sonic Series Bible' : ''}>",
   "sonic_world": {
     "_comment": "EPISODE-LEVEL audio architecture (replaces per-scene ambient_bed_prompt). One bed for the whole episode, scene-specific overlays as ADDITIVE layers. ${hasBible ? 'Must inherit from the Sonic Series Bible (see SONIC SERIES BIBLE block above).' : 'Authored fresh — no story-level bible available.'}",
     "base_palette": "${hasBible ? 'Episode-level bed description that REFERENCES and may add to the bible base_palette ambient_keywords. The continuous always-on layer for the WHOLE episode (10-25s+). Example — low industrial drone with concrete reverb tail, faint distant traffic, deep HVAC undertone (the constant). Keep under 220 chars.' : 'Episode-level bed description — the continuous always-on layer for the WHOLE episode. Example — low industrial drone with concrete reverb tail, faint distant traffic. Keep under 220 chars.'}",
@@ -1522,7 +1993,7 @@ OUTPUT JSON SCHEMA (match exactly):
       "dramatic_question": "The ONE question this scene raises (one sentence)",
       "hook_types": ["CLIFFHANGER" | "REVELATION" | "CRESCENDO" | "DRAMATIC_IRONY" | "STATUS_FLIP" | "CONTRADICTION_REVEAL" | "ESCALATION_OF_ASK"],
       "opposing_intents": { "[0]": "what persona 0 wants in this scene", "[1]": "what persona 1 wants — must oppose persona 0" },
-      "scene_visual_anchor_prompt": "Rich still-image description for Seedream 5 Lite Scene Master panel. 80-150 words. Cover: location + time of day + lighting + color palette + character blocking + wardrobe + atmosphere + film stock feel. Must respect visual_style_prefix. Example: 'Wide establishing of a rooftop bar at golden hour, neon signage reflecting in rain-slicked tiles. Maya stands left frame in a charcoal coat; Daniel sits right frame at a copper-topped bar. Warm amber key light, cool cyan fill from neon. Anamorphic lens feel, shallow DOF, Kodak Portra 400 grain.'",
+      "scene_visual_anchor_prompt": "<rich still-image description for Seedream 5 Lite Scene Master panel — 80-150 words; cover location + time of day + lighting + color palette + character blocking + wardrobe + atmosphere + film stock feel; respect visual_style_prefix; concrete and specific to THIS scene's people and place — no generic atmospheres, no template phrasing>",
       "transition_to_next": "dissolve | fadeblack | cut | speed_ramp — DEFAULT TO 'dissolve'. With the V4 audio coherence overhaul, the EPISODE base bed plays UNCUT across every scene boundary regardless of transition; only the scene_variations[] OVERLAY J-cuts (pre-rolls in / tail-rolls out across the cut). 'cut' is now safe for sonic continuity — choose it freely when the narrative wants a hard visual edit. 'dissolve' adds a 0.5s video xfade. 'fadeblack' is for emotional beat breaks or act separations. 'speed_ramp' for energy spikes.",
       "bridge_to_next": {
         "_comment": "OPTIONAL narrative bridge beat (Phase 6.1) — a 2-3s B-roll or walk shot that shows HOW we got from this scene to the next. Emit when the next scene is in a DIFFERENT location, so the viewer understands the spatial/temporal move. The bridge is generated by Veo with first_frame=this scene's endframe and last_frame_hint=next scene's master, producing a seamless transit shot. Without a bridge, the viewer sees a raw dissolve with no narrative connective tissue.",
@@ -1540,26 +2011,26 @@ OUTPUT JSON SCHEMA (match exactly):
           "personas_present": [],
           "subject_present": true,
           "location_hero": true,
-          "location": "rooftop bar at golden hour",
-          "atmosphere": "rain-slicked tiles, neon reflections, distant city hum",
-          "camera_move": "slow dolly back revealing the wider terrace and skyline",
+          "location": "<one-line concrete location grounded in this story's world>",
+          "atmosphere": "<2-4 specific sensory anchors — texture, light quality, distance — that prime the scene's emotional temperature>",
+          "camera_move": "<one camera move that earns the establishing — what the move reveals matters more than the move itself>",
           "duration_seconds": 3,
-          "ambient_sound": "distant traffic, wind, muffled bass from a door below",
+          "ambient_sound": "<diegetic sounds in this place: 2-3 specific layers, no music>",
           "requires_text_rendering": true,
-          "narrative_purpose": "Plant the location's unease before the first line — everything here is reflective, slick, unstable.",
+          "narrative_purpose": "<one sentence: what this beat is doing for the SCENE — set tone, plant a question, hide an object, let the viewer settle>",
           "beat_intent": "setup"
         },
         {
           "beat_id": "s1b2",
           "type": "TALKING_HEAD_CLOSEUP",
           "persona_index": 0,
-          "dialogue": "You didn't eat.",
-          "emotion": "composed, quiet",
+          "dialogue": "<INLINE-TAGGED line in this character's voice — 4-12 words, short, surface, ordinary; the meaning the character refuses to say lives one breath underneath; lead with an eleven-v3 performance tag derived from beat.emotion + subtext + opposing_intents + archetype baseline (see DIALOGUE PERFORMANCE TAGS masterclass). Example: '[exhaling] [slowly] I'm fine.' or '[firmly] We need to leave. Now.' Stoic baseline: '[no_tag_intentional: stoic_baseline] I'll consider it.'>",
+          "emotion": "<one or two adjectives that name the surface posture, not the truth (e.g. composed, conversational, level)>",
           "duration_seconds": 3,
           "lens": "85mm",
-          "expression_notes": "level gaze, patient, waiting for the truth to surface",
-          "subtext": "I know exactly what you're avoiding. I'm making you name it.",
-          "narrative_purpose": "Maya opens with a deflection that is also a test — sets her voice, sets her want.",
+          "expression_notes": "<actor direction for the micro-expression: a tell that contradicts the line, a held breath, a beat of stillness before the deflection; ≤ 12 words>",
+          "subtext": "<what the character is actually doing under the words — the read of the room, the unsayable thing, the silent decision>",
+          "narrative_purpose": "<one sentence: what this line accomplishes for character + scene — sets a want, raises a question, draws a line>",
           "beat_intent": "setup"
         },
         {
@@ -1569,21 +2040,21 @@ OUTPUT JSON SCHEMA (match exactly):
           "persona_index": 1,
           "personas_present": [1],
           "duration_seconds": 2,
-          "expression_notes": "a micro-flinch, jaw tightening, breath held, then released",
-          "narrative_purpose": "Daniel is caught. The viewer learns the question matters before any answer is given.",
+          "expression_notes": "<actor direction for the silent read: the body's answer to the prior line, smaller than the viewer expects, more honest than any response would be>",
+          "narrative_purpose": "<one sentence: what the silent moment accomplishes — what the viewer learns from a face that the dialogue did not say>",
           "beat_intent": "escalate"
         },
         {
           "beat_id": "s1b4",
           "type": "TALKING_HEAD_CLOSEUP",
           "persona_index": 1,
-          "dialogue": "I wasn't hungry.",
-          "emotion": "flat, evasive",
+          "dialogue": "<a 4-12 word reply in this character's voice — must INTERLOCK with the prior line, NOT echo it; vary line length from b2; if this character would refuse the question rather than answer it, refuse it>",
+          "emotion": "<surface posture; should differ from b2's emotion to give Gemini distinct voice anchors>",
           "duration_seconds": 3,
           "lens": "85mm",
-          "expression_notes": "eyes go to the drink, not to Maya",
-          "subtext": "Please stop asking. I cannot tell you what happened.",
-          "narrative_purpose": "The refusal IS the confession — pressure builds.",
+          "expression_notes": "<actor direction; body language that contradicts the surface line>",
+          "subtext": "<what this character is really doing — buying time, deflecting, conceding ground, holding line>",
+          "narrative_purpose": "<one sentence: how this reply changes the room's temperature; what it costs to say>",
           "beat_intent": "escalate",
           "pace_hint": "slow"
         },
@@ -1591,26 +2062,26 @@ OUTPUT JSON SCHEMA (match exactly):
           "beat_id": "s1b5",
           "type": "TALKING_HEAD_CLOSEUP",
           "persona_index": 0,
-          "dialogue": "You weren't hungry yesterday either.",
-          "emotion": "soft pressure",
+          "dialogue": "<a 4-12 word escalation from b2 — same character, harder line; demonstrates ESCALATION_OF_ASK without raising volume>",
+          "emotion": "<surface posture, escalated from b2 in pressure not in volume>",
           "duration_seconds": 4,
           "lens": "85mm",
-          "expression_notes": "head tilts, the kind patience that feels like a knife",
-          "subtext": "I notice everything. You cannot outrun me through silence.",
-          "narrative_purpose": "Maya raises the ask — escalation without raising volume.",
+          "expression_notes": "<actor direction: micro-shift that reads as pressure to the viewer; a tilt, a hold, a slowing>",
+          "subtext": "<the move underneath: the character's awareness of what they're doing and the cost of doing it>",
+          "narrative_purpose": "<one sentence: why this is the scene's peak — what gets revealed, what gets refused>",
           "beat_intent": "escalate",
           "emotional_hold": true
         },
         {
           "beat_id": "s1b6",
           "type": "INSERT_SHOT",
-          "subject_focus": "the brand perfume bottle resting on a marble bar, untouched, suspended between gloved hands just entering frame",
-          "lighting_intent": "single hard rim light catches the bottle's engraved name",
-          "camera_move": "slow push-in then rack focus from character blur to product",
+          "subject_focus": "<the product or hero object, framed as silent witness to the dialogue beat — what it sees, what it costs, what it survives>",
+          "lighting_intent": "<one specific lighting move that makes the object read as significant, not decorative>",
+          "camera_move": "<one move that connects the object to the prior dialogue beat — a rack focus, a slow push-in, a settle>",
           "duration_seconds": 3,
-          "ambient_sound": "a single soft glass clink as the bartender resets beside it",
+          "ambient_sound": "<one diegetic detail that grounds the object in the scene — a small, specific sound>",
           "requires_text_rendering": true,
-          "narrative_purpose": "The object witnesses the scene — brand as silent third character.",
+          "narrative_purpose": "<one sentence: what the object adds that the dialogue could not — the brand as silent third character>",
           "beat_intent": "reveal"
         }
       ]
