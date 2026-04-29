@@ -11,16 +11,37 @@ import { isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs'
  * invited Gemini to fabricate. With Fix 1+2's contract, every persona has a
  * visual_anchor; this helper renders it.
  *
- * If anchor is absent (defense-in-depth — should never happen per the merged
- * Fix 1+2 contract), returns a clear marker the storyline writer will treat
- * as an error condition.
+ * V4 Wave 6 / hotfix-2026-04-29 #2 — text-field fallback. When the anchor is
+ * absent (described persona path with no photos, or extraction failed), the
+ * old sentinel "DESCRIPTION_MISSING — escalate to user_review" caused Gemini
+ * to short-circuit the entire storyline (logs 2026-04-29 story `fcb0b42b`:
+ * title=undefined, 0 episodes). Falling back to the persona's own description
+ * / appearance / personality text fields restores the legacy described-
+ * persona path while keeping the anchor-grounded path for uploaded personas.
  *
  * @param {Object|null} anchor - visual_anchor record from PersonaVisualAnchor
+ * @param {Object} [persona]   - the persona record (for text-field fallback when anchor is missing)
  * @returns {string}
  */
-function _renderVisualAnchorAsDescription(anchor) {
+function _renderVisualAnchorAsDescription(anchor, persona = null) {
   if (!anchor || typeof anchor !== 'object' || !anchor.apparent_gender_presentation) {
-    return 'DESCRIPTION_MISSING — persona has no visual_anchor; escalate to user_review';
+    // Text-field fallback for described personas / failed extraction. Same
+    // shape as the legacy persona block (description + appearance) so Gemini
+    // gets a usable identity hint instead of an "escalate" directive.
+    if (persona && typeof persona === 'object') {
+      const fragments = [];
+      const desc = String(persona.description || '').trim();
+      if (desc) fragments.push(desc);
+      const appearance = String(persona.appearance || persona.visual_description || '').trim();
+      if (appearance && appearance !== desc) fragments.push(`appearance: ${appearance}`);
+      if (fragments.length > 0) return fragments.join(' · ');
+    }
+    // No anchor and no text fields — emit the legacy permissive default
+    // rather than the strict "escalate" sentinel. Lets Gemini build a
+    // serviceable storyline; the wizard pre-flight at /generate-episode
+    // (Fix 1+2 route validation) catches the truly-empty-persona case
+    // before any model tokens are spent.
+    return 'a character to be developed in the story';
   }
   const genderWord = {
     female: 'woman',
@@ -376,6 +397,33 @@ This is a COMMERCIAL VIDEO AD genre story. The cap is 1 OR 2 episodes — NEVER 
 The episodes[] array MUST contain exactly ${episodeCount} entr${episodeCount === 1 ? 'y' : 'ies'} (your justified count).`
     : '';
 
+  // ─── Prestige episode-count floor (regression repair, 2026-04-29) ───
+  //
+  // Symmetric to commercialCapNote. Without an explicit prestige floor, the
+  // SHOWRUNNING PRINCIPLE soft-override ("if you cannot name why an episode
+  // exists, cut it or combine it") was free to compress prestige seasons all
+  // the way down to 1-2 episodes whenever the persona/subject canvas felt
+  // thin to Gemini. That is the right behavior for commercial spots, the
+  // wrong behavior for serialized prestige (which earns its episode count
+  // from genre conventions and structural scaffolds — a thriller with a
+  // midpoint reversal, a drama with emotional pivots — even when the input
+  // material is sparse).
+  //
+  // The floor is 3 (matches the user-stated soft cap of 3-12). The ceiling
+  // remains the requested episodeCount (default 12). Server-side validation
+  // in BrandStoryService.generateStoryline rejects sub-floor responses as
+  // defense-in-depth.
+  const prestigeCountNote = !isCommercial
+    ? `\n\nPRESTIGE EPISODE-COUNT FLOOR + CEILING — HARD FLOOR, SOFT CEILING:
+This is a ${String(genre || 'drama').toLowerCase().toUpperCase()}-genre prestige series (NOT a commercial spot). The starting count is ${episodeCount} episodes; you may compress, but a STRICT FLOOR applies.
+  • HARD FLOOR — 3 episodes minimum. The episodes[] array MUST contain AT LEAST 3 entries. A 1-episode or 2-episode prestige season is invalid output and will be rejected by the post-validation layer.
+  • SOFT CEILING — ${episodeCount} episodes maximum. Apply the SHOWRUNNING PRINCIPLE ("if you cannot name why an episode exists, cut it or combine it") to compress DOWN to a justified count, but never below 3.
+  • When persona/subject material feels thin, you are EXPECTED to invent compelling NARRATIVE_PURPOSES from genre conventions — a thriller earns a midpoint reversal and an act-3 twist; an action series earns inciting incident → escalation → climax → resolution; a drama earns emotional pivots and relational stakes. These are mandatory season-bible scaffolds for the genre, not optional filler. Sparse input is a brief to invent, not a license to ship a 2-episode season.
+  • Justify your final count inside the season_bible document (free-text — name explicitly why this season earns N episodes and not N-1 or N+1).
+
+The episodes[] array MUST contain BETWEEN 3 AND ${episodeCount} entries (your justified count, with 3 as the strict minimum).`
+    : '';
+
   const focusBlock = _buildFocusBlock(storyFocus);
 
   // Normalize: accept either a single persona object (legacy) or an array
@@ -412,14 +460,49 @@ The episodes[] array MUST contain exactly ${episodeCount} entr${episodeCount ===
   const personaBlock = personaArray.length > 0
     ? `CHARACTER${personaArray.length > 1 ? 'S' : ''}/PERSONA${personaArray.length > 1 ? 'S' : ''} (${personaArray.length} total${personaLeadLabelInline}):
 ${personaArray.map((p, i) => {
-  const visualLine = _renderVisualAnchorAsDescription(p.visual_anchor);
+  // V4 Wave 6 / hotfix-2026-04-29 #2 — pass the persona record so the renderer
+  // can fall back to text fields (description / appearance) when the anchor
+  // is missing. Without this, described personas (no photos) used to render
+  // "DESCRIPTION_MISSING — escalate to user_review" which short-circuited
+  // Gemini.
+  const visualLine = _renderVisualAnchorAsDescription(p.visual_anchor, p);
   // The anchor describes IDENTITY (who the actor is). The persona's personality
   // / voice_style remain author-authored hints (HOW the character sounds and
   // behaves). They are NOT permitted to invert what the anchor says.
   const personalityLine = p.personality || p.voice_style || '—';
+  // When we DO have a vision-grounded anchor, label it as ground truth so
+  // Gemini knows it's non-negotiable. Otherwise label as a description hint
+  // so Gemini treats it as guidance, not law.
+  const hasAnchor = !!p.visual_anchor?.apparent_gender_presentation;
+  const visualLineLabel = hasAnchor
+    ? 'Visual identity (ground truth, vision-grounded)'
+    : 'Description';
+  // Phase 5b regression repair (2026-04-29) — when the visual_anchor IS present,
+  // _renderVisualAnchorAsDescription returns physical traits ONLY (gender, age,
+  // hair, build, distinctive features). The persona's `description` and
+  // `appearance` text fields — which carry NARRATIVE material (profession,
+  // backstory hook, story role) — were dropped from the prompt entirely after
+  // the Phase 5b subtractive change. That starved Gemini of season-bible
+  // material and let the SHOWRUNNING soft-override compress prestige seasons
+  // to 1-2 episodes.
+  //
+  // Restore the narrative material under explicit, non-identity labels so
+  // Gemini cannot misread it as an identity override (the original Director
+  // Agent concern). Anchor-absent path skips this — the renderer fallback
+  // already includes description/appearance in `visualLine`.
+  const narrativeFragments = [];
+  if (hasAnchor) {
+    const desc = String(p.description || '').trim();
+    if (desc) narrativeFragments.push(desc);
+    const appearance = String(p.appearance || p.visual_description || '').trim();
+    if (appearance && appearance !== desc) narrativeFragments.push(`appearance hint: ${appearance}`);
+  }
+  const storyRoleLine = narrativeFragments.length > 0
+    ? `\n- Story role / backstory hint (NARRATIVE only — does NOT override visual identity above): ${narrativeFragments.join(' · ')}`
+    : '';
   return `
 [Persona ${i + 1}${personaLeadHeader(i)}]
-- Visual identity (ground truth, vision-grounded): ${visualLine}
+- ${visualLineLabel}: ${visualLine}${storyRoleLine}
 - Voice/Personality: ${personalityLine}`;
 }).join('\n')}
 
@@ -456,7 +539,7 @@ The viewer should finish the season remembering this specific subject.
 Use this as the cinematic north star for visual style, pacing, and emotional register.\n`
     : '';
 
-  return `Create a complete story bible for a ${episodeCount}-episode ${isCommercial ? 'commercial video ad' : 'short-form video series'}.${commercialCapNote}
+  return `Create a complete story bible for a ${episodeCount}-episode ${isCommercial ? 'commercial video ad' : 'short-form video series'}.${commercialCapNote}${prestigeCountNote}
 ${commercialBriefUserBlock}
 ${focusBlock}
 ${directorsBlock}
@@ -468,7 +551,7 @@ SERIES PARAMETERS:
 - Tone: ${tone}
 - Genre: ${genre}
 - Target audience: ${targetAudience}
-- Episodes: ${episodeCount}${isCommercial ? ' (HARD CAP — see COMMERCIAL EPISODE-COUNT CAP above)' : ' (each ~60-90 seconds of finished video, built from 5-12 beats; ~$20 production budget per episode — plan stakes, dialogue weight, and scene depth accordingly)'}
+- Episodes: ${episodeCount}${isCommercial ? ' (HARD CAP — see COMMERCIAL EPISODE-COUNT CAP above)' : ` (soft ceiling ${episodeCount} / hard floor 3 — see PRESTIGE EPISODE-COUNT FLOOR + CEILING above; each ~60-90 seconds of finished video, built from 5-12 beats; ~$20 production budget per episode — plan stakes, dialogue weight, and scene depth accordingly)`}
 - Platform: Short-form vertical video (TikTok/Reels/YouTube Shorts)
 
 OUTPUT JSON SCHEMA:

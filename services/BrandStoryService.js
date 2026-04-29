@@ -389,6 +389,37 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ? story.persona_config.personas
       : [story.persona_config]; // legacy fallback
 
+    // V4 Wave 6 / hotfix-2026-04-29 #2 — extract visual_anchor BEFORE the
+    // storyline user prompt is built. The persona block at
+    // brandStoryPrompts.mjs:413-424 reads `p.visual_anchor` to render the
+    // "Visual identity (ground truth, vision-grounded): ..." line. Without
+    // an extracted anchor, the renderer emits "DESCRIPTION_MISSING — escalate
+    // to user_review" — which Gemini interprets as a directive to NOT
+    // generate. Symptom from logs (2026-04-29 story `fcb0b42b`): title=
+    // undefined, 0 episodes planned, empty story bible.
+    //
+    // The hotfix-2026-04-29 fix #1 hoisted extraction into _autoSetupAvatar,
+    // but _autoSetupAvatar runs AFTER generateStoryline. This hoist places
+    // it earlier still — at the very start of the storyline pipeline — so
+    // the prompt sees the anchor.
+    //
+    // Idempotent: skips personas whose anchor matches the current photo set
+    // (vision_call_id check). For described personas (no photos), no
+    // extraction runs and the renderer falls back to text fields (see the
+    // updated persona block in brandStoryPrompts.mjs).
+    try {
+      await this._ensureVisualAnchorsForPersonas(storyId, userId, story, personas);
+    } catch (err) {
+      // Inversion-class extraction failures are user-review escalations.
+      // Bubble up so the route handler returns a 400-class error instead of
+      // silently shipping a doomed storyline.
+      if (err && /inversion/i.test(err.message)) throw err;
+      // Other extraction failures (network, transient Vertex error) — log
+      // and proceed. The renderer's text-field fallback below catches the
+      // missing-anchor case so the storyline can still generate.
+      logger.warn(`generateStoryline: visual_anchor extraction failed (${err.message}) — proceeding with text-field fallback`);
+    }
+
     // Pipeline-aware storyline prompts — V4 needs different episode-grammar
     // anchors (60-120s, 5-12 beats, on-camera dialogue) than legacy v1/v2/v3
     // (10-15s narration). Mirrors the same env-var that runEpisodePipeline
@@ -617,6 +648,40 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       logger.warn(`commercial storyline emitted ${before} episodes — clamped to 2 (HARD CAP)`);
     }
 
+    // ─── Server-side safety net: enforce prestige episode-count floor ───
+    //
+    // Regression repair (2026-04-29). Symmetric defense-in-depth to the
+    // commercial clamp above. The storyline prompt now carries an explicit
+    // FLOOR directive (`prestigeCountNote` in brandStoryPrompts.mjs) telling
+    // Gemini that prestige seasons must contain at least 3 episodes. If
+    // Gemini ignores it and emits 1 or 2 episodes (root cause: thin persona
+    // canvas after the Phase 5b subtractive change starved the SHOWRUNNING
+    // soft-override), we reject the storyline so the caller can re-generate
+    // with adjusted inputs instead of silently shipping a broken season
+    // bible.
+    //
+    // Asymmetric to commercial: for commercial, over-emission is trimmable
+    // (drop excess episodes). For prestige, under-emission cannot be padded
+    // (you cannot invent narrative purpose from nothing) — the only safe
+    // move is to reject and force a retry. The error message names the
+    // likely root cause so the user knows what to enrich.
+    const PRESTIGE_EPISODE_FLOOR = 3;
+    if (!isCommercialStory && Array.isArray(storyline.episodes) && storyline.episodes.length < PRESTIGE_EPISODE_FLOOR) {
+      const got = storyline.episodes.length;
+      const detectedGenre = story.subject?.genre || storyline.genre || 'prestige';
+      logger.error(
+        `prestige storyline emitted only ${got} episode${got === 1 ? '' : 's'} — ` +
+        `floor is ${PRESTIGE_EPISODE_FLOOR} (genre=${detectedGenre}). Likely cause: ` +
+        `thin persona/subject material starved the SHOWRUNNING soft-override. ` +
+        `Enrich persona.description / persona.appearance / subject.description and re-generate.`
+      );
+      throw new Error(
+        `Storyline returned ${got} episode${got === 1 ? '' : 's'} for a ${detectedGenre} story; ` +
+        `the prestige floor is ${PRESTIGE_EPISODE_FLOOR}. Re-generate, ideally with a richer ` +
+        `persona description so Gemini has more narrative material to expand into a full season.`
+      );
+    }
+
     logger.info(`Storyline generated: "${storyline.title}" — ${storyline.episodes?.length || 0} episodes planned${isCommercialStory ? ' (commercial)' : ''}`);
 
     // Save to database
@@ -661,6 +726,21 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
 
       let workingPersonas = [...personas];
 
+      // V4 Wave 6 / hotfix-2026-04-29 — extract visual_anchor BEFORE the
+      // character-sheet loop. Until now this lived only in runV4Pipeline Step 0b,
+      // which fires at /generate-episode time — much later than the Flux 2 Max
+      // call below. Without an anchor at this point, CharacterSheetDirector's
+      // HARD CONSTRAINT block + post-emission inversion check are silent
+      // no-ops; Gemini fabricates from sparse text fields and Flux follows the
+      // prompt over the photo refs. Symptom from production logs (story
+      // `fcb0b42b` 2026-04-29): female upload → male character sheet every time.
+      //
+      // Idempotent — _ensureVisualAnchorsForPersonas skips personas whose
+      // existing anchor matches the current photo set (vision_call_id check).
+      // The Step 0b backfill in runV4Pipeline still runs and is now defense-
+      // in-depth for legacy stories that were created before this fix.
+      await this._ensureVisualAnchorsForPersonas(storyId, userId, story, workingPersonas);
+
       for (let i = 0; i < workingPersonas.length; i++) {
         const p = workingPersonas[i];
 
@@ -700,6 +780,100 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         });
       }
     }
+  }
+
+  /**
+   * V4 Wave 6 / hotfix-2026-04-29 — extracted from runV4Pipeline Step 0b.
+   *
+   * Extract a vision-grounded `visual_anchor` for every persona that has
+   * reference photos but no anchor (or whose anchor doesn't match the current
+   * photo set per its vision_call_id cache key). Mutates `personas` in place +
+   * persists the persona_config back to the story row.
+   *
+   * Two consumers:
+   *   1. _autoSetupAvatar (BEFORE character-sheet generation) — the load-
+   *      bearing call. CharacterSheetDirector's HARD CONSTRAINT block reads
+   *      persona.visual_anchor; without it, Gemini fabricates and Flux 2 Max
+   *      follows the fabrication over the photo refs.
+   *   2. runV4Pipeline Step 0b (BEFORE voice acquisition) — defense-in-depth
+   *      for legacy stories that were created before the hotfix-2026-04-29
+   *      ordering fix. Idempotent: skipped when the anchor already matches.
+   *
+   * Idempotency: skipped per-persona when the anchor's vision_call_id (sha256
+   * of sorted photo URLs) already matches the current photos[].
+   *
+   * Inversion-class extraction failures (gender/age inversion detected at
+   * extraction time — extremely rare, defense-in-depth) throw upward so the
+   * caller can mark the story awaiting_user_review. Other failures are logged
+   * and the persona proceeds without anchor (text-only fallback).
+   *
+   * @param {string} storyId
+   * @param {string} userId
+   * @param {Object} story         - the loaded story row (used for persona_type defaults)
+   * @param {Object[]} personas    - persona_config.personas[] — mutated in place
+   * @returns {Promise<{ extracted: number, lowConfidence: number, inversionEscalated: boolean }>}
+   */
+  async _ensureVisualAnchorsForPersonas(storyId, userId, story, personas) {
+    let extracted = 0;
+    let lowConfidence = 0;
+    let inversionEscalated = false;
+    const inversionDetails = [];
+
+    for (const p of personas) {
+      const photos = Array.isArray(p?.reference_image_urls) ? p.reference_image_urls.filter(Boolean) : [];
+      if (photos.length === 0) continue; // no photos → anchor not extractable here
+
+      // Skip if anchor already matches the current photo set.
+      if (p.visual_anchor?.apparent_gender_presentation && p.visual_anchor?.vision_call_id) {
+        const expectedCallId = visualAnchorCacheKey(photos);
+        if (expectedCallId === p.visual_anchor.vision_call_id) continue;
+      }
+
+      try {
+        const source = (p.persona_type === 'brand_kit_auto' || p.is_auto_generated) ? 'sheet_vision' : 'upload_vision';
+        logger.info(`[visual_anchor] extracting for "${p.name || 'unnamed'}" (${photos.length} photo${photos.length === 1 ? '' : 's'}, source=${source})`);
+        const anchor = await extractPersonaVisualAnchor({
+          photoUrls: photos,
+          persona: p,
+          source,
+          existingAnchor: p.visual_anchor || null
+        });
+        p.visual_anchor = anchor;
+        extracted++;
+        if (anchor.vision_confidence < 0.5) {
+          lowConfidence++;
+          inversionDetails.push({
+            persona: p.name || 'unnamed',
+            confidence: anchor.vision_confidence,
+            low_confidence_fields: anchor.low_confidence_fields
+          });
+        }
+      } catch (err) {
+        if (err instanceof VisualAnchorInversionError) {
+          inversionEscalated = true;
+          inversionDetails.push({ persona: p.name || 'unnamed', error: err.message });
+          logger.error(`[visual_anchor] inversion-escalation for "${p.name || 'unnamed'}": ${err.message}`);
+        } else {
+          logger.warn(`[visual_anchor] extraction failed for "${p.name || 'unnamed'}" (${err.message}) — proceeding without anchor (text-only fallback)`);
+        }
+      }
+    }
+
+    if (extracted > 0) {
+      await updateBrandStory(storyId, userId, {
+        persona_config: { ...(story.persona_config || {}), personas }
+      });
+      logger.info(`[visual_anchor] ${extracted} persona(s) anchored${lowConfidence > 0 ? ` — ${lowConfidence} low-confidence` : ''}`);
+    }
+
+    if (inversionEscalated) {
+      throw new Error(
+        `visual_anchor inversion(s) detected — escalating to user_review. ` +
+        `Details: ${JSON.stringify(inversionDetails)}`
+      );
+    }
+
+    return { extracted, lowConfidence, inversionEscalated };
   }
 
   // ═══════════════════════════════════════════════════
@@ -2481,6 +2655,13 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
           description,
           styleHint,
           allRefs,
+          // CIP-quality fix (2026-04-29) — boundary between Flux-generated
+          // sheets and user-uploaded originals in allRefs. The CIP three-quarter
+          // tier-3 ref-stack uses this to pick exactly ONE act1 sheet and ONE
+          // user original (the rest are dropped to keep the call under fal.ai's
+          // 10MP input+output cap AND to avoid arc-state averaging that muddies
+          // the angle-lock).
+          numFluxViews: newImageUrls.length,
           userId,
           baseSeed,
           // V4 Phase 7 — thread commercial_brief so non-photoreal styles get
@@ -2524,7 +2705,7 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * Returns empty array if Flux isn't available — caller falls back to
    * ordered reference_image_urls.
    */
-  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, userId, baseSeed, commercialBrief = null }) {
+  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, numFluxViews = null, userId, baseSeed, commercialBrief = null }) {
     if (!fluxFalService.isAvailable()) return [];
 
     logger.info(`  ${name}: canonicalizing identity (CIP stage)...`);
@@ -2629,7 +2810,43 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     ];
 
     const angledUrls = [];
-    const cipRefs = [frontUrl, frontUrl, ...allRefs].slice(0, 8); // front doubled → heavy weight
+
+    // CIP three-quarter ref-stack — quality-first 3-ref tier (2026-04-29 fix).
+    //
+    // Previously: [frontUrl, frontUrl, ...allRefs].slice(0, 8) — packed 8 refs
+    // (front doubled + 4 act1/act3 sheets + 3 originals capped to 2). Two
+    // production failures observed:
+    //   (1) fal.ai 422 errors at the 10MP input+output cap. Story 757e371c
+    //       2026-04-29 had 2 of 3 angle calls fail this way, leaving CIP
+    //       with only the front view → downstream side-angle beats had no
+    //       proper anchor and re-derived sides from the frontal reference
+    //       (visible identity drift across cuts).
+    //   (2) Quality regression even when the call succeeded: act3 sheets
+    //       show the persona with the WOUND EXPOSED (per
+    //       CharacterSheetDirector.js:266-270 — "body still, eyes wet or
+    //       unfocused"). Asking Flux 2 Max for a NEUTRAL three-quarter
+    //       angle-lock with act3 in the ref stack averages the act1 (open,
+    //       hopeful) and act3 (broken) emotional registers, muddying the
+    //       expression on the rendered angle.
+    //
+    // New stack: 3 carefully-chosen refs.
+    //   ref[0]: frontUrl (cip-front)         — fresh identity authority. Flux
+    //                                          weights ref[0] heaviest; this
+    //                                          is the primary identity signal.
+    //   ref[1]: first Flux character sheet   — by CharacterSheetDirector
+    //           (allRefs[0])                   convention this is act1-hero
+    //                                          (matching arc state, open
+    //                                          register). Wardrobe + lighting
+    //                                          context.
+    //   ref[2]: first user original          — natural-light ground truth.
+    //           (allRefs[numFluxViews])        Anchor against drift toward
+    //                                          generated-only artifacts.
+    //
+    // Megapixel math: 4MP (ref[0]) + 1MP + 1MP + 2MP output = 8MP
+    // (well under fal.ai's 10MP cap; ~2MP of headroom).
+    const act1HeroRef = allRefs[0] || null;
+    const firstOriginalRef = (numFluxViews != null && allRefs[numFluxViews]) || null;
+    const cipRefs = [frontUrl, act1HeroRef, firstOriginalRef].filter(Boolean);
     for (let v = 0; v < angledViews.length; v++) {
       const view = angledViews[v];
       try {
@@ -3191,78 +3408,26 @@ Respond with ONLY valid JSON:
 
     // ─── Step 0b: PersonaVisualAnchor extraction (V4 Phase 5b) ───
     //
-    // Extract a vision-grounded `visual_anchor` for every persona that has
-    // reference photos but no anchor yet. The anchor becomes ground truth for
-    // every text-only stage downstream (storyline writer, CharacterSheetDirector,
-    // VoiceAcquisition, CastBible). Closes the cascading-invention root cause
-    // that produced story `77d6eaaf` (logs.txt 2026-04-28: uploaded woman →
-    // invented male protagonist).
-    //
-    // Two source paths converge on ONE downstream contract:
-    //   • upload_vision  — input is user-uploaded photos
-    //   • sheet_vision   — input is CharacterSheetDirector-emitted character sheets
-    //                      (for brand_kit_auto personas that have no upload)
-    //
-    // Idempotent: re-running on the same photos returns the cached anchor
-    // without burning a Gemini call (vision_call_id keyed on sha256 of urls).
+    // V4 Wave 6 / hotfix-2026-04-29 — this is now DEFENSE-IN-DEPTH only.
+    // The load-bearing extraction site moved up to _autoSetupAvatar (BEFORE
+    // CharacterSheetDirector / Flux 2 Max generation at story creation time).
+    // This Step 0b backfills:
+    //   • legacy stories created before the hotfix-2026-04-29 ordering fix
+    //   • personas whose reference_image_urls changed after the avatar setup ran
+    // Idempotent — _ensureVisualAnchorsForPersonas skips personas whose anchor
+    // already matches the current photo set (vision_call_id cache check).
     {
-      let extracted = 0;
-      let inversionEscalated = false;
-      const inversionDetails = [];
-      for (const p of personas) {
-        const photos = Array.isArray(p?.reference_image_urls) ? p.reference_image_urls.filter(Boolean) : [];
-        if (photos.length === 0) continue; // legacy/described persona w/o photos — anchor not extractable here
-        // Skip if anchor already exists AND it matches the current photo set
-        // (cacheKey is the sha256 of sorted photo URLs).
-        if (p.visual_anchor?.apparent_gender_presentation && p.visual_anchor?.vision_call_id) {
-          // Re-extract if the photo set changed since the last extraction.
-          // Otherwise skip.
-          const expectedCallId = visualAnchorCacheKey(photos);
-          if (expectedCallId === p.visual_anchor.vision_call_id) continue;
+      const before = personas.filter(p => !p?.visual_anchor?.apparent_gender_presentation).length;
+      progress('visual_anchor', `Step 0b backfill check (${before} persona(s) without anchor of ${personas.length} total)`);
+      try {
+        const result = await this._ensureVisualAnchorsForPersonas(storyId, userId, story, personas);
+        if (result.extracted > 0) {
+          progress('visual_anchor', `${result.extracted} persona(s) anchored at Step 0b backfill${result.lowConfidence > 0 ? ` — ${result.lowConfidence} low-confidence` : ''}`);
         }
-        try {
-          const source = (p.persona_type === 'brand_kit_auto' || p.is_auto_generated) ? 'sheet_vision' : 'upload_vision';
-          progress('visual_anchor', `extracting visual_anchor for "${p.name || 'unnamed'}" (${photos.length} photo${photos.length === 1 ? '' : 's'}, source=${source})`);
-          const anchor = await extractPersonaVisualAnchor({
-            photoUrls: photos,
-            persona: p,
-            source,
-            existingAnchor: p.visual_anchor || null
-          });
-          p.visual_anchor = anchor;
-          extracted++;
-          if (anchor.vision_confidence < 0.5) {
-            inversionDetails.push({
-              persona: p.name || 'unnamed',
-              confidence: anchor.vision_confidence,
-              low_confidence_fields: anchor.low_confidence_fields
-            });
-          }
-        } catch (err) {
-          if (err instanceof VisualAnchorInversionError) {
-            // Should not fire on extraction (only on CharacterSheetDirector
-            // post-emission), but defense-in-depth.
-            inversionEscalated = true;
-            inversionDetails.push({ persona: p.name || 'unnamed', error: err.message });
-            logger.error(`visual_anchor extraction inversion-escalation for "${p.name || 'unnamed'}": ${err.message}`);
-          } else {
-            logger.warn(`visual_anchor extraction failed for "${p.name || 'unnamed'}" (${err.message}) — proceeding without anchor (text-only fallback)`);
-          }
-        }
-      }
-      if (extracted > 0) {
-        await updateBrandStory(storyId, userId, {
-          persona_config: { ...(story.persona_config || {}), personas }
-        });
-        progress('visual_anchor', `${extracted} persona(s) anchored${inversionDetails.length > 0 ? ` — ${inversionDetails.length} low-confidence/escalation(s)` : ''}`);
-      }
-      if (inversionEscalated) {
-        // Fail-fast — don't burn the rest of the pipeline on a known-bad
-        // identity. The user must confirm or correct the anchor.
-        throw new Error(
-          `V4: visual_anchor inversion(s) detected — escalating to user_review. ` +
-          `Details: ${JSON.stringify(inversionDetails)}`
-        );
+      } catch (err) {
+        // Inversion-escalation propagates — surface to the orchestrator's
+        // outer try/catch so the episode is marked awaiting_user_review.
+        throw err;
       }
     }
 
