@@ -4,7 +4,9 @@
 // checks on a scene-graph produced by Gemini. The validator returns:
 //
 //   {
-//     issues: [{ id, severity: 'blocker'|'warning', scope, message, hint }],
+//     issues: [{ id, severity: 'critical'|'warning', scope, message, hint }],
+//     // Note: severity uses canonical V4 P0.1 vocabulary (services/v4/severity.mjs).
+//     // Legacy 'blocker' is aliased to 'critical' via normalizeSeverity for back-compat.
 //     repaired: sceneGraph,     // copy with auto-repairs applied (beat sizing)
 //     stats:   { ... },          // aggregate stats for Director's Panel QA panel
 //     needsPunchUp: boolean      // true if ≥1 blocker issue — triggers ScreenplayDoctor
@@ -25,6 +27,7 @@ import { fileURLToPath } from 'url';
 import winston from 'winston';
 import { detectAmbientBedPhrasing } from '../SoundEffectsService.js';
 import { resolveDialogueFloor, isGenreRegisterLibraryEnabled } from './GenreRegister.js';
+import { isBlockerOrCritical } from './severity.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -298,7 +301,7 @@ function checkDramaticQuestion(sceneGraph, issues) {
   if (!sceneGraph.dramatic_question || !String(sceneGraph.dramatic_question).trim()) {
     issues.push({
       id: 'missing_episode_dramatic_question',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode',
       message: 'Episode is missing a dramatic_question — every episode must raise ONE question the viewer wants answered, left tilted at the cliffhanger.',
       hint: 'Fill the top-level "dramatic_question" field with a one-sentence question this episode poses.'
@@ -312,7 +315,7 @@ function checkSceneHookTypes(sceneGraph, issues) {
     if (hooks.length === 0) {
       issues.push({
         id: 'scene_missing_hook_types',
-        severity: 'blocker',
+        severity: 'critical',
         scope: `scene:${scene.scene_id || '?'}`,
         message: `Scene ${scene.scene_id || '?'} has no hook_types declared — every scene must use at least one hook (CLIFFHANGER / REVELATION / CRESCENDO / DRAMATIC_IRONY / STATUS_FLIP / CONTRADICTION_REVEAL / ESCALATION_OF_ASK).`,
         hint: 'Add ≥ 1 entry to scene.hook_types.'
@@ -330,7 +333,7 @@ function checkOpposingIntents(sceneGraph, issues) {
       if (!hasAtLeastTwo) {
         issues.push({
           id: 'scene_missing_opposing_intents',
-          severity: 'blocker',
+          severity: 'critical',
           scope: `scene:${scene.scene_id || '?'}`,
           message: `Scene ${scene.scene_id || '?'} has ${personasInScene} characters speaking but no opposing_intents — dialogue will flatten into agreement.`,
           hint: 'Add scene.opposing_intents: { "[0]": "what A wants here", "[1]": "what B wants (must oppose)" }'
@@ -352,7 +355,7 @@ function checkVoiceDistinctness(sceneGraph, issues) {
         if (overlap > THRESHOLDS.maxVoiceOverlapRatio) {
           issues.push({
             id: 'voice_overlap_too_high',
-            severity: 'blocker',
+            severity: 'critical',
             scope: `scene:${scene.scene_id || '?'}`,
             message: `Characters [${a}] and [${b}] share ${Math.round(overlap * 100)}% of content tokens in scene ${scene.scene_id || '?'} — their voices are blurring.`,
             hint: 'Differentiate vocabularies / sentence rhythms / tics per the character cheat-sheet. One should be more clipped; one should use their signature register more.'
@@ -373,10 +376,169 @@ function checkDialogueBeatRatio(sceneGraph, personas, issues, storyFocus) {
   if (ratio < THRESHOLDS.minDialogueBeatRatio) {
     issues.push({
       id: 'dialogue_beat_ratio_too_low',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode',
       message: `Only ${dialogue}/${total} beats carry dialogue (${Math.round(ratio * 100)}% vs ${Math.round(THRESHOLDS.minDialogueBeatRatio * 100)}% minimum). Characters are being compressed into silence.`,
       hint: 'Convert some B_ROLL / REACTION beats into TALKING_HEAD_CLOSEUP or SHOT_REVERSE_SHOT beats — or merge two short dialogue beats into one denser 5-6s beat.'
+    });
+  }
+}
+
+/**
+ * V4 Phase 5b — Fix 7. Catches the "all visual, no character voice" pattern
+ * that produced the "amateur visuals" perception in story `77d6eaaf` (8 beats,
+ * 1 principal, 2 dialogue = 25% — Director Agent's diagnosis: viewers read
+ * thin-dialogue as repetition / monoculture).
+ *
+ * Fires when ratio < SCENE_DIALOGUE_THIN_THRESHOLD (default 0.25 — env-tunable
+ * via BRAND_STORY_DIALOGUE_THIN_THRESHOLD) for stories with at least one
+ * principal persona. Warning, not blocker — the Doctor patches by converting
+ * a B_ROLL / REACTION into a TALKING_HEAD_CLOSEUP. Skipped for commercial
+ * voiceover-heavy briefs (those are intentionally low-dialogue by design).
+ */
+function checkDialogueRatioForOnePrincipal(sceneGraph, personas, options, issues) {
+  const hasAnyPersonas = Array.isArray(personas) && personas.length >= 1;
+  if (!hasAnyPersonas) return;
+  if (personas.length >= 2) return; // covered by checkDialogueBeatRatio (blocker)
+  if (options?.storyFocus === 'landscape') return;
+
+  // Exclude voiceover-heavy commercial briefs by design choice. The brief's
+  // narrative_grammar.dialogue_density is the explicit signal; when it
+  // declares 'low' or 'voiceover_only', the writer authored the spareness
+  // intentionally and the warning would be noise.
+  const dialogueDensity = String(options?.commercialBrief?.narrative_grammar?.dialogue_density || '').toLowerCase();
+  if (dialogueDensity === 'low' || dialogueDensity === 'voiceover_only' || dialogueDensity === 'minimal') return;
+
+  const { total, dialogue } = countAllDialogueBeats(sceneGraph);
+  if (total === 0) return;
+
+  const threshold = Number(process.env.BRAND_STORY_DIALOGUE_THIN_THRESHOLD || '0.25');
+  const ratio = dialogue / total;
+  if (ratio < threshold) {
+    issues.push({
+      id: 'dialogue_beats_too_thin',
+      severity: 'warning',
+      scope: 'episode',
+      message: `Only ${dialogue}/${total} beats carry dialogue (${Math.round(ratio * 100)}% vs ${Math.round(threshold * 100)}% floor for one-principal stories). The cut will read 'all visual, no character voice'.`,
+      hint: 'Convert one or two B_ROLL / REACTION / INSERT beats into TALKING_HEAD_CLOSEUP or SILENT_STARE-with-internal-line beats. The principal needs to be HEARD at least 25% of the runtime.'
+    });
+  }
+}
+
+/**
+ * V4 Phase 5b — Fix 7. Detects scene_visual_anchor_prompt monoculture —
+ * when every scene reuses the same lighting / mood vocabulary, the viewer
+ * reads the assembled cut as one shot repeated. Director Agent's diagnosis
+ * of the "amateur visuals" perception in story `77d6eaaf`.
+ *
+ * Pairwise token-overlap. If any two scenes have ≥ MONOCULTURE_THRESHOLD
+ * (default 0.70 — env-tunable) overlap → warning. Doctor rewrites the
+ * later scene's anchor with varied vocabulary that still honors the
+ * brief's style_category (Fix 7's Doctor extension).
+ */
+function checkSceneVisualAnchorVariety(sceneGraph, issues) {
+  const scenes = (sceneGraph?.scenes || []).filter(s => {
+    const a = String(s?.scene_visual_anchor_prompt || '').trim();
+    return a.length >= 20;
+  });
+  if (scenes.length < 2) return;
+
+  const STOP_FOR_MONO = new Set([...STOPWORDS, 'the', 'and', 'with', 'a', 'an']);
+  const anchorTokens = scenes.map(s => {
+    const anchor = String(s.scene_visual_anchor_prompt).toLowerCase();
+    const toks = anchor.match(/[a-z][a-z0-9'-]+/g) || [];
+    return new Set(toks.filter(t => t.length >= 4 && !STOP_FOR_MONO.has(t)));
+  });
+
+  const threshold = Number(process.env.BRAND_STORY_SCENE_ANCHOR_VARIETY_THRESHOLD || '0.70');
+  const offenders = [];
+  for (let i = 0; i < anchorTokens.length; i++) {
+    for (let j = i + 1; j < anchorTokens.length; j++) {
+      const a = anchorTokens[i];
+      const b = anchorTokens[j];
+      if (a.size === 0 || b.size === 0) continue;
+      let overlap = 0;
+      for (const t of a) if (b.has(t)) overlap++;
+      const ratio = overlap / Math.min(a.size, b.size);
+      if (ratio >= threshold) {
+        offenders.push({ i, j, ratio: Number(ratio.toFixed(2)) });
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    issues.push({
+      id: 'scene_anchor_monoculture',
+      severity: 'warning',
+      scope: 'episode',
+      message: `Scene visual anchors are tonally monocultural: ${offenders.length} scene-pair(s) share ≥${Math.round(threshold * 100)}% vocabulary (e.g. scenes ${offenders[0].i + 1} ↔ ${offenders[0].j + 1} at ${Math.round(offenders[0].ratio * 100)}%). The cut will read as one shot repeated.`,
+      hint: 'Rewrite the later scene_visual_anchor_prompt with varied lighting / mood / color vocabulary while preserving genre register. Vary the lens, the time of day, the practical light source, the dominant color.',
+      details: { offending_pairs: offenders }
+    });
+  }
+}
+
+/**
+ * V4 Phase 5b — Fix 7. When commercial_brief.style_category is set, scan
+ * scene_visual_anchor_prompts for vocabulary that VIOLATES that category.
+ * Generic — uses the brief's own style_category + anti_brief signals as
+ * the source of forbidden vocabulary, not a hardcoded mapping.
+ *
+ * Specific cross-checks (universal craft principles, not hardcoded brand
+ * vocabulary):
+ *   • hyperreal_premium briefs → anchors must NOT contain 'pitch black',
+ *     'void', 'noir', 'crushed shadow', 'chiaroscuro' (those are the
+ *     opposite craft register: high-key hero light vs deep underexposure).
+ *   • gritty_real briefs → anchors must NOT contain 'glossy', 'polished',
+ *     'pristine', 'flawless'.
+ *
+ * Tokens come from the brief's anti_brief field when present, plus the
+ * style_category + craft-register universals above. NOT a wordlist; the
+ * craft principles map across any future style_category. Warning, not
+ * blocker — Doctor patches.
+ */
+function checkSceneAnchorBriefCoherence(sceneGraph, options, issues) {
+  const brief = options?.commercialBrief;
+  if (!brief || !brief.style_category) return;
+
+  const styleCategory = String(brief.style_category).toLowerCase();
+  // Universal craft-register conflicts. Each entry: when style_category
+  // matches, these tokens (lowercase) in scene_visual_anchor_prompt fire
+  // the warning. Adding a new style_category? Add the conflicting craft
+  // vocabulary here. NOT a brand wordlist; this is craft register law.
+  const STYLE_CATEGORY_CRAFT_CONFLICTS = {
+    hyperreal_premium: ['pitch black', 'pure void', 'crushed shadow', 'chiaroscuro', 'noir lighting', 'deep underexposure'],
+    gritty_real:       ['glossy', 'polished', 'pristine', 'flawless', 'mirror-finish'],
+    vaporwave_nostalgic: ['stark', 'austere', 'documentary lens', 'naturalistic'],
+    luxury_minimal:    ['gritty', 'handheld', 'documentary', 'rough', 'noisy grain']
+  };
+
+  const conflicts = STYLE_CATEGORY_CRAFT_CONFLICTS[styleCategory] || [];
+  // Plus any anti_brief tokens authored by the brief writer for this story.
+  const antiBriefTokens = Array.isArray(brief.anti_brief)
+    ? brief.anti_brief.map(t => String(t).toLowerCase()).filter(t => t.length >= 3)
+    : [];
+  const allConflictTokens = [...conflicts, ...antiBriefTokens];
+  if (allConflictTokens.length === 0) return;
+
+  const offenders = [];
+  for (const scene of sceneGraph?.scenes || []) {
+    const anchor = String(scene?.scene_visual_anchor_prompt || '').toLowerCase();
+    if (!anchor) continue;
+    const hits = allConflictTokens.filter(t => anchor.includes(t));
+    if (hits.length > 0) {
+      offenders.push({ scene_id: scene.id || scene.label || 'unknown', hits });
+    }
+  }
+
+  if (offenders.length > 0) {
+    issues.push({
+      id: 'scene_anchor_violates_style_category',
+      severity: 'warning',
+      scope: 'episode',
+      message: `${offenders.length} scene anchor(s) contain vocabulary that violates the commercial brief's style_category="${styleCategory}". Example: scene "${offenders[0].scene_id}" uses [${offenders[0].hits.join(', ')}].`,
+      hint: 'Rewrite anchor(s) to align with the brief\'s style_category. Honor the brief\'s craft register — light, gesture, composition — and let the brand subject carry the look without leaning on opposite-register vocabulary.',
+      details: { offenders }
     });
   }
 }
@@ -431,7 +593,7 @@ function checkAvgDialogueLength(sceneGraph, options, issues) {
     }
     issues.push({
       id: 'dialogue_too_sparse',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode',
       message: `Average dialogue length is ${avg.toFixed(1)} words per line — below the ${floor}-word ${floorSource} floor. Lines are too sparse to carry character or conflict.`,
       hint: 'Write FEWER but DENSER dialogue beats (5-8s each). Apply the "One Great Line" principle: one real line beats six fillers.'
@@ -711,7 +873,7 @@ function checkPersonaIndexCoverage(sceneGraph, personas, issues) {
           missing++;
           issues.push({
             id: 'persona_index_missing',
-            severity: 'blocker',
+            severity: 'critical',
             scope: `beat:${beat.beat_id}`,
             message: `Beat ${beat.beat_id} [${beat.type}] has dialogue but no valid persona_index (got ${JSON.stringify(beat.persona_index)}). The beat generator will fail with "no persona resolved" mid-pipeline.`,
             hint: `Set persona_index to an integer 0..${personaCount - 1} on the beat, or fix it in the Director Panel before regenerating.`
@@ -726,7 +888,7 @@ function checkPersonaIndexCoverage(sceneGraph, personas, issues) {
             missing++;
             issues.push({
               id: 'persona_index_missing',
-              severity: 'blocker',
+              severity: 'critical',
               scope: `beat:${beat.beat_id}`,
               message: `Beat ${beat.beat_id} [${beat.type}] dialogues[${i}] has no valid persona_indexes[${i}] (got ${JSON.stringify(indexes[i])}).`,
               hint: `Provide persona_indexes[] with one integer 0..${personaCount - 1} per dialogue line.`
@@ -742,7 +904,7 @@ function checkPersonaIndexCoverage(sceneGraph, personas, issues) {
             missing++;
             issues.push({
               id: 'persona_index_missing',
-              severity: 'blocker',
+              severity: 'critical',
               scope: `beat:${beat.beat_id}`,
               message: `Beat ${beat.beat_id} [SHOT_REVERSE_SHOT] exchange[${i}] has dialogue but no valid persona_index (got ${JSON.stringify(ex.persona_index)}). The compiler will produce an unrenderable closeup child.`,
               hint: `Set exchanges[${i}].persona_index to an integer 0..${personaCount - 1}.`
@@ -843,7 +1005,7 @@ function checkSubjectMandate(sceneGraph, storyline, options, issues) {
   if (subjectBeats === 0) {
     issues.push({
       id: 'subject_missing_from_episode',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode',
       message: `Subject "${bible?.name || 'subject'}" does not appear in ANY beat of this episode. The Subject Bible mandate requires ≥ ${mandate.min_beats_per_episode}.`,
       hint: 'Add at least one INSERT_SHOT hero beat or mark a B_ROLL_ESTABLISHING with subject_present=true and the subject visible in its location/visual_prompt.'
@@ -948,7 +1110,7 @@ function checkAntiAdCopyBans(sceneGraph, options, issues) {
         const beatId = line.beat?.beat_id || 'unknown';
         issues.push({
           id: ban.id,
-          severity: 'blocker',
+          severity: 'critical',
           scope: `beat:${beatId}`,
           message: `Ad-copy banned phrase "${matchResult[0]}" detected in dialogue (integration style: ${style}). Hollywood naturalistic placement forbids commercial register in dialogue.`,
           hint: 'Rewrite this line so the character expresses something diegetic (a feeling, a fact, a request) rather than a product claim. The product must be a noun (touched / used) — never an adjective described in speech. If the line is authentic in-world copy-reading (a billboard, a TV ad, a label), set beat.diegetic_label_reading: true to exempt ONE such beat per episode.'
@@ -1066,7 +1228,7 @@ function checkSonicWorldStructure(sceneGraph, issues) {
   if (!sw.base_palette || typeof sw.base_palette !== 'string' || sw.base_palette.trim().length === 0) {
     issues.push({
       id: 'sonic_world_no_base_palette',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode.sonic_world',
       message: 'sonic_world.base_palette is required (the continuous bed for the whole episode)',
       hint: 'Author a 1-sentence ambient bed description that plays under every beat.'
@@ -1076,7 +1238,7 @@ function checkSonicWorldStructure(sceneGraph, issues) {
   if (!sw.spectral_anchor || (typeof sw.spectral_anchor !== 'string' && typeof sw.spectral_anchor !== 'object')) {
     issues.push({
       id: 'sonic_world_no_spectral_anchor',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode.sonic_world',
       message: 'sonic_world.spectral_anchor is required (the seam-hider that always plays)',
       hint: 'Author the sub-200Hz + faint air content that anchors continuity across cuts.'
@@ -1130,7 +1292,7 @@ function checkSonicWorldBibleInheritance(sceneGraph, bible, issues) {
   if (!sw || typeof sw !== 'object') {
     issues.push({
       id: 'sonic_world_missing_with_bible',
-      severity: 'blocker',
+      severity: 'critical',
       scope: 'episode',
       message: 'story has a Sonic Series Bible — episode MUST emit a sonic_world block that inherits from it',
       hint: 'Author sonic_world with base_palette + spectral_anchor + scene_variations[].'
@@ -1230,7 +1392,7 @@ function checkMusicBedRespectsNoFlyList(sceneGraph, bible, issues) {
     if (variants.some(v => lowered.includes(v))) {
       issues.push({
         id: 'music_violates_no_fly_list',
-        severity: 'blocker',
+        severity: 'critical',
         scope: 'episode.music_bed_intent',
         message: `music_bed_intent uses prohibited instrument "${prohibitedInst}" from the Sonic Series Bible`,
         hint: `Re-author music_bed_intent without "${prohibitedInst.replace(/_/g, ' ')}". Bible no-fly list: ${prohibited.join(', ')}.`
@@ -1283,7 +1445,7 @@ function checkDialogueTagPresence(sceneGraph, issues) {
       const beatId = line.beat?.beat_id || 'unknown';
       issues.push({
         id: 'dialogue_missing_audio_tag',
-        severity: required ? 'blocker' : 'warning',
+        severity: required ? 'critical' : 'warning',
         scope: `beat:${beatId}`,
         message: `Beat ${beatId} dialogue carries no eleven-v3 performance tag and no [no_tag_intentional:...] baseline annotation — the audio layer will inherit the model's default contour instead of an authored read.`,
         hint: 'Add an inline tag derived from beat.emotion + subtext + opposing_intents + archetype (see DIALOGUE PERFORMANCE TAGS masterclass), e.g. "[barely whispering] I had no choice.", "[firmly] We need to leave. Now.", or "I\'m fine. [exhaling]". For Stoic / under-tagged baseline reads, use "[no_tag_intentional: stoic_baseline] ..." to signal intent.'
@@ -1434,7 +1596,7 @@ function checkDialogueEndpointBudget(sceneGraph, personas, issues) {
       if (voiceIds.size > DIALOGUE_ENDPOINT_MAX_VOICES) {
         issues.push({
           id: 'dialogue_endpoint_voice_overflow',
-          severity: 'blocker',
+          severity: 'critical',
           scope: `beat:${beatId}`,
           message: `Beat ${beatId} references ${voiceIds.size} unique voices — exceeds eleven-v3 dialogue endpoint's ${DIALOGUE_ENDPOINT_MAX_VOICES}-voice limit.`,
           hint: `Reduce the speaking cast in this beat, or split into multiple beats with ≤ ${DIALOGUE_ENDPOINT_MAX_VOICES} voices each.`
@@ -1448,7 +1610,7 @@ function checkDialogueEndpointBudget(sceneGraph, personas, issues) {
       if (langs.length > 1) {
         issues.push({
           id: 'dialogue_endpoint_mixed_language',
-          severity: 'blocker',
+          severity: 'critical',
           scope: `beat:${beatId}`,
           message: `Beat ${beatId} GROUP_DIALOGUE_TWOSHOT mixes languages [${langs.join(', ')}] across speakers. The eleven-v3 dialogue endpoint accepts only one language_code per request.`,
           hint: 'Either re-cast the scene so both speakers share a language, OR change the beat type so each speaker gets their own per-beat TTS call (TALKING_HEAD_CLOSEUP × 2 with a SHOT_REVERSE_SHOT compiler step).'
@@ -1514,7 +1676,7 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   } = options;
   if (!sceneGraph || typeof sceneGraph !== 'object') {
     return {
-      issues: [{ id: 'no_scene_graph', severity: 'blocker', scope: 'episode', message: 'No scene graph to validate.', hint: '' }],
+      issues: [{ id: 'no_scene_graph', severity: 'critical', scope: 'episode', message: 'No scene graph to validate.', hint: '' }],
       repaired: sceneGraph,
       stats: {},
       needsPunchUp: false
@@ -1530,6 +1692,15 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkOpposingIntents(repaired, issues);
   checkVoiceDistinctness(repaired, issues);
   checkDialogueBeatRatio(repaired, personas, issues, storyFocus);
+  // V4 Phase 5b — Fix 7. The blocker above only fires for ≥2 personas. The
+  // one-principal warning catches the "all visual, no character voice"
+  // pattern that hit story `77d6eaaf` (1 principal × 8 beats × 2 dialogue).
+  checkDialogueRatioForOnePrincipal(repaired, personas, options, issues);
+  // V4 Phase 5b — Fix 7. Tonal-monoculture detector + brief-coherence check.
+  // Both are warnings (Doctor patches). Brief-coherence only fires when a
+  // commercial_brief is present.
+  checkSceneVisualAnchorVariety(repaired, issues);
+  checkSceneAnchorBriefCoherence(repaired, options, issues);
   checkAvgDialogueLength(repaired, options, issues);
   checkSubtextCoverage(repaired, issues);
   checkOneGreatLinePrinciple(repaired, options, issues);
@@ -1577,9 +1748,9 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
     scenes: (repaired.scenes || []).length
   };
 
-  const needsPunchUp = issues.some(i => i.severity === 'blocker');
+  const needsPunchUp = issues.some(i => isBlockerOrCritical(i.severity));
 
-  logger.info(`${issues.length} issues (${issues.filter(i => i.severity === 'blocker').length} blocker, ${issues.filter(i => i.severity === 'warning').length} warning). Stats: beats=${stats.total_beats} dialogue_beats=${stats.dialogue_beats} avg_words=${stats.avg_dialogue_words} subtext=${Math.round(stats.subtext_coverage * 100)}%`);
+  logger.info(`${issues.length} issues (${issues.filter(i => isBlockerOrCritical(i.severity)).length} critical, ${issues.filter(i => i.severity === 'warning').length} warning). Stats: beats=${stats.total_beats} dialogue_beats=${stats.dialogue_beats} avg_words=${stats.avg_dialogue_words} subtext=${Math.round(stats.subtext_coverage * 100)}%`);
 
   return { issues, repaired, stats, needsPunchUp };
 }

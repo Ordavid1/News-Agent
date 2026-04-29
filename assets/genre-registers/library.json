@@ -44,7 +44,7 @@
         "composer_references": ["Hildur Guðnadóttir", "Mica Levi", "Nick Cave & Warren Ellis", "Mark Bradshaw"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_drama_motivated_natural", "bs_drama_kelvin_window", "bs_drama_phantom_thread", "bs_naturalistic"],
+        "preferred": ["bs_drama_motivated_natural", "bs_drama_kelvin_window", "bs_drama_phantom_thread", "bs_doc_natural_window"],
         "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white"]
       },
       "transitions": {
@@ -98,7 +98,7 @@
         "composer_references": ["Jonny Greenwood", "Carter Burwell", "Sufjan Stevens", "Ryuichi Sakamoto"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_romance_kodak_portra_warm", "bs_romance_sayombhu_bloom", "bs_warm_cinematic", "bs_dreamy_ethereal"],
+        "preferred": ["bs_romance_kodak_portra_warm", "bs_romance_sayombhu_bloom", "bs_drama_motivated_natural", "bs_romance_sayombhu_bloom"],
         "avoid": ["bs_action_teal_orange_punch", "bs_horror_clinical_pale", "bs_noir_classic_bw_silver"]
       },
       "transitions": {
@@ -153,8 +153,8 @@
         "composer_references": ["Junkie XL (Fury Road, Deadpool 2)", "Tyler Bates (John Wick)", "Lorne Balfe (Mission: Impossible — Fallout)", "Hildur Guðnadóttir kinetic cues"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_action_teal_orange_punch", "bs_action_arid_sicario", "bs_urban_grit", "bs_high_contrast_moody"],
-        "avoid": ["bs_warm_cinematic", "bs_dreamy_ethereal", "bs_golden_hour", "bs_romance_kodak_portra_warm"]
+        "preferred": ["bs_action_teal_orange_punch", "bs_action_arid_sicario", "bs_action_arid_sicario", "bs_thriller_villeneuve_haze"],
+        "avoid": ["bs_drama_motivated_natural", "bs_romance_sayombhu_bloom", "bs_romance_kodak_portra_warm", "bs_romance_kodak_portra_warm"]
       },
       "transitions": {
         "default": "cut",
@@ -207,8 +207,8 @@
         "composer_references": ["Trent Reznor & Atticus Ross", "Geoff Barrow (Annihilation)", "Hildur Guðnadóttir (Joker, Chernobyl)", "Mica Levi (Under the Skin)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_thriller_fincher_amber_teal", "bs_thriller_villeneuve_haze", "bs_cool_noir", "bs_high_contrast_moody"],
-        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_dreamy_ethereal", "bs_golden_hour"]
+        "preferred": ["bs_thriller_fincher_amber_teal", "bs_thriller_villeneuve_haze", "bs_thriller_fincher_amber_teal", "bs_thriller_villeneuve_haze"],
+        "avoid": ["bs_drama_motivated_natural", "bs_comedy_bright_clean", "bs_romance_sayombhu_bloom", "bs_romance_kodak_portra_warm"]
       },
       "transitions": {
         "default": "cut",
@@ -261,8 +261,8 @@
         "composer_references": ["Mark Mothersbaugh (Wes Anderson)", "Carter Burwell (Coen Brothers)", "Nick Urata (Little Miss Sunshine)", "Hauschka (Lion)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_comedy_bright_clean", "bs_comedy_wes_anderson_pastel", "bs_naturalistic", "bs_warm_cinematic"],
-        "avoid": ["bs_action_teal_orange_punch", "bs_horror_clinical_pale", "bs_noir_classic_bw_silver", "bs_high_contrast_moody"]
+        "preferred": ["bs_comedy_bright_clean", "bs_comedy_wes_anderson_pastel", "bs_doc_natural_window", "bs_drama_motivated_natural"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_horror_clinical_pale", "bs_noir_classic_bw_silver", "bs_thriller_villeneuve_haze"]
       },
       "transitions": {
         "default": "cut",
@@ -315,8 +315,8 @@
         "composer_references": ["Mica Levi (Under the Skin)", "Colin Stetson (Hereditary)", "Disasterpeace (It Follows)", "Mark Korven (The Witch)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_horror_clinical_pale", "bs_horror_warm_dread", "bs_high_contrast_moody", "bs_cool_noir"],
-        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_golden_hour", "bs_romance_kodak_portra_warm"]
+        "preferred": ["bs_horror_clinical_pale", "bs_horror_warm_dread", "bs_thriller_villeneuve_haze", "bs_thriller_fincher_amber_teal"],
+        "avoid": ["bs_drama_motivated_natural", "bs_comedy_bright_clean", "bs_romance_kodak_portra_warm", "bs_romance_kodak_portra_warm"]
       },
       "transitions": {
         "default": "cut",
@@ -370,7 +370,7 @@
         "composer_references": ["Daniel Pemberton (Spider-Man: Across the Spider-Verse)", "Nicholas Britell (Succession)", "Mica Levi", "Anna Meredith"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_commercial_hyperreal_punch", "bs_commercial_sundance_indie", "bs_commercial_neon_dream", "bs_warm_cinematic"],
+        "preferred": ["bs_commercial_hyperreal_punch", "bs_commercial_sundance_indie", "bs_commercial_neon_dream", "bs_drama_motivated_natural"],
         "avoid": ["bs_horror_clinical_pale", "bs_noir_classic_bw_silver"]
       },
       "transitions": {
@@ -423,8 +423,8 @@
         "composer_references": ["Jóhann Jóhannsson", "Philip Glass (Errol Morris docs)", "Dustin O'Halloran", "Hauschka"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_doc_natural_window", "bs_naturalistic", "bs_drama_motivated_natural", "bs_warm_cinematic"],
-        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white", "bs_dreamy_ethereal"]
+        "preferred": ["bs_doc_natural_window", "bs_doc_natural_window", "bs_drama_motivated_natural", "bs_drama_motivated_natural"],
+        "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white", "bs_romance_sayombhu_bloom"]
       },
       "transitions": {
         "default": "cut",
@@ -478,8 +478,8 @@
         "composer_references": ["Bernard Herrmann", "Cliff Martinez (Drive, Solaris)", "David Holmes (Out of Sight)", "Trent Reznor & Atticus Ross (Mank)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_noir_classic_bw_silver", "bs_noir_neon_modern", "bs_cool_noir", "bs_high_contrast_moody"],
-        "avoid": ["bs_warm_cinematic", "bs_comedy_bright_clean", "bs_dreamy_ethereal", "bs_golden_hour"]
+        "preferred": ["bs_noir_classic_bw_silver", "bs_noir_neon_modern", "bs_thriller_fincher_amber_teal", "bs_thriller_villeneuve_haze"],
+        "avoid": ["bs_drama_motivated_natural", "bs_comedy_bright_clean", "bs_romance_sayombhu_bloom", "bs_romance_kodak_portra_warm"]
       },
       "transitions": {
         "default": "cut",
@@ -531,8 +531,8 @@
         "composer_references": ["Hans Zimmer (Interstellar)", "Jóhann Jóhannsson (Arrival)", "Cliff Martinez (Solaris)", "Mica Levi (Under the Skin)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_scifi_blade_runner_amber", "bs_scifi_clinical_white", "bs_high_contrast_moody"],
-        "avoid": ["bs_warm_cinematic", "bs_romance_kodak_portra_warm"]
+        "preferred": ["bs_scifi_blade_runner_amber", "bs_scifi_clinical_white", "bs_thriller_villeneuve_haze"],
+        "avoid": ["bs_drama_motivated_natural", "bs_romance_kodak_portra_warm"]
       },
       "transitions": {
         "default": "dissolve",
@@ -583,7 +583,7 @@
         "composer_references": ["Howard Shore (LOTR)", "Ramin Djawadi (Game of Thrones)", "James Newton Howard", "Ennio Morricone (The Mission)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_fantasy_painterly_emerald", "bs_warm_cinematic", "bs_drama_phantom_thread"],
+        "preferred": ["bs_fantasy_painterly_emerald", "bs_drama_motivated_natural", "bs_drama_phantom_thread"],
         "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch"]
       },
       "transitions": {
@@ -636,7 +636,7 @@
         "composer_references": ["Carter Burwell (Carol)", "Alexandre Desplat (The Grand Budapest Hotel)", "Daniel Pemberton (The Counterfeiters)", "Volker Bertelmann (Conclave)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_period_kodachrome_60s", "bs_period_silver_painterly", "bs_drama_phantom_thread", "bs_warm_cinematic"],
+        "preferred": ["bs_period_kodachrome_60s", "bs_period_silver_painterly", "bs_drama_phantom_thread", "bs_drama_motivated_natural"],
         "avoid": ["bs_action_teal_orange_punch", "bs_commercial_hyperreal_punch", "bs_scifi_clinical_white"]
       },
       "transitions": {
@@ -688,7 +688,7 @@
         "composer_references": ["Nicholas Britell", "Jonny Greenwood", "Justin Hurwitz", "Daniel Pemberton"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_drama_motivated_natural", "bs_naturalistic", "bs_warm_cinematic"],
+        "preferred": ["bs_drama_motivated_natural", "bs_doc_natural_window", "bs_drama_motivated_natural"],
         "avoid": ["bs_commercial_hyperreal_punch", "bs_horror_clinical_pale"]
       },
       "transitions": {
@@ -741,7 +741,7 @@
         "composer_references": ["John Williams (Indiana Jones)", "Howard Shore (LOTR)", "James Horner (Avatar)", "Michael Giacchino (Up)"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_warm_cinematic", "bs_naturalistic", "bs_action_arid_sicario"],
+        "preferred": ["bs_drama_motivated_natural", "bs_doc_natural_window", "bs_action_arid_sicario"],
         "avoid": ["bs_horror_clinical_pale", "bs_noir_classic_bw_silver", "bs_commercial_hyperreal_punch"]
       },
       "transitions": {
@@ -793,7 +793,7 @@
         "composer_references": ["Hauschka (Lion)", "Dustin O'Halloran", "Jóhann Jóhannsson", "Hirokazu Kore-eda's typical music supervision"]
       },
       "lut_recommendations": {
-        "preferred": ["bs_naturalistic", "bs_drama_motivated_natural", "bs_warm_cinematic"],
+        "preferred": ["bs_doc_natural_window", "bs_drama_motivated_natural", "bs_drama_motivated_natural"],
         "avoid": ["bs_commercial_hyperreal_punch", "bs_horror_clinical_pale", "bs_action_teal_orange_punch"]
       },
       "transitions": {

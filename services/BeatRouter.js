@@ -82,7 +82,14 @@ const GENERATOR_NAME_MAP = {
   VoiceoverBRollGenerator,
   TextOverlayCardGenerator,
   MontageSequenceGenerator,
-  BridgeBeatGenerator
+  BridgeBeatGenerator,
+  // V4 Phase 5b — N5. IDENTITY-class auto-fix fallback. When a Mode B
+  // dialogue beat (Kling Omni → Sync) hard_rejects on identity AND the
+  // ref-stack rebuild also fails, the orchestrator routes to OmniHuman 1.5
+  // alone (Mode A) by setting beat.preferred_generator='TalkingHeadCloseupGenerator'.
+  // Per Video MCP audit, OmniHuman 1.5 has best-in-class single-photo
+  // lipsync — a genuine alternative when Kling drifts on persona identity.
+  TalkingHeadCloseupGenerator
 };
 
 const ROUTING = {
@@ -155,7 +162,7 @@ class BeatRouter {
    * @param {number} params.costCapUsd
    * @returns {{expanded: Object[], totalEstimatedCost: number, beatCount: number, withinCap: boolean}}
    */
-  preflight({ scenes, costCapUsd }) {
+  preflight({ scenes, costCapUsd, genre = '' }) {
     if (!Array.isArray(scenes)) throw new Error('BeatRouter.preflight: scenes array required');
     if (typeof costCapUsd !== 'number' || costCapUsd <= 0) {
       throw new Error('BeatRouter.preflight: costCapUsd must be a positive number');
@@ -165,6 +172,31 @@ class BeatRouter {
     for (const scene of scenes) {
       if (!Array.isArray(scene.beats)) continue;
       scene.beats = ShotReverseShotCompiler.expandScene(scene.beats);
+    }
+
+    // V4 Phase 5b — N3 ref-stack precondition assertion. For commercial
+    // stories, every scene the router is about to issue beats for MUST have
+    // a non-null `scene_master_url`. Defense-in-depth on top of N1 (which
+    // already halts at the orchestrator level if Scene Master generation
+    // fails). This guard catches the case where a Scene Master result was
+    // dropped between StoryboardHelpers and beat generation.
+    const isCommercial = String(genre || '').toLowerCase().trim() === 'commercial';
+    const orphanedScenes = isCommercial
+      ? scenes.filter(s => !s?.scene_master_url && Array.isArray(s?.beats) && s.beats.length > 0)
+      : [];
+    if (orphanedScenes.length > 0) {
+      // Mark every beat in the orphaned scenes so the orchestrator can route
+      // them through Fix 8's auto-fix loop (anchor-class remediation).
+      orphanedScenes.forEach(s => {
+        s.beats.forEach(b => {
+          b.requires_scene_master_remediation = true;
+        });
+      });
+      const ids = orphanedScenes.map(s => s.scene_id || '?').join(', ');
+      logger.error(
+        `BeatRouter.preflight: ${orphanedScenes.length} commercial scene(s) lack scene_master_url — ` +
+        `marking beats as requires_scene_master_remediation. scene_ids=[${ids}]`
+      );
     }
 
     // 2+3. Resolve generators + sum cost
@@ -192,14 +224,18 @@ class BeatRouter {
     const withinCap = totalEstimatedCost <= costCapUsd;
 
     logger.info(
-      `preflight: ${beatCount} beats, estimated $${totalEstimatedCost.toFixed(2)} vs cap $${costCapUsd.toFixed(2)} — ${withinCap ? 'OK' : 'EXCEEDS CAP'}`
+      `preflight: ${beatCount} beats, estimated $${totalEstimatedCost.toFixed(2)} vs cap $${costCapUsd.toFixed(2)} — ${withinCap ? 'OK' : 'EXCEEDS CAP'}` +
+      (orphanedScenes.length > 0 ? `, ${orphanedScenes.length} commercial scene(s) lack scene_master_url` : '')
     );
 
     return {
       expanded: scenes,
       totalEstimatedCost,
       beatCount,
-      withinCap
+      withinCap,
+      // V4 Phase 5b — N3. Orchestrator can read this to gate beat generation.
+      orphanedSceneCount: orphanedScenes.length,
+      orphanedSceneIds: orphanedScenes.map(s => s.scene_id)
     };
   }
 

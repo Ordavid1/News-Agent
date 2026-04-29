@@ -4,6 +4,92 @@
 
 import { isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs';
 
+/**
+ * V4 Phase 5b — render a persona's visual_anchor as a one-line description
+ * that REPLACES the placeholder fallbacks (`'A compelling character'`, etc.)
+ * Subtractive change per Director Agent's mandate: the placeholders literally
+ * invited Gemini to fabricate. With Fix 1+2's contract, every persona has a
+ * visual_anchor; this helper renders it.
+ *
+ * If anchor is absent (defense-in-depth — should never happen per the merged
+ * Fix 1+2 contract), returns a clear marker the storyline writer will treat
+ * as an error condition.
+ *
+ * @param {Object|null} anchor - visual_anchor record from PersonaVisualAnchor
+ * @returns {string}
+ */
+function _renderVisualAnchorAsDescription(anchor) {
+  if (!anchor || typeof anchor !== 'object' || !anchor.apparent_gender_presentation) {
+    return 'DESCRIPTION_MISSING — persona has no visual_anchor; escalate to user_review';
+  }
+  const genderWord = {
+    female: 'woman',
+    male: 'man',
+    androgynous: 'androgynous person',
+    unknown: 'person'
+  }[anchor.apparent_gender_presentation] || 'person';
+
+  const fragments = [];
+  if (anchor.apparent_age_range) fragments.push(anchor.apparent_age_range);
+  fragments.push(genderWord);
+  if (anchor.ethnicity_visual_descriptors) fragments.push(`(${anchor.ethnicity_visual_descriptors})`);
+  if (anchor.hair_color || anchor.hair_length_style) {
+    fragments.push(`hair: ${[anchor.hair_color, anchor.hair_length_style].filter(Boolean).join(', ')}`);
+  }
+  if (anchor.build) fragments.push(`build: ${anchor.build}`);
+  if ((anchor.distinctive_features || []).length > 0) {
+    fragments.push(`distinctive: ${anchor.distinctive_features.slice(0, 3).join(', ')}`);
+  }
+  if (anchor.energy_register) fragments.push(`energy: ${anchor.energy_register}`);
+  if (anchor.micro_expression_baseline) fragments.push(`baseline: ${anchor.micro_expression_baseline}`);
+  return fragments.filter(Boolean).join(' · ');
+}
+
+/**
+ * V4 Phase 5b — ORDER OF AUTHORITY block, rendered at the TOP of the storyline
+ * system prompt. Defines explicit precedence between competing imperatives so
+ * Gemini knows which directive wins on conflict (Director Agent cross-cutting
+ * concern #1). Without this, visual_anchor + brief.brand_world_lock + genre
+ * register + director's hint + sonic series bible became a stack of louder
+ * voices and the strongest writing would win — usually the director's hint.
+ *
+ * Generic. No genre-specific content. Always rendered when V4 personas have
+ * visual_anchors (which by Fix 1+2's contract is always).
+ */
+function _buildOrderOfAuthorityBlock() {
+  return `\n═══════════════════════════════════════════════════════════════
+ORDER OF AUTHORITY (read FIRST — this is non-negotiable)
+═══════════════════════════════════════════════════════════════
+When the directives that follow conflict, this is the order of precedence —
+the higher-listed directive ALWAYS wins:
+
+  1. PERSONA VISUAL TRUTH (visual_anchor) — strongest. The actor's identity
+     (gender, age range, ethnicity, distinctive features) is non-negotiable.
+     You author the character's NAME, ROLE, ARC, PERSONALITY, WARDROBE,
+     PROFESSION. You do NOT redefine WHO THE ACTOR IS. NEVER invert gender.
+     NEVER write a child when the anchor says adult. NEVER write an elderly
+     character when the anchor says 25-35. NEVER write a man when the anchor
+     says woman. The actor is the actor.
+
+  2. COMMERCIAL BRIEF / BRAND_WORLD_LOCK — when present (commercial genre),
+     binding contract for visual signature, narrative grammar, and inheritance
+     across episode 2.
+
+  3. GENRE REGISTER — cinematic register law (lighting, contrast, lens, pace,
+     palette norms for the active genre). Honor the register; treat exceptions
+     as creative flavor on non-conflicting axes only.
+
+  4. DIRECTOR'S HINT — creative flavor only. Hints inherit from craft references
+     (e.g. "Deakins arid heat", "Bradford Young shadows") that may carry their
+     own register cone. When the hint conflicts with the genre register on
+     lighting / contrast / lens / pace / palette — HONOR THE GENRE REGISTER.
+     Apply the hint only on its NON-CONFLICTING axes.
+
+  5. SONIC SERIES BIBLE — audio register, not narrative. Does not override
+     the four directives above.
+═══════════════════════════════════════════════════════════════\n`;
+}
+
 // ============================================================
 // STORYLINE GENERATION (full season arc from Brand Kit)
 // ============================================================
@@ -20,12 +106,23 @@ import { isHebrewLanguage, getLanguageInstruction } from './linkedInPrompts.mjs'
  * @returns {string} System prompt
  */
 export function getStorylineSystemPrompt(brandKit = {}, options = {}) {
-  const { directorsNotes = '', pipelineVersion = '', commercialBrief = null } = options;
+  const {
+    directorsNotes = '',
+    pipelineVersion = '',
+    commercialBrief = null,
+    // V4 Phase 5b — Fix 5. When the director's hint conflicts with the active
+    // genre register on the five universal craft axes (lighting / contrast /
+    // lens / pace / palette), the BrandStoryService coherence check splices a
+    // GENRE-OVERRIDE NOTE block here. Renders ABOVE the director's hint so
+    // Gemini reads the dampening directive before the hint itself. Empty
+    // string when the hint is compatible OR the user explicitly opted in.
+    directorsHintOverrideBlock = ''
+  } = options;
   const isV4 = String(pipelineVersion).toLowerCase() === 'v4';
   const brandContextBlock = _buildBrandKitContextBlock(brandKit);
 
   const directorsBlock = directorsNotes
-    ? `\nDIRECTOR'S CREATIVE VISION (from the brand owner — treat as your primary artistic brief):
+    ? `${directorsHintOverrideBlock}\nDIRECTOR'S CREATIVE VISION (from the brand owner — treat as your primary artistic brief):
 "${directorsNotes}"
 Interpret this as your cinematic north star. Let it shape the visual style, emotional register,
 color palette choices, camera language, and narrative voice throughout the entire season.\n`
@@ -53,8 +150,14 @@ color palette choices, camera language, and narrative voice throughout the entir
     ? `\nEPISODE GRAMMAR (V4): Episodes are scene-graphs (scenes → beats), with multiple characters speaking on-camera. Plan stakes, dialogue weight, and scene depth for ~60-120 seconds of screen time per episode.\n`
     : '';
 
+  // V4 Phase 5b — ORDER OF AUTHORITY block. Rendered at the TOP of the system
+  // prompt so Gemini reads it before any of the (often louder) downstream
+  // imperatives. V4 only — legacy v1/v2/v3 stories don't yet enforce
+  // visual_anchor as a contract.
+  const orderOfAuthorityBlock = isV4 ? _buildOrderOfAuthorityBlock() : '';
+
   return `You are an award-winning screenwriter and brand storyteller who creates compelling short-form video series for social media (Reels, Stories, TikTok). You specialize in serialized brand narratives that hook viewers episode after episode.
-${commercialBriefBlock}
+${orderOfAuthorityBlock}${commercialBriefBlock}
 YOUR TASK: Create a complete STORY BIBLE — a serialized narrative framework that will drive a continuing video series for a brand. ${episodeGrammarLine}${episodeGrammarNote}
 
 STORYTELLING PRINCIPLES:
@@ -296,13 +399,29 @@ The episodes[] array MUST contain exactly ${episodeCount} entr${episodeCount ===
     ? `Weave ALL ${personaArray.length} persona${personaArray.length > 1 ? 's' : ''} into the narrative as on-camera characters. The protagonist's arc anchors the season; additional personas are co-leads, antagonists, foils, mentors, or love interests — all speak on-camera, none are narrators by default.`
     : `Weave ALL ${personaArray.length} persona${personaArray.length > 1 ? 's' : ''} into the narrative. The primary narrator drives the story; additional personas serve as supporting characters, foils, love interests, mentors, or adversaries.`;
 
+  // V4 Phase 5b — subtractive change per Director Agent's mandate. Placeholders
+  // ('A compelling character', 'To be determined by the story', etc.) literally
+  // invited Gemini to fabricate. Story `77d6eaaf` (2026-04-28) is the smoking gun:
+  // uploaded woman → Gemini received placeholder text → Gemini invented "Elias",
+  // a male protagonist → cascading identity drift through every downstream stage.
+  //
+  // With Fix 1+2's contract, every persona has a visual_anchor (extracted via
+  // Vertex Gemini multimodal at upload time OR after CharacterSheetDirector emits
+  // sheets). The renderer below uses the anchor as ground truth and refuses to
+  // fabricate when the anchor is missing (defense-in-depth).
   const personaBlock = personaArray.length > 0
     ? `CHARACTER${personaArray.length > 1 ? 'S' : ''}/PERSONA${personaArray.length > 1 ? 'S' : ''} (${personaArray.length} total${personaLeadLabelInline}):
-${personaArray.map((p, i) => `
+${personaArray.map((p, i) => {
+  const visualLine = _renderVisualAnchorAsDescription(p.visual_anchor);
+  // The anchor describes IDENTITY (who the actor is). The persona's personality
+  // / voice_style remain author-authored hints (HOW the character sounds and
+  // behaves). They are NOT permitted to invert what the anchor says.
+  const personalityLine = p.personality || p.voice_style || '—';
+  return `
 [Persona ${i + 1}${personaLeadHeader(i)}]
-- Description: ${p.description || 'A compelling character'}
-- Appearance: ${p.appearance || p.visual_description || 'To be determined by the story'}
-- Voice/Personality: ${p.personality || p.voice_style || 'Charismatic and relatable'}`).join('\n')}
+- Visual identity (ground truth, vision-grounded): ${visualLine}
+- Voice/Personality: ${personalityLine}`;
+}).join('\n')}
 
 ${personaWeaveLine}
 `

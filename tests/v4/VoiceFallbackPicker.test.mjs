@@ -58,6 +58,53 @@ describe('pickFallbackVoiceForPersona — gender correctness', () => {
     assert.equal(String(picked.gender).toLowerCase(), 'female');
   });
 
+  // V4 Phase 5b + Wave 6 / F4 — visual_anchor flows through inferPersonaGender
+  // (which the picker calls internally) as priority 0, OR can be passed
+  // explicitly via genderOverride. Both paths must end in a gender-correct
+  // voice. The 77d6eaaf bug shipped because text-only inference returned
+  // 'unknown' for a sparse persona — visual_anchor closes that.
+  test('visual_anchor on persona drives gender filter (Step 0 cascade)', () => {
+    const persona = {
+      name: 'Persona 1', // sparse — no description
+      visual_anchor: {
+        apparent_gender_presentation: 'female',
+        vision_confidence: 0.9
+      }
+    };
+    const picked = pickFallbackVoiceForPersona(persona, { reason: 'test' });
+    assert.ok(picked);
+    assert.equal(String(picked.gender).toLowerCase(), 'female');
+  });
+
+  test('visual_anchor with low confidence (< 0.5) falls through to text inference', () => {
+    const persona = {
+      name: 'Persona 1',
+      description: 'a man with a beard', // text says male
+      visual_anchor: {
+        apparent_gender_presentation: 'female',
+        vision_confidence: 0.3 // below floor — anchor is a hint
+      }
+    };
+    const picked = pickFallbackVoiceForPersona(persona, { reason: 'test' });
+    assert.ok(picked);
+    // Anchor below floor → text inference wins → male voice
+    assert.equal(String(picked.gender).toLowerCase(), 'male');
+  });
+
+  test('visual_anchor passed via genderOverride (caller-driven path) selects matching voice', () => {
+    // Caller (BrandStoryService) extracts apparent_gender_presentation from
+    // persona.visual_anchor and passes it as genderOverride. End-to-end
+    // smoke check.
+    const persona = { name: 'Persona 1' }; // text-sparse
+    const visualAnchorGender = 'female'; // would come from persona.visual_anchor.apparent_gender_presentation
+    const picked = pickFallbackVoiceForPersona(persona, {
+      genderOverride: visualAnchorGender,
+      reason: 'visual_anchor_override'
+    });
+    assert.ok(picked);
+    assert.equal(String(picked.gender).toLowerCase(), 'female');
+  });
+
   test('unknown gender allows any voice (no hard constraint)', () => {
     const persona = { name: 'Persona 1' }; // sparse — gender unknown
     const picked = pickFallbackVoiceForPersona(persona, { reason: 'test' });

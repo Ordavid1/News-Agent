@@ -252,6 +252,15 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       ? `${klingPrompt.replace(/Character speaks/, `${primarySpeakerToken} speaks`)}`
       : klingPrompt;
 
+    // V4 P0.4 — Identity-defense gate. Run the visual_anchor inversion
+    // check on the final prompt before the API call. Inversions
+    // (gender/age inverted vs anchor) hard-halt the beat and surface to
+    // the orchestrator's user_review path. The audit confirmed this gate
+    // was already active at CharacterSheetDirector.js:394; extending it
+    // here covers the post-sheet pre-render emission path that was
+    // previously unguarded.
+    this._validatePromptAgainstAnchor(finalKlingPrompt, persona, beat.beat_id);
+
     this.logger.info(`[${beat.beat_id}] Stage B: Kling O3 Omni Standard (${elements.length} element(s))`);
     const klingResult = await kling.generateDialogueBeat({
       startFrameUrl,

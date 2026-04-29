@@ -1,0 +1,128 @@
+# Prestige film — short films + signature opening sequences
+# Curated for V4's "branded short film at prestige bar" north star.
+
+references:
+  - id: no-country-opening
+    title: "No Country for Old Men — opening monologue + landscape"
+    year: 2007
+    director: "Coen Brothers"
+    cinematographer: "Roger Deakins"
+    format: prestige-film
+    genre: thriller
+    duration_sec: 240
+    style_categories:
+      - hyperreal_premium
+      - gritty_real
+    visual_grammar: "West Texas wide landscapes; slow-pan over arid plains; Tommy Lee Jones voiceover over deliberate stillness."
+    narrative_grammar: "Voice-over thesis ('You can't stop what's coming') over visual essay; tonal contract: this story is about endurance."
+    craft_signatures:
+      - "Roger Deakins anamorphic landscapes"
+      - "voice-over thesis as opening contract"
+      - "tonal contract: stillness as pre-violence"
+      - "narrator as displaced protagonist"
+    why_great: "Sets the entire film's metaphysics in a 4-minute monologue + landscape essay. Stillness as preface to violence."
+    ai_native: false
+
+  - id: drive-opening
+    title: "Drive — opening getaway sequence"
+    year: 2011
+    director: "Nicolas Winding Refn"
+    cinematographer: "Newton Thomas Sigel"
+    format: prestige-film
+    genre: thriller
+    duration_sec: 480
+    style_categories:
+      - vaporwave_nostalgic
+      - hyperreal_premium
+    visual_grammar: "Magenta-and-teal LA night palette; long stillness inside Mustang interior; observational coverage of police-radio choreography."
+    narrative_grammar: "Procedural mastery as character; protagonist defined by what he WON'T say; tension via restraint."
+    craft_signatures:
+      - "magenta-teal LA-noir palette"
+      - "long stillness inside vehicle"
+      - "police-radio choreography as ticking-clock"
+      - "synth-driven Cliff Martinez score"
+    why_great: "Eight-minute getaway with minimal dialogue. Restraint as protagonist mechanic. Defined the synthwave-cinema palette."
+    ai_native: false
+
+  - id: children-of-men-single-take
+    title: "Children of Men — car ambush single-take"
+    year: 2006
+    director: "Alfonso Cuarón"
+    cinematographer: "Emmanuel Lubezki"
+    format: prestige-film
+    genre: thriller
+    duration_sec: 240
+    style_categories:
+      - hyperreal_premium
+      - gritty_real
+    visual_grammar: "Single uncut handheld take through entire ambush; in-vehicle multi-character coverage in one shot; chaos choreographed across long take."
+    narrative_grammar: "Form proves stakes; we cannot cut away because the characters cannot escape; technical achievement IS the dramatic stake."
+    craft_signatures:
+      - "single uncut take (~4 min) through chaos"
+      - "in-vehicle 360° camera choreography"
+      - "real-time tension via no-cut promise"
+      - "stunt + camera + actor choreography unified"
+    why_great: "Form delivers stakes the cut would dilute. Single-take grammar as terror mechanism."
+    ai_native: false
+
+  - id: hereditary-tea-scene
+    title: "Hereditary — funeral / dinner-table 'I am your mother' scene"
+    year: 2018
+    director: "Ari Aster"
+    cinematographer: "Pawel Pogorzelski"
+    format: prestige-film
+    genre: horror
+    duration_sec: 240
+    style_categories:
+      - verite_intimate
+    visual_grammar: "Static medium-wide held; dinner-table composition with strict centerline; restrained handheld coverage on isolated reactions."
+    narrative_grammar: "Family confrontation as horror beat; emotional vulnerability + held silence + Toni Collette monologue."
+    craft_signatures:
+      - "static medium-wide as confrontation arena"
+      - "Toni Collette held performance"
+      - "silence as horror amplifier"
+      - "table as ritual frame"
+    why_great: "Domestic dinner-table grammar reframed as horror device. The monologue isn't horror, the FRAME makes it horror."
+    ai_native: false
+
+  - id: there-will-be-blood-opening
+    title: "There Will Be Blood — wordless opening (15 minutes silent)"
+    year: 2007
+    director: "Paul Thomas Anderson"
+    cinematographer: "Robert Elswit"
+    format: prestige-film
+    genre: drama
+    duration_sec: 900
+    style_categories:
+      - hyperreal_premium
+      - gritty_real
+    visual_grammar: "California desert; period 1898 silver-mining; observational long takes; Jonny Greenwood's strings as the only sound."
+    narrative_grammar: "Wordless 15-minute prologue; protagonist defined by labor + persistence + setbacks; dialogue withheld until earned."
+    craft_signatures:
+      - "Greenwood string score as anti-music"
+      - "wordless 15-minute character introduction"
+      - "labor as character revelation"
+      - "dialogue withheld until earned"
+    why_great: "Trusts the audience to read 15 minutes of silent labor as character. Dialogue arrives as relief, not exposition."
+    ai_native: false
+
+  - id: blade-runner-2049-opening
+    title: "Blade Runner 2049 — opening eye + sterile farm"
+    year: 2017
+    director: "Denis Villeneuve"
+    cinematographer: "Roger Deakins"
+    format: prestige-film
+    genre: thriller
+    duration_sec: 480
+    style_categories:
+      - brutalist_minimalist
+      - hyperreal_premium
+    visual_grammar: "Symmetrical compositions; sterile post-collapse palette (gray + amber); monumental architecture; Hans Zimmer + Benjamin Wallfisch sub-bass."
+    narrative_grammar: "Worldbuilding via architecture, not exposition; protagonist (Replicant) defined by silence + procedural mastery."
+    craft_signatures:
+      - "Deakins symmetrical compositions"
+      - "monumental scale via low-angle architecture"
+      - "Zimmer/Wallfisch sub-bass score"
+      - "world-building via production design, not dialogue"
+    why_great: "Production design as exposition. Restrained dialogue + monumental scale = SF prestige bar. Won Cinematography Oscar."
+    ai_native: false

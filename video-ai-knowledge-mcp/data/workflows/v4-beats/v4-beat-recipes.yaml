@@ -1,0 +1,360 @@
+# V4 Pipeline — Per-Beat-Type Production Recipes
+#
+# Each entry describes the canonical V4 production recipe for a beat type:
+# primary model, fallback chain, prompt allocation, expected duration,
+# common failure modes (taxonomy_id from data/taxonomies/failure-signatures.yaml),
+# canonical prestige references (id from data/references/).
+#
+# Source of truth for V4 BeatRouter routing decisions. When Create Mode
+# (Claude Code) needs to know "how does V4 produce a TALKING_HEAD_CLOSEUP",
+# this recipe answers. When the DirectorAgent's judge wants to compare
+# actual routingMetadata.modelUsed against the canonical recipe, this is
+# the reference.
+
+- beat_type: TALKING_HEAD_CLOSEUP
+  generator: CinematicDialogueGenerator
+  primary_model: kling-3-omni
+  primary_endpoint: "fal-ai/kling-video/o3/standard/image-to-video"
+  audio_chain:
+    - "fal-ai/elevenlabs/tts/eleven-v3"
+    - "fal-ai/sync-lipsync/v3"
+  fallback_models:
+    - { model: omnihuman-1.5, trigger: "IDENTITY 2nd-failure (Phase 5b N5)" }
+    - { model: kling-3-pro, trigger: "text_garble required text rendering" }
+  expected_duration_sec: 5
+  expected_cost_usd: 1.40
+  output_label: "mode-b/kling-o3-omni+sync-lipsync-v3"
+  prompt_allocation:
+    persona_anchor: "first 200 chars — CIP front-view; gender + age from visual_anchor"
+    framing_recipe: "next 100 chars — named lens vocab (anamorphic_signature_closeup, etc.)"
+    subtext_directive: "next 80 chars — emotion + opposing_intents"
+    dialogue_text: "remaining chars — actual line"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+      common_signature_id: face_drift_in_action
+    - taxonomy_id: lipsync_drift
+      common_signature_id: jaw_float_audio_mismatch
+    - taxonomy_id: identity_drift
+      common_signature_id: profile_angle_weakness
+  canonical_prestige_references:
+    - mad-men-pilot-opening
+    - hereditary-tea-scene
+    - dove-real-beauty-sketches
+  director_notes: >
+    Default V4 dialogue path. Mode B = Kling V3 Omni Standard for visual
+    + native audio, then Sync Lipsync v3 corrective pass for jaw alignment.
+    Persona-lock first frame from CIP front-view is non-negotiable for
+    identity stability across multi-beat scenes.
+
+- beat_type: DIALOGUE_IN_SCENE
+  generator: CinematicDialogueGenerator
+  primary_model: kling-3-omni
+  primary_endpoint: "fal-ai/kling-video/o3/standard/image-to-video"
+  audio_chain:
+    - "fal-ai/elevenlabs/tts/eleven-v3"
+    - "fal-ai/sync-lipsync/v3"
+  fallback_models:
+    - { model: omnihuman-1.5, trigger: "IDENTITY 2nd-failure" }
+  expected_duration_sec: 5
+  expected_cost_usd: 1.40
+  output_label: "mode-b/kling-o3-omni+sync-lipsync-v3"
+  prompt_allocation:
+    persona_anchor: "first 200 chars — CIP front-view + scene context"
+    scene_context: "next 100 chars — Scene Master + ambient bed"
+    blocking: "next 80 chars — eyeline + 180-degree rule"
+    dialogue_text: "remaining chars — line"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+    - taxonomy_id: lipsync_drift
+    - taxonomy_id: motion
+      common_signature_id: motion_jitter_complex_scenes
+  canonical_prestige_references:
+    - mad-men-pilot-opening
+    - the-bear-pilot
+    - industry-pilot
+  director_notes: >
+    Same chain as TALKING_HEAD_CLOSEUP but with wider framing and scene
+    context anchoring. Eyeline must honor 180-degree rule with previous
+    beat's blocking.
+
+- beat_type: GROUP_DIALOGUE_TWOSHOT
+  generator: GroupTwoShotGenerator
+  primary_model: kling-3-omni
+  primary_endpoint: "fal-ai/kling-video/o3/standard/image-to-video"
+  audio_chain:
+    - "fal-ai/elevenlabs/text-to-dialogue/eleven-v3 (Phase 7.2 dialogue endpoint)"
+    - "fal-ai/sync-lipsync/v3 (corrective)"
+  fallback_audio_chain:
+    - "fal-ai/elevenlabs/tts/eleven-v3 × 2 (parallel per speaker)"
+    - "ffmpeg time-aligned concat"
+    - "fal-ai/sync-lipsync/v3"
+  expected_duration_sec: 5
+  expected_cost_usd: 1.90
+  output_label: "kling-o3-omni-twoshot+dialogue-v3+sync (or +sync legacy path)"
+  prompt_allocation:
+    persona_anchors: "first 250 chars — elements[] with frontal_image_url + reference_image_urls per persona"
+    blocking: "next 100 chars — twoshot composition"
+    dialogue_exchange: "remaining chars — both speakers' lines"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+      common_signature_id: identity_drift_twoshot
+    - taxonomy_id: lipsync_drift
+  canonical_prestige_references:
+    - succession-opening-titles
+    - severance-opening
+    - industry-pilot
+  director_notes: >
+    Twoshot identity is the failure mode. Both personas need elements[]
+    with their own frontal_image_url + reference_image_urls. Cap duration
+    at 5s to limit drift. Phase 7.2 dialogue endpoint preferred for
+    multi-speaker rhythm; parallel-TTS+concat is the legacy fallback.
+
+- beat_type: SHOT_REVERSE_SHOT
+  generator: ShotReverseShotCompiler
+  primary_model: "(compiler — expands to N × TALKING_HEAD_CLOSEUP at preflight)"
+  expected_duration_sec: "N × 5"
+  expected_cost_usd: "N × 1.40"
+  output_label: "(per-child Mode B)"
+  prompt_allocation:
+    exchange_context: "stamped onto each child closeup with: prior speaker emotion, subtext, 12-word dialogue tail, position, speaker_sequence"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+    - taxonomy_id: lipsync_drift
+  director_notes: >
+    Director-owned cut rhythm preserved. Each child closeup has full
+    exchange_context so persona reads as listening + responding, not just
+    delivering. Single-speaker per beat preserves precise cut control.
+
+- beat_type: SILENT_STARE
+  generator: SilentStareGenerator
+  primary_model: kling-3-omni
+  primary_endpoint: "fal-ai/kling-video/o3/standard/image-to-video"
+  audio_chain: []
+  fallback_models:
+    - { model: veo-3.1, trigger: "IDENTITY 2nd-failure (non-dialogue)" }
+  expected_duration_sec: 3
+  expected_cost_usd: 0.50
+  output_label: "kling-o3-omni-standard/silent"
+  prompt_allocation:
+    persona_anchor: "first 200 chars — CIP front-view"
+    expression_directive: "next 150 chars — subtext-driven micro-expression"
+    framing_recipe: "remaining — anamorphic_signature_closeup or similar"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+    - taxonomy_id: motion
+      note: "limit to subtle micro-motion; avoid dramatic head turns"
+  canonical_prestige_references:
+    - hereditary-tea-scene
+    - succession-opening-titles
+    - mad-men-pilot-opening
+  director_notes: >
+    The silent close-up. Performance carried by subtext, not motion.
+    Cap at 3s to maintain identity stability. No dialogue chain.
+
+- beat_type: REACTION
+  generator: ReactionGenerator
+  primary_model: veo-3.1
+  primary_endpoint: "Vertex AI veo-3.1-generate-001 (FREE via GCP Marketplace)"
+  audio_chain: []
+  fallback_models:
+    - { model: omnihuman-1.5, trigger: "IDENTITY 2nd-failure persona-locked first-frame variant" }
+  expected_duration_sec: 4
+  expected_cost_usd: 0.00
+  output_label: "veo-3.1-standard/reaction (tier N)"
+  prompt_allocation:
+    persona_lock_first_frame: "(image — CIP front-view; not text)"
+    reaction_directive: "first 150 chars — what they're reacting TO + emotion"
+    duration_directive: "remaining — beat sizing"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+      common_signature_id: profile_angle_weakness
+    - taxonomy_id: lipsync_drift
+      common_signature_id: mouth_static_tts_driven
+      note: "REACTION is silent — score lipsync_integrity = 100"
+  canonical_prestige_references:
+    - hereditary-tea-scene
+    - drive-opening
+  director_notes: >
+    Free via Vertex AI Marketplace. Persona-locked first frame prevents
+    identity drift. Veo's native ambient is a strength here — no extra
+    SFX needed. Reaction beats are silent by definition.
+
+- beat_type: INSERT_SHOT
+  generator: InsertShotGenerator
+  primary_model: veo-3.1
+  primary_endpoint: "Vertex AI veo-3.1 (FREE via GCP Marketplace)"
+  audio_chain: []
+  pre_pass:
+    name: "Scene-Integrated Product Lock (SIPL)"
+    model: seedream-5-lite
+    purpose: "Composite product_ref + scene_master → in-world product still"
+    cost_usd: 0.04
+  expected_duration_sec: 3
+  expected_cost_usd: 0.00
+  output_label: "veo-3.1-standard/insert (tier N)"
+  prompt_allocation:
+    first_frame_precedence: "SIPL → subject_ref → persona_lock → endframe → scene_master"
+    product_directive: "first 200 chars — product is IN-WORLD, not studio-lit; surface reflects environment"
+    motion_directive: "next 100 chars — hand interaction, picked up / set down / used"
+  failure_modes_to_watch:
+    - taxonomy_id: adherence
+      note: "product_subtlety dimension specifically: subtle hits + cheesy hits scoring (Phase 4.4)"
+    - taxonomy_id: text_garble
+      note: "brand wordmark legibility critical for INSERT shots"
+  canonical_prestige_references:
+    - apple-shot-on-iphone
+    - sony-bravia-balls
+    - patagonia-dont-buy
+  director_notes: >
+    SIPL pre-pass is what prevents the infomercial-grammar break. Product
+    must read as IN the scene (concrete table in the safehouse under the
+    rim light), not floating in studio limbo. Phase 4.4 product_subtlety
+    dimension grades naturalistic placement vs cheesy hero showcase.
+
+- beat_type: ACTION_NO_DIALOGUE
+  generator: ActionGenerator
+  primary_model: kling-3-pro
+  primary_endpoint: "fal-ai/kling-video/v3/pro/image-to-video"
+  primary_endpoint_alt: "fal-ai/kling-video/v3/pro/text-to-video"
+  audio_chain: []
+  fallback_models:
+    - { model: veo-3.1, trigger: "IDENTITY 2nd-failure" }
+  expected_duration_sec: 5
+  expected_cost_usd: 1.12
+  output_label: "kling-v3-pro/action"
+  prompt_allocation:
+    persona_anchor: "first 200 chars — CIP front-view (cap action duration at 2.5s for identity stability)"
+    action_directive: "next 200 chars — explicit kinetic verb + camera move"
+    framing_recipe: "remaining — speed_ramp_action or kinetic recipe"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+      common_signature_id: face_drift_in_action
+      note: "primary risk for action beats"
+    - taxonomy_id: motion
+      common_signature_id: text_smoothing_action
+    - taxonomy_id: anatomy
+      common_signature_id: hand_morph_short_clip
+  canonical_prestige_references:
+    - drive-opening
+    - blade-runner-2049-opening
+    - children-of-men-single-take
+  director_notes: >
+    Cap action duration at 2.5s where possible. Kling V3 Pro's signature
+    weakness is face drift past frame 60 in action — production must
+    plan around it.
+
+- beat_type: MONTAGE_SEQUENCE
+  generator: MontageSequenceGenerator
+  primary_model: kling-3-pro
+  primary_endpoint: "fal-ai/kling-video/v3/pro/text-to-video (multi-shot)"
+  audio_chain: []
+  expected_duration_sec: "varies (1-15s)"
+  expected_cost_usd: "varies"
+  output_label: "kling-v3-pro-multishot/montage"
+  prompt_allocation:
+    montage_directive: "first 250 chars — N shots × per-shot framing"
+    rhythm_directive: "next 100 chars — speed-ramp + cut intent"
+    persona_anchor: "remaining — character consistency across shots"
+  failure_modes_to_watch:
+    - taxonomy_id: identity_drift
+      note: "consistency across N shots is the primary risk"
+    - taxonomy_id: motion
+  canonical_prestige_references:
+    - beats-hear-what-you-want
+    - spotify-wrapped-2020
+    - succession-opening-titles
+  director_notes: >
+    Use Kling V3 Pro multi-shot endpoint for native montage rhythm. For
+    identity stability across N shots, keep N ≤ 6 and CIP-anchor every shot.
+
+- beat_type: B_ROLL_ESTABLISHING
+  generator: BRollGenerator
+  primary_model: veo-3.1
+  primary_endpoint: "Vertex AI veo-3.1 (FREE via GCP Marketplace)"
+  audio_chain:
+    - "Veo native ambient (no overlay needed)"
+  expected_duration_sec: 4
+  expected_cost_usd: 0.00
+  output_label: "veo-3.1-standard/broll (tier N)"
+  prompt_allocation:
+    location_directive: "first 200 chars — atmosphere + time-of-day + weather"
+    framing_recipe: "next 100 chars — wide / aerial / track"
+    ambient_audio: "next 100 chars — for Veo's native audio gen"
+  failure_modes_to_watch:
+    - taxonomy_id: adherence
+      note: "vertical framing directive critical (Phase 9 Issue 1)"
+  canonical_prestige_references:
+    - blade-runner-2049-opening
+    - no-country-opening
+    - the-bear-pilot
+  director_notes: >
+    Free via Vertex AI Marketplace. Veo's native ambient is its strength
+    here — no SFX overlay needed. Vertical-framing directive is critical
+    for 9:16 commercial work (Phase 9 Issue 1 fix).
+
+- beat_type: VOICEOVER_OVER_BROLL
+  generator: VoiceoverBRollGenerator
+  primary_model: veo-3.1
+  primary_endpoint: "Vertex AI veo-3.1 (FREE via GCP Marketplace)"
+  audio_chain:
+    - "fal-ai/elevenlabs/tts/eleven-v3 (V.O. mixed in post)"
+  expected_duration_sec: 5
+  expected_cost_usd: 0.01
+  output_label: "veo-3.1-standard/vo-broll + elevenlabs"
+  prompt_allocation:
+    visual_directive: "first 250 chars — what we SEE while VO speaks"
+    vo_pacing_directive: "next 100 chars — silent-mouth-allowed (V.O. only)"
+    framing_recipe: "remaining — wide / observational"
+  failure_modes_to_watch:
+    - taxonomy_id: lipsync_drift
+      note: "V.O. is silent-mouth by design — score lipsync_integrity = 100"
+    - taxonomy_id: adherence
+      note: "Visual must match V.O. tonally without literal illustration"
+  canonical_prestige_references:
+    - guinness-surfer
+    - no-country-opening
+    - nike-dream-crazy
+  director_notes: >
+    Voice-over mixed in post-production (Stage 4 music ducking handles VO
+    layer). Silent mouth is intentional. Visual must be tonally aligned
+    to VO without becoming literal illustration of the words.
+
+- beat_type: TEXT_OVERLAY_CARD
+  generator: TextOverlayCardGenerator
+  primary_model: ffmpeg
+  primary_endpoint: "local — sharp SVG → PNG → ffmpeg still→MP4"
+  audio_chain: []
+  expected_duration_sec: "varies (1-3s)"
+  expected_cost_usd: 0.00
+  output_label: "ffmpeg/text-card"
+  prompt_allocation:
+    typography_directive: "first 200 chars — font, weight, kerning, color"
+    text_copy: "next — actual text"
+    safe_area: "8.5%-91.5% horizontal, 220px vertical bottom safe-area"
+  failure_modes_to_watch:
+    - taxonomy_id: text_garble
+      note: "non-applicable here (deterministic typography); but verify spelling pre-emit"
+  director_notes: >
+    Deterministic ffmpeg + sharp render — not generation. Use for
+    title cards, end cards, captions. Fully reliable; no AI failure modes.
+    sharp SVG generates the typography; ffmpeg builds the MP4.
+
+- beat_type: SCENE_BRIDGE
+  generator: BridgeBeatGenerator
+  primary_model: veo-3.1
+  primary_endpoint: "Vertex AI veo-3.1 (FREE via GCP Marketplace)"
+  audio_chain:
+    - "Veo native ambient"
+  expected_duration_sec: 2
+  expected_cost_usd: 0.00
+  output_label: "veo-3.1-standard/bridge (tier N)"
+  prompt_allocation:
+    transition_directive: "first 200 chars — bridge_to_next descriptor from screenplay"
+    visual_continuity: "next 100 chars — endframe of prior scene → start hint of next"
+  failure_modes_to_watch:
+    - taxonomy_id: adherence
+      note: "Visual continuity between scenes is the test"
+  director_notes: >
+    Phase 6.1 addition. Inserted between scenes when Gemini emits
+    bridge_to_next. Veo's first/last frame control makes it ideal for
+    visual continuity bridging.

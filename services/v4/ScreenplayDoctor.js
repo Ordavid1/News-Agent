@@ -20,6 +20,7 @@
 
 import winston from 'winston';
 import { callVertexGeminiJson, isVertexGeminiConfigured } from './VertexGemini.js';
+import { isBlockerOrCritical, isWarning } from './severity.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -33,6 +34,19 @@ const logger = winston.createLogger({
 
 const EDITABLE_FIELDS = new Set(['dialogue', 'subtext', 'expression_notes', 'emotion', 'action_notes']);
 const EPISODE_ROOT_EDITABLE_FIELDS = new Set(['dramatic_question', 'music_bed_intent', 'hook', 'cliffhanger', 'mood']);
+// V4 Phase 5b — Fix 7. Scene-level rewrite scope for Doctor anchor patches.
+// `scene_visual_anchor_prompt` is the canvas Seedream uses for the Scene
+// Master panel. The monoculture detector + brief-coherence check (Fix 7) emit
+// warnings; Doctor patches them by rewriting the offending anchor with varied
+// vocabulary that still honors the brief's style_category + the genre register.
+const SCENE_LEVEL_EDITABLE_FIELDS = new Set(['scene_visual_anchor_prompt', 'opposing_intents', 'tagline']);
+// Warning IDs that ALSO trigger the Doctor (in addition to blocker/critical).
+// Without this allowlist, warning-severity issues are advisory-only.
+const DOCTOR_WARNING_TRIGGERS = new Set([
+  'scene_anchor_monoculture',
+  'scene_anchor_violates_style_category',
+  'dialogue_beats_too_thin'
+]);
 
 /**
  * Render a compact character bible for the Doctor prompt. Only the fields
@@ -129,6 +143,20 @@ function applyPatch(sceneGraph, operations = []) {
       continue;
     }
 
+    // V4 Phase 5b — Fix 7. Scene-level patch (no beat_id, scene-level field).
+    // Lets the Doctor rewrite scene_visual_anchor_prompt for monoculture +
+    // brief-coherence warnings. We resolve the scene first so the same
+    // not-found / found-but-wrong-field paths still log clearly.
+    if (!beat_id && SCENE_LEVEL_EDITABLE_FIELDS.has(field)) {
+      const sceneRef = (sceneGraph.scenes || []).find(s => s.scene_id === scene_id);
+      if (!sceneRef) {
+        rejected.push({ op, reason: `scene ${scene_id} not found (scene-level patch)` });
+        continue;
+      }
+      sceneRef[field] = new_value;
+      applied.push({ ...op, scope: 'scene' });
+      continue;
+    }
     if (!beat_id) {
       rejected.push({ op, reason: 'missing beat_id (required for non-episode-root ops)' });
       continue;
@@ -190,6 +218,16 @@ For EPISODE-ROOT fields (dramatic_question, music_bed_intent, hook, cliffhanger,
 use scene_id "__episode__" with NO beat_id key:
   { "scene_id": "__episode__", "field": "dramatic_question", "new_value": "Will Maya finally confront what she buried?" }
 
+For SCENE-LEVEL fields (scene_visual_anchor_prompt, opposing_intents, tagline),
+use the real scene_id with NO beat_id key:
+  { "scene_id": "s1", "field": "scene_visual_anchor_prompt", "new_value": "..." }
+
+Use scene-level patches when the issue is scene_anchor_monoculture (rewrite the
+later scene's anchor with VARIED lighting/mood vocabulary while preserving genre
+register) or scene_anchor_violates_style_category (rewrite the offending anchor
+to align with the brief's style_category — e.g. for hyperreal_premium replace
+"pitch black" with "high-key hero light, even fill, glossy product reflection").
+
 IMPORTANT: For ALL beat-level ops, beat_id MUST be the real beat identifier string (e.g. "s1b3").
 NEVER include "beat_id": null on any op — episode-root ops omit beat_id entirely; beat-level ops require it.
 
@@ -234,6 +272,19 @@ ELEVEN-V3 INLINE PERFORMANCE TAGS (audio layer):
 - For Stoic / under-tagged baseline reads, use the explicit annotation
   "[no_tag_intentional: stoic_baseline] ..." — it satisfies presence but
   produces an untagged TTS render.
+
+SCENE-LEVEL CO-EDIT CONTRACT (V4 Wave 6 / F7):
+When patching a scene's \`opposing_intents\` field, you MUST also re-tag the
+dialogue beats in that scene (per the DIALOGUE PERFORMANCE TAGS taxonomy
+above) within the SAME patch. New opposing_intents change the speaker-side
+tag derivation: a character whose intent was "leaning_in" tagged with
+[softly] becomes [firmly] when you flip them to "leaning_out". A character
+whose intent was "deflecting" tagged with [evenly] becomes [exhaling] when
+you flip them to "conceding". Treat opposing_intents + dialogue tags as a
+single semantic unit — never patch one without the other. If you don't see
+which dialogue beats need re-tagging from the scene-graph, REWRITE the
+opposing_intents conservatively (preserve speaker-side intent direction)
+rather than introduce stale tags.
 
 - Respond with ONLY the JSON object. No preamble, no code fences.`;
 
@@ -283,12 +334,20 @@ export async function punchUpScreenplay(sceneGraph, personas = [], issues = [], 
   if (!isVertexGeminiConfigured()) {
     return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'Vertex Gemini not configured' };
   }
-  // Only run when there's at least one blocker (L1) or critical (L3) to fix.
-  // Warnings/notes are advisory and don't trigger the Doctor.
-  const blockers = (issues || []).filter(i => i && (i.severity === 'blocker' || i.severity === 'critical'));
-  if (blockers.length === 0) {
-    return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'no blockers — nothing to punch up' };
+  // V4 P0.1 — canonical severity check via services/v4/severity.mjs.
+  // isBlockerOrCritical accepts both legacy 'blocker' (L1) and canonical
+  // 'critical' (L3) transparently. Notes are NEVER triggers (note severity
+  // is advisory; surfaces in directorReport.notes via the consumer, not here).
+  const triggers = (issues || []).filter(i => {
+    if (!i) return false;
+    if (isBlockerOrCritical(i.severity)) return true;
+    if (isWarning(i.severity) && DOCTOR_WARNING_TRIGGERS.has(i.id)) return true;
+    return false;
+  });
+  if (triggers.length === 0) {
+    return { patched: sceneGraph, applied: [], rejected: [], notes: '', skipped: 'no blockers/triggers — nothing to punch up' };
   }
+  const blockers = triggers; // alias preserved for the rest of the function
 
   const working = JSON.parse(JSON.stringify(sceneGraph));
   // Pass only blockers to the Doctor prompt — warnings are advisory and

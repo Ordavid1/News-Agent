@@ -51,6 +51,7 @@
 
 import winston from 'winston';
 import { inferPersonaGender } from './VoiceAcquisition.js';
+import { isBlockerOrCritical } from './severity.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -97,7 +98,11 @@ export const DEFAULT_CAST_BIBLE = Object.freeze({
  * like "Persona 1" with empty appearance fields) by reading the richer
  * storyline.characters[i] data.
  *
- * Resolution priority:
+ * Resolution priority (V4 Phase 5b — vision_anchor added as priority 0):
+ *   0. visual_anchor     — persona.visual_anchor.apparent_gender_presentation
+ *                          (extracted from uploaded photos via Vertex Gemini
+ *                          multimodal). HIGHEST PRIORITY because it is the only
+ *                          signal grounded in the actual visual reference.
  *   1. persona_explicit  — persona.gender or persona.sex set directly
  *   2. persona_signal    — inferPersonaGender(persona) returns confident
  *   3. storyline_signal  — inferPersonaGender(combined) returns confident
@@ -113,11 +118,35 @@ export const DEFAULT_CAST_BIBLE = Object.freeze({
  *
  * @param {Object} persona - persona_config.personas[i]
  * @param {Object|null} storyCharacter - storyline.characters[i]
- * @returns {{ gender: 'male'|'female'|'unknown', resolved_from: 'persona_explicit'|'persona_signal'|'storyline_signal'|'unknown' }}
+ * @returns {{ gender: 'male'|'female'|'unknown', resolved_from: 'visual_anchor'|'persona_explicit'|'persona_signal'|'storyline_signal'|'unknown' }}
  */
 export function inferPersonaGenderForCast(persona, storyCharacter) {
   if (!persona || typeof persona !== 'object') {
     return { gender: 'unknown', resolved_from: 'unknown' };
+  }
+
+  // Step 0 (V4 Phase 5b): visual_anchor is the highest-priority signal because
+  // it is grounded in the actual reference photographs. When present and
+  // decisive, it OVERRIDES any text-only inference (which is the cause of the
+  // cascading invention bug — story `77d6eaaf` 2026-04-28).
+  //
+  // V4 Wave 6 / F4 — vision_confidence guard. A 0.45-confidence anchor
+  // (low-light upload, profile-only, partial occlusion) used to drive
+  // `gender_resolved_from='visual_anchor'` with maximum authority — Cast
+  // Bible's "highest priority", VoiceAcquisition's hard filter, ORDER OF
+  // AUTHORITY's "non-negotiable" ranking. If Vision misread, all four
+  // downstream stages cascade the wrong gender confidently. Below the floor
+  // (default 0.5, env-tunable via BRAND_STORY_VISION_CONFIDENCE_FLOOR), the
+  // anchor is a HINT not ground truth — fall through to text-only inference
+  // so storyline / explicit fields take precedence on uncertain photos.
+  const VISUAL_ANCHOR_CONFIDENCE_FLOOR = Number(process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR || '0.5');
+  const anchor = persona.visual_anchor;
+  const anchorGender = String(anchor?.apparent_gender_presentation || '').toLowerCase().trim();
+  const anchorConfident = Number.isFinite(anchor?.vision_confidence)
+    ? anchor.vision_confidence >= VISUAL_ANCHOR_CONFIDENCE_FLOOR
+    : true; // missing confidence → treat as confident (legacy anchors)
+  if ((anchorGender === 'male' || anchorGender === 'female') && anchorConfident) {
+    return { gender: anchorGender, resolved_from: 'visual_anchor' };
   }
 
   // Step 1: explicit field
@@ -231,12 +260,12 @@ const VALID_INHERITANCE_APPEARANCES = ['mutable_per_episode', 'immutable', 'over
  * overrides that violate the contract.
  *
  * @param {object} bible
- * @returns {Array<{field: string, severity: 'blocker'|'warning', message: string}>}
+ * @returns {Array<{field: string, severity: 'critical'|'warning', message: string}>} (V4 P0.1 canonical; legacy 'blocker' aliased via severity.mjs)
  */
 export function validateCastBible(bible) {
   const issues = [];
   if (!bible || typeof bible !== 'object') {
-    issues.push({ field: '_root', severity: 'blocker', message: 'cast bible must be an object' });
+    issues.push({ field: '_root', severity: 'critical', message: 'cast bible must be an object' });
     return issues;
   }
 
@@ -247,19 +276,19 @@ export function validateCastBible(bible) {
 
   // Principals array (allowed to be empty for default bible)
   if (!Array.isArray(bible.principals)) {
-    issues.push({ field: 'principals', severity: 'blocker', message: 'principals must be an array (may be empty)' });
+    issues.push({ field: 'principals', severity: 'critical', message: 'principals must be an array (may be empty)' });
   } else {
     const seenIndexes = new Set();
     bible.principals.forEach((p, i) => {
       if (!p || typeof p !== 'object') {
-        issues.push({ field: `principals[${i}]`, severity: 'blocker', message: 'principal must be an object' });
+        issues.push({ field: `principals[${i}]`, severity: 'critical', message: 'principal must be an object' });
         return;
       }
       if (!Number.isInteger(p.persona_index) || p.persona_index < 0) {
-        issues.push({ field: `principals[${i}].persona_index`, severity: 'blocker', message: 'persona_index must be a non-negative integer' });
+        issues.push({ field: `principals[${i}].persona_index`, severity: 'critical', message: 'persona_index must be a non-negative integer' });
       } else {
         if (seenIndexes.has(p.persona_index)) {
-          issues.push({ field: `principals[${i}].persona_index`, severity: 'blocker', message: `persona_index ${p.persona_index} duplicated across principals` });
+          issues.push({ field: `principals[${i}].persona_index`, severity: 'critical', message: `persona_index ${p.persona_index} duplicated across principals` });
         }
         seenIndexes.add(p.persona_index);
       }

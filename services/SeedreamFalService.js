@@ -133,9 +133,21 @@ class SeedreamFalService extends FalAiBaseService {
       return inputPayload;
     };
 
-    // Two-tier call: original prompt first, then (on content-policy refusal only)
-    // a sanitized retry that strips surveillance/broadcast vocabulary. Any other
-    // error (429, network, bad refs) bubbles up immediately without retry.
+    // V4 Phase 5b — Fix 9 + N4 (5-tier content-policy chain).
+    //
+    // Tier 0 (in-place): surveillance regex sanitizer below — fast and
+    // deterministic for surveillance-vocab cases (CCTV, tactical, etc.)
+    //
+    // When Tier 0 yields no diff OR fails on retry, we throw a structured
+    // SceneAnchorOverDeterminedError so the CALLER (StoryboardHelpers
+    // generateSceneMasters) can dispatch to:
+    //   Tier 1: anchor-rewrite via Director finding (caller-side)
+    //   Tier 2: Gemini-rewrite generic prompt (services/v4/SceneMasterContentRewriter.js)
+    //   Tier 3: different-model fallback (Nano Banana Pro → Flux 2 Max edit)
+    //   Tier 4: user_review escalation
+    //
+    // Any non-content-policy error (429, network, bad refs) bubbles up
+    // immediately without retry.
     let result;
     let sanitized = false;
     try {
@@ -145,22 +157,29 @@ class SeedreamFalService extends FalAiBaseService {
 
       const sanitizedPrompt = sanitizeSeedreamSurveillanceContent(prompt);
       if (sanitizedPrompt === prompt) {
-        // Nothing to sanitize — the prompt isn't the kind of content the
-        // sanitizer knows how to soften. Bubble the original error.
-        this.logger.warn(`${label}: content-policy refused but no sanitization applicable — bubbling`);
-        throw err;
+        // Nothing to sanitize — Tier 0 doesn't apply. Throw a structured
+        // SceneAnchorOverDeterminedError so the caller invokes Tier 1/2/3.
+        this.logger.warn(`${label}: content-policy refused — Tier 0 inapplicable, surfacing for Tier 1+`);
+        throw new SceneAnchorOverDeterminedError(
+          `Seedream content-policy refused and Tier 0 surveillance-vocab sanitization had no effect`,
+          { originalPrompt: prompt, originalError: err, tier: 'tier0_inapplicable' }
+        );
       }
 
       this.logger.warn(
-        `${label}: content-policy refused — retrying with surveillance-vocabulary sanitized`
+        `${label}: content-policy refused — retrying with surveillance-vocabulary sanitized (Tier 0)`
       );
       try {
         result = await this.run(buildPayload(sanitizedPrompt));
         sanitized = true;
-        this.logger.info(`${label}: sanitized retry succeeded`);
+        this.logger.info(`${label}: Tier 0 sanitized retry succeeded`);
       } catch (retryErr) {
-        this.logger.warn(`${label}: sanitized retry also refused — bubbling original error`);
-        throw retryErr;
+        // Tier 0 sanitize-retry also refused — surface for Tier 1+ rewrite.
+        this.logger.warn(`${label}: Tier 0 sanitized retry refused — surfacing for Tier 1+`);
+        throw new SceneAnchorOverDeterminedError(
+          `Seedream content-policy refused both original and Tier 0 sanitized prompts`,
+          { originalPrompt: prompt, sanitizedPrompt, originalError: retryErr, tier: 'tier0_exhausted' }
+        );
       }
     }
 
@@ -181,6 +200,23 @@ class SeedreamFalService extends FalAiBaseService {
       sanitized,
       model: 'seedream-5-lite-edit'
     };
+  }
+}
+
+/**
+ * V4 Phase 5b — Fix 9 + N4. Structured error thrown when Seedream's content
+ * policy refuses both the original prompt AND the Tier 0 surveillance-vocab
+ * sanitized retry. Caller (StoryboardHelpers.generateSceneMasters) catches
+ * this and dispatches the Tier 1 / 2 / 3 fallback chain.
+ */
+export class SceneAnchorOverDeterminedError extends Error {
+  constructor(message, { originalPrompt = '', sanitizedPrompt = '', originalError = null, tier = '' } = {}) {
+    super(message);
+    this.name = 'SceneAnchorOverDeterminedError';
+    this.originalPrompt = originalPrompt;
+    this.sanitizedPrompt = sanitizedPrompt;
+    this.originalError = originalError;
+    this.tier = tier;
   }
 }
 

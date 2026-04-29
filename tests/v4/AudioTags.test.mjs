@@ -126,7 +126,7 @@ describe('AudioTags — checkDialogueTagPresence', () => {
       const r = validateScreenplay(g, {}, PERSONAS);
       const issue = r.issues.find(i => i.id === 'dialogue_missing_audio_tag');
       assert.ok(issue, 'expected dialogue_missing_audio_tag');
-      assert.equal(issue.severity, 'blocker', 'should escalate to blocker under BRAND_STORY_AUDIO_TAGS_REQUIRED');
+      assert.equal(issue.severity, 'critical', 'should escalate to critical (canonical) under BRAND_STORY_AUDIO_TAGS_REQUIRED');
     } finally {
       if (prev === undefined) delete process.env.BRAND_STORY_AUDIO_TAGS_REQUIRED;
       else process.env.BRAND_STORY_AUDIO_TAGS_REQUIRED = prev;
@@ -312,7 +312,7 @@ describe('Day 2 — checkDialogueEndpointBudget', () => {
     const r = validateScreenplay(g, {}, personas);
     const issue = r.issues.find(i => i.id === 'dialogue_endpoint_mixed_language');
     assert.ok(issue, 'expected dialogue_endpoint_mixed_language');
-    assert.equal(issue.severity, 'blocker');
+    assert.equal(issue.severity, 'critical');
   });
 
   test('single-language two-shot does NOT fire mixed_language', () => {

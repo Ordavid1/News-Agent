@@ -118,5 +118,13 @@ export function buildGenreRegisterHint(storyFocus) {
   if (focus.includes('noir')) {
     return 'GENRE REGISTER: noir — expect chiaroscuro, hard shadows, smoky/cool LUT, moral ambiguity in voice. Reward texture and contrast.';
   }
+  if (focus.includes('commercial')) {
+    // V4 Phase 7 — commercial register. Visual-rhythm-driven (NOT dialogue-rhythm),
+    // music-led pacing, montage / single-take / direct-address grammar, intentional
+    // LUT shifts for stylistic signature, tagline lands FINAL 2s. Prestige
+    // continuity rules (lighting_continuity, motivated key light, low dialogue
+    // floor as a fault) are systematically wrong here.
+    return 'GENRE REGISTER: commercial — expect 30-60s duration, visual-rhythm-driven (NOT dialogue-rhythm), intentional LUT shifts to support visual_signature, music-led pacing, speed ramps, montage/single-take/direct-address structures. Tagline lands FINAL 2s; brand stamp inevitable, not slapped on. Hook in first 1.5s. Do NOT penalize for "lighting shift mid-scene", "low dialogue ratio", "discontinuous lens character" — commercial intentionally breaks prestige continuity rules in service of the visual_signature. Score against creative_bravery, brand_recall, hook_first_1_5s, music_visual_sync, tagline_landing, product_role, style_category_fidelity.';
+  }
   return `GENRE REGISTER: ${storyFocus || 'unspecified'} — apply the appropriate register's expectations from brandStoryPromptsV4.mjs.`;
 }

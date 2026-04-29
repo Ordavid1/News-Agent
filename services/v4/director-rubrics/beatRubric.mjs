@@ -8,6 +8,7 @@
 // performance not just face match, model-specific failure signatures.
 
 import { buildSharedSystemHeader, buildGenreRegisterHint } from './sharedHeader.mjs';
+import { buildModelKbPart } from '../VideoKnowledgeBase.js';
 
 const LENS_C_BLOCK = `CHECKPOINT C — Dailies (post-beat, per beat). LENS C. Runs AFTER QC8 deterministic checks pass.
 
@@ -19,7 +20,7 @@ DIMENSIONS TO SCORE (each 0-100). Use these EXACT keys in dimension_scores:
   lens_continuity           — focal length and depth-of-field feel continuous within scene? Recognize the V4 framing vocabulary (20 named lens types as of 2026-04-27) including specialty optics: anamorphic_signature_closeup (oval bokeh + horizontal flare), cinema_macro_product / cinema_macro_emotion (60-180mm macro range), tilt_shift_miniature, fisheye_subjective, fixed_telephoto_isolation (200-400mm long-lens), vintage_zoom_creep, speed_ramp_action, product_in_environment / product_tactile_handheld (product-protection presets — product visible but not framed-as-subject). Verify the clip honors the named optical character.
   camera_move_intent        — if camera_move was specified in beat metadata, does the clip deliver it (push-in actually pushes, whip-pan actually whips)?
   identity_lock             — persona face matches character sheet across the full clip, not just first frame?
-  model_signature_check     — known model failure modes present? Kling V3 Pro action: face drift past frame 60. Veo 3.1 TTS-driven: occasional mouth-static. Sync Lipsync v3: jaw float when audio shorter than clip. Note signature in evidence.
+  model_signature_check     — known model failure modes present? Consult the <model_kb> block (when present in the user-prompt parts) for the routed model's documented weaknesses, capability envelope, and prompt-tips that the generator should have honored. If <model_kb> is absent (e.g., assembler beats like text overlays, or unknown model id), score this dimension neutrally based on general video-craft heuristics. Note specific signature in evidence.
   product_identity_lock     — (Phase 4) when the beat carries the brand subject, does the rendered product preserve the SPECIFIC visual identity from the uploaded reference image and the product_signature_features list (color, finish, port arrangement, distinctive marks, scale)? A drift of > 15% on any signature feature → soft_reject. SCORE 100 if beat does NOT contain product OR if product_integration_style is hero_showcase / commercial (no naturalistic-fidelity penalty when commercial register is opted in). When product is present and naturalistic mode is active, deduct heavily for any of: silhouette change, port-count drift, color drift > 10%, brand-mark hallucination, generic-looking variant of the specific product.
   product_subtlety          — (Phase 4, INSERT_SHOT only) does the product beat read as Hollywood naturalistic placement OR as cheesy infomercial? Subtle hits (each adds ~12 pts): hand/body in frame • product in motion (picked up/set down/used) • brand mark off-center or partially occluded • cinema macro w/ shallow DOF • held ≤ 2s • LUT continuous w/ scene • no sudden music swell on appearance • appears mid-scene not as scene-button. Cheesy hits (each subtracts ~12 pts): product alone centered & well-lit • static "displayed" • brand mark centered + unobstructed • generic flat-lit shot • held > 3s • visibly re-graded for product • music swells on appearance • closes the scene as "the takeaway". SCORE 100 if not INSERT_SHOT OR not product-bearing OR if product_integration_style is hero_showcase / commercial.
 
@@ -112,6 +113,8 @@ export function buildBeatJudgePrompt({
   userParts.push({ text: `<personas>\n${JSON.stringify(personas, null, 2)}\n</personas>` });
   if (routingMetadata) {
     userParts.push({ text: `<routing_metadata>\n${JSON.stringify(routingMetadata, null, 2)}\n</routing_metadata>` });
+    const kbPart = buildModelKbPart(routingMetadata);
+    if (kbPart) userParts.push(kbPart);
   }
   // Phase 4 product context — surfaced so the Director can score
   // product_identity_lock + product_subtlety with the right reference.

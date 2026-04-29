@@ -30,6 +30,7 @@ import winston from 'winston';
 
 // V4 imports
 import { getProgressEmitter } from '../services/v4/ProgressEmitter.js';
+import { isBlockerOrCritical } from '../services/v4/severity.mjs';
 import { getVoiceLibrary, inferPersonaGender } from '../services/v4/VoiceAcquisition.js';
 import { resolveEpisodeLut } from '../services/v4/BrandKitLutMatcher.js';
 import {
@@ -44,6 +45,7 @@ import {
   mergeCastBibleDefaults,
   DEFAULT_CAST_BIBLE
 } from '../services/v4/CastBible.js';
+import { extractPersonaVisualAnchor } from '../services/v4/PersonaVisualAnchor.js';
 import {
   v4RegenerateLimiter,
   v4ReassembleLimiter,
@@ -671,6 +673,35 @@ router.post('/:id/generate-episode', csrfProtection, async (req, res) => {
     }
     if (!story.storyline) {
       return res.status(400).json({ success: false, error: 'Generate a storyline first' });
+    }
+
+    // V4 Phase 5b — pre-flight persona-completeness validation. Every persona
+    // must have EITHER (name AND a non-empty description) OR (reference photos
+    // for visual_anchor extraction). The placeholder fallbacks at
+    // brandStoryPrompts.mjs:303-305 were removed (subtractive change), so a
+    // persona with neither path will produce DESCRIPTION_MISSING and break the
+    // storyline. Catch it here with a structured error rather than letting the
+    // pipeline burn for a minute and crash.
+    const personasForValidation = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : (story.persona_config ? [story.persona_config] : []);
+    const incompletePersonas = [];
+    personasForValidation.forEach((p, idx) => {
+      const hasDescription = (p?.description && String(p.description).trim().length > 0)
+        || (p?.appearance && String(p.appearance).trim().length > 0);
+      const hasPhotos = Array.isArray(p?.reference_image_urls) && p.reference_image_urls.filter(Boolean).length > 0;
+      const hasAnchor = !!p?.visual_anchor?.apparent_gender_presentation;
+      if (!hasDescription && !hasPhotos && !hasAnchor) {
+        incompletePersonas.push({ index: idx, name: p?.name || `Persona ${idx + 1}` });
+      }
+    });
+    if (incompletePersonas.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'persona_incomplete',
+        message: `Persona(s) missing identity input. Each persona needs either a description OR uploaded reference photos.`,
+        incomplete_personas: incompletePersonas
+      });
     }
 
     // Return accepted — pipeline runs async
@@ -1361,6 +1392,63 @@ router.patch('/:id/personas/:personaIndex/gender', csrfProtection, async (req, r
 });
 
 /**
+ * POST /api/brand-stories/:id/personas/:personaIndex/re-extract-visual-anchor
+ *
+ * V4 Phase 5b — manually trigger PersonaVisualAnchor extraction for a
+ * persona. Used to backfill existing thin-persona stories (e.g. story
+ * `77d6eaaf` "Sydney+macbook3" 2026-04-28) and to re-extract after the
+ * user uploads new reference photos.
+ *
+ * Body (optional): {} — extraction reads persona.reference_image_urls.
+ *
+ * Response: { success: true, visual_anchor: {...} } | error
+ */
+router.post('/:id/personas/:personaIndex/re-extract-visual-anchor', csrfProtection, async (req, res) => {
+  try {
+    const story = await getBrandStoryById(req.params.id, req.user.id);
+    if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+
+    const idx = parseInt(req.params.personaIndex, 10);
+    const personas = Array.isArray(story.persona_config?.personas)
+      ? story.persona_config.personas
+      : [story.persona_config];
+    if (!personas[idx]) {
+      return res.status(404).json({ success: false, error: `Persona ${idx} not found` });
+    }
+
+    const photos = Array.isArray(personas[idx].reference_image_urls)
+      ? personas[idx].reference_image_urls.filter(Boolean)
+      : [];
+    if (photos.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'persona has no reference_image_urls; upload photos first via POST /personas/upload'
+      });
+    }
+
+    const isAuto = personas[idx].persona_type === 'brand_kit_auto' || personas[idx].is_auto_generated;
+    const source = isAuto ? 'sheet_vision' : 'upload_vision';
+    const anchor = await extractPersonaVisualAnchor({
+      photoUrls: photos,
+      persona: personas[idx],
+      source,
+      // Pass null so the cache check doesn't short-circuit a manual re-extract.
+      existingAnchor: null
+    });
+    personas[idx].visual_anchor = anchor;
+
+    await updateBrandStory(req.params.id, req.user.id, {
+      persona_config: { ...(story.persona_config || {}), personas }
+    });
+
+    return res.json({ success: true, visual_anchor: anchor });
+  } catch (error) {
+    logger.error('Error re-extracting visual anchor:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to extract visual anchor' });
+  }
+});
+
+/**
  * PATCH /api/brand-stories/:id/lut
  * Lock or clear a story-level LUT override.
  * Body: { locked_lut_id: "bs_warm_cinematic" } or { locked_lut_id: null }
@@ -1459,7 +1547,7 @@ router.patch('/:id/sonic-series-bible', csrfProtection, async (req, res) => {
     // prohibited_instruments — the rest of the bible stays canonical).
     const merged = mergeBibleDefaults(bible);
     const issues = validateBible(merged);
-    const blockers = issues.filter(i => i.severity === 'blocker');
+    const blockers = issues.filter(i => isBlockerOrCritical(i.severity));
 
     if (blockers.length > 0) {
       return res.status(422).json({
@@ -1616,7 +1704,7 @@ router.patch('/:id/cast-bible', csrfProtection, async (req, res) => {
     // and other fields the caller didn't touch).
     const merged = mergeCastBibleDefaults(bible);
     const issues = validateCastBible(merged);
-    const blockers = issues.filter(i => i.severity === 'blocker');
+    const blockers = issues.filter(i => isBlockerOrCritical(i.severity));
 
     if (blockers.length > 0) {
       return res.status(422).json({

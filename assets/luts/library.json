@@ -8,504 +8,1222 @@
     },
     "updated": "2026-04-27"
   },
-
   "creative": [
     {
       "id": "bs_drama_motivated_natural",
       "genre": "drama",
       "is_default_for_genre": true,
       "look": "Motivated natural drama — Deakins/1917, Lachman/Carol. Faces and lighting motivation come first; brand color is flavor.",
-      "mood_keywords": ["natural", "honest", "intimate", "motivated", "restrained", "contemplative"],
-      "reference_films": ["1917", "Carol"],
+      "mood_keywords": [
+        "natural",
+        "honest",
+        "intimate",
+        "motivated",
+        "restrained",
+        "contemplative"
+      ],
+      "reference_films": [
+        "1917",
+        "Carol"
+      ],
       "spec": {
-        "lift":           [0.025, 0.020, 0.010],
-        "gamma":          [1.00, 1.00, 1.00],
-        "gain":           [0.97, 0.97, 0.97],
-        "saturation":     0.92,
-        "shadow_tint":    [0.005, 0.005, 0.000],
-        "midtone_tint":   [0.000, 0.000, 0.000],
-        "highlight_tint": [0.005, 0.000, -0.005]
+        "lift": [
+          0.025,
+          0.02,
+          0.01
+        ],
+        "gamma": [
+          1,
+          1,
+          1
+        ],
+        "gain": [
+          0.97,
+          0.97,
+          0.97
+        ],
+        "saturation": 0.92,
+        "shadow_tint": [
+          0.005,
+          0.005,
+          0
+        ],
+        "midtone_tint": [
+          0,
+          0,
+          0
+        ],
+        "highlight_tint": [
+          0.005,
+          0,
+          -0.005
+        ]
       }
     },
     {
       "id": "bs_drama_kelvin_window",
       "genre": "drama",
       "look": "Bittersweet drama — cool shadows, magenta-tinted highlights. Sandgren/La La Land, Lipes/The Bear.",
-      "mood_keywords": ["bittersweet", "contemplative", "ambivalent", "lived-in", "tender-cool"],
-      "reference_films": ["The Bear", "Carol", "La La Land"],
+      "mood_keywords": [
+        "bittersweet",
+        "contemplative",
+        "ambivalent",
+        "lived-in",
+        "tender-cool"
+      ],
+      "reference_films": [
+        "The Bear",
+        "Carol",
+        "La La Land"
+      ],
       "spec": {
-        "lift":           [-0.025, -0.020, 0.005],
-        "gamma":          [0.98, 0.98, 0.98],
-        "gain":           [1.00, 1.00, 1.00],
-        "saturation":     0.88,
-        "shadow_tint":    [-0.010, -0.010, 0.015],
-        "midtone_tint":   [0.000, 0.000, 0.000],
-        "highlight_tint": [0.020, -0.005, 0.020]
+        "lift": [
+          -0.025,
+          -0.02,
+          0.005
+        ],
+        "gamma": [
+          0.98,
+          0.98,
+          0.98
+        ],
+        "gain": [
+          1,
+          1,
+          1
+        ],
+        "saturation": 0.88,
+        "shadow_tint": [
+          -0.01,
+          -0.01,
+          0.015
+        ],
+        "midtone_tint": [
+          0,
+          0,
+          0
+        ],
+        "highlight_tint": [
+          0.02,
+          -0.005,
+          0.02
+        ]
       }
     },
     {
       "id": "bs_drama_phantom_thread",
       "genre": "drama",
       "look": "Painterly prestige drama — amber-warm with mild blue shadow chord. PTA/Phantom Thread, Young/Selma.",
-      "mood_keywords": ["painterly", "prestige", "formal", "elegiac", "amber-warm"],
-      "reference_films": ["Phantom Thread", "Selma"],
+      "mood_keywords": [
+        "painterly",
+        "prestige",
+        "formal",
+        "elegiac",
+        "amber-warm"
+      ],
+      "reference_films": [
+        "Phantom Thread",
+        "Selma"
+      ],
       "spec": {
-        "lift":           [0.045, 0.030, 0.005],
-        "gamma":          [1.02, 1.02, 1.02],
-        "gain":           [0.96, 0.96, 0.96],
-        "saturation":     0.84,
-        "shadow_tint":    [-0.005, 0.000, 0.015],
-        "midtone_tint":   [0.010, 0.005, -0.005],
-        "highlight_tint": [0.025, 0.015, 0.000]
+        "lift": [
+          0.045,
+          0.03,
+          0.005
+        ],
+        "gamma": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "gain": [
+          0.96,
+          0.96,
+          0.96
+        ],
+        "saturation": 0.84,
+        "shadow_tint": [
+          -0.005,
+          0,
+          0.015
+        ],
+        "midtone_tint": [
+          0.01,
+          0.005,
+          -0.005
+        ],
+        "highlight_tint": [
+          0.025,
+          0.015,
+          0
+        ]
       }
     },
-
     {
       "id": "bs_action_teal_orange_punch",
       "genre": "action",
       "is_default_for_genre": true,
       "look": "Modern action teal-orange — crushed blacks, punchy mids, saturated. Van Hoytema/Tenet, Fraser/The Batman.",
-      "mood_keywords": ["kinetic", "hard-edged", "propulsive", "modern-action", "high-pressure"],
-      "reference_films": ["Tenet", "The Batman"],
+      "mood_keywords": [
+        "kinetic",
+        "hard-edged",
+        "propulsive",
+        "modern-action",
+        "high-pressure"
+      ],
+      "reference_films": [
+        "Tenet",
+        "The Batman"
+      ],
       "spec": {
-        "lift":           [-0.060, -0.060, -0.060],
-        "gamma":          [0.95, 0.95, 0.95],
-        "gain":           [1.05, 1.05, 1.05],
-        "saturation":     1.10,
-        "shadow_tint":    [-0.040, 0.020, 0.040],
-        "midtone_tint":   [0.030, 0.010, -0.030],
-        "highlight_tint": [0.040, 0.020, -0.020]
+        "lift": [
+          -0.06,
+          -0.06,
+          -0.06
+        ],
+        "gamma": [
+          0.95,
+          0.95,
+          0.95
+        ],
+        "gain": [
+          1.05,
+          1.05,
+          1.05
+        ],
+        "saturation": 1.1,
+        "shadow_tint": [
+          -0.04,
+          0.02,
+          0.04
+        ],
+        "midtone_tint": [
+          0.03,
+          0.01,
+          -0.03
+        ],
+        "highlight_tint": [
+          0.04,
+          0.02,
+          -0.02
+        ]
       }
     },
     {
       "id": "bs_action_arid_sicario",
       "genre": "action",
       "look": "Arid action — oppressive amber midtones, lethal stillness. Deakins/Sicario.",
-      "mood_keywords": ["arid", "tense", "oppressive-heat", "lethal", "tactical"],
-      "reference_films": ["Sicario", "Hell or High Water"],
+      "mood_keywords": [
+        "arid",
+        "tense",
+        "oppressive-heat",
+        "lethal",
+        "tactical"
+      ],
+      "reference_films": [
+        "Sicario",
+        "Hell or High Water"
+      ],
       "spec": {
-        "lift":           [-0.040, -0.040, -0.040],
-        "gamma":          [0.97, 0.97, 0.97],
-        "gain":           [1.02, 1.02, 1.02],
-        "saturation":     0.95,
-        "shadow_tint":    [-0.005, -0.010, -0.015],
-        "midtone_tint":   [0.040, 0.020, -0.030],
-        "highlight_tint": [0.030, 0.020, -0.010]
+        "lift": [
+          -0.04,
+          -0.04,
+          -0.04
+        ],
+        "gamma": [
+          0.97,
+          0.97,
+          0.97
+        ],
+        "gain": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "saturation": 0.95,
+        "shadow_tint": [
+          -0.005,
+          -0.01,
+          -0.015
+        ],
+        "midtone_tint": [
+          0.04,
+          0.02,
+          -0.03
+        ],
+        "highlight_tint": [
+          0.03,
+          0.02,
+          -0.01
+        ]
       }
     },
-
     {
       "id": "bs_thriller_fincher_amber_teal",
       "genre": "thriller",
       "is_default_for_genre": true,
       "look": "Clinical thriller — Fincher amber-shadow / teal-mid. Messerschmidt/Mindhunter, Cronenweth/Gone Girl.",
-      "mood_keywords": ["clinical", "ominous", "controlled", "surveillant", "coiled"],
-      "reference_films": ["Mindhunter", "Gone Girl"],
+      "mood_keywords": [
+        "clinical",
+        "ominous",
+        "controlled",
+        "surveillant",
+        "coiled"
+      ],
+      "reference_films": [
+        "Mindhunter",
+        "Gone Girl"
+      ],
       "spec": {
-        "lift":           [-0.050, -0.050, -0.050],
-        "gamma":          [0.96, 0.96, 0.96],
-        "gain":           [1.02, 1.02, 1.02],
-        "saturation":     0.86,
-        "shadow_tint":    [0.025, 0.010, -0.020],
-        "midtone_tint":   [-0.015, 0.005, 0.015],
-        "highlight_tint": [-0.005, 0.000, 0.000]
+        "lift": [
+          -0.05,
+          -0.05,
+          -0.05
+        ],
+        "gamma": [
+          0.96,
+          0.96,
+          0.96
+        ],
+        "gain": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "saturation": 0.86,
+        "shadow_tint": [
+          0.025,
+          0.01,
+          -0.02
+        ],
+        "midtone_tint": [
+          -0.015,
+          0.005,
+          0.015
+        ],
+        "highlight_tint": [
+          -0.005,
+          0,
+          0
+        ]
       }
     },
     {
       "id": "bs_thriller_villeneuve_haze",
       "genre": "thriller",
       "look": "Atmospheric thriller — dread, vast amber haze. Deakins/Blade Runner 2049 dust scenes.",
-      "mood_keywords": ["atmospheric", "dread", "vast", "mythic", "haze"],
-      "reference_films": ["Blade Runner 2049", "Dune"],
+      "mood_keywords": [
+        "atmospheric",
+        "dread",
+        "vast",
+        "mythic",
+        "haze"
+      ],
+      "reference_films": [
+        "Blade Runner 2049",
+        "Dune"
+      ],
       "spec": {
-        "lift":           [0.060, 0.045, 0.010],
-        "gamma":          [1.04, 1.04, 1.04],
-        "gain":           [0.94, 0.94, 0.94],
-        "saturation":     0.82,
-        "shadow_tint":    [0.015, 0.005, -0.010],
-        "midtone_tint":   [0.025, 0.015, -0.010],
-        "highlight_tint": [0.040, 0.025, -0.015]
+        "lift": [
+          0.06,
+          0.045,
+          0.01
+        ],
+        "gamma": [
+          1.04,
+          1.04,
+          1.04
+        ],
+        "gain": [
+          0.94,
+          0.94,
+          0.94
+        ],
+        "saturation": 0.82,
+        "shadow_tint": [
+          0.015,
+          0.005,
+          -0.01
+        ],
+        "midtone_tint": [
+          0.025,
+          0.015,
+          -0.01
+        ],
+        "highlight_tint": [
+          0.04,
+          0.025,
+          -0.015
+        ]
       }
     },
-
     {
       "id": "bs_comedy_bright_clean",
       "genre": "comedy",
       "is_default_for_genre": true,
       "look": "Bright accessible comedy — uplifting, warm. Shelton/Ted Lasso, Parks & Rec.",
-      "mood_keywords": ["bright", "warm", "accessible", "uplifting", "playful"],
-      "reference_films": ["Ted Lasso", "Parks and Recreation"],
+      "mood_keywords": [
+        "bright",
+        "warm",
+        "accessible",
+        "uplifting",
+        "playful"
+      ],
+      "reference_films": [
+        "Ted Lasso",
+        "Parks and Recreation"
+      ],
       "spec": {
-        "lift":           [0.030, 0.025, 0.020],
-        "gamma":          [1.02, 1.02, 1.02],
-        "gain":           [1.03, 1.03, 1.03],
-        "saturation":     1.08,
-        "shadow_tint":    [0.005, 0.005, 0.005],
-        "midtone_tint":   [0.010, 0.005, 0.000],
-        "highlight_tint": [0.005, 0.005, 0.000]
+        "lift": [
+          0.03,
+          0.025,
+          0.02
+        ],
+        "gamma": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "gain": [
+          1.03,
+          1.03,
+          1.03
+        ],
+        "saturation": 1.08,
+        "shadow_tint": [
+          0.005,
+          0.005,
+          0.005
+        ],
+        "midtone_tint": [
+          0.01,
+          0.005,
+          0
+        ],
+        "highlight_tint": [
+          0.005,
+          0.005,
+          0
+        ]
       }
     },
     {
       "id": "bs_comedy_wes_anderson_pastel",
       "genre": "comedy",
       "look": "Whimsical pastel comedy — symmetric storybook. Yeoman/Grand Budapest.",
-      "mood_keywords": ["whimsical", "symmetric", "storybook", "deadpan", "pastel"],
-      "reference_films": ["The Grand Budapest Hotel", "Moonrise Kingdom"],
+      "mood_keywords": [
+        "whimsical",
+        "symmetric",
+        "storybook",
+        "deadpan",
+        "pastel"
+      ],
+      "reference_films": [
+        "The Grand Budapest Hotel",
+        "Moonrise Kingdom"
+      ],
       "spec": {
-        "lift":           [0.050, 0.030, 0.040],
-        "gamma":          [1.03, 1.03, 1.03],
-        "gain":           [1.00, 1.00, 1.00],
-        "saturation":     1.15,
-        "shadow_tint":    [0.020, 0.005, 0.020],
-        "midtone_tint":   [0.015, 0.000, 0.015],
-        "highlight_tint": [0.005, 0.000, 0.005]
+        "lift": [
+          0.05,
+          0.03,
+          0.04
+        ],
+        "gamma": [
+          1.03,
+          1.03,
+          1.03
+        ],
+        "gain": [
+          1,
+          1,
+          1
+        ],
+        "saturation": 1.15,
+        "shadow_tint": [
+          0.02,
+          0.005,
+          0.02
+        ],
+        "midtone_tint": [
+          0.015,
+          0,
+          0.015
+        ],
+        "highlight_tint": [
+          0.005,
+          0,
+          0.005
+        ]
       }
     },
-
     {
       "id": "bs_noir_classic_bw_silver",
       "genre": "noir",
       "is_default_for_genre": true,
       "look": "Classic noir — silver desaturated, hard shadow, fated. Kamiński/Schindler's List, Mank.",
-      "mood_keywords": ["classic-noir", "fated", "hard-shadow", "archetypal", "silver"],
-      "reference_films": ["Mank", "Schindler's List"],
+      "mood_keywords": [
+        "classic-noir",
+        "fated",
+        "hard-shadow",
+        "archetypal",
+        "silver"
+      ],
+      "reference_films": [
+        "Mank",
+        "Schindler's List"
+      ],
       "spec": {
-        "lift":           [-0.080, -0.080, -0.080],
-        "gamma":          [0.92, 0.92, 0.92],
-        "gain":           [1.10, 1.10, 1.10],
-        "saturation":     0.05,
-        "shadow_tint":    [-0.005, -0.005, 0.005],
-        "midtone_tint":   [0.000, 0.000, 0.000],
-        "highlight_tint": [0.005, 0.005, -0.005]
+        "lift": [
+          -0.08,
+          -0.08,
+          -0.08
+        ],
+        "gamma": [
+          0.92,
+          0.92,
+          0.92
+        ],
+        "gain": [
+          1.1,
+          1.1,
+          1.1
+        ],
+        "saturation": 0.05,
+        "shadow_tint": [
+          -0.005,
+          -0.005,
+          0.005
+        ],
+        "midtone_tint": [
+          0,
+          0,
+          0
+        ],
+        "highlight_tint": [
+          0.005,
+          0.005,
+          -0.005
+        ]
       }
     },
     {
       "id": "bs_noir_neon_modern",
       "genre": "noir",
       "look": "Neon noir — magenta mids, cyan shadows, sleazy-glamour. Sigel/Drive, Debie/Spring Breakers.",
-      "mood_keywords": ["neon", "nocturnal", "sleazy-glamour", "fatalistic", "modern-noir"],
-      "reference_films": ["Drive", "Spring Breakers"],
+      "mood_keywords": [
+        "neon",
+        "nocturnal",
+        "sleazy-glamour",
+        "fatalistic",
+        "modern-noir"
+      ],
+      "reference_films": [
+        "Drive",
+        "Spring Breakers"
+      ],
       "spec": {
-        "lift":           [-0.070, -0.070, -0.070],
-        "gamma":          [0.95, 0.95, 0.95],
-        "gain":           [1.04, 1.04, 1.04],
-        "saturation":     1.05,
-        "shadow_tint":    [-0.020, 0.010, 0.030],
-        "midtone_tint":   [0.040, -0.015, 0.040],
-        "highlight_tint": [0.030, -0.010, 0.030]
+        "lift": [
+          -0.07,
+          -0.07,
+          -0.07
+        ],
+        "gamma": [
+          0.95,
+          0.95,
+          0.95
+        ],
+        "gain": [
+          1.04,
+          1.04,
+          1.04
+        ],
+        "saturation": 1.05,
+        "shadow_tint": [
+          -0.02,
+          0.01,
+          0.03
+        ],
+        "midtone_tint": [
+          0.04,
+          -0.015,
+          0.04
+        ],
+        "highlight_tint": [
+          0.03,
+          -0.01,
+          0.03
+        ]
       }
     },
-
     {
       "id": "bs_horror_clinical_pale",
       "genre": "horror",
       "is_default_for_genre": true,
       "look": "Sickly clinical horror — drained skin, off-kilter green tint. Young/It Comes At Night, Saint Maud.",
-      "mood_keywords": ["sickly", "clinical", "drained", "off-kilter", "uncanny-cold"],
-      "reference_films": ["It Comes at Night", "Saint Maud"],
+      "mood_keywords": [
+        "sickly",
+        "clinical",
+        "drained",
+        "off-kilter",
+        "uncanny-cold"
+      ],
+      "reference_films": [
+        "It Comes at Night",
+        "Saint Maud"
+      ],
       "spec": {
-        "lift":           [-0.025, -0.015, -0.020],
-        "gamma":          [0.97, 0.97, 0.97],
-        "gain":           [1.00, 1.00, 1.00],
-        "saturation":     0.85,
-        "shadow_tint":    [-0.010, 0.015, -0.005],
-        "midtone_tint":   [-0.015, 0.020, -0.010],
-        "highlight_tint": [-0.005, 0.010, -0.005]
+        "lift": [
+          -0.025,
+          -0.015,
+          -0.02
+        ],
+        "gamma": [
+          0.97,
+          0.97,
+          0.97
+        ],
+        "gain": [
+          1,
+          1,
+          1
+        ],
+        "saturation": 0.85,
+        "shadow_tint": [
+          -0.01,
+          0.015,
+          -0.005
+        ],
+        "midtone_tint": [
+          -0.015,
+          0.02,
+          -0.01
+        ],
+        "highlight_tint": [
+          -0.005,
+          0.01,
+          -0.005
+        ]
       }
     },
     {
       "id": "bs_horror_warm_dread",
       "genre": "horror",
       "look": "Domestic-wrong horror — warm shadow with sickly green mid. Gioulakis/Hereditary, Midsommar.",
-      "mood_keywords": ["uncanny", "domestic-wrong", "ritual", "slow-dread", "warm-rotten"],
-      "reference_films": ["Hereditary", "Midsommar"],
+      "mood_keywords": [
+        "uncanny",
+        "domestic-wrong",
+        "ritual",
+        "slow-dread",
+        "warm-rotten"
+      ],
+      "reference_films": [
+        "Hereditary",
+        "Midsommar"
+      ],
       "spec": {
-        "lift":           [0.040, 0.030, 0.000],
-        "gamma":          [0.98, 0.98, 0.98],
-        "gain":           [0.99, 0.99, 0.99],
-        "saturation":     0.92,
-        "shadow_tint":    [0.025, 0.015, -0.010],
-        "midtone_tint":   [0.005, 0.020, -0.010],
-        "highlight_tint": [0.020, 0.010, -0.005]
+        "lift": [
+          0.04,
+          0.03,
+          0
+        ],
+        "gamma": [
+          0.98,
+          0.98,
+          0.98
+        ],
+        "gain": [
+          0.99,
+          0.99,
+          0.99
+        ],
+        "saturation": 0.92,
+        "shadow_tint": [
+          0.025,
+          0.015,
+          -0.01
+        ],
+        "midtone_tint": [
+          0.005,
+          0.02,
+          -0.01
+        ],
+        "highlight_tint": [
+          0.02,
+          0.01,
+          -0.005
+        ]
       }
     },
-
     {
       "id": "bs_romance_kodak_portra_warm",
       "genre": "romance",
       "is_default_for_genre": true,
       "look": "Warm tender romance — Kodak Portra emulation, golden roll-off. Sandgren/La La Land, Laxton/Beale Street.",
-      "mood_keywords": ["warm", "tender", "golden", "intimate", "soft"],
-      "reference_films": ["La La Land", "If Beale Street Could Talk"],
+      "mood_keywords": [
+        "warm",
+        "tender",
+        "golden",
+        "intimate",
+        "soft"
+      ],
+      "reference_films": [
+        "La La Land",
+        "If Beale Street Could Talk"
+      ],
       "spec": {
-        "lift":           [0.045, 0.030, 0.010],
-        "gamma":          [1.02, 1.02, 1.02],
-        "gain":           [0.98, 0.98, 0.98],
-        "saturation":     0.95,
-        "shadow_tint":    [0.015, 0.010, -0.005],
-        "midtone_tint":   [0.020, 0.015, 0.000],
-        "highlight_tint": [0.030, 0.020, 0.005]
+        "lift": [
+          0.045,
+          0.03,
+          0.01
+        ],
+        "gamma": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "gain": [
+          0.98,
+          0.98,
+          0.98
+        ],
+        "saturation": 0.95,
+        "shadow_tint": [
+          0.015,
+          0.01,
+          -0.005
+        ],
+        "midtone_tint": [
+          0.02,
+          0.015,
+          0
+        ],
+        "highlight_tint": [
+          0.03,
+          0.02,
+          0.005
+        ]
       }
     },
     {
       "id": "bs_romance_sayombhu_bloom",
       "genre": "romance",
       "look": "Dreamy halated romance — sensual, suspended-time. Mukdeeprom/Call Me By Your Name, Suspiria.",
-      "mood_keywords": ["dreamy", "halated", "sensual", "suspended-time", "bloom"],
-      "reference_films": ["Call Me By Your Name", "Suspiria"],
+      "mood_keywords": [
+        "dreamy",
+        "halated",
+        "sensual",
+        "suspended-time",
+        "bloom"
+      ],
+      "reference_films": [
+        "Call Me By Your Name",
+        "Suspiria"
+      ],
       "spec": {
-        "lift":           [0.050, 0.040, 0.045],
-        "gamma":          [1.04, 1.04, 1.04],
-        "gain":           [0.96, 0.96, 0.96],
-        "saturation":     0.88,
-        "shadow_tint":    [0.005, 0.005, 0.015],
-        "midtone_tint":   [0.020, 0.010, 0.020],
-        "highlight_tint": [0.025, 0.015, 0.030]
+        "lift": [
+          0.05,
+          0.04,
+          0.045
+        ],
+        "gamma": [
+          1.04,
+          1.04,
+          1.04
+        ],
+        "gain": [
+          0.96,
+          0.96,
+          0.96
+        ],
+        "saturation": 0.88,
+        "shadow_tint": [
+          0.005,
+          0.005,
+          0.015
+        ],
+        "midtone_tint": [
+          0.02,
+          0.01,
+          0.02
+        ],
+        "highlight_tint": [
+          0.025,
+          0.015,
+          0.03
+        ]
       }
     },
-
     {
       "id": "bs_doc_natural_window",
       "genre": "documentary",
       "is_default_for_genre": true,
       "is_safe_fallback": true,
       "look": "Natural window-light documentary — observational, untreated, subject-first. System safe fallback.",
-      "mood_keywords": ["honest", "observational", "untreated", "subject-first", "neutral"],
-      "reference_films": ["Errol Morris vérité standard"],
+      "mood_keywords": [
+        "honest",
+        "observational",
+        "untreated",
+        "subject-first",
+        "neutral"
+      ],
+      "reference_films": [
+        "Errol Morris vérité standard"
+      ],
       "spec": {
-        "lift":           [0.000, 0.000, 0.000],
-        "gamma":          [1.00, 1.00, 1.00],
-        "gain":           [1.00, 1.00, 1.00],
-        "saturation":     1.00,
-        "shadow_tint":    [0.000, 0.000, 0.000],
-        "midtone_tint":   [0.000, 0.000, 0.000],
-        "highlight_tint": [0.000, 0.000, 0.000]
+        "lift": [
+          0,
+          0,
+          0
+        ],
+        "gamma": [
+          1,
+          1,
+          1
+        ],
+        "gain": [
+          1,
+          1,
+          1
+        ],
+        "saturation": 1,
+        "shadow_tint": [
+          0,
+          0,
+          0
+        ],
+        "midtone_tint": [
+          0,
+          0,
+          0
+        ],
+        "highlight_tint": [
+          0,
+          0,
+          0
+        ]
       }
     },
-
     {
       "id": "bs_scifi_blade_runner_amber",
       "genre": "sci-fi",
       "is_default_for_genre": true,
       "look": "Mythic monumental sci-fi — amber midtones, world-weary green highlights. Deakins/BR2049, van Hoytema/Interstellar.",
-      "mood_keywords": ["mythic", "monumental", "world-weary", "amber-future"],
-      "reference_films": ["Blade Runner 2049", "Interstellar"],
+      "mood_keywords": [
+        "mythic",
+        "monumental",
+        "world-weary",
+        "amber-future"
+      ],
+      "reference_films": [
+        "Blade Runner 2049",
+        "Interstellar"
+      ],
       "spec": {
-        "lift":           [-0.040, -0.040, -0.040],
-        "gamma":          [0.96, 0.96, 0.96],
-        "gain":           [1.02, 1.02, 1.02],
-        "saturation":     0.90,
-        "shadow_tint":    [0.005, 0.000, -0.010],
-        "midtone_tint":   [0.040, 0.020, -0.020],
-        "highlight_tint": [0.025, 0.025, -0.005]
+        "lift": [
+          -0.04,
+          -0.04,
+          -0.04
+        ],
+        "gamma": [
+          0.96,
+          0.96,
+          0.96
+        ],
+        "gain": [
+          1.02,
+          1.02,
+          1.02
+        ],
+        "saturation": 0.9,
+        "shadow_tint": [
+          0.005,
+          0,
+          -0.01
+        ],
+        "midtone_tint": [
+          0.04,
+          0.02,
+          -0.02
+        ],
+        "highlight_tint": [
+          0.025,
+          0.025,
+          -0.005
+        ]
       }
     },
     {
       "id": "bs_scifi_clinical_white",
       "genre": "sci-fi",
       "look": "Sterile machined sci-fi — future-clean blue highlights. Van Hoytema/Ad Astra, Fraser/Foundation.",
-      "mood_keywords": ["sterile", "future-clean", "machined", "blue-cool"],
-      "reference_films": ["Ad Astra", "Foundation"],
+      "mood_keywords": [
+        "sterile",
+        "future-clean",
+        "machined",
+        "blue-cool"
+      ],
+      "reference_films": [
+        "Ad Astra",
+        "Foundation"
+      ],
       "spec": {
-        "lift":           [-0.020, -0.020, -0.015],
-        "gamma":          [1.00, 1.00, 1.00],
-        "gain":           [1.04, 1.04, 1.04],
-        "saturation":     0.85,
-        "shadow_tint":    [-0.010, -0.005, 0.015],
-        "midtone_tint":   [-0.005, 0.000, 0.010],
-        "highlight_tint": [-0.005, 0.005, 0.030]
+        "lift": [
+          -0.02,
+          -0.02,
+          -0.015
+        ],
+        "gamma": [
+          1,
+          1,
+          1
+        ],
+        "gain": [
+          1.04,
+          1.04,
+          1.04
+        ],
+        "saturation": 0.85,
+        "shadow_tint": [
+          -0.01,
+          -0.005,
+          0.015
+        ],
+        "midtone_tint": [
+          -0.005,
+          0,
+          0.01
+        ],
+        "highlight_tint": [
+          -0.005,
+          0.005,
+          0.03
+        ]
       }
     },
-
     {
       "id": "bs_fantasy_painterly_emerald",
       "genre": "fantasy",
       "is_default_for_genre": true,
       "look": "Painterly storybook fantasy — emerald shadows, warm highlights, mythic. Lesnie/LOTR, Bazelli/Lone Ranger.",
-      "mood_keywords": ["mythic", "painterly", "storybook", "romantic-epic", "emerald"],
-      "reference_films": ["The Lord of the Rings", "The Lone Ranger"],
+      "mood_keywords": [
+        "mythic",
+        "painterly",
+        "storybook",
+        "romantic-epic",
+        "emerald"
+      ],
+      "reference_films": [
+        "The Lord of the Rings",
+        "The Lone Ranger"
+      ],
       "spec": {
-        "lift":           [0.030, 0.030, 0.020],
-        "gamma":          [1.03, 1.03, 1.03],
-        "gain":           [0.98, 0.98, 0.98],
-        "saturation":     1.05,
-        "shadow_tint":    [-0.010, 0.020, 0.000],
-        "midtone_tint":   [0.005, 0.015, -0.005],
-        "highlight_tint": [0.025, 0.020, -0.005]
+        "lift": [
+          0.03,
+          0.03,
+          0.02
+        ],
+        "gamma": [
+          1.03,
+          1.03,
+          1.03
+        ],
+        "gain": [
+          0.98,
+          0.98,
+          0.98
+        ],
+        "saturation": 1.05,
+        "shadow_tint": [
+          -0.01,
+          0.02,
+          0
+        ],
+        "midtone_tint": [
+          0.005,
+          0.015,
+          -0.005
+        ],
+        "highlight_tint": [
+          0.025,
+          0.02,
+          -0.005
+        ]
       }
     },
-
     {
       "id": "bs_period_kodachrome_60s",
       "genre": "period",
       "is_default_for_genre": true,
       "look": "Mid-century Kodachrome period — magazine, archival, red-rich. Richardson/Aviator, Mad Men.",
-      "mood_keywords": ["period", "archival", "mid-century", "magazine", "kodachrome"],
-      "reference_films": ["The Aviator", "Mad Men"],
+      "mood_keywords": [
+        "period",
+        "archival",
+        "mid-century",
+        "magazine",
+        "kodachrome"
+      ],
+      "reference_films": [
+        "The Aviator",
+        "Mad Men"
+      ],
       "spec": {
-        "lift":           [0.020, 0.015, 0.010],
-        "gamma":          [1.01, 1.01, 1.01],
-        "gain":           [1.00, 1.00, 1.00],
-        "saturation":     1.12,
-        "shadow_tint":    [0.010, 0.000, -0.005],
-        "midtone_tint":   [0.030, 0.005, -0.015],
-        "highlight_tint": [0.020, 0.010, -0.005]
+        "lift": [
+          0.02,
+          0.015,
+          0.01
+        ],
+        "gamma": [
+          1.01,
+          1.01,
+          1.01
+        ],
+        "gain": [
+          1,
+          1,
+          1
+        ],
+        "saturation": 1.12,
+        "shadow_tint": [
+          0.01,
+          0,
+          -0.005
+        ],
+        "midtone_tint": [
+          0.03,
+          0.005,
+          -0.015
+        ],
+        "highlight_tint": [
+          0.02,
+          0.01,
+          -0.005
+        ]
       }
     },
     {
       "id": "bs_period_silver_painterly",
       "genre": "period",
       "look": "Bleach-bypass period — austere, mythic, silver. Blaschke/The Lighthouse, The Northman.",
-      "mood_keywords": ["bleach", "period-grit", "austere", "mythic", "silver-painterly"],
-      "reference_films": ["The Lighthouse", "The Northman"],
+      "mood_keywords": [
+        "bleach",
+        "period-grit",
+        "austere",
+        "mythic",
+        "silver-painterly"
+      ],
+      "reference_films": [
+        "The Lighthouse",
+        "The Northman"
+      ],
       "spec": {
-        "lift":           [-0.030, -0.030, -0.030],
-        "gamma":          [0.97, 0.97, 0.97],
-        "gain":           [1.03, 1.03, 1.03],
-        "saturation":     0.45,
-        "shadow_tint":    [-0.005, -0.005, 0.005],
-        "midtone_tint":   [0.005, 0.000, -0.005],
-        "highlight_tint": [0.010, 0.005, -0.005]
+        "lift": [
+          -0.03,
+          -0.03,
+          -0.03
+        ],
+        "gamma": [
+          0.97,
+          0.97,
+          0.97
+        ],
+        "gain": [
+          1.03,
+          1.03,
+          1.03
+        ],
+        "saturation": 0.45,
+        "shadow_tint": [
+          -0.005,
+          -0.005,
+          0.005
+        ],
+        "midtone_tint": [
+          0.005,
+          0,
+          -0.005
+        ],
+        "highlight_tint": [
+          0.01,
+          0.005,
+          -0.005
+        ]
       }
     },
-
     {
       "id": "bs_commercial_hyperreal_punch",
       "genre": "commercial",
       "is_default_for_genre": true,
       "look": "Hyperreal premium commercial — glossy, vivid, soft bloom. Apple Shot on iPhone, Lance Acord.",
-      "mood_keywords": ["hyperreal", "glossy", "premium", "vivid", "punch"],
-      "reference_films": ["Apple — Shot on iPhone series", "Honda Cog"],
+      "mood_keywords": [
+        "hyperreal",
+        "glossy",
+        "premium",
+        "vivid",
+        "punch"
+      ],
+      "reference_films": [
+        "Apple — Shot on iPhone series",
+        "Honda Cog"
+      ],
       "spec": {
-        "lift":           [-0.020, -0.020, -0.020],
-        "gamma":          [0.99, 0.99, 0.99],
-        "gain":           [1.05, 1.05, 1.05],
-        "saturation":     1.08,
-        "shadow_tint":    [0.000, 0.000, 0.000],
-        "midtone_tint":   [0.005, 0.005, 0.000],
-        "highlight_tint": [0.020, 0.020, 0.015]
+        "lift": [
+          -0.02,
+          -0.02,
+          -0.02
+        ],
+        "gamma": [
+          0.99,
+          0.99,
+          0.99
+        ],
+        "gain": [
+          1.05,
+          1.05,
+          1.05
+        ],
+        "saturation": 1.08,
+        "shadow_tint": [
+          0,
+          0,
+          0
+        ],
+        "midtone_tint": [
+          0.005,
+          0.005,
+          0
+        ],
+        "highlight_tint": [
+          0.02,
+          0.02,
+          0.015
+        ]
       }
     },
     {
       "id": "bs_commercial_sundance_indie",
       "genre": "commercial",
       "look": "Authentic indie commercial — lo-fi-luxe, lifted blacks, warm. Bradford Young early, Khalik Allah.",
-      "mood_keywords": ["authentic", "indie", "lo-fi-luxe", "warm-natural"],
-      "reference_films": ["Nike — Dream Crazy", "Dove — Real Beauty Sketches"],
+      "mood_keywords": [
+        "authentic",
+        "indie",
+        "lo-fi-luxe",
+        "warm-natural"
+      ],
+      "reference_films": [
+        "Nike — Dream Crazy",
+        "Dove — Real Beauty Sketches"
+      ],
       "spec": {
-        "lift":           [0.050, 0.040, 0.020],
-        "gamma":          [1.03, 1.03, 1.03],
-        "gain":           [0.96, 0.96, 0.96],
-        "saturation":     0.85,
-        "shadow_tint":    [0.010, 0.005, -0.005],
-        "midtone_tint":   [0.020, 0.010, -0.005],
-        "highlight_tint": [0.025, 0.015, 0.000]
+        "lift": [
+          0.05,
+          0.04,
+          0.02
+        ],
+        "gamma": [
+          1.03,
+          1.03,
+          1.03
+        ],
+        "gain": [
+          0.96,
+          0.96,
+          0.96
+        ],
+        "saturation": 0.85,
+        "shadow_tint": [
+          0.01,
+          0.005,
+          -0.005
+        ],
+        "midtone_tint": [
+          0.02,
+          0.01,
+          -0.005
+        ],
+        "highlight_tint": [
+          0.025,
+          0.015,
+          0
+        ]
       }
     },
     {
       "id": "bs_commercial_neon_dream",
       "genre": "commercial",
       "look": "Maximalist neon-dream commercial — anthemic, hyper-stylized magenta-cyan. Nike Dream Crazy, Honda Hands.",
-      "mood_keywords": ["maximalist", "anthemic", "dreamlike", "hyper-stylized", "neon"],
-      "reference_films": ["Nike — Dream Crazy", "Honda — Hands"],
+      "mood_keywords": [
+        "maximalist",
+        "anthemic",
+        "dreamlike",
+        "hyper-stylized",
+        "neon"
+      ],
+      "reference_films": [
+        "Nike — Dream Crazy",
+        "Honda — Hands"
+      ],
       "spec": {
-        "lift":           [-0.040, -0.040, -0.040],
-        "gamma":          [0.97, 0.97, 0.97],
-        "gain":           [1.06, 1.06, 1.06],
-        "saturation":     1.20,
-        "shadow_tint":    [-0.020, 0.005, 0.025],
-        "midtone_tint":   [0.040, -0.015, 0.040],
-        "highlight_tint": [0.030, 0.005, 0.035]
+        "lift": [
+          -0.04,
+          -0.04,
+          -0.04
+        ],
+        "gamma": [
+          0.97,
+          0.97,
+          0.97
+        ],
+        "gain": [
+          1.06,
+          1.06,
+          1.06
+        ],
+        "saturation": 1.2,
+        "shadow_tint": [
+          -0.02,
+          0.005,
+          0.025
+        ],
+        "midtone_tint": [
+          0.04,
+          -0.015,
+          0.04
+        ],
+        "highlight_tint": [
+          0.03,
+          0.005,
+          0.035
+        ]
       }
     }
   ],
-
-  "creative_legacy": [
-    {
-      "id": "bs_warm_cinematic",
-      "file": "bs_warm_cinematic.cube",
-      "look": "Kodak Portra 400 emulation, warm shadows, soft highlights",
-      "suits_brand_types": ["lifestyle", "hospitality", "food", "family", "restaurant"],
-      "mood_keywords": ["warm", "nostalgic", "intimate", "inviting", "homely"],
-      "hex_signature": ["#F5E6D3", "#C4896F", "#6B4423"]
-    },
-    {
-      "id": "bs_cool_noir",
-      "file": "bs_cool_noir.cube",
-      "look": "Desaturated, blue-shifted shadows, high contrast",
-      "suits_brand_types": ["tech", "fintech", "security", "B2B", "cybersecurity", "enterprise software"],
-      "mood_keywords": ["cool", "precise", "mysterious", "authoritative", "modern"],
-      "hex_signature": ["#1A1A2E", "#16213E", "#0F3460"]
-    },
-    {
-      "id": "bs_golden_hour",
-      "file": "bs_golden_hour.cube",
-      "look": "Amber highlights, soft warm midtones, soft sun glow",
-      "suits_brand_types": ["wellness", "beauty", "travel", "luxury", "spa", "resort"],
-      "mood_keywords": ["warm", "aspirational", "dreamy", "luxurious", "sun-kissed"],
-      "hex_signature": ["#FFD700", "#F5B041", "#8B4513"]
-    },
-    {
-      "id": "bs_urban_grit",
-      "file": "bs_urban_grit.cube",
-      "look": "Teal & orange, crushed blacks, raised greens",
-      "suits_brand_types": ["streetwear", "sports", "gaming", "automotive", "action sports"],
-      "mood_keywords": ["edgy", "bold", "cinematic", "dynamic", "urban"],
-      "hex_signature": ["#008080", "#FF6B35", "#1C1C1C"]
-    },
-    {
-      "id": "bs_dreamy_ethereal",
-      "file": "bs_dreamy_ethereal.cube",
-      "look": "Bloom highlights, soft pastels, lifted blacks",
-      "suits_brand_types": ["fashion", "perfume", "cosmetics", "jewelry", "editorial"],
-      "mood_keywords": ["ethereal", "dreamy", "romantic", "soft", "feminine"],
-      "hex_signature": ["#F8E7F6", "#E4C1F9", "#D8BFD8"]
-    },
-    {
-      "id": "bs_retro_film",
-      "file": "bs_retro_film.cube",
-      "look": "Fuji 8mm, muted saturation, warm grain",
-      "suits_brand_types": ["heritage", "artisanal", "food & drink", "craft", "vintage"],
-      "mood_keywords": ["retro", "handmade", "authentic", "warm", "timeless"],
-      "hex_signature": ["#D4A574", "#8B6914", "#4B3621"]
-    },
-    {
-      "id": "bs_high_contrast_moody",
-      "file": "bs_high_contrast_moody.cube",
-      "look": "Deep blacks, punchy highlights, neutral midtones",
-      "suits_brand_types": ["music", "entertainment", "fashion editorial", "nightlife", "DJ"],
-      "mood_keywords": ["moody", "dramatic", "bold", "editorial", "nocturnal"],
-      "hex_signature": ["#000000", "#FFFFFF", "#808080"]
-    },
-    {
-      "id": "bs_naturalistic",
-      "file": "bs_naturalistic.cube",
-      "look": "Minimal grade, subtle warmth, preserved natural tones",
-      "suits_brand_types": ["health", "education", "non-profit", "documentary", "wellness"],
-      "mood_keywords": ["natural", "honest", "trustworthy", "clean", "real"],
-      "hex_signature": ["#E8DFC9", "#A49A7E", "#4F4A3F"],
-      "is_safe_fallback": true
-    }
-  ],
-
   "corrections": [
     {
       "id": "correct_omnihuman",
       "file": "corrections/correct_omnihuman.cube",
       "description": "Neutralizes OmniHuman 1.5's warm-green portrait bias",
-      "applies_to_model_prefix": ["omnihuman", "mode-a"]
+      "applies_to_model_prefix": [
+        "omnihuman",
+        "mode-a"
+      ]
     },
     {
       "id": "correct_veo",
       "file": "corrections/correct_veo.cube",
       "description": "Neutralizes Veo 3.1's photoreal-clinical bias",
-      "applies_to_model_prefix": ["veo-3.1"]
+      "applies_to_model_prefix": [
+        "veo-3.1"
+      ]
     },
     {
       "id": "correct_kling",
       "file": "corrections/correct_kling.cube",
       "description": "Neutralizes Kling's warm-saturated bias",
-      "applies_to_model_prefix": ["kling-o3", "kling-v3", "mode-b"]
+      "applies_to_model_prefix": [
+        "kling-o3",
+        "kling-v3",
+        "mode-b"
+      ]
     }
   ]
 }

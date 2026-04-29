@@ -51,7 +51,7 @@ describe('ScreenplayValidator — blocker checks', () => {
     const g = cleanGraph();
     delete g.dramatic_question;
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'missing_episode_dramatic_question' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'missing_episode_dramatic_question' && i.severity === 'critical'));
     assert.equal(r.needsPunchUp, true);
   });
 
@@ -59,14 +59,14 @@ describe('ScreenplayValidator — blocker checks', () => {
     const g = cleanGraph();
     delete g.scenes[0].hook_types;
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'scene_missing_hook_types' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'scene_missing_hook_types' && i.severity === 'critical'));
   });
 
   test('multi-persona scene without opposing_intents produces blocker', () => {
     const g = cleanGraph();
     delete g.scenes[0].opposing_intents;
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'scene_missing_opposing_intents' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'scene_missing_opposing_intents' && i.severity === 'critical'));
   });
 
   test('single-persona scene is EXEMPT from opposing_intents requirement', () => {
@@ -89,7 +89,7 @@ describe('ScreenplayValidator — blocker checks', () => {
       { beat_id: 's1b2', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'The coffee shop was beautiful that morning.', subtext: '—', duration_seconds: 4 }
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'voice_overlap_too_high' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'voice_overlap_too_high' && i.severity === 'critical'));
   });
 
   test('dialogue beat ratio below 35% (with 2+ personas, product focus) produces blocker', () => {
@@ -103,7 +103,7 @@ describe('ScreenplayValidator — blocker checks', () => {
       { beat_id: 's1b6', type: 'TALKING_HEAD_CLOSEUP', persona_index: 1, dialogue: 'Then I am consistent, I suppose.', subtext: '—', duration_seconds: 4 }
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'dialogue_beat_ratio_too_low' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'dialogue_beat_ratio_too_low' && i.severity === 'critical'));
   });
 
   test('landscape focus is EXEMPT from dialogue-beat-ratio check', () => {
@@ -126,7 +126,7 @@ describe('ScreenplayValidator — blocker checks', () => {
       { beat_id: 's1b3', type: 'TALKING_HEAD_CLOSEUP', persona_index: 0, dialogue: 'Bye now.', duration_seconds: 4 }
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'dialogue_too_sparse' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'dialogue_too_sparse' && i.severity === 'critical'));
   });
 });
 
@@ -257,7 +257,7 @@ describe('ScreenplayValidator — auto-repair', () => {
 describe('ScreenplayValidator — clean path', () => {
   test('clean scene graph has zero blockers', () => {
     const r = validateScreenplay(cleanGraph(), {}, PERSONAS);
-    const blockers = r.issues.filter(i => i.severity === 'blocker');
+    const blockers = r.issues.filter(i => i.severity === 'critical');
     assert.equal(blockers.length, 0);
     assert.equal(r.needsPunchUp, false);
   });
@@ -273,7 +273,7 @@ describe('ScreenplayValidator — clean path', () => {
   test('null sceneGraph returns a single blocker without throwing', () => {
     const r = validateScreenplay(null, {}, PERSONAS);
     assert.equal(r.issues.length, 1);
-    assert.equal(r.issues[0].severity, 'blocker');
+    assert.equal(r.issues[0].severity, 'critical');
   });
 });
 
@@ -298,7 +298,7 @@ describe('ScreenplayValidator — persona-index coverage', () => {
     const g = cleanGraph();
     delete g.scenes[0].beats[0].persona_index;
     const r = validateScreenplay(g, {}, PERSONAS);
-    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker');
+    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'critical');
     assert.ok(f, 'expected persona_index_missing blocker');
     assert.match(f.scope, /^beat:s1b1$/);
   });
@@ -316,7 +316,7 @@ describe('ScreenplayValidator — persona-index coverage', () => {
       }
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
-    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker' && i.scope === 'beat:srs1');
+    const f = r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'critical' && i.scope === 'beat:srs1');
     assert.ok(f, 'expected SHOT_REVERSE_SHOT exchange blocker');
     assert.match(f.message, /exchange\[1\]/);
   });
@@ -334,7 +334,7 @@ describe('ScreenplayValidator — persona-index coverage', () => {
     ];
     const r = validateScreenplay(g, {}, PERSONAS);
     assert.ok(r.issues.find(i =>
-      i.id === 'persona_index_missing' && i.severity === 'blocker' && /dialogues\[1\]/.test(i.message)
+      i.id === 'persona_index_missing' && i.severity === 'critical' && /dialogues\[1\]/.test(i.message)
     ));
   });
 
@@ -342,7 +342,7 @@ describe('ScreenplayValidator — persona-index coverage', () => {
     const g = cleanGraph();
     g.scenes[0].beats[0].persona_index = 99; // PERSONAS has 2 entries (0, 1)
     const r = validateScreenplay(g, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'persona_index_missing' && i.severity === 'critical'));
   });
 
   test('clean graph has no persona_index_missing blockers', () => {

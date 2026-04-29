@@ -48,7 +48,10 @@ You return a JSON object with EXACTLY this shape (no extra keys):
     "creative_concept":          "<one-line concept that fits on a sticky note>",
     "visual_signature":          "<the ONE visual idea an art director could re-quote>",
     "style_category":            "<one of: ${COMMERCIAL_STYLE_CATEGORIES.join(' | ')}>",
-    "narrative_grammar":         "<montage | single-take | dialogue-driven | silent | abstract | direct-address | mixed-media>",
+    "narrative_grammar":         {
+      "form":              "<montage | single-take | dialogue-driven | silent | abstract | direct-address | mixed-media>",
+      "dialogue_density":  "<high | medium | low | none>"
+    },
     "emotional_arc":             "<wonder→epiphany | longing→fulfillment | doubt→conviction | etc>",
     "hero_image":                "<the single image we want burned into the viewer's memory>",
     "music_intent":              { "vibe": "<text>", "drop_point_seconds": <number>, "instrumentation": "<text>" },
@@ -138,9 +141,17 @@ Author the COMMERCIAL CREATIVE BRIEF now.`;
  *   brand_world_lock_if_two_eps?, anti_brief
  * }>}
  */
-export async function generateCommercialBrief({ story, brandKit = null, personas = [] }) {
-  const userPrompt = buildUserPrompt({ story, brandKit, personas });
-  logger.info(`generating commercial creative brief for story "${story?.name || '(unnamed)'}"`);
+export async function generateCommercialBrief({ story, brandKit = null, personas = [], directorNudge = null, isRetry = false }) {
+  // V4 Phase 7 / B1 — when Lens 0/A soft_rejects the previous brief, the
+  // orchestrator spawns ONE re-run with a director's nudge (the verdict's
+  // findings + remediation prompt_deltas) spliced as an additional block
+  // on the user prompt. The system prompt is unchanged — the nudge is
+  // user-side feedback, NOT a different system role.
+  let userPrompt = buildUserPrompt({ story, brandKit, personas });
+  if (directorNudge && typeof directorNudge === 'string' && directorNudge.trim().length > 0) {
+    userPrompt += `\n\nDIRECTOR'S NUDGE (the previous brief was soft-rejected — address these specific notes):\n${directorNudge.trim()}`;
+  }
+  logger.info(`generating commercial creative brief for story "${story?.name || '(unnamed)'}" (retry=${isRetry})`);
 
   let parsed;
   try {
@@ -206,4 +217,92 @@ export function isCommercialPipelineEnabled() {
   // to disable the commercial-genre branch (commercial stories then run the
   // standard prestige pipeline without CreativeBriefDirector pre-flight).
   return String(process.env.BRAND_STORY_COMMERCIAL_GENRE || 'true').toLowerCase() !== 'false';
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 Phase 7 — style-routing predicates
+//
+// CreativeBriefDirector emits brief.style_category from a 10-value enum
+// (see COMMERCIAL_STYLE_CATEGORIES in director-rubrics/commercialReferenceLibrary.mjs).
+// Two of those values are non-photoreal in the strong sense and another
+// two lean stylized. Phase 7 builds a downstream pipeline branch that
+// honors stylized intent — every component that asks "is this style
+// photoreal or not?" should consult these predicates rather than
+// inlining the enum check.
+//
+// STRONG (full photoreal-bypass): hand_doodle_animated, surreal_dreamlike
+//   These styles want identity LUT (no live-action color grading), stylized
+//   character sheets, archetype-not-photo-likeness identity preservation,
+//   and an animation-aware framing vocabulary.
+//
+// SEMI-STYLIZED (rendered live-action, stylized in grade/look):
+//   vaporwave_nostalgic, painterly_prestige
+//   These keep photoreal CIP / character-sheet identity but get a softened
+//   "preserve recognizable structure" Scene Master directive and a
+//   style-tinted LUT.
+//
+// PHOTOREAL (default 6): hyperreal_premium, verite_intimate, anthemic_epic,
+// brutalist_minimalist, gritty_real, kinetic_montage. Unchanged behavior.
+// ─────────────────────────────────────────────────────────────────────
+
+export const NON_PHOTOREAL_STYLE_CATEGORIES = Object.freeze([
+  'hand_doodle_animated',
+  'surreal_dreamlike',
+  'vaporwave_nostalgic',
+  'painterly_prestige'
+]);
+
+export const STYLIZED_STRONG_STYLE_CATEGORIES = Object.freeze([
+  'hand_doodle_animated',
+  'surreal_dreamlike'
+]);
+
+function _resolveStyleCategory(briefOrStory) {
+  if (!briefOrStory || typeof briefOrStory !== 'object') return '';
+  // Accept either a brief object directly OR a story object that holds
+  // commercial_brief on it. Either form maps to the same predicate.
+  const direct = briefOrStory.style_category;
+  const fromBrief = briefOrStory.commercial_brief?.style_category;
+  return String(direct || fromBrief || '').toLowerCase().trim();
+}
+
+/**
+ * True when style_category is one of the four non-photoreal categories.
+ * Used by Scene Master directive softening, character sheet style-aware
+ * branch, and LUT bypass routing.
+ *
+ * @param {Object} briefOrStory — commercial_brief, OR a story with commercial_brief
+ * @returns {boolean}
+ */
+export function isNonPhotorealStyle(briefOrStory) {
+  const cat = _resolveStyleCategory(briefOrStory);
+  return NON_PHOTOREAL_STYLE_CATEGORIES.includes(cat);
+}
+
+/**
+ * True only for the two strong-stylized categories: hand_doodle_animated and
+ * surreal_dreamlike. These trigger:
+ *   - identity-LUT bypass (no live-action grading)
+ *   - stylized character sheets in target style (Flux 2 Max in-style)
+ *   - "preserve archetype, not photographic likeness" Scene Master directive
+ *   - animation-aware framing vocab entries
+ *
+ * @param {Object} briefOrStory
+ * @returns {boolean}
+ */
+export function isStylizedStrong(briefOrStory) {
+  const cat = _resolveStyleCategory(briefOrStory);
+  return STYLIZED_STRONG_STYLE_CATEGORIES.includes(cat);
+}
+
+/**
+ * Returns the resolved style_category string (lowercase, trimmed) or ''.
+ * Useful when downstream code needs the actual enum value (e.g., to render
+ * style-specific prompt language) rather than just a boolean predicate.
+ *
+ * @param {Object} briefOrStory
+ * @returns {string}
+ */
+export function resolveStyleCategory(briefOrStory) {
+  return _resolveStyleCategory(briefOrStory);
 }

@@ -24,6 +24,16 @@
 import crypto from 'crypto';
 import winston from 'winston';
 import { callVertexGeminiJson } from './VertexGemini.js';
+import {
+  renderVisualAnchorAsConstraintBlock,
+  validateFluxPromptAgainstAnchor,
+  VisualAnchorInversionError
+} from './PersonaVisualAnchor.js';
+import {
+  isStylizedStrong,
+  isNonPhotorealStyle,
+  resolveStyleCategory
+} from './CreativeBriefDirector.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -118,7 +128,7 @@ export function isPrincipalPersona(persona) {
 // Cache key
 // ─────────────────────────────────────────────────────────────────────
 
-export function cacheKey({ persona, arcState, storyGenre, brandMood }) {
+export function cacheKey({ persona, arcState, storyGenre, brandMood, styleCategory = '' }) {
   const norm = {
     persona_index: persona?.persona_index ?? null,
     name: persona?.name || persona?.avatar_name || null,
@@ -127,7 +137,11 @@ export function cacheKey({ persona, arcState, storyGenre, brandMood }) {
     wardrobe_hint: persona?.wardrobe_hint || null,
     arcState,
     storyGenre: String(storyGenre || '').toLowerCase().trim(),
-    brandMood: String(brandMood || '').toLowerCase().trim()
+    brandMood: String(brandMood || '').toLowerCase().trim(),
+    // V4 Phase 7 — style_category is part of the cache key so a brief
+    // revision (style changed from hyperreal_premium to hand_doodle_animated)
+    // generates a new sheet prompt instead of serving the cached photoreal one.
+    styleCategory: String(styleCategory || '').toLowerCase().trim()
   };
   return crypto.createHash('sha256').update(JSON.stringify(norm)).digest('hex').slice(0, 16);
 }
@@ -135,6 +149,68 @@ export function cacheKey({ persona, arcState, storyGenre, brandMood }) {
 // ─────────────────────────────────────────────────────────────────────
 // Prompt builder + Gemini call
 // ─────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 Phase 7 — STYLE GOVERNANCE
+//
+// CharacterSheetDirector's SYSTEM_PROMPT is calibrated for prestige live-action
+// (motivated soft light, halation, painterly skin separation, 75-85mm portrait
+// glass). When commercial_brief.style_category is non-photoreal, that
+// vocabulary is wrong — a hand_doodle_animated commercial wants cel-shaded
+// portraits, not soft-wrap halation. We append a STYLE GOVERNANCE block that
+// tells Gemini which rendering language to use for the per-style preset.
+//
+// Identity layer (visual_anchor) is unchanged — gender, age, ethnicity,
+// hair, skin from PersonaVisualAnchor remain the hard ground truth across
+// styles. Style governs RENDERING LANGUAGE, not WHO the character is.
+// ─────────────────────────────────────────────────────────────────────
+
+function buildStyleGovernanceBlock(commercialBrief) {
+  if (!commercialBrief) return '';
+  const styleCategory = resolveStyleCategory(commercialBrief);
+  if (!styleCategory) return '';
+  const stylized = isStylizedStrong(commercialBrief);
+  const nonPhoto = isNonPhotorealStyle(commercialBrief);
+  if (!nonPhoto) {
+    // Photoreal style — no governance change. The standard prompt's
+    // soft-wrap / halation / 75-85mm language is correct.
+    return '';
+  }
+
+  const PRESET_LANGUAGE = {
+    hand_doodle_animated: 'cel-shaded portrait, Studio-Ghibli-style line work, flat shadow planes, ink-line edges, hand-drawn texture; 12fps stop-motion feel acceptable. NO photoreal skin separation, NO halation, NO soft-wrap key — those are live-action terms that fight cel-shaded grammar.',
+    surreal_dreamlike:    'painterly portrait, soft impasto brushstrokes, dreamlike chiaroscuro, hand-rendered surface texture; visible artist hand. NOT photoreal. Treat the portrait as oil-on-canvas / gouache / painted-over-photo.',
+    vaporwave_nostalgic:  '8mm film grain texture, magenta/teal cast as period artifact, soft halation read as analog (NOT optical realism), faded saturation, scanline-suggestive subtle banding. Live-action filmed but rendered through nostalgia signal — not naturalism.',
+    painterly_prestige:   'oil-painting portrait, painterly skin separation as INTENT (visible brushwork is the look), warm umber shadow, cool linen highlight, classical composition. The painterly quality is the brief, not a bug.'
+  };
+
+  const presetLanguage = PRESET_LANGUAGE[styleCategory] || `non-photoreal commercial register: ${styleCategory}. Honor brief.visual_style_brief literally.`;
+
+  return `
+
+══════════════════════════════════════════════════════════
+STYLE GOVERNANCE (V4 Phase 7) — commercial_brief.style_category = "${styleCategory}"
+══════════════════════════════════════════════════════════
+The persona bible's identity (gender / age / ethnicity / hair / skin from
+visual_anchor when present) is HARD GROUND TRUTH across styles — never
+override.
+
+The RENDERING LANGUAGE in flux_prompt + seedream_prompt + negative_prompt
+must follow the style preset below, NOT the prestige live-action defaults
+in the principles above.
+
+For ${styleCategory}: ${presetLanguage}
+
+The wardrobe_hint stays as the IDENTITY ANCHOR (verbatim) — the wardrobe
+ITEMS are preserved; their RENDERING shifts to the style preset (the same
+green wool coat in cel-shaded ink-line vs. photoreal soft-falloff).
+
+The face_anchor / wardrobe_anchor / environment_anchor in reference_attributes
+stay structured the same way; the prose just describes the stylized variant
+of the same character.
+══════════════════════════════════════════════════════════
+`;
+}
 
 const SYSTEM_PROMPT = `You are a Hollywood-grade director of cinematography writing the
 character-sheet brief for a portrait artist (Flux 1.1 / Flux 2 Max). You receive a
@@ -204,13 +280,28 @@ Vertical 9:16 framing is implicit — do NOT mention it in the prompt.`;
 /**
  * Build the user prompt — packs the persona + story context into a single
  * brief Gemini can reason over.
+ *
+ * V4 Phase 5b — when persona has a `visual_anchor`, the constraint block is
+ * prepended ABOVE the persona bible. Identity is non-negotiable; the bible
+ * (archetype / wound / wardrobe / personality) is subordinate. Director Agent's
+ * mandate: "Gemini's storyline-character description below is subordinate. Use
+ * it for personality / wardrobe / context only. NEVER override the visual truth
+ * above. Note `low_confidence_fields` — write AROUND them, do not fabricate."
  */
 function buildUserPrompt({ persona, story, brandKit, arcState }) {
   const personality = Array.isArray(persona?.personality) ? persona.personality.join(', ') : (persona?.personality || '');
   const speech = persona?.speech_patterns || {};
   const voice = persona?.voice_brief || {};
 
-  return `PERSONA BIBLE:
+  const visualAnchorBlock = persona?.visual_anchor
+    ? `\n══════════════════════════════════════════════════════════
+${renderVisualAnchorAsConstraintBlock(persona.visual_anchor)}
+══════════════════════════════════════════════════════════
+The persona bible below describes WHO THE CHARACTER IS DRAMATICALLY (archetype, wound, want, wardrobe, personality). It is SUBORDINATE to the visual truth above. Use it for character WORK, not for identity. NEVER override the visual truth.
+\n`
+    : '';
+
+  return `${visualAnchorBlock}PERSONA BIBLE:
 - Name:                 ${persona?.name || persona?.avatar_name || `Persona ${persona?.persona_index ?? ''}`.trim()}
 - Dramatic archetype:   ${persona?.dramatic_archetype || persona?.archetype || 'unspecified'}
 - Wound:                ${persona?.wound || '—'}
@@ -255,14 +346,23 @@ Return the JSON brief now.`;
  * @param {string} params.arcState    - 'act1' | 'act2_pivot' | 'act3'
  * @returns {Promise<{flux_prompt, seedream_prompt, negative_prompt, reference_attributes, model: string, cost_usd: number}>}
  */
-export async function generateSheetPrompts({ persona, story, brandKit, arcState }) {
+export async function generateSheetPrompts({ persona, story, brandKit, arcState, commercialBrief = null }) {
   const userPrompt = buildUserPrompt({ persona, story, brandKit, arcState });
   logger.info(`generating ${arcState} sheet prompt for ${persona?.name || persona?.avatar_name || 'persona'}`);
+
+  // V4 Phase 7 — style governance. Append the per-style preset language to
+  // the system prompt so flux_prompt / seedream_prompt come back in the
+  // target rendering style (cel-shaded / painterly / vaporwave / etc.) for
+  // non-photoreal briefs. Photoreal briefs leave SYSTEM_PROMPT unchanged.
+  // commercial_brief lives on story.commercial_brief; pass either form.
+  const briefForStyle = commercialBrief || story?.commercial_brief || null;
+  const styleBlock = buildStyleGovernanceBlock(briefForStyle);
+  const systemPrompt = styleBlock ? (SYSTEM_PROMPT + styleBlock) : SYSTEM_PROMPT;
 
   let parsed;
   try {
     parsed = await callVertexGeminiJson({
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       userPrompt,
       config: { temperature: 0.7, maxOutputTokens: 4096 },
       timeoutMs: 60000
@@ -276,9 +376,40 @@ export async function generateSheetPrompts({ persona, story, brandKit, arcState 
     throw new Error('CharacterSheetDirector: Gemini returned no flux_prompt');
   }
 
+  const fluxPrompt = String(parsed.flux_prompt);
+
+  // V4 Phase 5b — post-emission inversion check (Director Agent mandate,
+  // user-confirmed strict-halt path 2026-04-29).
+  //
+  // When persona.visual_anchor is set, validate that Gemini's emitted Flux
+  // prompt does not invert the actor's gender or age range. Inversions are
+  // HARD ERRORS that escalate to user_review — splicing a corrective hint
+  // and proceeding is the silent-correction anti-pattern that produced the
+  // cascading drift in story `77d6eaaf` (logs.txt 2026-04-28).
+  //
+  // Descriptor-class mismatches (ethnicity / hair / build) are NOT escalated
+  // here — those are subtler and the splice-corrective-hint path remains
+  // acceptable. The validator only flags the inversion class.
+  if (persona?.visual_anchor) {
+    const validation = validateFluxPromptAgainstAnchor(persona.visual_anchor, fluxPrompt);
+    if (!validation.ok && validation.severity === 'inversion') {
+      logger.error(
+        `${arcState} sheet INVERSION on persona "${persona.name || 'unnamed'}" — ` +
+        `inverted_axes=[${validation.inverted_axes.join(', ')}], ` +
+        `evidence=${JSON.stringify(validation.evidence)}. Escalating to user_review.`
+      );
+      throw new VisualAnchorInversionError(
+        `CharacterSheetDirector: Gemini's flux_prompt inverts the visual_anchor on axes [${validation.inverted_axes.join(', ')}]. ` +
+        `This is an identity-drift hard error and must be resolved by the user. ` +
+        `Evidence: ${validation.evidence.join('; ')}`,
+        { invertedAxes: validation.inverted_axes, evidence: validation.evidence }
+      );
+    }
+  }
+
   return {
-    flux_prompt:        String(parsed.flux_prompt),
-    seedream_prompt:    String(parsed.seedream_prompt || parsed.flux_prompt),
+    flux_prompt:        fluxPrompt,
+    seedream_prompt:    String(parsed.seedream_prompt || fluxPrompt),
     negative_prompt:    String(parsed.negative_prompt || ''),
     reference_attributes: parsed.reference_attributes || {},
     model:              process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
@@ -308,6 +439,9 @@ export async function generateAllVariants({ persona, story, brandKit }) {
   const fallbacks = [];
 
   // Try each variant with one retry on transient failure.
+  // VisualAnchorInversionError is NOT a transient failure — it propagates
+  // immediately to the orchestrator so the episode can be escalated to
+  // user_review per the Director Agent's strict-halt mandate.
   for (const arcState of arcStates) {
     let lastErr = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -316,6 +450,12 @@ export async function generateAllVariants({ persona, story, brandKit }) {
         lastErr = null;
         break;
       } catch (err) {
+        if (err instanceof VisualAnchorInversionError) {
+          // Identity inversion = hard halt. Do not retry, do not fallback to
+          // act1-clone. Bubble up so BrandStoryService can mark the episode
+          // awaiting_user_review.
+          throw err;
+        }
         lastErr = err;
         if (attempt === 1) {
           logger.warn(`${arcState} variant attempt 1 failed (${err.message}) — retrying once`);

@@ -21,6 +21,7 @@
 //   }
 
 import winston from 'winston';
+import { validateFluxPromptAgainstAnchor, VisualAnchorInversionError } from '../v4/PersonaVisualAnchor.js';
 
 class BaseBeatGenerator {
   /**
@@ -99,6 +100,28 @@ class BaseBeatGenerator {
     if (!beat) throw new Error(`${this.constructor.name}: beat is required`);
     if (!beat.beat_id) throw new Error(`${this.constructor.name}: beat.beat_id is required`);
 
+    // V4 Phase 5b — N3 ref-stack precondition assertion.
+    // For commercial stories, the minimum reference stack must contain
+    // [persona_ref OR scene_master_url]. A beat in a commercial scene whose
+    // ref stack is empty will produce visually-unmoored output (logs.txt
+    // 2026-04-28 root cause for scene 2 beats). We assert here so the
+    // failure surfaces at the boundary rather than rendering a bad beat.
+    const isCommercialBeat = String(episodeContext?.genre || '').toLowerCase().trim() === 'commercial';
+    if (isCommercialBeat) {
+      const stackEmpty = !Array.isArray(refStack) || refStack.length === 0;
+      const sceneMasterMissing = !scene?.scene_master_url;
+      if (stackEmpty && sceneMasterMissing) {
+        const msg = `${this.constructor.name}: commercial beat ${beat.beat_id} has empty ref stack AND no scene_master_url — refusing to render. Caller must remediate the upstream Scene Master before retrying.`;
+        this.logger.error(msg);
+        throw new Error(msg);
+      }
+      if (beat.requires_scene_master_remediation === true) {
+        const msg = `${this.constructor.name}: commercial beat ${beat.beat_id} flagged requires_scene_master_remediation=true by router — refusing to render until upstream remediation completes.`;
+        this.logger.error(msg);
+        throw new Error(msg);
+      }
+    }
+
     this.logger.info(`▶ beat ${beat.beat_id} [${beat.type}] in scene ${scene?.scene_id || '?'}`);
 
     // Mark beat as in-progress BEFORE the generation so status reflects
@@ -175,6 +198,48 @@ class BaseBeatGenerator {
       return personas[beat.persona_indexes[0]] || null;
     }
     return null;
+  }
+
+  /**
+   * V4 P0.4 — Identity-defense gate.
+   *
+   * Validate a per-beat video prompt against the persona's visual_anchor.
+   * Catches gender/age inversions BEFORE the prompt reaches the video model,
+   * preventing identity-drift cascades. Subclasses should call this from
+   * `_doGenerate` for identity-class beats (TALKING_HEAD_CLOSEUP,
+   * DIALOGUE_IN_SCENE, REACTION) right after building the prompt and BEFORE
+   * the API call.
+   *
+   * Mirrors the post-emission inversion check in CharacterSheetDirector.js:394.
+   * Same hard-halt semantics: inversion → throw VisualAnchorInversionError,
+   * which the orchestrator routes to user_review (no silent splice-correct).
+   *
+   * Descriptor-class mismatches (ethnicity / hair / build) are NOT escalated
+   * here — those are subtler and the corrective-hint splice path remains
+   * acceptable upstream.
+   *
+   * @param {string}  prompt   - the prompt about to be sent to the video model
+   * @param {Object} [persona] - persona record (must have .visual_anchor for the gate to fire)
+   * @param {string} [beatId]  - beat id for logging/error context
+   * @throws {VisualAnchorInversionError} on detected inversion
+   */
+  _validatePromptAgainstAnchor(prompt, persona, beatId = '?') {
+    if (!persona?.visual_anchor) return; // no anchor → nothing to validate against
+    if (typeof prompt !== 'string' || prompt.length === 0) return;
+
+    const validation = validateFluxPromptAgainstAnchor(persona.visual_anchor, prompt);
+    if (!validation.ok && validation.severity === 'inversion') {
+      this.logger.error(
+        `${this.constructor.name}: beat ${beatId} INVERSION on persona "${persona.name || 'unnamed'}" — ` +
+        `inverted_axes=[${validation.inverted_axes.join(', ')}], ` +
+        `evidence=${JSON.stringify(validation.evidence)}. Halting beat — orchestrator routes to user_review.`
+      );
+      throw new VisualAnchorInversionError(
+        `${this.constructor.name}: prompt inverts visual_anchor on axes [${validation.inverted_axes.join(', ')}]. ` +
+        `Evidence: ${validation.evidence.join('; ')}`,
+        { invertedAxes: validation.inverted_axes, evidence: validation.evidence }
+      );
+    }
   }
 
   /**
@@ -605,6 +670,12 @@ class BaseBeatGenerator {
         subjectReferenceImages: episodeContext.subjectReferenceImages || [],
         beat,
         visualStylePrefix: episodeContext.visual_style_prefix || '',
+        // V4 Phase 7 — thread commercial_brief so the persona-lock pre-pass
+        // honors the same style-aware identity directive as the Scene Master.
+        // Non-photoreal styles get archetype-preserving language; photoreal
+        // keeps "preserve EXACT facial structure". The brief lives on
+        // episodeContext.commercial_brief (set by runV4Pipeline).
+        commercialBrief: episodeContext.commercial_brief || null,
         uploadBuffer: episodeContext.uploadBuffer
       });
       beat.persona_locked_first_frame_url = first_frame_url;

@@ -1,0 +1,360 @@
+# Cannes Lion / Super Bowl / D&AD-caliber commercials — classics + 2010s/2020s
+# Schema: id, title, year, director, format, genre, style_categories,
+#         visual_grammar, narrative_grammar, craft_signatures, why_great,
+#         references_url, ai_native, models_used
+#
+# This file is the YAML externalization of the in-code library at
+# services/v4/director-rubrics/commercialReferenceLibrary.mjs.
+# Source-of-truth lives here; in-code library will migrate to read this
+# YAML in a future cleanup PR.
+
+references:
+  - id: apple-1984
+    title: 'Apple "1984"'
+    year: 1984
+    director: "Ridley Scott"
+    agency: "Chiat\\Day"
+    format: commercial
+    duration_sec: 60
+    genre: commercial
+    style_categories:
+      - anthemic_epic
+      - brutalist_minimalist
+    visual_grammar: "Dystopian B&W with a single splash of color (red shorts, blue-white hammer); long-lens wides; allegorical staging."
+    narrative_grammar: "Single allegorical action; no dialogue; voice-over cliffhanger as tagline."
+    craft_signatures:
+      - "monumental scale via low-angle architecture"
+      - "color punctuation: 99% monochrome + one red"
+      - "diegetic-only sound until smash cut"
+      - "product withheld — the IDEA of the product is the entire spot"
+    references_url: "https://www.youtube.com/watch?v=OYecfV3ubP8"
+    why_great: "The product is never shown. The IDEA of the product (rebellion against conformity) is the entire spot. Defined the 'event commercial' format."
+    ai_native: false
+
+  - id: honda-cog
+    title: 'Honda "Cog"'
+    year: 2003
+    director: "Antoine Bardou-Jacquet"
+    agency: "Wieden+Kennedy London"
+    format: commercial
+    duration_sec: 120
+    genre: commercial
+    style_categories:
+      - surreal_dreamlike
+    visual_grammar: "Single uncut take; hyperreal staging; no music until the end; analog mechanical chain reaction."
+    narrative_grammar: "Mechanical chain reaction as a physical metaphor for engineering. Tagline lands in silence then music."
+    craft_signatures:
+      - "single uncut take (~2 min)"
+      - "diegetic mechanical sound only"
+      - "music withheld until final beat"
+      - "engineering as poetry — show, never tell"
+    references_url: "https://www.youtube.com/watch?v=_ve4M4UsJQo"
+    why_great: "Two minutes of cause-and-effect with zero narration. Engineering communicated as poetry."
+    ai_native: false
+
+  - id: guinness-surfer
+    title: 'Guinness "Surfer"'
+    year: 1999
+    director: "Jonathan Glazer"
+    agency: "AMV BBDO"
+    format: commercial
+    duration_sec: 90
+    genre: commercial
+    style_categories:
+      - anthemic_epic
+    visual_grammar: "Anamorphic black-and-white; slow-motion horse-as-wave; monumental."
+    narrative_grammar: "Voiceover thesis ('Tick. Tock.') over visual collage. Patience as theme."
+    craft_signatures:
+      - "anamorphic B&W cinematography"
+      - "horse-as-wave metaphor sustained across cuts"
+      - "voiceover thesis layered over visual collage"
+      - "patience triple-encoded: visual + narration + product"
+    references_url: "https://www.youtube.com/watch?v=jBZ1ofUlrBE"
+    why_great: "Visual = patience. Narration = patience. Product = patience (the long pour). Three echoes of one idea."
+    ai_native: false
+
+  - id: cadbury-gorilla
+    title: 'Cadbury "Gorilla"'
+    year: 2007
+    director: "Juan Cabral"
+    agency: "Fallon London"
+    format: commercial
+    duration_sec: 90
+    genre: commercial
+    style_categories:
+      - surreal_dreamlike
+    visual_grammar: "Static anamorphic medium-wide; gorilla suit; Phil Collins drum solo build."
+    narrative_grammar: "Pure visual joke. Brand stamp ONLY at end. No product shown until the wrapper."
+    craft_signatures:
+      - "static medium-wide held for 90s"
+      - "music build as the entire dramatic arc"
+      - "brand stamp withheld until final 2s"
+      - "audacity of trust in tone over telling"
+    references_url: "https://www.youtube.com/watch?v=TVblWq3tDwY"
+    why_great: "The audacity of a 90-second wait for a single drum hit + brand reveal. Trust in tone over telling."
+    ai_native: false
+
+  - id: nike-dream-crazy
+    title: 'Nike "Dream Crazy" (Kaepernick)'
+    year: 2018
+    director: "Park Pictures"
+    agency: "Wieden+Kennedy"
+    format: commercial
+    duration_sec: 120
+    genre: commercial
+    style_categories:
+      - verite_intimate
+    visual_grammar: "16mm grain; vérité interviews; archival montage cut to a single voice."
+    narrative_grammar: "Voiceover thesis over visual collage of athletes. Tagline lands on the eyes."
+    craft_signatures:
+      - "16mm grain + handheld vérité"
+      - "archival montage as collective ethos"
+      - "voiceover lands on close-up of eyes (anchor moment)"
+      - "risk = differentiation"
+    references_url: "https://www.youtube.com/watch?v=Fq2CvmgoO7I"
+    why_great: "Risk = differentiation. Product never demonstrated; brand position made unmissable."
+    ai_native: false
+
+  - id: old-spice-man
+    title: 'Old Spice "The Man Your Man Could Smell Like"'
+    year: 2010
+    director: "Tom Kuntz"
+    agency: "Wieden+Kennedy"
+    format: commercial
+    duration_sec: 32
+    genre: commercial
+    style_categories:
+      - surreal_dreamlike
+    visual_grammar: "Single-take through impossible spaces; hyperreal staging; physical magic tricks."
+    narrative_grammar: "Direct-address monologue with reality breaking around the speaker."
+    craft_signatures:
+      - "single-take through morphing environments"
+      - "in-camera physical magic (no VFX)"
+      - "direct-address monologue as anchor"
+      - "transitions ARE the joke"
+    references_url: "https://www.youtube.com/watch?v=owGykVbfgUE"
+    why_great: "The transitions ARE the joke. Camera as the magic. Resurrected a dead brand in 30 seconds."
+    ai_native: false
+
+  - id: apple-shot-on-iphone
+    title: 'Apple "Shot on iPhone" (series)'
+    year: 2015
+    director: "various"
+    agency: "TBWA\\Media Arts Lab"
+    format: commercial
+    duration_sec: 60
+    genre: commercial
+    style_categories:
+      - hyperreal_premium
+    visual_grammar: "Hyperreal photography as story; painterly composition; real photographers credited."
+    narrative_grammar: "Credit IS the story. Each spot ends 'Shot on iPhone by [photographer name]'."
+    craft_signatures:
+      - "iPhone-only shot palette"
+      - "named photographer credit IS the story"
+      - "painterly stills + minimal motion"
+      - "product capability proved by living example, not described"
+    why_great: "Product capability proved by living example, not described."
+    ai_native: false
+
+  - id: spotify-wrapped-2020
+    title: 'Spotify Wrapped (2020)'
+    year: 2020
+    director: "in-house"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - kinetic_montage
+    visual_grammar: "Kinetic typography; brand-color saturation; vertical native; mixed-media."
+    narrative_grammar: "Personal data as social currency; viewer becomes the storyteller."
+    craft_signatures:
+      - "vertical-native composition"
+      - "brand-color saturation"
+      - "kinetic type + data viz as visual rhythm"
+      - "viewer becomes the protagonist"
+    why_great: "Made every user the protagonist of the campaign. Product = mirror."
+    ai_native: false
+
+  - id: patagonia-dont-buy
+    title: 'Patagonia "Don''t Buy This Jacket"'
+    year: 2011
+    director: "in-house print"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - gritty_real
+    visual_grammar: "Reference for tone — counter-positioning print ad; restrained."
+    narrative_grammar: "Anti-pitch as pitch. Brand integrity as differentiator."
+    craft_signatures:
+      - "counter-positioning headline"
+      - "restrained typography"
+      - "anti-pitch as pitch"
+      - "brand integrity as differentiator"
+    why_great: "Saying what no competitor would dare. Built brand by attacking own commerce."
+    ai_native: false
+
+  - id: beats-hear-what-you-want
+    title: 'Beats by Dre "Hear What You Want"'
+    year: 2014
+    director: "various"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - kinetic_montage
+    visual_grammar: "Speed-ramp heavy; music-led cut; hero athletes isolated by long lens."
+    narrative_grammar: "No dialogue; music + hero + product become one thought."
+    craft_signatures:
+      - "speed-ramp transitions"
+      - "music-led cut rhythm"
+      - "long-lens hero isolation"
+      - "no dialogue — product as bridge between athlete focus and crowd noise"
+    why_great: "Product as the bridge between athlete focus and the world they shut out. Show, don't say."
+    ai_native: false
+
+  - id: sony-bravia-balls
+    title: 'Sony Bravia "Balls"'
+    year: 2005
+    director: "Nicolai Fuglsig"
+    agency: "Fallon London"
+    format: commercial
+    duration_sec: 60
+    genre: commercial
+    style_categories:
+      - hyperreal_premium
+    visual_grammar: "250,000 colored superballs cascading down San Francisco hills; high-speed photography; sun-soaked."
+    narrative_grammar: "Wordless visual symphony to José González's 'Heartbeats'. Product appears at the end."
+    craft_signatures:
+      - "250,000 in-camera superballs (no CGI)"
+      - "high-speed photography on real San Francisco streets"
+      - "music as anthem (José González cover)"
+      - "spec sheet earned by visual, not spoken"
+    references_url: "https://www.youtube.com/watch?v=DAVnnnJqQVw"
+    why_great: "Color told the story. Spec sheet ('Like no other') was earned by the visual."
+    ai_native: false
+
+  - id: dove-real-beauty-sketches
+    title: 'Dove "Real Beauty Sketches"'
+    year: 2013
+    director: "John X. Carey"
+    agency: "Ogilvy"
+    format: commercial
+    duration_sec: 180
+    genre: commercial
+    style_categories:
+      - verite_intimate
+    visual_grammar: "Documentary; hidden camera; FBI sketch artist; vérité interviews."
+    narrative_grammar: "Real women, real comparisons, real reveal. Tear-jerk inevitable."
+    craft_signatures:
+      - "documentary device as proof"
+      - "hidden-camera + interview structure"
+      - "reveal beat lands on the subject's face"
+      - "brand thesis proven, not stated"
+    why_great: "Brand thesis ('You are more beautiful than you think') proven via documentary device, not stated."
+    ai_native: false
+
+  - id: honda-hands
+    title: 'Honda "Hands"'
+    year: 2013
+    director: "Mark Zibert / Wieden+Kennedy"
+    format: commercial
+    duration_sec: 60
+    genre: commercial
+    style_categories:
+      - hand_doodle_animated
+    visual_grammar: "Disembodied hands manipulating illustrated mechanical artifacts across mixed-media frames; line-work overlays; warm hand-drawn palette."
+    narrative_grammar: "60s of pure visual ingenuity — every Honda invention represented by a single physical gesture. Voice-over thesis lands the brand idea."
+    craft_signatures:
+      - "disembodied hands as protagonist"
+      - "line-work + photoreal mixed-media"
+      - "single gesture per invention"
+      - "engineering as craft"
+    why_great: "The tactile + illustrated register IS the brand argument: 'engineering as craft.' Style-category reference for hand_doodle_animated work."
+    ai_native: false
+
+  - id: coke-christmas
+    title: 'Coca-Cola "Christmas — The Snowman / Polar Bears"'
+    year: 1993
+    director: "various (in-house)"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - surreal_dreamlike
+    visual_grammar: "Hand-painted holiday tableaux; CGI polar bears with painterly textures; warm chiaroscuro lighting reads animated even when 3D."
+    narrative_grammar: "Wordless visual story; brand stamp at end; emotional beat carries the spot."
+    craft_signatures:
+      - "warm painterly lighting"
+      - "CGI rendered to read as illustration"
+      - "wordless emotional beat"
+      - "brand world is the dream-world the product visits"
+    why_great: "Animated/painterly register applied to a brand whose product is photographed elsewhere — the SPOT is the dream-world the product visits."
+    ai_native: false
+
+  - id: chipotle-back-to-the-start
+    title: 'Chipotle "Back to the Start"'
+    year: 2011
+    director: "Johnny Kelly / Nexus"
+    format: commercial
+    duration_sec: 120
+    genre: commercial
+    style_categories:
+      - hand_doodle_animated
+    visual_grammar: "Stop-motion miniature farms; deliberate 12fps stepping; Willie Nelson cover of Coldplay's 'The Scientist'; tactile handcrafted texture."
+    narrative_grammar: "Wordless 2-min farmer's-arc parable. Brand reveals at end as the world returns to artisanal scale."
+    craft_signatures:
+      - "stop-motion 12fps stepping"
+      - "miniature farm tableau"
+      - "music as emotional spine"
+      - "technique IS the brand thesis"
+    why_great: "Stop-motion grammar carries 'we make food the right way' as a craft argument. The TECHNIQUE itself is the brand thesis."
+    ai_native: false
+
+  - id: moonpig-hand-doodle
+    title: 'Moonpig "Hand-doodle"'
+    year: 2015
+    director: "various"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - hand_doodle_animated
+    visual_grammar: "Live-action hands sketching greeting-card animations on paper that come to life; line-work morphs into illustrations."
+    narrative_grammar: "Direct-address with handcrafted register. Personal greeting at center."
+    craft_signatures:
+      - "live-action hand + animated morphing illustration"
+      - "personalized greeting as brand center"
+      - "handcraft register makes 'personalized' visible"
+    why_great: "Brand IS hand-craft. The doodle grammar makes 'personalized' visible without saying it."
+    ai_native: false
+
+  - id: old-spice-animated-transitions
+    title: 'Old Spice "Animated Transitions" (Brave Soul / Mantastic series)'
+    year: 2012
+    director: "Tom Kuntz follow-ups"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - hand_doodle_animated
+    visual_grammar: "Live-action photoreal base + cel-shaded animated overlays during transitions; reality breaking into illustration mid-frame."
+    narrative_grammar: "Direct-address surrealism with mixed-media transitions. Animated layer is the joke vehicle."
+    craft_signatures:
+      - "live-action + cel-shade hybrid frames"
+      - "reality breaking into illustration as comic timing"
+      - "animated layer earns laughs the live-action layer cannot"
+    why_great: "Mixed-media as comic timing. Animated layer earns laughs the live-action layer cannot deliver alone."
+    ai_native: false
+
+  - id: spotify-wrapped-2023
+    title: 'Spotify Wrapped (2023)'
+    year: 2023
+    director: "in-house + agency"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - kinetic_montage
+    visual_grammar: "Lottie / SVG-animated data viz; brand-color saturation; vertical-native; layered illustration + photo cutout grammar; 12fps stepped accents."
+    narrative_grammar: "Personal data as social currency; viewer becomes storyteller; animation grammar carries the personalization."
+    craft_signatures:
+      - "Lottie/SVG animation primary medium"
+      - "12fps stepped accents over smooth ease"
+      - "vertical-native composition"
+      - "animated infographic IS the brand experience"
+    why_great: "Pushed the 2020 template into mixed-media animation grammar. Animated infographic IS the brand experience."
+    ai_native: false

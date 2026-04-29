@@ -1655,19 +1655,63 @@
     }
     card.appendChild(voiceRow);
 
-    // Phase 3.5 — Voice mismatch chip + re-acquisition button
+    // Phase 3.5 + V4 Wave 6 / F8 — Voice mismatch chip with three states.
+    //
+    // After Fix 6 + F3 ship, the original two-state chip ("mismatch + Re-pick"
+    // unless locked) is ambiguous: a high-confidence mismatch (visual_anchor
+    // grounded) on an unlocked bible will be auto-recast on the next pipeline
+    // run, so showing a Re-pick button just confuses the user — they don't
+    // need to act. A weak-signal mismatch (storyline_signal disagreeing with
+    // voice) should still show Re-pick. A locked-bible mismatch can't be
+    // re-cast at all without unlocking first. Three distinct chip states:
+    //
+    //   Auto-recast pending (info, no button)
+    //   Manual re-pick (warning, Re-pick button)
+    //   Locked (info, no Re-pick button + secondary "Unlock" link)
     if (principal.voice_gender_match === false) {
-      const mismatchRow = el('div', { class: 'flex items-center gap-2 mt-1' }, [
-        el('span', {
+      const mismatchLabel = `voice gender (${principal.elevenlabs_voice_gender || '?'}) ≠ persona (${principal.gender_inferred || '?'})`;
+      const isHighConfidence = principal.gender_resolved_from === 'visual_anchor';
+      let chipState;
+      if (isLocked) {
+        chipState = 'locked';
+      } else if (isHighConfidence) {
+        chipState = 'auto_recast_pending';
+      } else {
+        chipState = 'manual_repick';
+      }
+
+      const mismatchRow = el('div', { class: 'flex items-center gap-2 mt-1' });
+
+      if (chipState === 'auto_recast_pending') {
+        // Info — blue, no button. The next pipeline run will auto-recast
+        // because gender_resolved_from='visual_anchor' AND bible unlocked.
+        mismatchRow.appendChild(el('span', {
+          class: 'text-[10px] font-mono px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded border border-blue-200'
+        }, `↻ ${mismatchLabel} — will auto-recast next run`));
+      } else if (chipState === 'manual_repick') {
+        // Warning — red, Re-pick button. Weak-signal mismatch (storyline /
+        // persona text inference disagreeing with voice). User decides.
+        mismatchRow.appendChild(el('span', {
           class: 'text-[10px] font-mono px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200'
-        }, `⚠ voice gender (${principal.elevenlabs_voice_gender || '?'}) ≠ persona (${principal.gender_inferred || '?'})`)
-      ]);
-      if (!isLocked) {
+        }, `⚠ ${mismatchLabel}`));
         mismatchRow.appendChild(el('button', {
           type: 'button',
           class: 'text-[10px] px-2 py-0.5 border border-red-300 rounded text-red-700 hover:bg-red-50 ml-auto',
           onclick: () => window._dpReacquirePersonaVoice(personaIdx)
         }, 'Re-pick'));
+      } else {
+        // Locked — info gray. Re-pick is impossible while bible is locked
+        // (lock is total per Failure Mode #3). Surface Unlock link.
+        mismatchRow.appendChild(el('span', {
+          class: 'text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded border border-gray-300'
+        }, `🔒 ${mismatchLabel} — locked, clear bible to re-cast`));
+        if (typeof window._dpUnlockCastBible === 'function') {
+          mismatchRow.appendChild(el('button', {
+            type: 'button',
+            class: 'text-[10px] underline text-gray-600 hover:text-gray-800 ml-auto',
+            onclick: () => window._dpUnlockCastBible()
+          }, 'Unlock'));
+        }
       }
       card.appendChild(mismatchRow);
     }

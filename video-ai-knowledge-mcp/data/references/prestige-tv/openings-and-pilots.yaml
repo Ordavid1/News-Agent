@@ -1,0 +1,168 @@
+# Prestige TV — pilot openings and signature episode-anchor scenes
+# Curated for V4 Brand Story's "feels like the opening of a prestige series" north star.
+
+references:
+  - id: mad-men-pilot-opening
+    title: "Mad Men S1E1 'Smoke Gets in Your Eyes' — opening scene"
+    year: 2007
+    director: "Alan Taylor"
+    showrunner: "Matthew Weiner"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 240
+    style_categories:
+      - hyperreal_premium
+      - verite_intimate
+    visual_grammar: "Period-accurate 1960 Manhattan bar; warm tungsten + smoke; medium close-ups isolate Don Draper at bar; observational coverage of Black bartender's monologue."
+    narrative_grammar: "Don listens; subtext does the work; the cigarette account (Lucky Strike) emerges from observed behavior, not exposition."
+    craft_signatures:
+      - "smoke-and-tungsten period palette"
+      - "medium close-ups + observational coverage"
+      - "subtext as protagonist mechanic"
+      - "exposition emerges from behavior"
+    why_great: "Establishes the show's entire grammar in one scene: listen, observe, subtext over text. Period detail as immersion device."
+    ai_native: false
+
+  - id: breaking-bad-pilot-opening
+    title: "Breaking Bad S1E1 — opening RV teaser"
+    year: 2008
+    director: "Vince Gilligan"
+    showrunner: "Vince Gilligan"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 90
+    style_categories:
+      - gritty_real
+    visual_grammar: "Wide desert aerial; pants flying through frame; handheld inside RV; high-key sun; saturated New Mexico palette."
+    narrative_grammar: "In medias res chaos; questions as hooks; identity crisis (Walter in tighty-whities + gas mask) as iconic image."
+    craft_signatures:
+      - "aerial wide → handheld interior"
+      - "in medias res cold open"
+      - "iconic costume image (tighty-whities + gas mask)"
+      - "questions as narrative engine"
+    why_great: "Opens with the END of an arc as bait; reframes the entire pilot as backwards causality. Cold-open as series promise."
+    ai_native: false
+
+  - id: severance-opening
+    title: "Severance S1E1 — Lumon hallway opening"
+    year: 2022
+    director: "Ben Stiller"
+    showrunner: "Dan Erickson"
+    format: prestige-tv
+    genre: thriller
+    duration_sec: 180
+    style_categories:
+      - brutalist_minimalist
+    visual_grammar: "Symmetrical wide composition; corporate-fluorescent palette; Mark walking through fluorescent-lit white hallways; desaturated."
+    narrative_grammar: "Disorientation as protagonist state; corporate banality as horror; identity dissolution shown, not told."
+    craft_signatures:
+      - "symmetrical wide composition (Kubrick lineage)"
+      - "fluorescent corporate palette"
+      - "negative-space architecture"
+      - "banality-as-horror tonal contract"
+    why_great: "Establishes the entire show's metaphor (corporate work as identity dissolution) through pure compositional grammar — no exposition required."
+    ai_native: false
+
+  - id: better-call-saul-pilot
+    title: "Better Call Saul S1E1 — opening Cinnabon scene"
+    year: 2015
+    director: "Vince Gilligan"
+    showrunner: "Vince Gilligan + Peter Gould"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 240
+    style_categories:
+      - gritty_real
+      - verite_intimate
+    visual_grammar: "Black-and-white; mall fluorescents; wide observational frames; slow tracking shots of Gene's daily routine."
+    narrative_grammar: "Future-anchor as melancholy frame; we know the protagonist's fate before we know who he is."
+    craft_signatures:
+      - "black-and-white as future-state signal"
+      - "mall fluorescent palette as banality"
+      - "observational coverage of mundane routine"
+      - "melancholy as opening-scene contract"
+    why_great: "Shows the END of the arc in B&W before introducing Saul; entire series operates with that future-melancholy hanging over every comic moment."
+    ai_native: false
+
+  - id: succession-opening-titles
+    title: "Succession — opening title sequence"
+    year: 2018
+    director: "Mark Mylod (titles by Patricio Plaza)"
+    showrunner: "Jesse Armstrong"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 70
+    style_categories:
+      - hyperreal_premium
+    visual_grammar: "Vintage home-movie 8mm/16mm grain; static family-portrait compositions; gilded interiors; Nicholas Britell's classical theme."
+    narrative_grammar: "Dynastic wealth as inherited burden; childhood-photo grammar reframed as evidence-of-corruption."
+    craft_signatures:
+      - "vintage film grain (8mm + 16mm hybrid)"
+      - "Nicholas Britell classical-meets-hip-hop theme"
+      - "static family portraits as dynastic ledger"
+      - "wealth-as-burden tonal contract"
+    why_great: "Title sequence does world-building no exposition can: 'this is a dynasty, those are the prince/heirs, the wealth is old, the corruption is older.'"
+    ai_native: false
+
+  - id: the-bear-pilot
+    title: "The Bear S1E1 'System' — opening kitchen rush"
+    year: 2022
+    director: "Christopher Storer"
+    showrunner: "Christopher Storer"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 360
+    style_categories:
+      - gritty_real
+      - kinetic_montage
+    visual_grammar: "Handheld vérité; tight closeups of kitchen prep; rapid cuts on action; saturated fluorescent kitchen palette."
+    narrative_grammar: "Chaos as character; protagonist's grief and competence shown simultaneously through procedural mastery."
+    craft_signatures:
+      - "handheld vérité kitchen coverage"
+      - "tight closeups + rapid cuts"
+      - "procedural mastery as grief expression"
+      - "diegetic sound as anxiety amplifier"
+    why_great: "Kitchen rush as emotional state. Chaos and competence inseparable — the form IS the protagonist's interior."
+    ai_native: false
+
+  - id: atlanta-pilot
+    title: "Atlanta S1E1 — bus stop scene"
+    year: 2016
+    director: "Hiro Murai"
+    showrunner: "Donald Glover"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 180
+    style_categories:
+      - verite_intimate
+      - surreal_dreamlike
+    visual_grammar: "Atlanta-summer warm magic-hour palette; observational medium frames; sound-design-forward; surreal beats embedded in vérité."
+    narrative_grammar: "Tonal slipperiness as worldview; Black-American daily life rendered with visual specificity + surreal beats."
+    craft_signatures:
+      - "Hiro Murai's signature stillness + slow zoom"
+      - "magic-hour Atlanta palette"
+      - "sound design as character voice"
+      - "tonal slipperiness as deliberate authorial signature"
+    why_great: "Vérité grounded enough to feel documentary; surreal enough to dream. Tonal vocabulary became its own genre."
+    ai_native: false
+
+  - id: industry-pilot
+    title: "Industry S1E1 'Induction' — trading floor opening"
+    year: 2020
+    director: "Lena Dunham"
+    showrunner: "Mickey Down + Konrad Kay"
+    format: prestige-tv
+    genre: drama
+    duration_sec: 360
+    style_categories:
+      - kinetic_montage
+      - gritty_real
+    visual_grammar: "London-finance fluorescent + glass; rapid handheld coverage; jargon-dense dialogue without subtitles or hand-holding."
+    narrative_grammar: "Outsider POV as audience anchor; jargon-immersion as deliberate disorientation; class-and-finance as protagonist tension."
+    craft_signatures:
+      - "glass-and-fluorescent finance palette"
+      - "untranslated jargon as immersion choice"
+      - "outsider POV anchoring viewer"
+      - "class tension as energy source"
+    why_great: "Doesn't translate jargon — trusts viewer to catch up. Immersion-by-disorientation as design choice."
+    ai_native: false

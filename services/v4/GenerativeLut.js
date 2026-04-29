@@ -423,3 +423,221 @@ export async function generateLutFromBrandKit(brandKit, options = {}) {
   }
   return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 Phase 7 — generative LUTs from style_category (non-photoreal bypass)
+//
+// Why: when CreativeBriefDirector picks a non-photoreal style_category
+// (hand_doodle_animated, surreal_dreamlike, vaporwave_nostalgic,
+// painterly_prestige), the photoreal genre LUT pool (`bs_commercial_*`,
+// `bs_drama_*`, etc.) over-grades animated frames and pulls them back
+// toward photoreal palette assumptions. The brief asked for cel-shaded;
+// the LUT smashes it to "warm cinematic premium."
+//
+// generateLutFromStyleBrief() short-circuits the photoreal pipeline:
+//   - hand_doodle_animated → identity LUT (pass-through; no grading)
+//   - surreal_dreamlike    → near-identity warmth-cast (very mild)
+//   - vaporwave_nostalgic  → magenta/teal duotone preset (the look IS the brief)
+//   - painterly_prestige   → warm-shadow cool-highlight oil-painting cast
+//
+// All synthesized LUTs are written under assets/luts/generated/ with a
+// `gen_style_<hash>` id, cached by sha256 of (style_category + variant
+// settings). The LUT id starts with `gen_style_` so N7's genre-pool
+// validator can whitelist them as a non-photoreal bypass id.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Built-in non-photoreal style presets. Each preset is a short list of RGB
+ * targets (in [0,1]) plus a strength. Identity = empty targets + strength=0.
+ *
+ * NOTE: these are NOT brand colors — they are STYLE colors. The brand palette
+ * doesn't enter here. Brand-palette tinting is a separate downstream pass
+ * controlled by `generateLutFromBrandKit`.
+ */
+const STYLE_PRESETS = Object.freeze({
+  hand_doodle_animated: {
+    description: 'Identity LUT — cel-shaded animation should ship with no live-action grading. The art direction IS the look.',
+    targets: [],          // empty → identity blend
+    strength: 0.0
+  },
+  surreal_dreamlike: {
+    description: 'Near-identity dream-warmth cast — subtle shadow lift toward magenta, highlight roll toward soft cream.',
+    targets: [
+      [0.18, 0.10, 0.20],  // shadow magenta lift
+      [0.92, 0.86, 0.74]   // highlight cream roll
+    ],
+    strength: 0.10
+  },
+  vaporwave_nostalgic: {
+    description: 'Magenta/teal duotone period artifact. The look IS the brief — let the LUT do real work.',
+    targets: [
+      [0.85, 0.20, 0.55],  // magenta highlight
+      [0.10, 0.55, 0.65],  // teal midtone
+      [0.05, 0.10, 0.18]   // deep blue shadow
+    ],
+    strength: 0.30
+  },
+  painterly_prestige: {
+    description: 'Oil-painting cast — warm shadows (umber), cool desaturated highlights (linen). Painterly skin separation as INTENT.',
+    targets: [
+      [0.32, 0.20, 0.12],  // warm umber shadow
+      [0.55, 0.45, 0.38],  // mid skin warmth
+      [0.85, 0.82, 0.78]   // cool linen highlight
+    ],
+    strength: 0.18
+  }
+});
+
+/**
+ * Generate a style-aware LUT for a non-photoreal commercial brief.
+ *
+ * Returns a `gen_style_*` LUT id that:
+ *   - the BrandKitLutMatcher waterfall picks BEFORE the photoreal genre pool
+ *     (when isStylizedStrong / isNonPhotorealStyle is true)
+ *   - the N7 genre-pool validator whitelists (gen_style_* prefix is the
+ *     non-photoreal bypass marker; validator must skip pool membership check
+ *     for these ids)
+ *   - PostProduction applies at low strength (0.10) regardless of GENRE_STRENGTH
+ *     table value (the matcher is responsible for that override)
+ *
+ * @param {Object} params
+ * @param {string} params.style_category - one of NON_PHOTOREAL_STYLE_CATEGORIES
+ * @param {string} [params.visual_style_brief] - free-form DP brief (cached as part of the key)
+ * @param {Object} [params.brandKit] - optional; brand palette can be lightly mixed in
+ *                                     for vaporwave_nostalgic (where brand color choice
+ *                                     belongs in the duotone) but is IGNORED for
+ *                                     hand_doodle_animated (identity).
+ * @returns {Promise<{lutId: string, filePath: string, isGenerated: true, isStyleBypass: true} | null>}
+ */
+export async function generateLutFromStyleBrief({
+  style_category,
+  visual_style_brief = '',
+  brandKit = null
+} = {}) {
+  const cat = String(style_category || '').toLowerCase().trim();
+  const preset = STYLE_PRESETS[cat];
+  if (!preset) {
+    logger.warn(`generateLutFromStyleBrief: unknown style_category "${cat}" — caller should fall back to genre LUT pool`);
+    return null;
+  }
+
+  // Identity LUT short-circuit — hand_doodle_animated wants NO grading. We still
+  // emit a real .cube file (so PostProduction can apply lut3d uniformly through
+  // its filter chain) but every entry is identity.
+  const isIdentity = preset.targets.length === 0 || preset.strength === 0;
+
+  // Cache key — style_category + brief_hash + brand_palette_hash. Identical inputs
+  // reuse the same .cube file. The brief excerpt is included so a brief revision
+  // produces a different LUT (callers that want immediate refresh on brief change
+  // need this cache invalidation; otherwise the LUT would persist forever).
+  const briefDigest = visual_style_brief
+    ? crypto.createHash('sha256').update(visual_style_brief).digest('hex').slice(0, 8)
+    : 'nobrief';
+  const palDigest = brandKit?.color_palette?.length
+    ? crypto.createHash('sha256').update(JSON.stringify(brandKit.color_palette)).digest('hex').slice(0, 8)
+    : 'nopal';
+  const cacheKey = crypto.createHash('sha256')
+    .update(`${cat}::${briefDigest}::${palDigest}::${preset.strength.toFixed(3)}`)
+    .digest('hex').slice(0, 16);
+  const lutId = `gen_style_${cacheKey}`;
+  const filename = `${lutId}.cube`;
+  const fullPath = path.join(GENERATED_LUT_DIR, filename);
+
+  if (fs.existsSync(fullPath)) {
+    logger.info(`style-brief LUT cache hit: ${lutId} (style=${cat})`);
+    return { lutId, filePath: fullPath, isGenerated: true, isStyleBypass: true, styleCategory: cat };
+  }
+
+  fs.mkdirSync(GENERATED_LUT_DIR, { recursive: true });
+
+  // Compose the actual targets. For identity, leave empty — the writer below
+  // emits identity entries. For vaporwave_nostalgic, optionally include the
+  // brand's primary hex as an additional target so the duotone tracks the brand.
+  let targets = preset.targets.slice();
+  if (cat === 'vaporwave_nostalgic' && brandKit?.color_palette?.length) {
+    const brandHex = brandKit.color_palette[0]?.hex || brandKit.color_palette[0];
+    const brandRgb = hexToRgb01(brandHex);
+    if (brandRgb) targets.push(brandRgb);
+  }
+
+  logger.info(`generating style-brief LUT (style=${cat}, strength=${preset.strength}, targets=${targets.length}, key=${cacheKey})`);
+
+  const lines = [];
+  lines.push(`# V4 Phase 7 style-brief LUT`);
+  lines.push(`# style_category: ${cat}`);
+  lines.push(`# strength: ${preset.strength.toFixed(3)}`);
+  lines.push(`# description: ${preset.description}`);
+  if (visual_style_brief) {
+    lines.push(`# brief_excerpt: ${visual_style_brief.slice(0, 80).replace(/\n/g, ' ')}`);
+  }
+  lines.push(`TITLE "V4 Style LUT — ${cat}"`);
+  lines.push(`LUT_3D_SIZE ${LUT_SIZE}`);
+  lines.push(`DOMAIN_MIN 0.0 0.0 0.0`);
+  lines.push(`DOMAIN_MAX 1.0 1.0 1.0`);
+
+  if (isIdentity) {
+    // Identity cube — every entry passes through unchanged. Still a valid
+    // .cube file that ffmpeg's lut3d filter accepts; ensures the filter chain
+    // is uniform across all stories.
+    for (let bi = 0; bi < LUT_SIZE; bi++) {
+      const bIn = bi / (LUT_SIZE - 1);
+      for (let gi = 0; gi < LUT_SIZE; gi++) {
+        const gIn = gi / (LUT_SIZE - 1);
+        for (let ri = 0; ri < LUT_SIZE; ri++) {
+          const rIn = ri / (LUT_SIZE - 1);
+          lines.push(`${rIn.toFixed(6)} ${gIn.toFixed(6)} ${bIn.toFixed(6)}`);
+        }
+      }
+    }
+  } else {
+    // Stylized cube — same gravitational-pull math as generateLutFromPalette,
+    // but with style_category-specific TARGET COLORS instead of brand palette.
+    // Skin-preservation gate runs to make sure the preset doesn't damage faces.
+    const targetLumas = targets.map(luma);
+    const skinCheck = validateSkinPreservation({ targets, strength: preset.strength });
+    if (!skinCheck.ok) {
+      // Style preset would damage faces — should never happen on the curated
+      // presets, but defensive. Return identity-cube fallback rather than
+      // ship the bad LUT.
+      logger.warn(`style-brief LUT preset ${cat} failed skin check (${skinCheck.reason}) — falling back to identity`);
+      for (let bi = 0; bi < LUT_SIZE; bi++) {
+        const bIn = bi / (LUT_SIZE - 1);
+        for (let gi = 0; gi < LUT_SIZE; gi++) {
+          const gIn = gi / (LUT_SIZE - 1);
+          for (let ri = 0; ri < LUT_SIZE; ri++) {
+            const rIn = ri / (LUT_SIZE - 1);
+            lines.push(`${rIn.toFixed(6)} ${gIn.toFixed(6)} ${bIn.toFixed(6)}`);
+          }
+        }
+      }
+    } else {
+      for (let bi = 0; bi < LUT_SIZE; bi++) {
+        const bIn = bi / (LUT_SIZE - 1);
+        for (let gi = 0; gi < LUT_SIZE; gi++) {
+          const gIn = gi / (LUT_SIZE - 1);
+          for (let ri = 0; ri < LUT_SIZE; ri++) {
+            const rIn = ri / (LUT_SIZE - 1);
+            const out = applyPaletteBlend([rIn, gIn, bIn], targets, targetLumas, preset.strength);
+            lines.push(`${out[0].toFixed(6)} ${out[1].toFixed(6)} ${out[2].toFixed(6)}`);
+          }
+        }
+      }
+    }
+  }
+
+  fs.writeFileSync(fullPath, lines.join('\n') + '\n');
+  const sizeKB = (Buffer.byteLength(lines.join('\n')) / 1024).toFixed(1);
+  logger.info(`style-brief LUT written: ${fullPath} (${sizeKB}KB, identity=${isIdentity})`);
+
+  return { lutId, filePath: fullPath, isGenerated: true, isStyleBypass: true, styleCategory: cat };
+}
+
+/**
+ * Predicate — returns true iff the lutId was synthesized by
+ * generateLutFromStyleBrief() (and therefore should bypass N7's genre-pool
+ * validator). Validators that enforce genre-pool membership should call this
+ * first and skip the membership check when it returns true.
+ */
+export function isStyleBypassLutId(lutId) {
+  return typeof lutId === 'string' && lutId.startsWith('gen_style_');
+}

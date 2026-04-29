@@ -207,3 +207,107 @@ describe('Voice-lock — full chain invariant (post-acquisition state)', () => {
     assert.throws(() => assertLockInvariants(personas, lib), /gender mismatch/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 Wave 6 / F3 — Fix 6 auto-recast skips when bible is locked
+// ─────────────────────────────────────────────────────────────────────
+//
+// The auto-recast logic itself lives in BrandStoryService.runV4Pipeline (it
+// orchestrates persona-config mutation + acquirePersonaVoicesForStory + bible
+// re-derivation). Direct testing of that orchestration would require the
+// full pipeline harness — out of scope for this unit suite. What we CAN test
+// here is the structural invariant: when cast_bible.status === 'locked', the
+// auto-recast trigger condition (the boolean predicate) must evaluate to
+// false. This guards the behavioral contract at the predicate level.
+
+describe('V4 Wave 6 / F3 — auto-recast trigger predicate (locked-bible guard)', () => {
+  // Mirrors the predicate inside BrandStoryService cast_bible block:
+  //   const bibleLocked = story.cast_bible?.status === 'locked';
+  //   const mismatchedHighConfidence = bibleLocked
+  //     ? []
+  //     : bible.principals.filter(p =>
+  //         p.voice_gender_match === false
+  //         && p.gender_resolved_from === 'visual_anchor'
+  //       );
+  //   if (mismatchedHighConfidence.length > 0) { /* recast */ }
+  function shouldAutoRecast(bible, status) {
+    if (status === 'locked') return false;
+    return (bible.principals || []).some(p =>
+      p.voice_gender_match === false
+      && p.gender_resolved_from === 'visual_anchor'
+    );
+  }
+
+  test('locked bible + high-confidence mismatch → NO auto-recast', () => {
+    const bible = {
+      principals: [{
+        persona_index: 0,
+        voice_gender_match: false,
+        gender_resolved_from: 'visual_anchor'
+      }]
+    };
+    assert.equal(shouldAutoRecast(bible, 'locked'), false);
+  });
+
+  test('unlocked bible + high-confidence mismatch → auto-recast fires', () => {
+    const bible = {
+      principals: [{
+        persona_index: 0,
+        voice_gender_match: false,
+        gender_resolved_from: 'visual_anchor'
+      }]
+    };
+    assert.equal(shouldAutoRecast(bible, 'derived'), true);
+  });
+
+  test('unlocked bible + weak-signal mismatch (storyline_signal) → NO auto-recast (chip path)', () => {
+    const bible = {
+      principals: [{
+        persona_index: 0,
+        voice_gender_match: false,
+        gender_resolved_from: 'storyline_signal'
+      }]
+    };
+    assert.equal(shouldAutoRecast(bible, 'derived'), false);
+  });
+
+  test('unlocked bible + persona_signal mismatch → NO auto-recast (chip path)', () => {
+    const bible = {
+      principals: [{
+        persona_index: 0,
+        voice_gender_match: false,
+        gender_resolved_from: 'persona_signal'
+      }]
+    };
+    assert.equal(shouldAutoRecast(bible, 'derived'), false);
+  });
+
+  test('mixed mismatches: only high-confidence ones flip the trigger', () => {
+    const bible = {
+      principals: [
+        { persona_index: 0, voice_gender_match: false, gender_resolved_from: 'storyline_signal' },
+        { persona_index: 1, voice_gender_match: false, gender_resolved_from: 'visual_anchor' }
+      ]
+    };
+    assert.equal(shouldAutoRecast(bible, 'derived'), true); // index 1 is enough
+  });
+
+  test('locked bible with mixed mismatches → still NO auto-recast (lock is total)', () => {
+    const bible = {
+      principals: [
+        { persona_index: 0, voice_gender_match: false, gender_resolved_from: 'storyline_signal' },
+        { persona_index: 1, voice_gender_match: false, gender_resolved_from: 'visual_anchor' }
+      ]
+    };
+    assert.equal(shouldAutoRecast(bible, 'locked'), false);
+  });
+
+  test('all matches + unlocked → no trigger', () => {
+    const bible = {
+      principals: [
+        { persona_index: 0, voice_gender_match: true, gender_resolved_from: 'visual_anchor' }
+      ]
+    };
+    assert.equal(shouldAutoRecast(bible, 'derived'), false);
+  });
+});

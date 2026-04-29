@@ -26,7 +26,7 @@ import {
 describe('Phase 2 — DEFAULT_SONIC_SERIES_BIBLE structural invariants', () => {
   test('default bible is itself a valid bible (passes its own validator)', () => {
     const issues = validateBible(DEFAULT_SONIC_SERIES_BIBLE);
-    const blockers = issues.filter(i => i.severity === 'blocker');
+    const blockers = issues.filter(i => i.severity === 'critical');
     assert.equal(blockers.length, 0, `default bible has blockers: ${JSON.stringify(blockers)}`);
   });
 
@@ -56,19 +56,19 @@ describe('Phase 2 — DEFAULT_SONIC_SERIES_BIBLE structural invariants', () => {
 describe('Phase 2 — validateBible blocker rules', () => {
   test('rejects null bible', () => {
     const issues = validateBible(null);
-    const blockers = issues.filter(i => i.severity === 'blocker');
+    const blockers = issues.filter(i => i.severity === 'critical');
     assert.ok(blockers.length > 0);
   });
 
   test('rejects bible missing signature_drone', () => {
     const bible = { ...DEFAULT_SONIC_SERIES_BIBLE, signature_drone: null };
-    const blockers = validateBible(bible).filter(i => i.severity === 'blocker');
+    const blockers = validateBible(bible).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'signature_drone'));
   });
 
   test('rejects bible missing base_palette', () => {
     const bible = { ...DEFAULT_SONIC_SERIES_BIBLE, base_palette: null };
-    const blockers = validateBible(bible).filter(i => i.severity === 'blocker');
+    const blockers = validateBible(bible).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'base_palette'));
   });
 
@@ -77,7 +77,7 @@ describe('Phase 2 — validateBible blocker rules', () => {
       ...DEFAULT_SONIC_SERIES_BIBLE,
       spectral_anchor: { ...DEFAULT_SONIC_SERIES_BIBLE.spectral_anchor, always_present: false }
     };
-    const blockers = validateBible(bible).filter(i => i.severity === 'blocker');
+    const blockers = validateBible(bible).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'spectral_anchor.always_present'));
   });
 
@@ -86,13 +86,13 @@ describe('Phase 2 — validateBible blocker rules', () => {
       ...DEFAULT_SONIC_SERIES_BIBLE,
       base_palette: { ...DEFAULT_SONIC_SERIES_BIBLE.base_palette, ambient_keywords: [] }
     };
-    const blockers = validateBible(bible).filter(i => i.severity === 'blocker');
+    const blockers = validateBible(bible).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'base_palette.ambient_keywords'));
   });
 
   test('rejects bible missing inheritance_policy', () => {
     const bible = { ...DEFAULT_SONIC_SERIES_BIBLE, inheritance_policy: null };
-    const blockers = validateBible(bible).filter(i => i.severity === 'blocker');
+    const blockers = validateBible(bible).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'inheritance_policy'));
   });
 });

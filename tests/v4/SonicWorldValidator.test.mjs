@@ -69,7 +69,7 @@ describe('Phase 6 — checkSonicWorldStructure', () => {
     const r = validateScreenplay(sg, {}, PERSONAS, { sonicSeriesBible: BASE_BIBLE });
     const blocker = r.issues.find(i => i.id === 'sonic_world_missing_with_bible');
     assert.ok(blocker, 'should emit blocker when bible is present but episode has no sonic_world');
-    assert.equal(blocker.severity, 'blocker');
+    assert.equal(blocker.severity, 'critical');
   });
 
   test('blocks when sonic_world.base_palette is missing', () => {
@@ -77,7 +77,7 @@ describe('Phase 6 — checkSonicWorldStructure', () => {
       sonic_world: { spectral_anchor: 'sub-bass' }
     });
     const r = validateScreenplay(sg, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'sonic_world_no_base_palette' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'sonic_world_no_base_palette' && i.severity === 'critical'));
   });
 
   test('blocks when sonic_world.spectral_anchor is missing', () => {
@@ -85,7 +85,7 @@ describe('Phase 6 — checkSonicWorldStructure', () => {
       sonic_world: { base_palette: 'industrial drone, traffic' }
     });
     const r = validateScreenplay(sg, {}, PERSONAS);
-    assert.ok(r.issues.find(i => i.id === 'sonic_world_no_spectral_anchor' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'sonic_world_no_spectral_anchor' && i.severity === 'critical'));
   });
 
   test('warns on overlay referencing unknown scene_id', () => {
@@ -222,7 +222,7 @@ describe('Phase 6 — checkMusicBedRespectsNoFlyList', () => {
       music_bed_intent: 'soaring orchestral_strings building to a crescendo'
     });
     const r = validateScreenplay(sg, {}, PERSONAS, { sonicSeriesBible: BASE_BIBLE });
-    assert.ok(r.issues.find(i => i.id === 'music_violates_no_fly_list' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'music_violates_no_fly_list' && i.severity === 'critical'));
   });
 
   test('blocks when music_bed_intent uses a prohibited instrument (human form)', () => {
@@ -230,7 +230,7 @@ describe('Phase 6 — checkMusicBedRespectsNoFlyList', () => {
       music_bed_intent: 'soaring orchestral strings building to a crescendo'
     });
     const r = validateScreenplay(sg, {}, PERSONAS, { sonicSeriesBible: BASE_BIBLE });
-    assert.ok(r.issues.find(i => i.id === 'music_violates_no_fly_list' && i.severity === 'blocker'));
+    assert.ok(r.issues.find(i => i.id === 'music_violates_no_fly_list' && i.severity === 'critical'));
   });
 
   test('passes when music_bed_intent stays within bible', () => {
@@ -258,7 +258,7 @@ describe('Phase 6 — backward compatibility (legacy episodes still validate cle
     // depends on OTHER blockers (and there shouldn't be any in this sg).
     // The audio coherence rules should NOT be the thing that bricks legacy episodes.
     const audioBlockers = r.issues.filter(i =>
-      i.severity === 'blocker' && (i.id.startsWith('sonic_world_') || i.id.startsWith('music_'))
+      i.severity === 'critical' && (i.id.startsWith('sonic_world_') || i.id.startsWith('music_'))
     );
     assert.equal(audioBlockers.length, 0, `legacy episode should not have audio blockers: ${JSON.stringify(audioBlockers)}`);
   });

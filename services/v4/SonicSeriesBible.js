@@ -30,6 +30,7 @@
 
 import winston from 'winston';
 import { callVertexGeminiJson } from './VertexGemini.js';
+import { isBlockerOrCritical } from './severity.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -118,17 +119,17 @@ const VALID_INHERITANCE_DRONE = [
 export function validateBible(bible) {
   const issues = [];
   if (!bible || typeof bible !== 'object') {
-    issues.push({ field: '_root', severity: 'blocker', message: 'bible must be an object' });
+    issues.push({ field: '_root', severity: 'critical', message: 'bible must be an object' });
     return issues;
   }
 
   // PALETTE — signature_drone
   const drone = bible.signature_drone;
   if (!drone || typeof drone !== 'object') {
-    issues.push({ field: 'signature_drone', severity: 'blocker', message: 'signature_drone is required' });
+    issues.push({ field: 'signature_drone', severity: 'critical', message: 'signature_drone is required' });
   } else {
     if (!drone.description || typeof drone.description !== 'string') {
-      issues.push({ field: 'signature_drone.description', severity: 'blocker', message: 'signature_drone.description must be a non-empty string' });
+      issues.push({ field: 'signature_drone.description', severity: 'critical', message: 'signature_drone.description must be a non-empty string' });
     }
     if (!Array.isArray(drone.frequency_band_hz) || drone.frequency_band_hz.length !== 2) {
       issues.push({ field: 'signature_drone.frequency_band_hz', severity: 'warning', message: 'frequency_band_hz must be [low, high]' });
@@ -141,23 +142,23 @@ export function validateBible(bible) {
   // PALETTE — base_palette
   const bp = bible.base_palette;
   if (!bp || typeof bp !== 'object') {
-    issues.push({ field: 'base_palette', severity: 'blocker', message: 'base_palette is required' });
+    issues.push({ field: 'base_palette', severity: 'critical', message: 'base_palette is required' });
   } else {
     if (!Array.isArray(bp.ambient_keywords) || bp.ambient_keywords.length === 0) {
-      issues.push({ field: 'base_palette.ambient_keywords', severity: 'blocker', message: 'ambient_keywords must be a non-empty array' });
+      issues.push({ field: 'base_palette.ambient_keywords', severity: 'critical', message: 'ambient_keywords must be a non-empty array' });
     }
   }
 
   // PALETTE — spectral_anchor
   const sa = bible.spectral_anchor;
   if (!sa || typeof sa !== 'object') {
-    issues.push({ field: 'spectral_anchor', severity: 'blocker', message: 'spectral_anchor is required' });
+    issues.push({ field: 'spectral_anchor', severity: 'critical', message: 'spectral_anchor is required' });
   } else {
     if (!sa.description || typeof sa.description !== 'string') {
-      issues.push({ field: 'spectral_anchor.description', severity: 'blocker', message: 'spectral_anchor.description must be a non-empty string' });
+      issues.push({ field: 'spectral_anchor.description', severity: 'critical', message: 'spectral_anchor.description must be a non-empty string' });
     }
     if (sa.always_present !== true) {
-      issues.push({ field: 'spectral_anchor.always_present', severity: 'blocker', message: 'spectral_anchor.always_present must be true (the seam-hider invariant)' });
+      issues.push({ field: 'spectral_anchor.always_present', severity: 'critical', message: 'spectral_anchor.always_present must be true (the seam-hider invariant)' });
     }
   }
 
@@ -178,7 +179,7 @@ export function validateBible(bible) {
   // INHERITANCE POLICY — load-bearing
   const ip = bible.inheritance_policy;
   if (!ip || typeof ip !== 'object') {
-    issues.push({ field: 'inheritance_policy', severity: 'blocker', message: 'inheritance_policy is required' });
+    issues.push({ field: 'inheritance_policy', severity: 'critical', message: 'inheritance_policy is required' });
   } else {
     if (!VALID_INHERITANCE_GRAMMAR.includes(ip.grammar)) {
       issues.push({ field: 'inheritance_policy.grammar', severity: 'warning', message: `grammar must be one of ${VALID_INHERITANCE_GRAMMAR.join(', ')}` });
@@ -370,7 +371,7 @@ export async function generateSonicSeriesBible(ctx = {}) {
   // Merge with defaults so optional fields are always populated, then validate.
   const merged = mergeBibleDefaults(raw);
   const issues = validateBible(merged);
-  const blockers = issues.filter(i => i.severity === 'blocker');
+  const blockers = issues.filter(i => isBlockerOrCritical(i.severity));
 
   if (blockers.length > 0) {
     logger.warn(`bible failed validation (${blockers.length} blocker(s)) → using safe default. First blocker: ${blockers[0].field} — ${blockers[0].message}`);

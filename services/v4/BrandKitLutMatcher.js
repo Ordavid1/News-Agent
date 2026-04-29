@@ -1,29 +1,26 @@
 // services/v4/BrandKitLutMatcher.js
-// V4 Brand Kit → LUT matcher.
+// V4 Brand Kit → LUT matcher (Spec system, single canonical path).
 //
-// Two coexisting systems (gated by env BRAND_STORY_LUT_SPEC_SYSTEM):
+// matchByGenreAndMood() resolves a story's LUT in two stages:
+//   (1) genre → genre LUT pool (sourced from library.json `creative[]`
+//       entries with matching `genre`)
+//   (2) within pool, pick the LUT whose mood_keywords overlap most with
+//       the story's tone / mood / style descriptors.
+// Brand identity is NOT used here — it flows to the brand-generative pass
+// (services/v4/GenerativeLut.js) and is layered on top of the genre grade
+// in PostProduction.
 //
-//   ▸ LEGACY (default — spec system OFF):
-//     matchBrandKitToLut() asks Gemini to pick from 8 hand-graded LUTs by
-//     brand-vertical and mood. Cached on story.brand_kit_lut_id at story
-//     creation. This preserves existing behavior for in-flight stories.
-//
-//   ▸ SPEC (new — spec system ON):
-//     matchByGenreAndMood() resolves a story's LUT in two stages:
-//       (1) genre → genre LUT pool (sourced from library.json `creative[]`
-//           entries with matching `genre`)
-//       (2) within pool, pick the LUT whose mood_keywords overlap most with
-//           the story's tone / mood / style descriptors.
-//     Brand identity is NOT used here — it flows to the brand-generative pass
-//     (services/v4/GenerativeLut.js) and is layered on top of the genre grade
-//     in PostProduction (Phase 2 of this redesign).
-//
-// Resolution waterfall (PostProduction time, both systems):
+// Resolution waterfall (PostProduction time):
 //   story.locked_lut_id > story.brand_kit_lut_id > episode.lut_id > safe fallback
 //
-// Safe fallback:
-//   - SPEC ON  → bs_doc_natural_window (the documentary-grade neutral grade)
-//   - SPEC OFF → bs_naturalistic (legacy neutral grade)
+// Safe fallback: bs_doc_natural_window (the documentary-grade neutral grade)
+//
+// V4 P1.2 (this commit): retired the legacy 8-LUT brand-vertical matcher.
+// The dual-system flag (BRAND_STORY_LUT_SPEC_SYSTEM) and the LEGACY_SAFE_FALLBACK
+// constant are gone. Per user 2026-04-29: older stories with persisted legacy
+// ids resolve to the spec fallback rather than their original LUT. The render
+// stays clean even though the original color identity is lost — a deliberate
+// back-compat tradeoff in favor of single-source-of-truth.
 
 import fs from 'fs';
 import path from 'path';
@@ -32,6 +29,8 @@ import winston from 'winston';
 
 import { callVertexGeminiJson } from './VertexGemini.js';
 import { resolveSpecLutPath } from './LutSpecGenerator.js';
+import { generateLutFromStyleBrief, isStyleBypassLutId } from './GenerativeLut.js';
+import { isStylizedStrong, isNonPhotorealStyle, resolveStyleCategory } from './CreativeBriefDirector.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,20 +46,21 @@ const logger = winston.createLogger({
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Feature flags + safe fallbacks
+// Safe fallback — single canonical id for the spec system
 // ─────────────────────────────────────────────────────────────────────
 
-export function isSpecSystemEnabled() {
-  // Default ON (Phase 1 GA, 2026-04-28). Set BRAND_STORY_LUT_SPEC_SYSTEM=false
-  // to revert to the legacy 8-LUT library matcher.
-  return String(process.env.BRAND_STORY_LUT_SPEC_SYSTEM || 'true').toLowerCase() !== 'false';
-}
-
-const LEGACY_SAFE_FALLBACK = 'bs_naturalistic';
 const SPEC_SAFE_FALLBACK = 'bs_doc_natural_window';
 
 export function getSafeFallbackLutId() {
-  return isSpecSystemEnabled() ? SPEC_SAFE_FALLBACK : LEGACY_SAFE_FALLBACK;
+  return SPEC_SAFE_FALLBACK;
+}
+
+// V4 P1.2 — back-compat shim. isSpecSystemEnabled() is referenced by code
+// outside this module (BrandStoryService) that branches on the flag. After
+// the legacy delete the spec system is the only system, so this always
+// returns true. Callers can be migrated and the shim removed in a follow-up.
+export function isSpecSystemEnabled() {
+  return true;
 }
 
 // Per-genre default strength for the brand generative LUT pass (Phase 2).
@@ -100,6 +100,34 @@ export function getStrengthForGenre(genre) {
   return DEFAULT_GENRE_STRENGTH;
 }
 
+// V4 Phase 7 — non-photoreal LUT strength override. When style_category is
+// non-photoreal, the live-action GENRE_STRENGTH table is the wrong calibration.
+// The style preset itself does the work (cel-shade saturation boost, vaporwave
+// duotone, painterly cast); the brand-palette overlay should be near-pass-through.
+const STYLE_BYPASS_STRENGTH = 0.10;
+
+/**
+ * Resolve the LUT-pass strength taking style_category into account. Returns
+ * STYLE_BYPASS_STRENGTH (0.10) for non-photoreal styles regardless of genre,
+ * else falls through to the GENRE_STRENGTH table.
+ *
+ * @param {string} genre
+ * @param {Object|null} brief - commercial_brief; when null, falls through
+ * @returns {number} effective strength in [0,1]
+ */
+export function getStrengthForGenreWithStyle(genre, brief = null) {
+  if (brief && isNonPhotorealStyle(brief)) {
+    return STYLE_BYPASS_STRENGTH;
+  }
+  return getStrengthForGenre(genre);
+}
+
+export function isStyleBypassEnabled() {
+  // Default ON. Set BRAND_STORY_LUT_STYLE_BYPASS=false to revert non-photoreal
+  // styles to the photoreal genre LUT pool (Phase 6 pre-Phase-7 baseline).
+  return String(process.env.BRAND_STORY_LUT_STYLE_BYPASS || 'true').toLowerCase() !== 'false';
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Library loader
 // ─────────────────────────────────────────────────────────────────────
@@ -114,38 +142,30 @@ function loadLutLibrary() {
     const parsed = JSON.parse(raw);
     LUT_LIBRARY = parsed;
     const specCount = (parsed.creative || []).filter(l => l.spec).length;
-    const legacyCount = (parsed.creative_legacy || []).length;
     const correctionCount = (parsed.corrections || []).length;
-    logger.info(`loaded LUT library: ${specCount} spec + ${legacyCount} legacy + ${correctionCount} corrections`);
+    logger.info(`loaded LUT library: ${specCount} spec + ${correctionCount} corrections`);
     return LUT_LIBRARY;
   } catch (err) {
     logger.error(`failed to load LUT library: ${err.message}`);
-    LUT_LIBRARY = { creative: [], creative_legacy: [], corrections: [] };
+    LUT_LIBRARY = { creative: [], corrections: [] };
     return LUT_LIBRARY;
   }
 }
 
 /**
- * Find any creative entry by id across both spec and legacy pools.
+ * Find a creative entry by id in the spec pool. V4 P1.2: legacy pool retired.
  */
 function findEntry(lutId) {
   if (!lutId) return null;
   const lib = loadLutLibrary();
   const specMatch = (lib.creative || []).find(l => l.id === lutId);
   if (specMatch) return { entry: specMatch, kind: 'spec' };
-  const legacyMatch = (lib.creative_legacy || []).find(l => l.id === lutId);
-  if (legacyMatch) return { entry: legacyMatch, kind: 'legacy' };
   return null;
 }
 
 function getCreativePool() {
   const lib = loadLutLibrary();
   return (lib.creative || []).filter(l => l.spec);
-}
-
-function getLegacyPool() {
-  const lib = loadLutLibrary();
-  return lib.creative_legacy || [];
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -162,80 +182,9 @@ async function callGeminiJson(systemPrompt, userPrompt) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Public API — LEGACY system
-// ─────────────────────────────────────────────────────────────────────
-
-/**
- * Match a Brand Kit to one LUT from the legacy 8-LUT curated library.
- * Used when BRAND_STORY_LUT_SPEC_SYSTEM is OFF.
- */
-export async function matchBrandKitToLut(brandKit) {
-  if (!brandKit) {
-    logger.warn('matchBrandKitToLut: null brandKit → safe fallback');
-    return { lutId: LEGACY_SAFE_FALLBACK, justification: 'No brand kit available' };
-  }
-
-  const legacyLuts = getLegacyPool();
-  if (legacyLuts.length === 0) {
-    logger.error('legacy LUT pool is empty');
-    return { lutId: LEGACY_SAFE_FALLBACK, justification: 'Legacy LUT pool empty' };
-  }
-
-  const lutChoices = legacyLuts.map(l =>
-    `  - ${l.id}: ${l.look}. Suits: ${(l.suits_brand_types || []).join(', ')}. Mood: ${(l.mood_keywords || []).join(', ')}.`
-  ).join('\n');
-
-  const colorPalette = (brandKit.color_palette || []).slice(0, 5).map(c => c.hex || c.name).filter(Boolean);
-  const brandContext = [
-    brandKit.brand_summary && `Brand summary: ${brandKit.brand_summary}`,
-    brandKit.style_characteristics?.overall_aesthetic && `Aesthetic: ${brandKit.style_characteristics.overall_aesthetic}`,
-    brandKit.style_characteristics?.mood && `Mood: ${brandKit.style_characteristics.mood}`,
-    brandKit.style_characteristics?.visual_motifs && `Visual motifs: ${brandKit.style_characteristics.visual_motifs}`,
-    colorPalette.length > 0 && `Brand colors: ${colorPalette.join(', ')}`
-  ].filter(Boolean).join('\n');
-
-  if (!brandContext) {
-    logger.warn('matchBrandKitToLut: brandKit has no usable fields → safe fallback');
-    return { lutId: LEGACY_SAFE_FALLBACK, justification: 'Brand kit has no usable fields' };
-  }
-
-  const systemPrompt = `You are a colorist picking the right color grade (LUT) for a branded short film.
-Given a brand's identity — its color palette, mood, aesthetic, and visual motifs — pick the ONE LUT
-from the curated library that best matches. The LUT will be applied to every episode of this story,
-so pick something that represents the brand across a whole season, not just one scene.
-
-Respond with ONLY this JSON:
-{
-  "lut_id": "the exact id string from the library below",
-  "justification": "1-sentence reason why this LUT fits the brand"
-}
-
-CURATED LUT LIBRARY:
-${lutChoices}`;
-
-  const userPrompt = `Brand context:\n\n${brandContext}\n\nPick the best LUT.`;
-
-  logger.info('matching brand kit to legacy LUT...');
-  let result;
-  try {
-    result = await callGeminiJson(systemPrompt, userPrompt);
-  } catch (err) {
-    logger.error(`Gemini LUT matching failed: ${err.message} → safe fallback`);
-    return { lutId: LEGACY_SAFE_FALLBACK, justification: `Gemini matching failed: ${err.message}` };
-  }
-
-  const match = legacyLuts.find(l => l.id === result.lut_id);
-  if (!match) {
-    logger.warn(`Gemini picked unknown lut_id "${result.lut_id}" → safe fallback`);
-    return { lutId: LEGACY_SAFE_FALLBACK, justification: `Gemini picked unknown LUT "${result.lut_id}"` };
-  }
-
-  logger.info(`matched brand → ${match.id} (${match.look})`);
-  return { lutId: match.id, justification: result.justification || match.look };
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Public API — SPEC system (genre + mood)
+// V4 P1.2: legacy matchBrandKitToLut() and the 8-LUT brand-vertical
+// curated library have been retired. Single canonical resolution path.
 // ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -281,6 +230,45 @@ export async function matchByGenreAndMood(story) {
   const aesthetic = story?.brand_kit?.style_characteristics?.overall_aesthetic
     || story?.storyline?.visual_motifs || '';
 
+  // V4 Phase 5b — Fix 4 (commercial-only enhancement). When commercial_brief
+  // is set, the brief's style_category + visual_style_brief excerpt become
+  // additional mood inputs. NO HARDCODED style→LUT map (CLAUDE.md ground rule);
+  // Gemini scores the mood-keyword overlap that already lives in library.json.
+  // The brief simply enriches the mood signal so the matcher can converge on
+  // the right commercial pool entry (hyperreal_premium → bs_commercial_hyperreal_punch,
+  // gritty_real → bs_commercial_sundance_indie, etc.).
+  const brief = story?.commercial_brief || null;
+  const briefStyleCategory = brief?.style_category || '';
+  const briefVisualStyle = (brief?.visual_style_brief || '').slice(0, 400);
+
+  // V4 Phase 7 — non-photoreal LUT bypass. When the brief picks a non-photoreal
+  // style_category (hand_doodle_animated, surreal_dreamlike, vaporwave_nostalgic,
+  // painterly_prestige), the photoreal genre LUT pool is the WRONG calibration —
+  // a hand_doodle_animated commercial graded with bs_commercial_hyperreal_punch
+  // gets pulled back toward photoreal palette assumptions, defeating the brief.
+  // Short-circuit to a synthesized style-aware LUT (gen_style_<hash>) instead.
+  // The N7 genre-pool validator must whitelist gen_style_* ids — see
+  // isStyleBypassLutId() in GenerativeLut.js.
+  if (brief && isNonPhotorealStyle(brief) && isStyleBypassEnabled()) {
+    try {
+      const styleResult = await generateLutFromStyleBrief({
+        style_category: resolveStyleCategory(brief),
+        visual_style_brief: brief.visual_style_brief || '',
+        brandKit: story?.brand_kit || null
+      });
+      if (styleResult?.lutId) {
+        logger.info(`matchByGenreAndMood: style bypass → ${styleResult.lutId} (style=${styleResult.styleCategory})`);
+        return {
+          lutId: styleResult.lutId,
+          justification: `Non-photoreal style bypass: style_category=${styleResult.styleCategory}; photoreal genre LUT pool would over-grade animated/illustrated frames.`
+        };
+      }
+      logger.warn('matchByGenreAndMood: style bypass returned null — falling through to genre pool');
+    } catch (err) {
+      logger.error(`matchByGenreAndMood: style bypass failed (${err.message}) → falling through to genre pool`);
+    }
+  }
+
   const pool = getGenreLutPool(genre);
   if (pool.length === 0) {
     logger.warn(`matchByGenreAndMood: empty pool for genre="${genre}" → safe fallback`);
@@ -303,7 +291,12 @@ export async function matchByGenreAndMood(story) {
     genre && `Genre: ${genre}`,
     tone && `Tone: ${tone}`,
     mood && `Mood: ${mood}`,
-    aesthetic && `Aesthetic / motifs: ${aesthetic}`
+    aesthetic && `Aesthetic / motifs: ${aesthetic}`,
+    // Fix 4 — brief-derived mood signal. Only present for commercial stories
+    // with a brief; rendered identically to the other axes so the matcher
+    // treats it as one more mood input (no hardcoded mapping).
+    briefStyleCategory && `Brief style category: ${briefStyleCategory}`,
+    briefVisualStyle && `Brief visual style: ${briefVisualStyle}`
   ].filter(Boolean).join('\n') || 'No tone/mood available — pick the genre default.';
 
   const systemPrompt = `You are a colorist picking the cinematic look (LUT) for a story.
@@ -354,13 +347,58 @@ ${lutChoices}`;
  *   3. episode.lut_id         (per-episode pick)
  *   4. episode.scene_description.lut_id (V4 Gemini emission location)
  *   5. system safe fallback
+ *
+ * V4 Phase 5b — N7 genre-pool validation post-emission. Even with Fix 3 (the
+ * legacy 8-LUT bypass deleted from the V4 prompt schema), Gemini may still
+ * emit a non-genre-pool lut_id under retry / partial-JSON / cache-hit
+ * conditions. Without validation, that wrong-pool emission drains through
+ * the waterfall unchallenged (story `77d6eaaf` 2026-04-28 root cause:
+ * commercial got bs_cool_noir from the legacy enum). When the spec system
+ * is on AND a story-level genre is known, validate that the resolved id is
+ * in the genre pool; if not, override with the genre default.
+ *
+ * Override fires only on Gemini-emitted ids (cases 3 + 4). User overrides
+ * (case 1) and brandKit-derived caches (case 2) are NEVER overridden — the
+ * user explicitly chose those, and the brandKit cache is a deliberate
+ * cross-genre tonal choice.
  */
 export function resolveEpisodeLut(story, episode) {
   if (story?.locked_lut_id) return story.locked_lut_id;
   if (story?.brand_kit_lut_id) return story.brand_kit_lut_id;
-  if (episode?.lut_id) return episode.lut_id;
-  if (episode?.scene_description?.lut_id) return episode.scene_description.lut_id;
-  return getSafeFallbackLutId();
+
+  const geminiEmitted = episode?.lut_id || episode?.scene_description?.lut_id || null;
+  if (!geminiEmitted) return getSafeFallbackLutId();
+
+  // V4 Phase 5b — validate against genre pool only when spec system is on.
+  if (!isSpecSystemEnabled()) return geminiEmitted;
+
+  // V4 Phase 7 — non-photoreal style bypass. When the brief is non-photoreal
+  // AND the matcher emitted a gen_style_* id (synthesized from style brief),
+  // the genre-pool validator MUST skip the membership check — these ids are
+  // intentionally outside the photoreal genre pool because the genre pool
+  // would over-grade animated/illustrated frames. See generateLutFromStyleBrief()
+  // in GenerativeLut.js and isStyleBypassLutId().
+  if (isStyleBypassLutId(geminiEmitted)) {
+    return geminiEmitted;
+  }
+
+  const genre = story?.subject?.genre || story?.storyline?.genre || null;
+  if (!genre) return geminiEmitted; // no pool resolvable → trust Gemini
+
+  const pool = getGenreLutPool(genre);
+  const inPool = pool.some(l => l.id === geminiEmitted);
+  if (inPool) return geminiEmitted;
+
+  // Out-of-pool emission. Override with the genre default + log warning so
+  // the issue surfaces in production telemetry.
+  const def = getDefaultLutForGenre(genre);
+  const overrideId = def?.id || getSafeFallbackLutId();
+  logger.warn(
+    `resolveEpisodeLut: Gemini emitted lut_id "${geminiEmitted}" which is NOT in the ` +
+    `${genre} genre pool (size=${pool.length}). Overriding with genre default "${overrideId}". ` +
+    `This catches the legacy 8-LUT bypass + retry/cache-hit drift cases.`
+  );
+  return overrideId;
 }
 
 /**
@@ -437,8 +475,6 @@ export const _internals = {
   loadLutLibrary,
   findEntry,
   getCreativePool,
-  getLegacyPool,
   GENRE_STRENGTH,
-  LEGACY_SAFE_FALLBACK,
   SPEC_SAFE_FALLBACK
 };

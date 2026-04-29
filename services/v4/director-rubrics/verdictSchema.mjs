@@ -29,7 +29,11 @@
 // dimension_scores keys explicitly (additionalProperties: false) so Vertex AI
 // cannot emit verbose prose values. Dimension keys match the rubric files.
 
-const SEVERITY_ENUM = ['critical', 'warning', 'note'];
+// V4 P0.1 — single source of truth at services/v4/severity.mjs. The Vertex AI
+// responseSchema below references SEVERITY_ENUM directly, so we keep the same
+// name as a re-export of SEVERITY_LEVELS for back-compat with the schema lookup.
+import { SEVERITY_LEVELS } from '../severity.mjs';
+const SEVERITY_ENUM = SEVERITY_LEVELS;
 const VERDICT_ENUM = ['pass', 'pass_with_notes', 'soft_reject', 'hard_reject'];
 const ACTION_ENUM = [
   'regenerate_beat',
@@ -136,7 +140,7 @@ function buildSchema(checkpointValue, dimensionKeys) {
             },
             remediation: {
               type: 'object',
-              propertyOrdering: ['action', 'prompt_delta', 'target_fields'],
+              propertyOrdering: ['action', 'prompt_delta', 'target_fields', 'target'],
               required: ['action', 'prompt_delta', 'target_fields'],
               properties: {
                 action: {
@@ -152,6 +156,22 @@ function buildSchema(checkpointValue, dimensionKeys) {
                   type: 'array',
                   maxItems: 3,
                   items: { type: 'string', maxLength: 40 }
+                },
+                // V4 Phase 5b — Fix 8. 5-category remediation taxonomy. The
+                // Director Agent classifies each finding's cheapest re-render
+                // path so the orchestrator knows whether to re-render the
+                // Scene Master (anchor), the single beat (composition /
+                // performance / continuity), or rebuild ref-stack and
+                // potentially re-route to a fallback model (identity).
+                //
+                // V4 Phase 7 extends with `style` for commercial-genre beats:
+                // art-direction drift, LUT mismatch, framing-vocab style
+                // mismatch. For non-photoreal commercial styles this replaces
+                // `continuity` (lighting_continuity is meaningless when art
+                // direction itself is the continuity contract).
+                target: {
+                  type: 'string',
+                  enum: ['anchor', 'composition', 'performance', 'identity', 'continuity', 'style']
                 }
               }
             }
@@ -213,6 +233,35 @@ export const COMMERCIAL_BRIEF_VERDICT_SCHEMA = buildSchema('commercial_brief', [
 export const COMMERCIAL_EPISODE_VERDICT_SCHEMA = buildSchema('commercial_episode', [
   'creative_bravery', 'brand_recall', 'story_compression', 'visual_signature',
   'hook_first_1_5s', 'music_visual_sync', 'tagline_landing', 'product_role'
+]);
+
+// V4 Phase 7 — full commercial Director ladder: Lens A (screenplay), Lens B
+// (scene master), and Lens C (beat) commercial-specific rubrics. These
+// replace the prestige equivalents when story.genre === 'commercial'. The
+// dimensions are calibrated for commercial work (visual_signature_consistency,
+// hook_first_1_5s, style_category_fidelity, etc.) instead of the prestige
+// continuity grammar (genre_register_visual, lighting_continuity, etc.) that
+// the standard rubrics use.
+//
+// commercialBeatRubric carries Phase 5b's `target` enum on findings with the
+// new `style` value enabled — see remediation.target enum above.
+export const COMMERCIAL_SCREENPLAY_VERDICT_SCHEMA = buildSchema('commercial_screenplay', [
+  'creative_concept_clarity', 'visual_signature_strength', 'hook_first_1_5s',
+  'story_compression', 'tagline_landing_setup', 'product_role',
+  'style_category_fidelity', 'anti_brief_adherence'
+]);
+
+export const COMMERCIAL_SCENE_MASTER_VERDICT_SCHEMA = buildSchema('commercial_scene_master', [
+  'composition', 'nine_sixteen_storytelling', 'persona_fidelity',
+  'style_category_fidelity', 'style_palette_fit',
+  'wardrobe_props_credibility', 'directorial_interest', 'visual_signature_consistency'
+]);
+
+export const COMMERCIAL_BEAT_VERDICT_SCHEMA = buildSchema('commercial_beat', [
+  'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
+  'art_direction_consistency', 'framing_intent', 'camera_move_intent',
+  'identity_lock_stylized', 'model_signature_check',
+  'product_identity_lock', 'product_subtlety'
 ]);
 
 export const VERDICT_ENUMS = Object.freeze({

@@ -127,6 +127,70 @@ export const COMMERCIAL_REFERENCE_LIBRARY = Object.freeze([
     visual_grammar: "Documentary; hidden camera; FBI sketch artist; vérité interviews.",
     narrative_grammar: "Real women, real comparisons, real reveal. Tear-jerk inevitable.",
     why_great: "Brand thesis ('You are more beautiful than you think') proven via documentary device, not stated."
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  // V4 Phase 7 — animation / illustration reference expansion. The 12 entries
+  // above include only one strong-animated reference (Spotify Wrapped 2020).
+  // When CreativeBriefDirector picks style_category = hand_doodle_animated
+  // or surreal_dreamlike, the few-shot examples skewed live-action and the
+  // resulting concept came back vague. The 6 entries below give the brief
+  // writer concrete craft anchors for animated/illustrated registers.
+  // ─────────────────────────────────────────────────────────────────────
+
+  {
+    title: 'Honda "Hands"',
+    director: 'Mark Zibert / Wieden+Kennedy',
+    year: 2013,
+    style_category: 'hand_doodle_animated',
+    visual_grammar: "Disembodied hands manipulating illustrated mechanical artifacts across mixed-media frames; line-work overlays; warm hand-drawn palette.",
+    narrative_grammar: "60s of pure visual ingenuity — every Honda invention represented by a single physical gesture. Voice-over thesis lands the brand idea.",
+    why_great: "The tactile + illustrated register IS the brand argument: 'engineering as craft.' Style-category reference for hand_doodle_animated work."
+  },
+  {
+    title: 'Coca-Cola "Christmas — The Snowman / Polar Bears"',
+    director: 'various (in-house)',
+    year: 1993,
+    style_category: 'surreal_dreamlike',
+    visual_grammar: "Hand-painted holiday tableaux; CGI polar bears with painterly textures; warm chiaroscuro lighting reads animated even when 3D.",
+    narrative_grammar: "Wordless visual story; brand stamp at end; emotional beat carries the spot.",
+    why_great: "Animated/painterly register applied to a brand whose product is photographed elsewhere — the SPOT is the dream-world the product visits."
+  },
+  {
+    title: 'Chipotle "Back to the Start"',
+    director: 'Johnny Kelly / Nexus',
+    year: 2011,
+    style_category: 'hand_doodle_animated',
+    visual_grammar: "Stop-motion miniature farms; deliberate 12fps stepping; Willie Nelson cover of Coldplay's 'The Scientist'; tactile handcrafted texture.",
+    narrative_grammar: "Wordless 2-min farmer's-arc parable. Brand reveals at end as the world returns to artisanal scale.",
+    why_great: "Stop-motion grammar carries 'we make food the right way' as a craft argument. The TECHNIQUE itself is the brand thesis."
+  },
+  {
+    title: 'Moonpig "Hand-doodle"',
+    director: 'various',
+    year: 2015,
+    style_category: 'hand_doodle_animated',
+    visual_grammar: "Live-action hands sketching greeting-card animations on paper that come to life; line-work morphs into illustrations.",
+    narrative_grammar: "Direct-address with handcrafted register. Personal greeting at center.",
+    why_great: "Brand IS hand-craft. The doodle grammar makes 'personalized' visible without saying it."
+  },
+  {
+    title: 'Old Spice "Animated Transitions" (Brave Soul / Mantastic series)',
+    director: 'Tom Kuntz follow-ups',
+    year: 2012,
+    style_category: 'hand_doodle_animated',
+    visual_grammar: "Live-action photoreal base + cel-shaded animated overlays during transitions; reality breaking into illustration mid-frame.",
+    narrative_grammar: "Direct-address surrealism with mixed-media transitions. Animated layer is the joke vehicle.",
+    why_great: "Mixed-media as comic timing. Animated layer earns laughs the live-action layer cannot deliver alone."
+  },
+  {
+    title: 'Spotify Wrapped (2023)',
+    director: 'in-house + agency',
+    year: 2023,
+    style_category: 'kinetic_montage',
+    visual_grammar: "Lottie / SVG-animated data viz; brand-color saturation; vertical-native; layered illustration + photo cutout grammar; 12fps stepped accents.",
+    narrative_grammar: "Personal data as social currency; viewer becomes storyteller; animation grammar carries the personalization.",
+    why_great: "Pushed the 2020 template into mixed-media animation grammar. Animated infographic IS the brand experience."
   }
 ]);
 

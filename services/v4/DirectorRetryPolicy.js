@@ -29,13 +29,45 @@ const BUDGETS = Object.freeze({
   episode: 0
 });
 
+// V4 P4.3 — Structural-defect detection.
+//
+// Before P4.3 this was an id allowlist (wrong_persona_cast,
+// subject_missing_from_frame, genre_mismatch_unfixable, etc.) — but no
+// rubric ever emitted those exact ids, so the gate was dormant. The plan
+// audit confirmed: zero matches across all rubrics + tests.
+//
+// Canonical signal post-P4.3 is `remediation.action === 'user_review'`
+// (a closed enum value from verdictSchema.mjs). The judge already uses
+// this action to mean "this is unfixable by retry — escalate to user".
+// We honor that signal instead of trying to match free-form id strings.
+//
+// The id allowlist remains as a defensive belt-AND-suspenders — if a
+// future rubric DOES emit one of these literal ids, it still triggers
+// escalation. But the primary gate is the action.
 const STRUCTURAL_DEFECT_IDS = new Set([
+  // Known unfixable-by-retry markers. Rubrics may emit these as
+  // findings[*].id when the verdict carries remediation.action='user_review';
+  // including them here makes the legacy id-based check defensive.
   'wrong_persona_cast',
   'subject_missing_from_frame',
   'genre_mismatch_unfixable',
   'persona_identity_unrecoverable',
-  'safety_violation'
+  'safety_violation',
+  // V4 P0.4 + Wave 6 — visual-anchor inversion is hard-halt by design.
+  'identity_unrecoverable',
+  'visual_anchor_inversion'
 ]);
+
+/**
+ * True if this finding is "structural" (cannot be fixed by retry — must escalate).
+ * Primary signal: remediation.action === 'user_review' (verdictSchema enum).
+ * Secondary: legacy id allowlist (defensive).
+ */
+function isStructuralDefect(finding) {
+  if (!finding) return false;
+  if (finding.remediation?.action === 'user_review') return true;
+  return STRUCTURAL_DEFECT_IDS.has(finding.id);
+}
 
 /**
  * Decide whether a soft_reject verdict authorizes one auto-retry, and merge
@@ -54,12 +86,22 @@ const STRUCTURAL_DEFECT_IDS = new Set([
  *   nextRetriesState: Object
  * }}
  */
-export function decideRetry({
-  verdict,
-  checkpoint,
-  artifactKey = null,
-  retriesState = {}
-} = {}) {
+export function decideRetry(params = {}) {
+  const {
+    verdict,
+    checkpoint,
+    artifactKey = null,
+    retriesState = {},
+    // V4 Wave 6 / F6 — original brief is the artifact's effective directive
+    // before any auto-fix nudges are spliced. For beats this is typically the
+    // composed `prompt + dialogue + scene_visual_anchor_prompt + visual_style_prefix`
+    // that flowed through to the generator on the FIRST pass. We compare the
+    // proposed nudge mass against this baseline; when nudge mass exceeds
+    // BRAND_STORY_NUDGE_RUNAWAY_THRESHOLD × brief mass (default 1.5×), the
+    // auto-fix loop is working AGAINST quality — escalate immediately rather
+    // than stack more nudges.
+    originalBrief = ''
+  } = params;
   const v = verdict || {};
   const findings = Array.isArray(v.findings) ? v.findings : [];
   const verdictValue = v.verdict;
@@ -92,19 +134,113 @@ export function decideRetry({
     };
   }
 
-  // Hard reject — never retry, always escalate.
+  // V4 Phase 5b — Fix 8. Hard-reject auto-fix on first encounter.
+  // Default behavior (legacy): hard_reject → escalate immediately.
+  // Opt-in (commercial AND/OR BRAND_STORY_AUTOFIX_BEAT_HARDREJECT=true):
+  //   First hard_reject on a beat (within budget) → ONE auto-fix attempt
+  //   using the verdict's findings + remediation.target taxonomy. The
+  //   orchestrator (BrandStoryService) reads `nudgePromptDelta` and
+  //   `targetClass` from this decision and dispatches per-class.
+  // Second hard_reject (budget exhausted) → escalate (no infinite loops).
   if (verdictValue === 'hard_reject') {
+    const autofixOptIn =
+      String(process.env.BRAND_STORY_AUTOFIX_BEAT_HARDREJECT || 'false').toLowerCase() === 'true';
+    const autofixCommercial = !!params.isCommercialStory;
+    const autofixEnabled = autofixOptIn || autofixCommercial;
+    if (!autofixEnabled || checkpoint !== 'beat') {
+      return {
+        shouldRetry: false,
+        shouldEscalate: true,
+        reason: 'hard_reject — escalate to user_review',
+        nudgePromptDelta: '',
+        nextRetriesState: retriesState
+      };
+    }
+
+    // Structural defects bypass auto-fix on hard_reject (same as soft_reject).
+    const structuralHard = findings.filter(isStructuralDefect);
+    if (structuralHard.length > 0) {
+      return {
+        shouldRetry: false,
+        shouldEscalate: true,
+        reason: `hard_reject + structural defect(s): ${structuralHard.map(f => f.id).join(', ')} — escalate`,
+        nudgePromptDelta: '',
+        nextRetriesState: retriesState
+      };
+    }
+
+    // Budget check (per-beat cap = 1).
+    const usedSoFarHard = _readRetryCount(retriesState, checkpoint, artifactKey);
+    if (usedSoFarHard >= (BUDGETS[checkpoint] ?? 1)) {
+      return {
+        shouldRetry: false,
+        shouldEscalate: true,
+        reason: `hard_reject + auto-fix budget exhausted (used ${usedSoFarHard}/${BUDGETS[checkpoint] ?? 1}) — escalate`,
+        nudgePromptDelta: '',
+        nextRetriesState: retriesState
+      };
+    }
+
+    // Authorize ONE auto-fix attempt. Resolve the dominant remediation
+    // target across all critical findings. Caller routes per class.
+    const findingTargets = findings
+      .filter(f => f.severity === 'critical')
+      .map(f => f.remediation?.target)
+      .filter(Boolean);
+    // Prefer the most-cited class. Tie-break order:
+    // anchor > identity > continuity > composition > performance.
+    const TARGET_PRIORITY = ['anchor', 'identity', 'continuity', 'composition', 'performance'];
+    const counts = {};
+    findingTargets.forEach(t => { counts[t] = (counts[t] || 0) + 1; });
+    let dominantTarget = null;
+    let bestScore = -1;
+    for (const t of TARGET_PRIORITY) {
+      const c = counts[t] || 0;
+      if (c > bestScore) {
+        bestScore = c;
+        dominantTarget = c > 0 ? t : dominantTarget;
+      }
+    }
+    // Fallback when Director didn't classify: treat as composition (single-beat
+    // re-render with patched framing — cheapest non-anchor path).
+    const targetClass = dominantTarget || 'composition';
+
+    const criticalDeltasHard = findings
+      .filter(f => f.severity === 'critical' && f.remediation?.prompt_delta)
+      .map(f => `[${f.id}] ${f.remediation.prompt_delta}`)
+      .slice(0, 3);
+
+    // V4 Wave 6 / F6 — compute nudge_to_brief_ratio. When the cumulative
+    // nudge mass exceeds the original brief mass × threshold, escalate
+    // instead of retrying — auto-fix is no longer composing additively
+    // with the brief, it's drowning it.
+    const nudgeJoinedHard = criticalDeltasHard.join('\n\n');
+    const nudgeRatioHard = _computeNudgeRatio(nudgeJoinedHard, originalBrief);
+    const runawayThreshold = Number(process.env.BRAND_STORY_NUDGE_RUNAWAY_THRESHOLD || '1.5');
+    if (nudgeRatioHard > runawayThreshold) {
+      return {
+        shouldRetry: false,
+        shouldEscalate: true,
+        reason: `hard_reject + nudge_to_brief_ratio=${nudgeRatioHard.toFixed(2)} exceeds runaway threshold ${runawayThreshold} — escalate (auto-fix exhausted: nudge mass exceeded brief mass)`,
+        nudgePromptDelta: '',
+        nudgeToBriefRatio: nudgeRatioHard,
+        nextRetriesState: retriesState
+      };
+    }
+
     return {
-      shouldRetry: false,
-      shouldEscalate: true,
-      reason: 'hard_reject — escalate to user_review',
-      nudgePromptDelta: '',
-      nextRetriesState: retriesState
+      shouldRetry: true,
+      shouldEscalate: false,
+      reason: `hard_reject + auto-fix authorized (target=${targetClass}, ${criticalDeltasHard.length} critical nudge(s), nudge_ratio=${nudgeRatioHard.toFixed(2)})`,
+      nudgePromptDelta: nudgeJoinedHard,
+      nudgeToBriefRatio: nudgeRatioHard,
+      targetClass,
+      nextRetriesState: _incrementRetry(retriesState, checkpoint, artifactKey)
     };
   }
 
   // soft_reject path — check structural defects first.
-  const structural = findings.filter(f => STRUCTURAL_DEFECT_IDS.has(f.id));
+  const structural = findings.filter(isStructuralDefect);
   if (structural.length > 0) {
     return {
       shouldRetry: false,
@@ -156,6 +292,10 @@ export function decideRetry({
     .map(f => `[${f.id}] ${f.remediation.prompt_delta}`)
     .filter(Boolean);
 
+  // V4 Wave 6 / F6 — soft_reject path also gets the nudge_to_brief_ratio
+  // anti-runaway guard. Same threshold as the hard_reject path.
+  const runawayThresholdSoft = Number(process.env.BRAND_STORY_NUDGE_RUNAWAY_THRESHOLD || '1.5');
+
   if (criticalDeltas.length === 0) {
     // soft_reject without any critical finding (overall_score 50-69 only) —
     // we authorize retry but the nudge is built from the full message bodies.
@@ -163,22 +303,63 @@ export function decideRetry({
       .filter(f => f.remediation?.prompt_delta)
       .map(f => `[${f.id}] ${f.remediation.prompt_delta}`)
       .slice(0, 3); // cap at 3 to keep prompt size sane
+    const nudgeJoinedNotes = noteDeltas.join('\n\n');
+    const nudgeRatioNotes = _computeNudgeRatio(nudgeJoinedNotes, originalBrief);
+    if (nudgeRatioNotes > runawayThresholdSoft) {
+      return {
+        shouldRetry: false,
+        shouldEscalate: true,
+        reason: `soft_reject + nudge_to_brief_ratio=${nudgeRatioNotes.toFixed(2)} exceeds runaway threshold ${runawayThresholdSoft} — escalate`,
+        nudgePromptDelta: '',
+        nudgeToBriefRatio: nudgeRatioNotes,
+        nextRetriesState: retriesState
+      };
+    }
     return {
       shouldRetry: true,
       shouldEscalate: false,
-      reason: `soft_reject (no critical findings) — retry with ${noteDeltas.length} nudge(s)`,
-      nudgePromptDelta: noteDeltas.join('\n\n'),
+      reason: `soft_reject (no critical findings) — retry with ${noteDeltas.length} nudge(s) (nudge_ratio=${nudgeRatioNotes.toFixed(2)})`,
+      nudgePromptDelta: nudgeJoinedNotes,
+      nudgeToBriefRatio: nudgeRatioNotes,
       nextRetriesState: _incrementRetry(retriesState, checkpoint, artifactKey)
     };
   }
 
+  const nudgeJoinedCrit = criticalDeltas.join('\n\n');
+  const nudgeRatioCrit = _computeNudgeRatio(nudgeJoinedCrit, originalBrief);
+  if (nudgeRatioCrit > runawayThresholdSoft) {
+    return {
+      shouldRetry: false,
+      shouldEscalate: true,
+      reason: `soft_reject + nudge_to_brief_ratio=${nudgeRatioCrit.toFixed(2)} exceeds runaway threshold ${runawayThresholdSoft} — escalate`,
+      nudgePromptDelta: '',
+      nudgeToBriefRatio: nudgeRatioCrit,
+      nextRetriesState: retriesState
+    };
+  }
   return {
     shouldRetry: true,
     shouldEscalate: false,
-    reason: `soft_reject — retry with ${criticalDeltas.length} critical nudge(s)`,
-    nudgePromptDelta: criticalDeltas.join('\n\n'),
+    reason: `soft_reject — retry with ${criticalDeltas.length} critical nudge(s) (nudge_ratio=${nudgeRatioCrit.toFixed(2)})`,
+    nudgePromptDelta: nudgeJoinedCrit,
+    nudgeToBriefRatio: nudgeRatioCrit,
     nextRetriesState: _incrementRetry(retriesState, checkpoint, artifactKey)
   };
+}
+
+/**
+ * V4 Wave 6 / F6 — compute nudge_to_brief_ratio.
+ *
+ * Returns 0 when originalBrief is empty/missing (caller didn't pass it; we
+ * can't measure ratio so we don't trip the runaway guard). Returns Infinity
+ * if the brief is shorter than 20 chars (defensive — micro-briefs are
+ * pathological and would inflate the ratio meaninglessly).
+ */
+function _computeNudgeRatio(nudge, brief) {
+  const nudgeLen = (nudge || '').length;
+  const briefLen = (brief || '').length;
+  if (briefLen < 20) return 0;  // can't measure → don't gate
+  return nudgeLen / briefLen;
 }
 
 function _readRetryCount(state, checkpoint, artifactKey) {

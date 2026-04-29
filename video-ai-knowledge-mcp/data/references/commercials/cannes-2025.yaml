@@ -1,0 +1,85 @@
+# Cannes Lions 2025 Grand Prix winners — selected
+# Source: Cannes Lions 2025 Final Awards announcements
+
+references:
+  - id: axa-three-words
+    title: 'AXA "Three Words"'
+    year: 2025
+    director: "Publicis Conseil Paris"
+    agency: "Publicis Conseil Paris"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - verite_intimate
+      - anthemic_epic
+    visual_grammar: "Documentary-grounded vérité interviews + symbolic three-word repetitions; restrained typography; brand color punctuation."
+    narrative_grammar: "Three words as protective ritual; insurance brand reframed around the words people most need to hear."
+    craft_signatures:
+      - "vérité interview structure"
+      - "three-word recurring motif as visual + sonic refrain"
+      - "brand-as-protector positioning"
+      - "insurance reframed as emotional contract"
+    why_great: "Cannes Lions 2025 Titanium Grand Prix. Reframed an insurance brand around emotional protection rather than product features."
+    ai_native: false
+
+  - id: dove-real-beauty-movement
+    title: 'Dove "Real Beauty: How a Soap Brand Created a Global Self-Esteem Movement"'
+    year: 2025
+    director: "Ogilvy UK"
+    agency: "Ogilvy UK"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - verite_intimate
+    visual_grammar: "Multi-decade archival montage; documentary-grounded; restrained typography; warm intimate lighting."
+    narrative_grammar: "20-year retrospective of Real Beauty campaign as global self-esteem movement; brand thesis proven by longitudinal social impact."
+    craft_signatures:
+      - "longitudinal archival storytelling"
+      - "social impact data as proof"
+      - "brand consistency across two decades"
+      - "movement framing over product framing"
+    why_great: "Cannes Lions 2025 Glass Lion Grand Prix. Demonstrated brand purpose as multi-decade movement, not campaign."
+    ai_native: false
+
+  - id: nz-herpes-best-place
+    title: 'NZ Herpes Foundation "The Best Place in the World to Have Herpes"'
+    year: 2025
+    director: "FINCH Sydney + Motion Sickness Auckland"
+    agency: "FINCH Sydney + Motion Sickness Auckland"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - gritty_real
+      - verite_intimate
+    visual_grammar: "Tourism-board parody; vérité testimonials; subverted promotional grammar."
+    narrative_grammar: "Counter-positioning as destigmatization tool; tourism grammar applied to public health."
+    craft_signatures:
+      - "tourism parody as destigmatization vehicle"
+      - "vérité testimonials as authenticity proof"
+      - "humor as public-health communication"
+    why_great: "Cannes Lions 2025 Grand Prix for Good. Used tourism-promo grammar to destigmatize a public-health condition."
+    ai_native: false
+
+  - id: natura-amazon-greenventory
+    title: "NATURA \"The Amazon Greenventory\""
+    year: 2025
+    director: "n/a"
+    agency: "n/a"
+    format: commercial
+    genre: commercial
+    style_categories:
+      - hyperreal_premium
+      - verite_intimate
+    visual_grammar: "Drone aerial photography of Amazon canopy; AI-data-overlay graphics; documentary-grounded."
+    narrative_grammar: "Largest tree inventory in Amazon history (400 km², 30,000 trees) — AI + drone tech as brand purpose vehicle."
+    craft_signatures:
+      - "drone aerial cinematography"
+      - "data overlay as narrative spine"
+      - "AI/tech as brand-purpose proof"
+      - "scale of impact as the entire pitch"
+    why_great: "Cannes Lions 2025 Sustainable Development Goals Grand Prix. AI + drone technology proved brand purpose at unprecedented scale."
+    ai_native: false
+    technology_signatures:
+      - "AI-driven tree identification"
+      - "drone aerial data capture"
+      - "400 km² mapped in 6 months"

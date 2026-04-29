@@ -68,22 +68,42 @@ export const V4_SCENE_TYPES = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
-// LUT LIBRARY REFERENCE (shown to Gemini so it can pick per-episode)
+// LUT LIBRARY REFERENCE (genre-pool, passed in by caller)
 // ═══════════════════════════════════════════════════════════════════════
+//
+// V4 Phase 5b — Director Agent's verdict (2026-04-29) eliminated the legacy
+// hardcoded 8-LUT vocabulary. The Gemini-emitted lut_id at story creation
+// previously came from this 8-entry list; the 22 spec LUTs in
+// assets/luts/library.json (genre-anchored) were unreachable when no
+// brandKit existed. Story `77d6eaaf` (commercial, no brandKit) is the
+// smoking gun — it picked `bs_cool_noir` from the legacy list for a
+// hyperreal-premium spot.
+//
+// New contract: caller (BrandStoryService) resolves the genre LUT pool via
+// BrandKitLutMatcher.getGenreLutPool(genre) and passes it in. The prompt
+// module is server/client-agnostic (data + format only).
 
-export const V4_LUT_LIBRARY = [
-  { id: 'bs_warm_cinematic', look: 'Kodak Portra 400 emulation, warm shadows, soft highlights', suits: 'lifestyle, hospitality, food, family' },
-  { id: 'bs_cool_noir',      look: 'Desaturated, blue-shifted shadows, high contrast',          suits: 'tech, fintech, security, B2B' },
-  { id: 'bs_golden_hour',    look: 'Amber highlights, soft warm midtones',                      suits: 'wellness, beauty, travel, luxury' },
-  { id: 'bs_urban_grit',     look: 'Teal & orange, crushed blacks, raised greens',              suits: 'streetwear, sports, gaming, automotive' },
-  { id: 'bs_dreamy_ethereal',look: 'Bloom highlights, soft pastels',                            suits: 'fashion, perfume, cosmetics, jewelry' },
-  { id: 'bs_retro_film',     look: 'Fuji 8mm, muted saturation, warm grain',                    suits: 'heritage, artisanal, food & drink' },
-  { id: 'bs_high_contrast_moody', look: 'Deep blacks, punchy highlights',                       suits: 'music, entertainment, fashion editorial' },
-  { id: 'bs_naturalistic',   look: 'Minimal grade, subtle warmth',                              suits: 'health, education, non-profit, documentary (safe fallback)' }
-];
-
-function _formatLutLibraryForPrompt() {
-  return V4_LUT_LIBRARY.map(l => `  - ${l.id}: ${l.look} — suits: ${l.suits}`).join('\n');
+/**
+ * Render a genre LUT pool as a Gemini-readable list. Each entry is an object
+ * shaped { id, look, mood_keywords?, reference_films? } — pulled from the
+ * spec library (assets/luts/library.json).
+ *
+ * When the caller passes an empty/missing pool, return an explicit warning
+ * marker the calling block can detect (and emit a "no LUT pool — use the
+ * genre default" instruction instead of inviting Gemini to pick from a
+ * legacy list).
+ */
+function _formatLutLibraryForPrompt(genreLutPool) {
+  if (!Array.isArray(genreLutPool) || genreLutPool.length === 0) {
+    return '  (no genre-pool available — caller will resolve via post-emission validation; do NOT emit a lut_id)';
+  }
+  return genreLutPool.map(l => {
+    const moods = Array.isArray(l.mood_keywords) ? l.mood_keywords.join(', ') : '';
+    const refs = Array.isArray(l.reference_films) ? l.reference_films.join(', ') : '';
+    const moodLine = moods ? ` — mood: ${moods}` : '';
+    const refLine = refs ? ` — ref: ${refs}` : '';
+    return `  - ${l.id}: ${l.look}${moodLine}${refLine}`;
+  }).join('\n');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -514,6 +534,99 @@ export const V4_FRAMING_VOCAB = {
     move_options: ['subject exits frame', 'subject enters new location', 'static frame with crossing subject'],
     intent: 'Connective tissue between scenes. Shows HOW we got from A to B.',
     use_when: 'scene.bridge_to_next beats.'
+  },
+
+  // ─────────────────────────────────────────────────────────────────────
+  // V4 Phase 7 — illustration / animation framing vocabulary.
+  //
+  // The 20 entries above are photographic-optics-native (anamorphic, macro,
+  // tilt-shift, telephoto, vintage zoom). They assume optical reality. For
+  // commercial briefs whose style_category is hand_doodle_animated /
+  // surreal_dreamlike (and to a lesser degree vaporwave_nostalgic /
+  // painterly_prestige), "lens" is metaphorical — there is no "macro" in
+  // a cel-shaded shot. The 8 entries below are the animation/illustration
+  // grammar equivalents.
+  //
+  // These entries are scoped:
+  //   - The screenplay writer should ONLY pick from these when
+  //     commercial_brief.style_category ∈ NON_PHOTOREAL_STYLE_CATEGORIES.
+  //   - The beat generator (_resolveFramingRecipe) reads this vocab the
+  //     same way as the photoreal ones; the recipe text just says
+  //     "cel-shaded zoom-in" or "12fps stop-motion stepping" instead of
+  //     "85mm anamorphic with oval bokeh".
+  // ─────────────────────────────────────────────────────────────────────
+
+  anime_eye_zoom: {
+    lens_mm: 'cel-shade equivalent ~85mm',
+    distance: 'tight closeup',
+    camera_move: 'static hold with cel-shaded sparkle highlights in pupils',
+    move_options: ['static hold with sparkle highlights', 'subtle drift with rim-glow', 'flash-cut from medium to extreme close on eyes'],
+    intent: 'Anime grammar — eyes ARE the moment. Sparkle highlights, oversize iris, lashline graphic detail. Used for emotional revelations in cel-shaded register.',
+    use_when: 'hand_doodle_animated emotional beats; the look that earns the moment.',
+    reference: 'Studio Ghibli (Spirited Away revelation closeups), Makoto Shinkai (Your Name twilight closeups).'
+  },
+  manga_panel_punch_in: {
+    lens_mm: 'graphic — no optical equivalent',
+    distance: 'static medium → static close',
+    camera_move: 'hard cut between two static frames, no optical zoom',
+    move_options: ['hard cut medium → close', 'three-step graphic punch-in', 'flash white between cuts'],
+    intent: 'Manga panel-to-panel grammar. Each frame is a panel; transitions are CUTS not zooms. Energy from juxtaposition, not motion.',
+    use_when: 'hand_doodle_animated kinetic montage; punchline beats; reveal beats with graphic register.',
+    reference: 'Into the Spider-Verse (panel-cut grammar), Akira (key-frame holds).'
+  },
+  stop_motion_dolly: {
+    lens_mm: 'practical — physical camera implied',
+    distance: 'medium',
+    camera_move: 'stepped 12fps drift, deliberate frame-to-frame discontinuity',
+    move_options: ['stepped 12fps drift', 'on-twos hold then move', 'tilted-rig dolly'],
+    intent: 'Stop-motion stepping. Motion is intentionally discontinuous — the texture IS the technique. Reads handcrafted, never smooth.',
+    use_when: 'hand_doodle_animated stop-motion register (Chipotle "Back to the Start", Wes Anderson Isle of Dogs spots).',
+    reference: 'Chipotle "Back to the Start", Wes Anderson stop-motion, LAIKA (Coraline) action beats.'
+  },
+  doodle_arrow_overlay: {
+    lens_mm: 'photoreal or stylized base',
+    distance: 'medium',
+    camera_move: 'hold + hand-drawn vector overlay (arrow / circle / underline) animates onto frame',
+    move_options: ['hold with hand-drawn arrow overlay', 'hold with hand-drawn circle annotation', 'hold with sketch-style underline + caption'],
+    intent: 'Sketch-overlay annotation grammar. Live-action OR animated base; hand-drawn graphic LAYERS in. Used for explainer-style commercial moments.',
+    use_when: 'hand_doodle_animated explainer beats; product-feature callouts; user-flow visualizations.',
+    reference: 'Mailchimp Freddie spots, Spotify Wrapped (annotation overlays), Squarespace explainer cuts.'
+  },
+  watercolor_soft_pan: {
+    lens_mm: 'painterly — no optical equivalent',
+    distance: 'medium-wide',
+    camera_move: 'slow horizontal pan with painterly bleed at frame edges',
+    move_options: ['slow horizontal pan with edge bleed', 'gentle parallax over watercolor layers', 'static hold with breathing color fields'],
+    intent: 'Watercolor / hand-painted register. Edges bleed, color fields breathe, motion is gentle and atmospheric.',
+    use_when: 'surreal_dreamlike establishing beats; painterly_prestige world-building beats.',
+    reference: 'Loving Vincent painterly grammar, Studio Ghibli backgrounds, Cadbury "Gorilla" texture treatment.'
+  },
+  surreal_dream_zoom: {
+    lens_mm: 'continuously shifting — hyperreal',
+    distance: 'subjective',
+    camera_move: 'continuous focal-length shift, dreamlike drift',
+    move_options: ['continuous focal-length shift', 'dolly-zoom variation', 'swimming subjective drift'],
+    intent: 'Subjective dream-state grammar. Geometry shifts as the camera moves — what was wide becomes telephoto becomes wide again. Reads as inside the head, not as observed.',
+    use_when: 'surreal_dreamlike emotional climaxes, inside-character-mind beats.',
+    reference: 'Eternal Sunshine dream sequences, Honda "Cog" surreal causality, Cadbury "Gorilla" buildup.'
+  },
+  mixed_media_collage_cut: {
+    lens_mm: 'graphic + photographic mix',
+    distance: 'varied',
+    camera_move: 'graphic-overlay transition between layered textures',
+    move_options: ['photo cutout slides over painted background', 'animated graphic dissolves to live action', 'three-layer parallax with hand-drawn foreground'],
+    intent: 'Mixed-media grammar. Photo + paint + graphic + line work coexist in one frame. Transitions are graphic events, not optical.',
+    use_when: 'hand_doodle_animated commercial register that mixes archival/photo with illustration.',
+    reference: 'Wes Anderson Asteroid City graphic inserts, Spotify Wrapped 2023 mixed-media reveals.'
+  },
+  cel_shade_action_pop: {
+    lens_mm: 'graphic — no optical equivalent',
+    distance: 'medium',
+    camera_move: 'kinetic burst frame with motion lines as graphic element',
+    move_options: ['burst frame with radial motion lines', 'speed lines + impact frame freeze', 'graphic shockwave pulse'],
+    intent: 'Anime action grammar. Motion is GRAPHIC, not optical — radial lines, impact freezes, speed-line bursts. Reads kinetic without physically moving the camera.',
+    use_when: 'hand_doodle_animated action peaks; kinetic_montage reveals when style_category is animated.',
+    reference: 'Naruto / One Piece action grammar, Into the Spider-Verse impact frames.'
   }
 };
 
@@ -1050,7 +1163,14 @@ export function getEpisodeSystemPromptV4(storyline, previousEpisodes = [], perso
     // Default 'en' preserves the current English-authorship pipeline. When
     // 'he', _buildHebrewMasterclassBlock injects the Hebrew register block
     // (rabbinic / IDF / Levantine / Israeli prestige TV cadence).
-    storyLanguage = 'en'
+    storyLanguage = 'en',
+    // V4 Phase 5b — genre LUT pool, resolved by the caller via
+    // BrandKitLutMatcher.getGenreLutPool(genre). When non-empty, the lutBlock
+    // shows ONLY the candidate LUTs for the active genre (eliminates the
+    // legacy 8-LUT bypass that produced bs_cool_noir on commercial). When
+    // empty/null AND hasBrandKitLut is false, the prompt instructs Gemini
+    // NOT to emit a lut_id — caller will fill in the genre default.
+    genreLutPool = null
   } = options;
 
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
@@ -1183,17 +1303,28 @@ at story creation and will be synthesized by ElevenLabs per beat.`
     ? _buildSubjectIntegrationBlock(subject, storyFocus, productIntegrationStyle)
     : '';
 
-  // LUT instruction — only ask Gemini to pick if the story doesn't already have one.
+  // LUT instruction — V4 Phase 5b. Three cases:
+  //   1. story-level LUT already locked      → tell Gemini NOT to emit lut_id
+  //   2. genreLutPool provided (non-empty)   → show ONLY the genre-anchored
+  //                                             pool (no legacy 8-LUT bypass)
+  //   3. no pool resolvable                   → tell Gemini NOT to emit lut_id;
+  //                                             caller (BrandStoryService) will
+  //                                             fill in the genre default via
+  //                                             matchByGenreAndMood post-hoc
+  const hasGenrePool = Array.isArray(genreLutPool) && genreLutPool.length > 0;
   const lutBlock = hasBrandKitLut
     ? `\nLUT: This story has a brand-kit-derived LUT already locked. Do NOT emit a lut_id field.`
-    : `\nLUT SELECTION:
-Pick ONE LUT from this library for the episode based on the visual_style_prefix you write.
-Emit as "lut_id" at the top level of your JSON.
+    : (hasGenrePool
+      ? `\nLUT SELECTION (genre-anchored pool — ${storyline.genre || 'unknown genre'}):
+Pick ONE LUT from this pool for the episode based on the visual_style_prefix you write.
+Emit as "lut_id" at the top level of your JSON. The pool is filtered to the active
+genre — there are NO out-of-genre options. If you cannot decide, pick the first entry.
 
-LUT LIBRARY:
-${_formatLutLibraryForPrompt()}
+LUT POOL (genre = ${storyline.genre || 'unknown'}):
+${_formatLutLibraryForPrompt(genreLutPool)}
 
-Rule: the LUT must match the mood and era suggested by visual_style_prefix.`;
+Rule: the LUT must match the mood and era suggested by visual_style_prefix.`
+      : `\nLUT: No LUT pool resolvable for this story (missing genre). Do NOT emit a lut_id field — the post-production layer will resolve it via the genre default.`);
 
   // Phase 6 (2026-04-28) — render the commercial brief as the SUPREME
   // directorial law for the screenplay writer. Splices in immediately after
@@ -1850,7 +1981,12 @@ export function getEpisodeUserPromptV4(storyline, lastCliffhanger, episodeNumber
     // Phase 3 — when present, the user-prompt schema example reminds Gemini
     // that sonic_world inherits from the bible (the system prompt has the
     // full bible context; this is a short pointer in the JSON schema).
-    sonicSeriesBible = null
+    sonicSeriesBible = null,
+    // V4 Phase 5b — same genre pool that the system prompt receives. Used
+    // to render the schema's lut_id enum from the genre pool ONLY (no
+    // legacy 8-LUT bypass). Omitted when hasBrandKitLut is true OR pool
+    // is unresolvable.
+    genreLutPool = null
   } = options;
   const hasBible = !!(sonicSeriesBible && typeof sonicSeriesBible === 'object');
 
@@ -1866,8 +2002,14 @@ export function getEpisodeUserPromptV4(storyline, lastCliffhanger, episodeNumber
 Your opening beat MUST resolve, escalate, or directly reference this in the first 3 seconds.`
     : 'This is the series premiere. Establish the world, introduce the characters, and hook the viewer within the first 5 seconds.';
 
-  const lutField = hasBrandKitLut ? '' : `
-  "lut_id": "bs_warm_cinematic | bs_cool_noir | bs_golden_hour | bs_urban_grit | bs_dreamy_ethereal | bs_retro_film | bs_high_contrast_moody | bs_naturalistic",`;
+  // V4 Phase 5b — the legacy hardcoded `bs_warm_cinematic | bs_cool_noir | ...`
+  // enum was the smoking-gun bypass that produced bs_cool_noir for the
+  // hyperreal-premium commercial in story `77d6eaaf` (logs.txt 2026-04-28).
+  // The enum now derives from the genre pool ONLY, or is omitted entirely.
+  const hasGenrePoolField = !hasBrandKitLut && Array.isArray(genreLutPool) && genreLutPool.length > 0;
+  const lutField = hasGenrePoolField
+    ? `\n  "lut_id": "${genreLutPool.map(l => l.id).join(' | ')}",`
+    : '';
 
   return `Generate Episode ${episodeNumber} of the series as a V4 scene-graph / beat-based screenplay.
 

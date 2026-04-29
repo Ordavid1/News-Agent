@@ -1,0 +1,161 @@
+# Canonical AI-video failure-signature taxonomy
+#
+# Purpose: a single taxonomy every model's failure_signatures[].taxonomy_id
+# resolves to. Lets the V4 DirectorAgent's verdict findings cite a
+# consistent taxonomy_id across all judged models, making cross-model
+# comparison and root-cause analysis tractable.
+#
+# Spine: arXiv 2511.18102 "Spotlight: Identifying and Localizing Video
+# Generation Errors Using VLMs" (Nov 2025) — 6 base categories.
+# V4-specific extensions (3 categories): identity_drift, lipsync_drift,
+# text_garble — these surface specifically in branded-short-film
+# production and align with the existing IDENTITY-class triage in
+# Phase 5b Fix 8 + Phase 7 B3's commercial beat rubric.
+#
+# Severity scale: 1-5 (1 = nit, easily ignored / 5 = structural fail,
+# clip unusable). Mirrors Spotlight paper's severity discipline.
+#
+# Locality: frame (single frame defect) | segment (multi-frame run) |
+# clip (whole-clip property).
+
+schema_version: "1.0"
+spine_source: "arXiv:2511.18102 (Spotlight, Nov 2025) — 6 base categories"
+v4_extensions: "identity_drift, lipsync_drift, text_garble"
+severity_scale: "1-5"
+
+categories:
+  # ─── Spotlight base (6) ──────────────────────────────────────────
+  - id: physics
+    name: "Physics violation"
+    description: >
+      Violations of physical laws — floating objects, unnatural
+      trajectories, gravity inversions, impossible momentum, fluid
+      flow defying gravity, shadows pointing away from light source.
+    typical_severity: "3-5"
+    typical_locality: segment
+    examples:
+      - "object floats without support"
+      - "fluid flows uphill"
+      - "shadow direction inverts mid-clip"
+      - "thrown object accelerates against gravity"
+    canonical_directors_action: "regenerate_beat with explicit physics constraints in prompt"
+
+  - id: app_disapp
+    name: "Appearance / disappearance discontinuity"
+    description: >
+      Objects, people, or backgrounds appear or disappear unnaturally
+      between frames without occlusion or scene-change motivation.
+    typical_severity: "2-4"
+    typical_locality: frame
+    examples:
+      - "second hand materializes mid-shot"
+      - "background prop pops out without occluder"
+      - "subject's wristwatch vanishes between frames"
+      - "object reappears after off-screen exit it never made"
+    canonical_directors_action: "regenerate_beat with stronger first-frame anchor"
+
+  - id: logical
+    name: "Logical inconsistency"
+    description: >
+      Actions or states that cannot logically co-exist within the
+      scene's frame of reference.
+    typical_severity: "2-4"
+    typical_locality: segment
+    examples:
+      - "person holds two poses simultaneously"
+      - "object is both inside and outside frame"
+      - "clock shows two different times in adjacent shots"
+    canonical_directors_action: "rewrite_action with single coherent action description"
+
+  - id: motion
+    name: "Motion artifact"
+    description: >
+      Unnatural motion — jitter, intersection, stutter, ghosting,
+      sub-pixel crawl, intra-object speed inversions.
+    typical_severity: "2-4"
+    typical_locality: segment
+    examples:
+      - "objects pass through each other"
+      - "high-frequency texture jitter on grids/fences"
+      - "limb stutter on direction change"
+      - "smooth motion suddenly skips frames"
+    canonical_directors_action: "regenerate_beat with longer duration to reduce per-frame motion delta"
+
+  - id: anatomy
+    name: "Anatomy / morphology defect"
+    description: >
+      Impossible body shapes, joint inversions, finger/digit count
+      drift, face morphing, hand mutation. Distinct from identity_drift
+      (which is persona-fidelity); anatomy is general human-form
+      plausibility.
+    typical_severity: "3-5"
+    typical_locality: segment
+    examples:
+      - "six fingers"
+      - "elbow bends backward"
+      - "two left hands"
+      - "extra leg appears mid-walk"
+    canonical_directors_action: "regenerate_beat or accept (cap action duration; avoid hand-prominent compositions)"
+
+  - id: adherence
+    name: "Prompt adherence failure"
+    description: >
+      Failure to follow key elements or directorial intent of the
+      text prompt — wrong wardrobe, missing prop, wrong camera move,
+      wrong subject count, ignored beat/lens directive.
+    typical_severity: "2-4"
+    typical_locality: clip
+    examples:
+      - "specified camera move (push-in) not delivered"
+      - "wardrobe color drift from brief"
+      - "subject count wrong (2 → 1 or 1 → 2)"
+      - "specified prop missing from scene"
+    canonical_directors_action: "rewrite_prompt with stricter directive emphasis"
+
+  # ─── V4-specific extensions (3) ──────────────────────────────────
+  - id: identity_drift
+    name: "Identity drift"
+    description: >
+      Persona face / silhouette / wardrobe drifts from the character
+      bible across the clip or across consecutive beats. Distinct from
+      anatomy (which is general human-form plausibility); identity is
+      persona-fidelity specifically.
+    typical_severity: "3-5"
+    typical_locality: segment
+    examples:
+      - "facial structure (jaw width, brow ridge) shifts past frame 60"
+      - "hair color changes mid-clip"
+      - "wardrobe motif drops between beats"
+      - "ethnicity-descriptor inverts vs visual_anchor"
+    canonical_directors_action: "regenerate_beat with persona_lock_first_frame; IDENTITY 2nd-failure → OmniHuman 1.5 (dialogue) or Veo 3.1 (action)"
+
+  - id: lipsync_drift
+    name: "Lipsync drift"
+    description: >
+      Mouth shapes don't track the audio track — jaw float, mouth-static
+      during speech, off-by-N-frames synchronization. Surfaces specifically
+      on dialogue beats with TTS-driven audio.
+    typical_severity: "3-5"
+    typical_locality: segment
+    examples:
+      - "jaw floats when audio shorter than clip"
+      - "mouth closed during dialogue (soft refusal)"
+      - "lip-sync ~3 frames late"
+      - "phoneme cut-off at clip boundary"
+    canonical_directors_action: "regenerate_beat with sync_pass via fal-ai/sync-lipsync/v3 (syncMode=bounce)"
+
+  - id: text_garble
+    name: "Text-rendering garble"
+    description: >
+      On-screen text (signage, labels, brand marks, taglines) renders
+      as unreadable glyphs or misspells specified copy. Distinct from
+      adherence (which is broader directive following); text_garble
+      is specifically the legibility / spelling of rendered text.
+    typical_severity: "2-4"
+    typical_locality: segment
+    examples:
+      - "brand wordmark misspelled"
+      - "tagline appears as gibberish"
+      - "scoreboard digits warble"
+      - "signage characters fuse"
+    canonical_directors_action: "regenerate_beat with text_override route (Kling V3 Pro for native text rendering); fallback to ffmpeg/text-card overlay"

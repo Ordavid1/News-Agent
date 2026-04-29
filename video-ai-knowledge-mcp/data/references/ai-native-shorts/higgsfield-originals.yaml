@@ -1,0 +1,236 @@
+# Higgsfield Original Series — AI-native streaming platform
+# Source: https://higgsfield.ai/original-series (verified 2026-04-29)
+# Higgsfield's prestige bar — the "AppReel Our Story / Higgsfield Original
+# Series" reference cited in V4's north-star directive ("commercials that
+# don't feel like commercials, they feel like the opening of a prestige
+# series the viewer wants to binge").
+
+references:
+  - id: higgsfield-arena-zero
+    title: "Arena Zero (Higgsfield Original Series pilot)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    duration_sec: 600
+    genre: drama
+    style_categories:
+      - hyperreal_premium
+      - kinetic_montage
+    visual_grammar: "Cinematic anamorphic compositions; Roger-Deakins-influenced lighting; Veo+Seedance hybrid pipeline; signature physics-aware action choreography."
+    narrative_grammar: "10-minute sci-fi pilot; world-building via production design; AI-native serialization."
+    craft_signatures:
+      - "physics-aware action sequences"
+      - "consistent character identity across 10-min runtime"
+      - "anamorphic widescreen composition"
+      - "AI-native serialization model"
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "First commercial-grade AI-native streaming pilot. Demonstrates 10-minute serialized AI video at quality that no longer reads as 'AI-generated'."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+      - veo-3.1
+      - kling-3-pro
+
+  - id: higgsfield-mork
+    title: "MORK — The Tale of Kael (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: fantasy
+    style_categories:
+      - hyperreal_premium
+      - surreal_dreamlike
+    visual_grammar: "Fantasy/adventure register; Cinema Studio 3.0 pipeline; consistent character (Kael) across multi-shot narrative."
+    narrative_grammar: "Episodic fantasy with serialized character arc."
+    craft_signatures:
+      - "Soul character training for Kael consistency"
+      - "Cinema Studio 3.0 multi-shot composition"
+      - "fantasy production design via AI"
+      - "serialized character arc"
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Demonstrates AI-generated fantasy production at episodic scale. Soul character consistency proves cross-shot identity is solvable."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+      - kling-3-omni
+
+  - id: higgsfield-hell-grind
+    title: "HELL GRIND (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: thriller
+    style_categories:
+      - gritty_real
+      - kinetic_montage
+    visual_grammar: "Industrial / urban grit palette; rapid-cut action; Kling V3 Pro action choreography."
+    narrative_grammar: "Thriller serial with kinetic action vocabulary."
+    craft_signatures:
+      - "Kling V3 Pro action sequences"
+      - "kinetic montage cut rhythm"
+      - "industrial palette consistency"
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Establishes that AI-generated action sequences can sustain episodic momentum at thriller-genre stakes."
+    ai_native: true
+    models_used:
+      - kling-3-pro
+      - seedance-2.0
+
+  - id: higgsfield-soulmate-last-wagon
+    title: "Soulmate: The Last Wagon (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: drama
+    style_categories:
+      - hyperreal_premium
+      - verite_intimate
+    visual_grammar: "Western/drama register; period-accurate production design; Cinema Studio sustained cinematography."
+    narrative_grammar: "Western romance with serialized arc."
+    craft_signatures:
+      - "period-accurate AI production design"
+      - "sustained cinematography across multi-shot"
+      - "western genre register"
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Period-set AI production proving genre versatility — western not a register AI was thought to handle."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+      - veo-3.1
+
+  - id: higgsfield-spit-and-glow
+    title: "SPIT & GLOW (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: drama
+    style_categories:
+      - vaporwave_nostalgic
+      - verite_intimate
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "AI-native serialized drama — listed under Higgsfield's flagship Original Series."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+
+  - id: higgsfield-bucket-list
+    title: "BUCKET LIST (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: comedy
+    style_categories:
+      - verite_intimate
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Comedy-genre AI-native serialization. Comedy timing = a notoriously hard test for generated video."
+    ai_native: true
+
+  - id: higgsfield-mother-trucker
+    title: "Mother Trucker (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: comedy
+    style_categories:
+      - gritty_real
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Working-class comedy in AI-native register."
+    ai_native: true
+
+  - id: higgsfield-misfortune
+    title: "MISFORTUNE (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: drama
+    style_categories:
+      - verite_intimate
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "AI-native serialized drama in Higgsfield Original lineup."
+    ai_native: true
+
+  - id: higgsfield-vermin-control-unit
+    title: "VERMIN CONTROL UNIT (Higgsfield Original Series)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: thriller
+    style_categories:
+      - gritty_real
+      - kinetic_montage
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Sci-fi/thriller serialization in AI-native production."
+    ai_native: true
+
+  - id: higgsfield-zephyr
+    title: "ZEPHYR (Higgsfield Original Series — pilot)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: drama
+    style_categories:
+      - hyperreal_premium
+    visual_grammar: "Seedance 2.0 flagship demonstration; cinematic photoreal action; consistent multi-character production."
+    narrative_grammar: "K-Pop-inspired serialized drama."
+    craft_signatures:
+      - "Seedance 2.0 reference workflow"
+      - "consistent multi-character identity"
+      - "K-Pop production register"
+    references_url: "https://higgsfield.ai/blog/guide-youtube-seedance2.0"
+    why_great: "Often cited as 'ZEPHYR-level Original Series' — the bar for prestige K-Pop / drama AI-native production. Showcases Seedance 2.0's flagship capability."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+
+  - id: higgsfield-arena-zero-music-video
+    title: "DEM — Arena Zero Music Video (Higgsfield)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: commercial
+    style_categories:
+      - kinetic_montage
+      - hyperreal_premium
+    visual_grammar: "Music-video grammar; rapid-cut action; consistent character continuity from Arena Zero pilot."
+    narrative_grammar: "Music video as IP extension."
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Demonstrates AI-native IP extension — main series + music video derivative produced from same character + world bible."
+    ai_native: true
+    models_used:
+      - seedance-2.0
+      - kling-3-pro
+
+  - id: higgsfield-tails-of-steel
+    title: "TAILS OF STEEL (Higgsfield Original Series — In Development)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: action
+    style_categories:
+      - kinetic_montage
+      - hyperreal_premium
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Action-genre AI-native serialization in development pipeline."
+    ai_native: true
+
+  - id: higgsfield-dinoforce
+    title: "DINOFORCE (Higgsfield Original Series — In Development)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: action
+    style_categories:
+      - kinetic_montage
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Demonstrates AI-native genre breadth — dinosaur action in development."
+    ai_native: true
+
+  - id: higgsfield-buddy
+    title: "BUDDY (Higgsfield Original Series — In Development)"
+    year: 2026
+    director: "Higgsfield Studios"
+    format: ai-native-shorts
+    genre: comedy
+    references_url: "https://higgsfield.ai/original-series"
+    why_great: "Comedy serialization in Higgsfield development pipeline."
+    ai_native: true

@@ -32,6 +32,8 @@ function loadAllModels() {
   return {
     video: loadYamlDir(path.join(__dirname, 'data/models/video')),
     image: loadYamlDir(path.join(__dirname, 'data/models/image')),
+    audio: loadYamlDir(path.join(__dirname, 'data/models/audio')),
+    utility: loadYamlDir(path.join(__dirname, 'data/models/utility')),
   };
 }
 
@@ -41,6 +43,38 @@ function loadWorkflows() {
 
 function loadCapabilities() {
   return loadYamlDir(path.join(__dirname, 'data/capabilities'));
+}
+
+function loadFailureTaxonomy() {
+  const docs = loadYamlDir(path.join(__dirname, 'data/taxonomies'));
+  // First doc with a `categories` array is the canonical failure-signature taxonomy.
+  return docs.find(d => Array.isArray(d?.categories)) || { categories: [] };
+}
+
+function loadReferences() {
+  // Load prestige-reference data from all sub-buckets under data/references/.
+  // Each sub-dir's YAMLs contain reference entries (commercials, prestige-tv,
+  // prestige-film, ai-native-shorts).
+  const refsDir = path.join(__dirname, 'data/references');
+  if (!fs.existsSync(refsDir)) return [];
+  const all = [];
+  for (const subBucket of fs.readdirSync(refsDir)) {
+    const subPath = path.join(refsDir, subBucket);
+    if (!fs.statSync(subPath).isDirectory()) continue;
+    const docs = loadYamlDir(subPath);
+    for (const doc of docs) {
+      // Each YAML doc may be {references: [...]} OR a direct entry; handle both.
+      if (Array.isArray(doc?.references)) all.push(...doc.references);
+      else if (doc?.id && doc?.title) all.push(doc);
+    }
+  }
+  return all;
+}
+
+function loadV4BeatRecipes() {
+  const dir = path.join(__dirname, 'data/workflows/v4-beats');
+  if (!fs.existsSync(dir)) return [];
+  return loadYamlDir(dir);
 }
 
 // ─── Search Helpers ─────────────────────────────────────────────────────────
@@ -55,11 +89,15 @@ function matchesQuery(obj, query) {
 function filterModels(models, { type, query, capability, provider }) {
   let pool = [];
   if (!type || type === 'all') {
-    pool = [...models.video, ...models.image];
+    pool = [...models.video, ...models.image, ...(models.audio || []), ...(models.utility || [])];
   } else if (type === 'video') {
     pool = models.video;
   } else if (type === 'image') {
     pool = models.image;
+  } else if (type === 'audio') {
+    pool = models.audio || [];
+  } else if (type === 'utility') {
+    pool = models.utility || [];
   }
 
   if (query) pool = pool.filter(m => matchesQuery(m, query));
@@ -93,9 +131,9 @@ const server = new McpServer({
 
 server.tool(
   'query_models',
-  'Search and filter AI video/image generation models by type, capability, provider, or free-text query. Returns detailed specs including resolution, duration, pricing, API endpoints, official vendor documentation links, and strengths.',
+  'Search and filter AI video/image/audio/utility generation models by type, capability, provider, or free-text query. Returns detailed specs including resolution, duration, pricing, API endpoints, official vendor documentation links, strengths, and structured failure_signatures.',
   {
-    type: z.enum(['video', 'image', 'all']).optional().describe('Filter by model type'),
+    type: z.enum(['video', 'image', 'audio', 'utility', 'all']).optional().describe('Filter by model type'),
     query: z.string().optional().describe('Free-text search across all model fields'),
     capability: z.string().optional().describe('Filter by capability (e.g. "text-to-video", "image-to-video", "style-transfer", "lip-sync")'),
     provider: z.string().optional().describe('Filter by API provider (e.g. "fal.ai", "replicate", "runway", "google")'),
@@ -322,6 +360,134 @@ server.tool(
 
     return {
       content: [{ type: 'text', text: sections.join('\n\n') }],
+    };
+  }
+);
+
+// ─── Tool: get_failure_taxonomy ─────────────────────────────────────────────
+
+server.tool(
+  'get_failure_taxonomy',
+  'Get the canonical AI-video failure-signature taxonomy. Spine: arXiv 2511.18102 "Spotlight" (6 base categories) + V4 extensions (identity_drift, lipsync_drift, text_garble). Used to ground judge findings in a consistent taxonomy_id across all models.',
+  {
+    category: z.string().optional().describe('Optional taxonomy_id to fetch a single category (e.g. "identity_drift", "physics", "anatomy")'),
+  },
+  async ({ category }) => {
+    const tax = loadFailureTaxonomy();
+    if (category) {
+      const entry = (tax.categories || []).find(c => c.id === category);
+      if (!entry) {
+        return { content: [{ type: 'text', text: `Taxonomy category "${category}" not found. Available ids: ${(tax.categories || []).map(c => c.id).join(', ')}` }] };
+      }
+      return { content: [{ type: 'text', text: yaml.dump(entry, { lineWidth: 120 }) }] };
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `# Failure-Signature Taxonomy (${(tax.categories || []).length} categories)\n` +
+              `Source: ${tax.spine_source || 'V4 internal'}\n\n` +
+              yaml.dump(tax, { lineWidth: 120 })
+      }]
+    };
+  }
+);
+
+// ─── Tool: get_failure_signatures_for_model ─────────────────────────────────
+
+server.tool(
+  'get_failure_signatures_for_model',
+  'Get the documented failure_signatures (taxonomy_id, severity, fix_strategy) for a specific model. Used pre-flight to write prompts that avoid known model weaknesses, or by judges to verify their findings against documented modes.',
+  {
+    model_name: z.string().describe('Model id or name (e.g. "kling-3-pro", "veo-3.1", "omnihuman-1.5")'),
+    category: z.string().optional().describe('Filter to one taxonomy_id (e.g. "identity_drift")'),
+  },
+  async ({ model_name, category }) => {
+    const allModels = loadAllModels();
+    const pool = [...allModels.video, ...allModels.image, ...(allModels.audio || []), ...(allModels.utility || [])];
+    const n = model_name.toLowerCase().replace(/[\s_-]+/g, '');
+    const model = pool.find(m => {
+      const mid = (m.id || '').toLowerCase().replace(/[\s_-]+/g, '');
+      const mname = (m.name || '').toLowerCase().replace(/[\s_-]+/g, '');
+      return mid.includes(n) || mname.includes(n) || n.includes(mid) || n.includes(mname);
+    });
+    if (!model) {
+      return { content: [{ type: 'text', text: `Model "${model_name}" not found.` }] };
+    }
+    let sigs = Array.isArray(model.failure_signatures) ? model.failure_signatures : [];
+    if (category) sigs = sigs.filter(s => s.taxonomy_id === category);
+    if (sigs.length === 0) {
+      return { content: [{ type: 'text', text: `No failure_signatures documented for ${model.id}${category ? ` (category=${category})` : ''}.` }] };
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `# Failure Signatures — ${model.name} (${model.id})\n${sigs.length} signatures${category ? ` in category=${category}` : ''}\n\n` +
+              yaml.dump(sigs, { lineWidth: 120 })
+      }]
+    };
+  }
+);
+
+// ─── Tool: get_prestige_references ──────────────────────────────────────────
+
+server.tool(
+  'get_prestige_references',
+  'Get prestige reference entries (Cannes Lions, Higgsfield Original Series, prestige TV/film) keyed by genre, style_category, format, or AI-native filter. Use during Create Mode screenplay architecture to ground style decisions in canonical references.',
+  {
+    genre: z.string().optional().describe('e.g. "commercial", "drama", "thriller"'),
+    style_category: z.string().optional().describe('e.g. "anthemic_epic", "verite_intimate", "hand_doodle_animated"'),
+    format: z.enum(['commercial', 'prestige-tv', 'prestige-film', 'ai-native-shorts', 'all']).optional().describe('Filter by reference format'),
+    ai_native: z.boolean().optional().describe('Filter to AI-generated references only'),
+    limit: z.number().optional().describe('Max entries to return (default 5)'),
+  },
+  async ({ genre, style_category, format, ai_native, limit = 5 }) => {
+    let refs = loadReferences();
+    if (genre) refs = refs.filter(r => r.genre === genre || (Array.isArray(r.style_categories) && r.style_categories.some(s => s.toLowerCase().includes(genre.toLowerCase()))));
+    if (style_category) refs = refs.filter(r => r.style_category === style_category || (Array.isArray(r.style_categories) && r.style_categories.includes(style_category)));
+    if (format && format !== 'all') refs = refs.filter(r => r.format === format);
+    if (ai_native === true) refs = refs.filter(r => r.ai_native === true);
+    if (ai_native === false) refs = refs.filter(r => r.ai_native !== true);
+
+    if (refs.length === 0) {
+      return { content: [{ type: 'text', text: 'No prestige references match those filters.' }] };
+    }
+    const slice = refs.slice(0, limit);
+    return {
+      content: [{
+        type: 'text',
+        text: `# Prestige References (${slice.length} of ${refs.length} matching)\n\n` +
+              slice.map(r => yaml.dump(r, { lineWidth: 120 })).join('\n---\n')
+      }]
+    };
+  }
+);
+
+// ─── Tool: get_v4_beat_recipe ───────────────────────────────────────────────
+
+server.tool(
+  'get_v4_beat_recipe',
+  'Get the canonical V4 production recipe for a beat type — primary model, fallback chain, prompt allocation, expected duration, common failure modes, prestige references. Source of truth for V4-pipeline decisions in Create Mode.',
+  {
+    beat_type: z.string().describe('V4 beat type (e.g. "TALKING_HEAD_CLOSEUP", "ACTION_NO_DIALOGUE", "INSERT_SHOT")'),
+  },
+  async ({ beat_type }) => {
+    const recipes = loadV4BeatRecipes();
+    const target = beat_type.toUpperCase();
+    const recipe = recipes.find(r => (r.beat_type || '').toUpperCase() === target);
+    if (!recipe) {
+      const known = recipes.map(r => r.beat_type).filter(Boolean);
+      return {
+        content: [{
+          type: 'text',
+          text: `No recipe found for beat_type="${beat_type}". Known beat types:\n${known.map(b => `  - ${b}`).join('\n')}`
+        }]
+      };
+    }
+    return {
+      content: [{
+        type: 'text',
+        text: `# V4 Beat Recipe — ${recipe.beat_type}\n\n` + yaml.dump(recipe, { lineWidth: 120 })
+      }]
     };
   }
 );

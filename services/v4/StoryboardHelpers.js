@@ -15,7 +15,10 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import seedreamFalService from '../SeedreamFalService.js';
+import seedreamFalService, { SceneAnchorOverDeterminedError } from '../SeedreamFalService.js';
+import { rewriteAnchorForContentPolicy } from './SceneMasterContentRewriter.js';
+import { generatePanelViaFallbackChain } from './SceneMasterModelFallback.js';
+import { isStylizedStrong, isNonPhotorealStyle, resolveStyleCategory } from './CreativeBriefDirector.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // Scene Master generation (Level 2 of the 3-level hierarchy)
@@ -57,6 +60,12 @@ export async function generateSceneMasters({
   // many conflicting visual states and produced incoherent panels.
   genre = '',
   productIntegrationStyle = '',
+  // V4 Phase 7 — commercialBrief threads style_category into the verticalDirective
+  // so non-photoreal styles (hand_doodle_animated, surreal_dreamlike) get a
+  // stylized-identity directive ("preserve archetype, not photographic likeness")
+  // instead of the photoreal "preserve exact facial structure" language that
+  // fights animated brief intent.
+  commercialBrief = null,
   userId,
   uploadBuffer,
   baseSeed
@@ -106,19 +115,57 @@ export async function generateSceneMasters({
     // respects aspect_ratio=9:16 but (same as Veo) will compose a wide-scope
     // panel inside a vertical canvas unless explicitly told to use vertical
     // stacking and fill the vertical axis.
-    const verticalDirective =
+    //
+    // V4 Phase 7 — split into framing clause + identity clause. The identity
+    // clause now branches on commercial_brief.style_category. For non-photoreal
+    // styles (hand_doodle_animated, surreal_dreamlike), demanding "exact facial
+    // structure from reference images (inter-ocular distance, nose geometry,
+    // jawline, lip shape)" forces Seedream to render photoreal facial features
+    // even when the brief said cel-shaded — the very style the brief asked
+    // for is fought by the directive. Stylized variant preserves CHARACTER
+    // ARCHETYPE (silhouette, hair, wardrobe, signature accessory) instead.
+    const framingClause =
       'VERTICAL 9:16 composition. Subject fills the full vertical axis of the frame. ' +
       'Visual elements stacked along the Y axis (foreground/midground/background vertical). ' +
       'Subject occupies 70-90% of frame height. Tight headroom. ' +
       'No letterbox, no cinemascope bars, no horizontal-wide shot placed in a vertical canvas. ' +
       'Portrait-native framing — TikTok / Instagram Reels aspect. ' +
-      'If architecture is present, use low-angle looking UP with ceiling in upper third. ' +
-      'If characters present, preserve exact facial structure from reference images ' +
-      '(inter-ocular distance, nose geometry, jawline, lip shape) — identity is invariant across shots.';
+      'If architecture is present, use low-angle looking UP with ceiling in upper third.';
+
+    let identityClause;
+    if (isStylizedStrong(commercialBrief)) {
+      const styleCategory = resolveStyleCategory(commercialBrief);
+      identityClause =
+        `If characters present, preserve the CHARACTER ARCHETYPE in the ${styleCategory} art style — ` +
+        'silhouette, hair shape, wardrobe motif, signature accessory. ' +
+        'Stylized interpretation, not photographic likeness. ' +
+        'The reference images describe the actor; the rendered character is the actor reinterpreted in ' +
+        `${styleCategory} grammar — same archetype, same wardrobe motif, but rendered in the target art style.`;
+    } else if (isNonPhotorealStyle(commercialBrief)) {
+      const styleCategory = resolveStyleCategory(commercialBrief);
+      identityClause =
+        'If characters present, preserve recognizable facial structure consistent with the reference images, ' +
+        `allowing for the ${styleCategory} art-direction interpretation in lighting, grade, and texture. ` +
+        'Identity is invariant; rendering style follows the brief.';
+    } else {
+      identityClause =
+        'If characters present, preserve exact facial structure from reference images ' +
+        '(inter-ocular distance, nose geometry, jawline, lip shape) — identity is invariant across shots.';
+    }
+
+    const verticalDirective = `${framingClause} ${identityClause}`;
     const fullPrompt = [verticalDirective, visualStylePrefix, anchorPrompt].filter(Boolean).join('. ');
 
+    // V4 Phase 5b — Fix 9 + N4. 5-tier Scene Master content-policy chain.
+    // Tier 0 (Seedream regex sanitize) lives inside SeedreamFalService.
+    // When Tier 0 exhausts, Seedream throws SceneAnchorOverDeterminedError.
+    // We then walk Tier 1 → 2 → 3 here.
+    let result = null;
+    let panelTier = 'tier0';
+    let panelPrompt = fullPrompt;
+
     try {
-      const result = await seedreamFalService.generatePanel({
+      result = await seedreamFalService.generatePanel({
         prompt: fullPrompt,
         referenceImages: refsCapped,
         options: {
@@ -129,25 +176,133 @@ export async function generateSceneMasters({
         },
         label: 'scene master'
       });
-
-      const publicUrl = await uploadBuffer(
-        result.imageBuffer,
-        `storyboard/scene-masters`,
-        `scene-${scene.scene_id || i}-master.png`,
-        'image/png'
-      );
-
-      scene.scene_master_url = publicUrl;
-      scene.scene_master_prompt = fullPrompt;
     } catch (err) {
-      // Don't throw — Scene Master failure should not kill the whole episode.
-      // The affected scene's beats will fall back to prior-beat endframes
-      // or raw character sheets as their reference stack.
-      scene.scene_master_error = err.message || String(err);
+      if (!(err instanceof SceneAnchorOverDeterminedError)) {
+        // Non-content-policy failure — don't run Tier 1/2/3. Surface as
+        // before so non-commercial stories degrade gracefully.
+        scene.scene_master_error = err.message || String(err);
+        return;
+      }
+
+      // ── Tier 2 — Gemini-rewrite generic prompt ──
+      // Tier 1 (anchor-rewrite via Director finding) is dispatched by the
+      // ORCHESTRATOR (BrandStoryService Fix 8 auto-fix loop) once the beat
+      // pass surfaces the over-determination. At Scene Master generation
+      // time we don't have a Director verdict yet, so we go straight to
+      // Tier 2 here. The orchestrator-driven Tier 1 path catches any
+      // surviving anchor-class issue post-Lens-A.
+      try {
+        const rewritten = await rewriteAnchorForContentPolicy({
+          prompt: err.originalPrompt || fullPrompt,
+          sanitizedPrompt: err.sanitizedPrompt || '',
+          label: 'scene master'
+        });
+        panelPrompt = rewritten;
+        result = await seedreamFalService.generatePanel({
+          prompt: rewritten,
+          referenceImages: refsCapped,
+          options: {
+            aspectRatio: '9:16',
+            size: '3K',
+            seed: seed + i,
+            sequentialGeneration: 'auto'
+          },
+          label: 'scene master (Tier 2 rewrite)'
+        });
+        panelTier = 'tier2_gemini_rewrite';
+      } catch (tier2Err) {
+        // ── Tier 3 — different-model fallback (Nano Banana Pro → Flux 2 Max edit) ──
+        // Even after Gemini rewrite, Seedream may still refuse. The Tier 3
+        // chain tries a model with a different content filter.
+        try {
+          const fallbackPrompt = panelPrompt; // use whichever rewrite worked best
+          const fallbackResult = await generatePanelViaFallbackChain({
+            prompt: fallbackPrompt,
+            referenceImages: refsCapped,
+            label: 'scene master'
+          });
+          result = fallbackResult;
+          panelTier = fallbackResult.fallback_tier || 'tier3';
+        } catch (tier3Err) {
+          // ── Tier 4 — escalation. All five tiers exhausted. ──
+          // For commercial stories (N1 hard gate, user-confirmed 2026-04-29)
+          // we MUST throw so the episode escalates to user_review rather
+          // than ship with a null Scene Master. For non-commercial we
+          // preserve the legacy non-fatal behavior (beats fall back to
+          // character sheets / endframes).
+          scene.scene_master_error = `Tier chain exhausted (T0/T2/T3): ${tier3Err.message}`;
+          if (isCommercial) {
+            // N1: commercial Scene Master failure is FATAL. Throw so the
+            // outer Promise.all rejects and the orchestrator halts.
+            const fatalErr = new SceneMasterFatalError(
+              `Scene Master generation FAILED for commercial scene "${scene.scene_id || i}" — all 5 tiers exhausted. Original: ${err.message}; Tier2: ${tier2Err.message}; Tier3: ${tier3Err.message}`,
+              { scene_id: scene.scene_id, original_error: err, tier2_error: tier2Err, tier3_error: tier3Err }
+            );
+            throw fatalErr;
+          }
+          // Non-commercial: preserve legacy non-fatal degradation.
+          return;
+        }
+      }
+    }
+
+    // Persist the panel — same path for Tier 0 / Tier 2 / Tier 3 results.
+    const publicUrl = await uploadBuffer(
+      result.imageBuffer,
+      `storyboard/scene-masters`,
+      `scene-${scene.scene_id || i}-master.png`,
+      'image/png'
+    );
+
+    scene.scene_master_url = publicUrl;
+    scene.scene_master_prompt = panelPrompt;
+    scene.scene_master_tier = panelTier;
+    if (result.model && result.model !== 'seedream-5-lite-edit') {
+      scene.scene_master_fallback_model = result.model;
     }
   });
 
+  // V4 Phase 5b — N1 hard gate. For commercial, scene-level fatal errors
+  // bubble up as SceneMasterFatalError. We rethrow to the orchestrator so
+  // the episode is marked awaiting_user_review rather than shipping a 6-of-8
+  // cut. Non-commercial stories preserve their per-scene degradation.
+  if (isCommercial) {
+    // Use Promise.allSettled here (not Promise.all) so we can collect ALL
+    // fatal errors in one shot rather than only the first to reject. Then
+    // throw the first SceneMasterFatalError if any present.
+    const settled = await Promise.allSettled(tasks);
+    const fatals = settled.filter(s => s.status === 'rejected' && s.reason instanceof SceneMasterFatalError);
+    if (fatals.length > 0) {
+      const firstFatal = fatals[0].reason;
+      // Re-throw with aggregated detail so the orchestrator sees the count.
+      throw new SceneMasterFatalError(
+        `${fatals.length} commercial scene master(s) failed all 5 tiers. First: ${firstFatal.message}`,
+        { fatals: fatals.map(f => f.reason.context) }
+      );
+    }
+    // Surface other rejections as warnings — non-fatal but logged.
+    settled
+      .filter(s => s.status === 'rejected' && !(s.reason instanceof SceneMasterFatalError))
+      .forEach(s => logger.warn(`commercial scene master non-fatal rejection: ${s.reason?.message || s.reason}`));
+    return;
+  }
+
   await Promise.all(tasks);
+}
+
+/**
+ * V4 Phase 5b — N1. Fatal Scene Master failure for commercial stories.
+ * Thrown when all 5 tiers (regex sanitize → anchor rewrite → Gemini rewrite
+ * → model fallback chain) exhaust without producing a valid panel. The
+ * orchestrator catches this and marks the episode awaiting_user_review,
+ * rather than shipping with a null Scene Master and a 6-of-8 cut.
+ */
+export class SceneMasterFatalError extends Error {
+  constructor(message, context = {}) {
+    super(message);
+    this.name = 'SceneMasterFatalError';
+    this.context = context;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -287,6 +442,10 @@ export async function buildPersonaLockedFirstFrame({
   subjectReferenceImages = [],
   beat,
   visualStylePrefix = '',
+  // V4 Phase 7 — same style branching as generateSceneMasters. Non-photoreal
+  // briefs swap the photoreal "preserve EXACT facial structure" identity
+  // directive for an archetype-preserving directive.
+  commercialBrief = null,
   uploadBuffer,
   seed
 }) {
@@ -351,14 +510,35 @@ export async function buildPersonaLockedFirstFrame({
   // V4 Phase 9 — explicit vertical + identity directives in the pre-pass prompt.
   // The resulting Seedream panel becomes Veo's first_frame, so any drift here
   // propagates into the animated beat. Worth the prompt bloat.
+  //
+  // V4 Phase 7 — identity directive split (same logic as generateSceneMasters).
+  // Non-photoreal styles get archetype-preserving language; photoreal stays
+  // on the existing facial-structure language.
   const verticalDirective =
     'VERTICAL 9:16 portrait composition. Character fills the vertical axis (head-and-shoulders to waist-up). ' +
     'No letterbox, no wide cinemascope framing. Social-media vertical.';
-  const identityDirective =
-    'Identity anchoring: preserve EXACT facial structure from reference images — ' +
-    'inter-ocular distance, nose geometry, jawline, lip shape, brow arch, ear placement. ' +
-    'Hair / makeup / wardrobe / lighting may vary per scene but facial bone structure is INVARIANT. ' +
-    'Same person, same face, same age. Reference images are the canonical identity anchor.';
+  let identityDirective;
+  if (isStylizedStrong(commercialBrief)) {
+    const styleCategory = resolveStyleCategory(commercialBrief);
+    identityDirective =
+      `Identity anchoring (${styleCategory} stylization): preserve the CHARACTER ARCHETYPE — ` +
+      'silhouette, hair shape, wardrobe motif, signature accessory. ' +
+      'Stylized rendering, not photographic likeness. ' +
+      'The reference images describe the actor; render the actor reinterpreted in ' +
+      `${styleCategory} grammar — same archetype across shots.`;
+  } else if (isNonPhotorealStyle(commercialBrief)) {
+    const styleCategory = resolveStyleCategory(commercialBrief);
+    identityDirective =
+      `Identity anchoring (${styleCategory} stylized look): preserve recognizable facial structure ` +
+      'consistent with the reference images, allowing for the art-direction interpretation in lighting, ' +
+      'grade, and texture. Same person, same face; rendering style follows the brief.';
+  } else {
+    identityDirective =
+      'Identity anchoring: preserve EXACT facial structure from reference images — ' +
+      'inter-ocular distance, nose geometry, jawline, lip shape, brow arch, ear placement. ' +
+      'Hair / makeup / wardrobe / lighting may vary per scene but facial bone structure is INVARIANT. ' +
+      'Same person, same face, same age. Reference images are the canonical identity anchor.';
+  }
 
   // 2026-04-25 — subject mention disabled by default. The textual nudge in
   // the Seedream pre-pass prompt was over-steering the panel — Seedream

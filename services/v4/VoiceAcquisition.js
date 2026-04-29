@@ -138,6 +138,24 @@ function countMatches(text, patterns) {
 export function inferPersonaGender(persona) {
   if (!persona || typeof persona !== 'object') return 'unknown';
 
+  // V4 Phase 5b — visual_anchor.apparent_gender_presentation is the highest-
+  // priority signal. It is grounded in the actual reference photographs via a
+  // Vertex Gemini multimodal pass at upload time. When present and decisive,
+  // it overrides every text-only signal below. Closes the cascading-invention
+  // root cause that produced story `77d6eaaf`'s wrong-gender voice.
+  //
+  // V4 Wave 6 / F4 — vision_confidence guard. Mirrors CastBible's confidence
+  // floor: anchors with confidence < 0.5 (env-tunable) fall through to
+  // text-only inference so weak Vision signals don't drive the hard voice
+  // filter with maximum authority.
+  const VISUAL_ANCHOR_CONFIDENCE_FLOOR = Number(process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR || '0.5');
+  const anchor = persona.visual_anchor;
+  const anchorGender = String(anchor?.apparent_gender_presentation || '').toLowerCase().trim();
+  const anchorConfident = Number.isFinite(anchor?.vision_confidence)
+    ? anchor.vision_confidence >= VISUAL_ANCHOR_CONFIDENCE_FLOOR
+    : true; // missing confidence → treat as confident (legacy anchors)
+  if ((anchorGender === 'male' || anchorGender === 'female') && anchorConfident) return anchorGender;
+
   // Prefer persona-level explicit gender if provided (some persona generation
   // paths capture this directly). Trust it absolutely.
   const explicit = String(persona.gender || persona.sex || '').toLowerCase().trim();

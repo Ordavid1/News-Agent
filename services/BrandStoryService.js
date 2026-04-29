@@ -61,20 +61,21 @@ import MontageSequenceGenerator from './beat-generators/MontageSequenceGenerator
 import {
   generateSceneMasters,
   buildBeatRefStack,
-  extractBeatEndframe
+  extractBeatEndframe,
+  SceneMasterFatalError
 } from './v4/StoryboardHelpers.js';
 import { runQualityGate } from './v4/QualityGate.js';
+import { isBlockerOrCritical } from './v4/severity.mjs';
 import {
   acquirePersonaVoicesForStory,
   pickFallbackVoiceIdForPersonaInList
 } from './v4/VoiceAcquisition.js';
 import {
-  matchBrandKitToLut,
   matchByGenreAndMood,
   resolveEpisodeLut,
-  getLutFilePath,
-  isSpecSystemEnabled,
-  getStrengthForGenre
+  getStrengthForGenreWithStyle,
+  getGenreLutPool,
+  getDefaultLutForGenre
 } from './v4/BrandKitLutMatcher.js';
 import { generateSonicSeriesBible } from './v4/SonicSeriesBible.js';
 import { deriveCastBibleFromStory } from './v4/CastBible.js';
@@ -89,11 +90,23 @@ import {
   generateAllVariants as csdGenerateAllVariants
 } from './v4/CharacterSheetDirector.js';
 import {
+  extractPersonaVisualAnchor,
+  cacheKey as visualAnchorCacheKey,
+  VisualAnchorInversionError
+} from './v4/PersonaVisualAnchor.js';
+import {
   generateCommercialBrief,
   resolveCommercialEpisodeCount,
   isCommercialGenre,
-  isCommercialPipelineEnabled
+  isCommercialPipelineEnabled,
+  isStylizedStrong,
+  isNonPhotorealStyle,
+  resolveStyleCategory
 } from './v4/CreativeBriefDirector.js';
+import {
+  validateHintAgainstGenre,
+  renderCoherenceOverrideBlock
+} from './v4/DirectorsHintCoherence.js';
 import { validateScreenplay } from './v4/ScreenplayValidator.js';
 import { punchUpScreenplay } from './v4/ScreenplayDoctor.js';
 import { parseGeminiJson } from './v4/GeminiJsonRepair.js';
@@ -110,6 +123,8 @@ import {
   callVertexGeminiRaw,
   isVertexGeminiConfigured
 } from './v4/VertexGemini.js';
+import { formatReferenceLibraryForPrompt } from './v4/director-rubrics/commercialReferenceLibrary.mjs';
+import { buildGenreRegisterHint } from './v4/director-rubrics/sharedHeader.mjs';
 
 import Replicate from 'replicate';
 
@@ -403,6 +418,69 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         });
         const { count: briefCount, reasoning: briefReasoning } = resolveCommercialEpisodeCount(commercialBrief);
         logger.info(`commercial brief: concept="${(commercialBrief.creative_concept || '').slice(0, 60)}" style=${commercialBrief.style_category} episodes=${briefCount}`);
+
+        // V4 Phase 7 / B1 — Lens 0/A. Validate the brief BEFORE the screenplay
+        // writer is invoked. Soft_reject → ONE re-run of the brief with the
+        // director's nudge (mirroring the Phase 5 nudge contract). Hard_reject
+        // → halt + escalate (storyline never runs; user_review required).
+        // This is the first gate where bad creative direction can be caught
+        // before screenplay tokens are spent.
+        const briefMode = resolveDirectorMode(DIRECTOR_CHECKPOINTS.COMMERCIAL_BRIEF);
+        if (briefMode !== 'off' && isVertexGeminiConfigured()) {
+          try {
+            const briefDirector = new DirectorAgent();
+            const briefVerdict = await briefDirector.judgeCommercialBrief({
+              creativeBrief: commercialBrief,
+              story,
+              brandKit
+            });
+            const verdictKind = briefVerdict?.verdict || 'pass';
+            logger.info(`Lens 0/A commercial-brief verdict: ${verdictKind} (score=${briefVerdict?.overall_score ?? 'n/a'}, mode=${briefMode})`);
+
+            if (briefMode === 'blocking' && verdictKind === 'hard_reject') {
+              // Halt + escalate. Storyline must not run on a hard_rejected brief.
+              await updateBrandStory(storyId, userId, {
+                status: 'awaiting_user_review',
+                commercial_brief: commercialBrief,
+                commercial_brief_verdict: briefVerdict
+              });
+              throw new DirectorBlockingHaltError(
+                `Lens 0/A hard_reject on commercial brief: ${briefVerdict?.findings?.[0]?.message || 'see verdict'}`
+              );
+            }
+
+            if (briefMode === 'blocking' && verdictKind === 'soft_reject' && briefVerdict?.retry_authorization === true) {
+              // ONE re-run with the director's nudge spliced in. The findings
+              // become an additional STORY_DIRECTOR_NUDGE block on the brief
+              // generator's user prompt — mirroring the Phase 5 nudge contract.
+              const nudge = (briefVerdict.findings || [])
+                .map(f => `- ${f.severity}: ${f.message} → ${f?.remediation?.prompt_delta || ''}`)
+                .filter(Boolean)
+                .join('\n');
+              logger.info(`Lens 0/A soft_reject — re-running brief with director's nudge (${(briefVerdict.findings || []).length} findings)`);
+              try {
+                commercialBrief = await generateCommercialBrief({
+                  story,
+                  brandKit,
+                  personas,
+                  directorNudge: nudge,
+                  isRetry: true
+                });
+                logger.info(`brief re-run complete: concept="${(commercialBrief.creative_concept || '').slice(0, 60)}" style=${commercialBrief.style_category}`);
+              } catch (retryErr) {
+                logger.warn(`brief re-run failed (${retryErr.message}) — using original brief`);
+              }
+            }
+
+            // Persist the verdict regardless of outcome (audit trail) under
+            // commercial_brief_verdict. Used by Director Panel + telemetry.
+            commercialBrief.__verdict = briefVerdict;
+          } catch (verdictErr) {
+            if (verdictErr instanceof DirectorBlockingHaltError) throw verdictErr;
+            logger.warn(`Lens 0/A commercial-brief verdict failed (${verdictErr.message}) — proceeding without brief validation`);
+          }
+        }
+
         await updateBrandStory(storyId, userId, {
           commercial_brief: commercialBrief,
           product_integration_style: 'commercial',
@@ -414,14 +492,50 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         story.commercial_episode_count = briefCount;
         story.commercial_episode_reasoning = briefReasoning;
       } catch (err) {
+        if (err instanceof DirectorBlockingHaltError) throw err;
         logger.warn(`commercial brief failed (${err.message}) — storyline will run without brief context`);
       }
     }
 
+    // V4 Phase 5b — Fix 5. Director's Hint genre-coherence check. Score the
+    // hint against the active genre register on the five universal craft axes.
+    // When register_distance > 0.5 OR verdict is antagonistic (and the user
+    // hasn't explicitly opted in), splice a GENRE-OVERRIDE NOTE block into
+    // the storyline system prompt so Gemini honors the genre register over
+    // the conflicting hint. User opt-in (story.subject.directors_hint_user_override
+    // === true) skips the dampening.
+    const directorsNotes = story.subject?.directors_notes || '';
+    const directorsHintUserOverride = !!story.subject?.directors_hint_user_override;
+    let directorsHintVerdict = null;
+    let directorsHintOverrideBlock = '';
+    if (directorsNotes && !directorsHintUserOverride) {
+      try {
+        directorsHintVerdict = await validateHintAgainstGenre({
+          hint: directorsNotes,
+          genre: story.subject?.genre || 'drama'
+        });
+        if (!directorsHintVerdict.ok) {
+          logger.warn(
+            `director's hint conflicts with genre register: ` +
+            `distance=${directorsHintVerdict.register_distance.toFixed(2)}, ` +
+            `axes=[${directorsHintVerdict.conflicting_axes.join(', ')}], ` +
+            `verdict=${directorsHintVerdict.overall_verdict}. Splicing GENRE-OVERRIDE NOTE.`
+          );
+          directorsHintOverrideBlock = renderCoherenceOverrideBlock(directorsHintVerdict);
+        }
+      } catch (err) {
+        logger.warn(`director's hint coherence check threw (${err.message}) — proceeding without dampening`);
+      }
+    }
+
     const systemPrompt = getStorylineSystemPrompt(brandKit, {
-      directorsNotes: story.subject?.directors_notes || '',
+      directorsNotes,
       pipelineVersion: storylinePipelineVersion,
-      commercialBrief
+      commercialBrief,
+      // V4 Phase 5b — pass the override block so the system prompt can render
+      // it above the hint block when register-distance is too high. Empty
+      // string when the hint is compatible OR the user explicitly opted in.
+      directorsHintOverrideBlock
     });
     const userPrompt = getStorylineUserPrompt(
       personas,
@@ -2368,7 +2482,12 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
           styleHint,
           allRefs,
           userId,
-          baseSeed
+          baseSeed,
+          // V4 Phase 7 — thread commercial_brief so non-photoreal styles get
+          // a stylized CIP (cel-shaded screen test) instead of the photoreal
+          // default. Identity (visual_anchor + facial structure) still drives
+          // identity layer; style governs RENDERING.
+          commercialBrief: story?.commercial_brief || null
         });
         if (canonicalIdentityUrls.length > 0) {
           logger.info(`  ${name} CIP: ${canonicalIdentityUrls.length} canonical view(s) generated — identity locked`);
@@ -2405,10 +2524,20 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * Returns empty array if Flux isn't available — caller falls back to
    * ordered reference_image_urls.
    */
-  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, userId, baseSeed }) {
+  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, userId, baseSeed, commercialBrief = null }) {
     if (!fluxFalService.isAvailable()) return [];
 
     logger.info(`  ${name}: canonicalizing identity (CIP stage)...`);
+
+    // V4 Phase 7 — when commercial_brief.style_category is non-photoreal-strong,
+    // generate the CIP in the target style (cel-shaded screen test, painterly
+    // screen test, etc.) so beats that reference the CIP downstream get a
+    // stylized identity anchor instead of a photoreal one being repeatedly
+    // re-stylized per beat. Identity (visual_anchor.gender / age / facial
+    // structure) still drives the face; style governs RENDERING.
+    const stylizedCip = isStylizedStrong(commercialBrief);
+    const semiStyleCip = !stylizedCip && isNonPhotorealStyle(commercialBrief);
+    const cipStyleCategory = resolveStyleCategory(commercialBrief);
 
     // Neutral-lit front-facing portrait that distills all refs into ONE face.
     // The prompt explicitly negates stylistic variance and instructs the model
@@ -2416,19 +2545,48 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     // expression, neutral hair, neutral wardrobe. The point is to strip away
     // everything that varies across the input refs so only the facial
     // structure remains.
-    const cipFrontPrompt = [
-      'CANONICAL IDENTITY PORTRAIT — screen test reference frame.',
-      'Front-facing, straight-on, eye-level camera, neutral relaxed expression (slight closed mouth, no smile, no frown).',
-      'Flat even studio lighting, no dramatic shadows, no rim light, no colored gels — pure identity reference.',
-      'Neutral hair (styled simply, no elaborate styling), neutral clean wardrobe (plain shirt or blouse, no distinctive details).',
-      'Clean pure white seamless background, fully isolated.',
-      `Subject: ${description}.`,
-      styleHint ? `Style context: ${styleHint}.` : '',
-      'IMPORTANT: preserve exact facial structure from reference images — inter-ocular distance, nose geometry, jawline, lip shape, brow arch, ear placement. These are invariant.',
-      'Reference images may show the subject in varied hair / makeup / wardrobe across different events — extract the CONSTANT facial structure and render it under neutral conditions.',
-      'Hyperrealistic photographic quality, sharp facial detail, 85mm lens equivalent, head-and-shoulders framing, VERTICAL 9:16 portrait.',
-      'No text, no watermark, no letterbox.'
-    ].filter(Boolean).join(' ');
+    let cipFrontPrompt;
+    if (stylizedCip) {
+      // Stylized CIP — render in target art style. Identity language preserved
+      // (same facial structure, same hair, same gender/age) but the rendering
+      // language switches to cel-shaded / painterly / etc.
+      const stylePresetLanguage = ({
+        hand_doodle_animated: 'cel-shaded portrait, Studio-Ghibli-style line work, flat shadow planes, ink-line edges, hand-drawn texture',
+        surreal_dreamlike:    'painterly portrait, soft impasto brushstrokes, dreamlike chiaroscuro, hand-rendered surface texture, oil-on-canvas feel'
+      })[cipStyleCategory] || `${cipStyleCategory} stylized portrait`;
+      cipFrontPrompt = [
+        `CANONICAL IDENTITY PORTRAIT (${cipStyleCategory} stylization) — screen test reference frame in target art style.`,
+        'Front-facing, straight-on, eye-level, neutral relaxed expression (slight closed mouth, no smile, no frown).',
+        'Even lighting at art-direction level (flat shadow planes, no dramatic studio shadows).',
+        'Neutral hair (styled simply), neutral clean wardrobe (plain garment, no distinctive details).',
+        'Clean uniform background, character fully isolated.',
+        `Subject: ${description}.`,
+        styleHint ? `Style context: ${styleHint}.` : '',
+        `Render in ${stylePresetLanguage}. NOT photoreal.`,
+        'IMPORTANT: preserve facial STRUCTURE from reference images (inter-ocular distance, nose geometry, jawline, lip shape, ear placement) — these are invariant; only the rendering style changes. Same person, same character, stylized rendering.',
+        'Reference images describe the actor in photoreal form; render the actor reinterpreted in the target art style — same archetype, same face structure, stylized surface treatment.',
+        'Sharp facial detail at the art-direction level, head-and-shoulders framing, VERTICAL 9:16 portrait.',
+        'No text, no watermark, no letterbox.'
+      ].filter(Boolean).join(' ');
+    } else {
+      // Photoreal CIP path — unchanged from Phase 9 baseline. Semi-stylized
+      // (vaporwave_nostalgic / painterly_prestige) keeps photoreal identity
+      // since the style is grade-level / texture-level, not rendering-level.
+      cipFrontPrompt = [
+        'CANONICAL IDENTITY PORTRAIT — screen test reference frame.',
+        'Front-facing, straight-on, eye-level camera, neutral relaxed expression (slight closed mouth, no smile, no frown).',
+        'Flat even studio lighting, no dramatic shadows, no rim light, no colored gels — pure identity reference.',
+        'Neutral hair (styled simply, no elaborate styling), neutral clean wardrobe (plain shirt or blouse, no distinctive details).',
+        'Clean pure white seamless background, fully isolated.',
+        `Subject: ${description}.`,
+        styleHint ? `Style context: ${styleHint}.` : '',
+        semiStyleCip ? `Style note: brief.style_category = "${cipStyleCategory}" — CIP stays photoreal; style applies later in grade/texture, not at the identity-anchor stage.` : '',
+        'IMPORTANT: preserve exact facial structure from reference images — inter-ocular distance, nose geometry, jawline, lip shape, brow arch, ear placement. These are invariant.',
+        'Reference images may show the subject in varied hair / makeup / wardrobe across different events — extract the CONSTANT facial structure and render it under neutral conditions.',
+        'Hyperrealistic photographic quality, sharp facial detail, 85mm lens equivalent, head-and-shoulders framing, VERTICAL 9:16 portrait.',
+        'No text, no watermark, no letterbox.'
+      ].filter(Boolean).join(' ');
+    }
 
     let frontUrl = null;
     try {
@@ -2453,9 +2611,21 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     // Now generate 2 angled views using the CIP front as the DOMINANT
     // reference (appears twice in the input stack to heavily weight it).
     // The result: 3 views, same face, different angles, same conditions.
+    //
+    // V4 Phase 7 — when CIP front was rendered in stylized form (cel-shaded /
+    // painterly), the angle views must preserve that rendering — otherwise
+    // the angle views come back photoreal and the 3-view set becomes
+    // inconsistent. The "same lighting" / "clean white background" language
+    // is replaced with "same rendering style" language.
+    const stylizedSuffix = stylizedCip
+      ? ` In the SAME ${cipStyleCategory} rendering style as reference image 1 — same line work, same shadow plane treatment, same surface texture.`
+      : '';
+    const stylizedBg = stylizedCip
+      ? 'Clean uniform background matching reference image 1.'
+      : 'Clean white background.';
     const angledViews = [
-      { label: 'three-quarter-left', prompt: 'Same exact person as reference image 1, same exact face, same hair, same wardrobe, same lighting. Turn head 3/4 to camera-left (approximately 45 degrees). Neutral relaxed expression. Clean white background. VERTICAL 9:16 portrait. Head-and-shoulders framing.' },
-      { label: 'three-quarter-right', prompt: 'Same exact person as reference image 1, same exact face, same hair, same wardrobe, same lighting. Turn head 3/4 to camera-right (approximately 45 degrees). Neutral relaxed expression. Clean white background. VERTICAL 9:16 portrait. Head-and-shoulders framing.' }
+      { label: 'three-quarter-left', prompt: `Same exact person as reference image 1, same exact face, same hair, same wardrobe.${stylizedSuffix} Turn head 3/4 to camera-left (approximately 45 degrees). Neutral relaxed expression. ${stylizedBg} VERTICAL 9:16 portrait. Head-and-shoulders framing.` },
+      { label: 'three-quarter-right', prompt: `Same exact person as reference image 1, same exact face, same hair, same wardrobe.${stylizedSuffix} Turn head 3/4 to camera-right (approximately 45 degrees). Neutral relaxed expression. ${stylizedBg} VERTICAL 9:16 portrait. Head-and-shoulders framing.` }
     ];
 
     const angledUrls = [];
@@ -2489,6 +2659,60 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
   // ═══════════════════════════════════════════════════
 
   /**
+   * Pure prompt-builder for the wizard director's hint. Extracted from
+   * `generateDirectorsHint` so prompt construction is unit-testable without
+   * mocking Vertex.
+   *
+   * The REFERENCE PALETTE framing line is load-bearing: the three explicit
+   * moves (borrow / blend / transcend) and the "do NOT pick the nearest match"
+   * guard against Gemini latching onto the closest-matching named exemplar
+   * and parroting it without thinking.
+   */
+  _buildDirectorsHintPrompt({
+    storyFocus = 'product',
+    genre = 'drama',
+    tone = 'engaging',
+    targetAudience = 'young professionals',
+    subjectContext = '',
+    personaContext = '',
+    brandContext = '',
+    genreRegister = '',
+    referencePalette = '',
+    variation = 1
+  } = {}) {
+    const angles = {
+      1: 'Focus on CINEMATOGRAPHY: Describe the lens, lighting setup, color grading, camera movements, and film stock. Reference specific cinematographers (Roger Deakins, Bradford Young). Be technical and visual.',
+      2: 'Focus on EMOTION & PACING: Describe the emotional rhythm, tension curve, silence vs intensity. Reference pacing styles (Thelma Schoonmaker jump cuts, Terrence Malick contemplative, Edgar Wright kinetic).',
+      3: 'Focus on FILM REFERENCES: Name 2-3 specific films or directors whose style should inspire this. Describe what to borrow from each — the specific visual/tonal quality.',
+      4: 'Focus on SENSORY EXPERIENCE: Describe textures, sounds, temperature of each frame. Reference sensory-rich filmmakers (Wong Kar-Wai, Sofia Coppola, Denis Villeneuve).',
+      5: 'WILDCARD — find an unexpected creative angle. Maybe a musical analogy, an architectural principle, a painting movement. Surprise the user.'
+    };
+
+    return `You are an Oscar-winning film director writing a 2-3 sentence creative brief for a branded short film series.
+
+STORY CONTEXT:
+- Focus: ${storyFocus} (${storyFocus === 'person' ? 'character-driven' : storyFocus === 'landscape' ? 'location cinema' : 'character story featuring this product as a naturalistic prop (Hollywood placement, not commercial showcase)'})
+- Genre: ${genre}
+- Tone: ${tone}
+- Target audience: ${targetAudience}
+${subjectContext ? '\n' + subjectContext : ''}
+${personaContext ? '\n' + personaContext : ''}
+${brandContext}
+
+${genreRegister}
+
+REFERENCE PALETTE — Cannes-Lion / Super Bowl / D&AD-caliber commercial work, included to spark synthesis. This is a PALETTE, not a multiple-choice menu and not a checklist. Your move can be any of: (a) borrow one whole-cloth if it genuinely fits this story, (b) blend two or three into a new gesture, (c) reject the lot and invent something new at the same caliber. Do NOT pick the nearest match by default — the goal is the right idea for THIS story, not the closest available. The library exists to raise the altitude of your thinking:
+${referencePalette}
+
+YOUR CREATIVE ANGLE:
+${angles[variation] || angles[1]}
+
+Write a vivid, specific, 2-3 sentence director's creative brief. It should read like a director pitching their vision to a cinematographer — precise, evocative, referencing specific techniques, films, or visual languages. NO generic advice. NO lists. Just a concentrated cinematic vision statement.
+
+Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
+  }
+
+  /**
    * Generate a director's creative brief using all available story context.
    * Each variation (1-5) focuses on a different creative angle.
    */
@@ -2515,31 +2739,19 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       ? `CHARACTERS: ${personas.join('; ')}`
       : '';
 
-    const angles = {
-      1: 'Focus on CINEMATOGRAPHY: Describe the lens, lighting setup, color grading, camera movements, and film stock. Reference specific cinematographers (Roger Deakins, Bradford Young). Be technical and visual.',
-      2: 'Focus on EMOTION & PACING: Describe the emotional rhythm, tension curve, silence vs intensity. Reference pacing styles (Thelma Schoonmaker jump cuts, Terrence Malick contemplative, Edgar Wright kinetic).',
-      3: 'Focus on FILM REFERENCES: Name 2-3 specific films or directors whose style should inspire this. Describe what to borrow from each — the specific visual/tonal quality.',
-      4: 'Focus on SENSORY EXPERIENCE: Describe textures, sounds, temperature of each frame. Reference sensory-rich filmmakers (Wong Kar-Wai, Sofia Coppola, Denis Villeneuve).',
-      5: 'WILDCARD — find an unexpected creative angle. Maybe a musical analogy, an architectural principle, a painting movement. Surprise the user.'
-    };
+    // V4 enrichment: genre-specific cinematic register + curated commercial
+    // reference palette. Both come from the same modules CreativeBriefDirector
+    // and the four checkpoint rubrics use, so the hint endpoint inherits the
+    // V4 source of truth automatically when the library or genre map evolves.
+    const genreRegister = buildGenreRegisterHint(genre);
+    const referencePalette = formatReferenceLibraryForPrompt({ limit: 6 });
 
-    const prompt = `You are an Oscar-winning film director writing a 2-3 sentence creative brief for a branded short film series.
-
-STORY CONTEXT:
-- Focus: ${storyFocus} (${storyFocus === 'person' ? 'character-driven' : storyFocus === 'landscape' ? 'location cinema' : 'character story featuring this product as a naturalistic prop (Hollywood placement, not commercial showcase)'})
-- Genre: ${genre}
-- Tone: ${tone}
-- Target audience: ${targetAudience}
-${subjectContext ? '\n' + subjectContext : ''}
-${personaContext ? '\n' + personaContext : ''}
-${brandContext}
-
-YOUR CREATIVE ANGLE:
-${angles[variation] || angles[1]}
-
-Write a vivid, specific, 2-3 sentence director's creative brief. It should read like a director pitching their vision to a cinematographer — precise, evocative, referencing specific techniques, films, or visual languages. NO generic advice. NO lists. Just a concentrated cinematic vision statement.
-
-Respond with ONLY the director's brief text — no quotes, no labels, no JSON.`;
+    const prompt = this._buildDirectorsHintPrompt({
+      storyFocus, genre, tone, targetAudience,
+      subjectContext, personaContext, brandContext,
+      genreRegister, referencePalette,
+      variation
+    });
 
     // V4 uses Vertex AI Gemini (not AI Studio).
     if (!isVertexGeminiConfigured()) {
@@ -2977,6 +3189,83 @@ Respond with ONLY valid JSON:
       }
     }
 
+    // ─── Step 0b: PersonaVisualAnchor extraction (V4 Phase 5b) ───
+    //
+    // Extract a vision-grounded `visual_anchor` for every persona that has
+    // reference photos but no anchor yet. The anchor becomes ground truth for
+    // every text-only stage downstream (storyline writer, CharacterSheetDirector,
+    // VoiceAcquisition, CastBible). Closes the cascading-invention root cause
+    // that produced story `77d6eaaf` (logs.txt 2026-04-28: uploaded woman →
+    // invented male protagonist).
+    //
+    // Two source paths converge on ONE downstream contract:
+    //   • upload_vision  — input is user-uploaded photos
+    //   • sheet_vision   — input is CharacterSheetDirector-emitted character sheets
+    //                      (for brand_kit_auto personas that have no upload)
+    //
+    // Idempotent: re-running on the same photos returns the cached anchor
+    // without burning a Gemini call (vision_call_id keyed on sha256 of urls).
+    {
+      let extracted = 0;
+      let inversionEscalated = false;
+      const inversionDetails = [];
+      for (const p of personas) {
+        const photos = Array.isArray(p?.reference_image_urls) ? p.reference_image_urls.filter(Boolean) : [];
+        if (photos.length === 0) continue; // legacy/described persona w/o photos — anchor not extractable here
+        // Skip if anchor already exists AND it matches the current photo set
+        // (cacheKey is the sha256 of sorted photo URLs).
+        if (p.visual_anchor?.apparent_gender_presentation && p.visual_anchor?.vision_call_id) {
+          // Re-extract if the photo set changed since the last extraction.
+          // Otherwise skip.
+          const expectedCallId = visualAnchorCacheKey(photos);
+          if (expectedCallId === p.visual_anchor.vision_call_id) continue;
+        }
+        try {
+          const source = (p.persona_type === 'brand_kit_auto' || p.is_auto_generated) ? 'sheet_vision' : 'upload_vision';
+          progress('visual_anchor', `extracting visual_anchor for "${p.name || 'unnamed'}" (${photos.length} photo${photos.length === 1 ? '' : 's'}, source=${source})`);
+          const anchor = await extractPersonaVisualAnchor({
+            photoUrls: photos,
+            persona: p,
+            source,
+            existingAnchor: p.visual_anchor || null
+          });
+          p.visual_anchor = anchor;
+          extracted++;
+          if (anchor.vision_confidence < 0.5) {
+            inversionDetails.push({
+              persona: p.name || 'unnamed',
+              confidence: anchor.vision_confidence,
+              low_confidence_fields: anchor.low_confidence_fields
+            });
+          }
+        } catch (err) {
+          if (err instanceof VisualAnchorInversionError) {
+            // Should not fire on extraction (only on CharacterSheetDirector
+            // post-emission), but defense-in-depth.
+            inversionEscalated = true;
+            inversionDetails.push({ persona: p.name || 'unnamed', error: err.message });
+            logger.error(`visual_anchor extraction inversion-escalation for "${p.name || 'unnamed'}": ${err.message}`);
+          } else {
+            logger.warn(`visual_anchor extraction failed for "${p.name || 'unnamed'}" (${err.message}) — proceeding without anchor (text-only fallback)`);
+          }
+        }
+      }
+      if (extracted > 0) {
+        await updateBrandStory(storyId, userId, {
+          persona_config: { ...(story.persona_config || {}), personas }
+        });
+        progress('visual_anchor', `${extracted} persona(s) anchored${inversionDetails.length > 0 ? ` — ${inversionDetails.length} low-confidence/escalation(s)` : ''}`);
+      }
+      if (inversionEscalated) {
+        // Fail-fast — don't burn the rest of the pipeline on a known-bad
+        // identity. The user must confirm or correct the anchor.
+        throw new Error(
+          `V4: visual_anchor inversion(s) detected — escalating to user_review. ` +
+          `Details: ${JSON.stringify(inversionDetails)}`
+        );
+      }
+    }
+
     // ─── Step 1: Persona voice acquisition (idempotent) ───
     progress('voices', `acquiring ${personas.length} persona voice(s)`);
     const voiceResult = await acquirePersonaVoicesForStory(personas);
@@ -3021,6 +3310,101 @@ Respond with ONLY valid JSON:
         const unknownGenderCount = bible.principals.filter(p => p.gender_inferred === 'unknown').length;
         const mismatchCount = bible.principals.filter(p => p.voice_gender_match === false).length;
         progress('cast_bible', `bible derived (${principalCount} principal(s), unknown_gender=${unknownGenderCount}, voice_mismatch=${mismatchCount})`);
+
+        // V4 Phase 5b — Fix 6. Auto-recast on voice_gender_match=false.
+        // Closes the detection-action gap that produced the wrong-gender voice
+        // in story `77d6eaaf` (logs.txt 2026-04-28: voice_mismatch=1 detected
+        // but no remediation — the cut shipped with the mismatch).
+        //
+        // The remediation re-runs voice acquisition with force=true on the
+        // mismatched personas only. acquirePersonaVoicesForStory's pass-1
+        // logic re-evaluates each persona's gender (which now reads
+        // visual_anchor first per Fix 1+2) and excludes the wrong-gender
+        // voice from the candidate pool, so Gemini casts from a correct-gender
+        // shortlist.
+        //
+        // V4 Wave 6 / F3 — TWO guards layered on the trigger:
+        //
+        // (1) LOCKED-BIBLE GUARD (correctness — Failure Mode #3 contract).
+        // When cast_bible.status === 'locked', auto-recast must NOT mutate
+        // voice assignments. The lock is total per the manual-override
+        // contract; the user explicitly chose those voices and a silent
+        // overwrite would surprise them. Surface the mismatch as a Director
+        // Panel chip (F8 "Locked — clear bible to re-cast") instead.
+        //
+        // (2) VISUAL_ANCHOR CONFIDENCE GUARD (UX-quality). Auto-recast ONLY
+        // when the mismatched principal's gender_resolved_from === 'visual_anchor'.
+        // Storyline_signal / persona_signal mismatches with voice may reflect
+        // intentional cross-casting (storyline says "Marcus" but the persona's
+        // wardrobe code reads female — a defensible artistic choice). For
+        // those cases, surface an F8 "Voice mismatch — Re-pick" chip and let
+        // the user decide manually.
+        const bibleLocked = story.cast_bible?.status === 'locked';
+        if (bibleLocked && mismatchCount > 0) {
+          logger.warn(
+            `cast_bible: ${mismatchCount} principal(s) voice-mismatched but bible is LOCKED — ` +
+            `skipping auto-recast (lock is total per Failure Mode #3). User must clear the lock ` +
+            `via PATCH /cast-bible {bible:null} to re-cast.`
+          );
+        }
+        const mismatchedHighConfidence = bibleLocked
+          ? []
+          : bible.principals.filter(p =>
+              p.voice_gender_match === false
+              && p.gender_resolved_from === 'visual_anchor'
+            );
+        if (mismatchedHighConfidence.length > 0) {
+          const mismatchedIndexes = mismatchedHighConfidence.map(p => p.persona_index);
+          progress('cast_bible', `auto-recasting ${mismatchedIndexes.length} high-confidence mismatched voice(s) (visual_anchor + unlocked): persona_index=[${mismatchedIndexes.join(',')}]`);
+
+          // Clear stored voice on the mismatched personas so the re-acquire
+          // pass treats them as unassigned. The pass-1 hasExistingVoice/
+          // existingIsValid block already handles the gender-mismatch case,
+          // but explicitly clearing makes the remediation symmetric and the
+          // resulting log line clean.
+          mismatchedIndexes.forEach(idx => {
+            if (personas[idx]) {
+              personas[idx].elevenlabs_voice_id = null;
+              personas[idx].elevenlabs_voice_brief = null;
+              personas[idx].elevenlabs_voice_name = null;
+              personas[idx].elevenlabs_voice_justification = null;
+              personas[idx].elevenlabs_voice_gender = null;
+            }
+          });
+
+          const recastResult = await acquirePersonaVoicesForStory(personas, { force: false });
+          progress('cast_bible', `recast: acquired=${recastResult.acquired}, remediated=${recastResult.remediated}, failed=${recastResult.failed}`);
+          await updateBrandStory(storyId, userId, {
+            persona_config: { ...(story.persona_config || {}), personas }
+          });
+
+          // Re-derive bible to capture the new voice ids + new
+          // voice_gender_match status. Idempotent re-derivation.
+          const reBible = deriveCastBibleFromStory({ ...story, persona_config: { ...(story.persona_config || {}), personas } });
+          await updateBrandStory(storyId, userId, { cast_bible: reBible });
+          story.cast_bible = reBible;
+          // V4 Wave 6 / F3 — only count HIGH-CONFIDENCE post-recast mismatches
+          // for the "auto-recast failed" warning. Weak-signal residual mismatches
+          // are user decisions surfaced via the F8 Director Panel chip, not
+          // pipeline-side failures.
+          const reMismatchHighConfidence = reBible.principals.filter(p =>
+            p.voice_gender_match === false
+            && p.gender_resolved_from === 'visual_anchor'
+          ).length;
+          progress('cast_bible', `post-recast bible: high-confidence voice_mismatch=${reMismatchHighConfidence}`);
+
+          // If STILL high-confidence mismatched after recast (extreme edge
+          // case — no voices of correct gender available in the library),
+          // log as warning. Story still ships; the cast_bible row carries
+          // the unresolved flag for the Director Panel.
+          if (reMismatchHighConfidence > 0) {
+            logger.warn(
+              `cast_bible: ${reMismatchHighConfidence} high-confidence principal(s) still voice-mismatched after auto-recast. ` +
+              `Library may lack voices of the required gender. Manual override required via PATCH ` +
+              `/api/brand-stories/:id/personas/:idx/voice.`
+            );
+          }
+        }
       }
     }
 
@@ -3035,7 +3419,15 @@ Respond with ONLY valid JSON:
       }
     }
 
-    if (brandKit && !story.brand_kit_lut_id && !story.locked_lut_id) {
+    // V4 Phase 5b — Director Agent's verdict (2026-04-29). The previous gate
+    // (`if (brandKit && !story.brand_kit_lut_id && !story.locked_lut_id)`) was
+    // a root-cause bug: when a story had NO brandKit, NO LUT resolution ran.
+    // Gemini got the legacy 8-LUT list from the V4 prompt schema and emitted
+    // arbitrary picks (story `77d6eaaf` → bs_cool_noir on a hyperreal commercial).
+    //
+    // New gate: ALWAYS run resolution when the spec system is on AND the story
+    // is not already locked. brandKit is now optional input to the matcher.
+    if (!story.brand_kit_lut_id && !story.locked_lut_id) {
       // V4 LUT resolution — TWO COEXISTING SYSTEMS gated by BRAND_STORY_LUT_SPEC_SYSTEM:
       //
       // ▸ SPEC SYSTEM ON (Phase 1+2):
@@ -3045,79 +3437,58 @@ Respond with ONLY valid JSON:
       //      brand-palette LUT (per-genre strength) — applied as a SECOND pass
       //      on top of the genre LUT in PostProduction stage 3
       //
-      // ▸ SPEC SYSTEM OFF (legacy default — preserves existing behavior):
-      //   1. matchBrandKitToLut(brandKit) → picks from 8 hand-graded library LUTs
-      //   2. If BRAND_STORY_LUT_GENERATIVE=true → synthesize generative LUT only
-      //      when the chosen library .cube is missing on disk (fallback mode)
-      const useSpecSystem = isSpecSystemEnabled();
-      // Phase 2 GA (2026-04-28): brand-palette LUT trim layered on top of the
-      // genre LUT is the new default. Set BRAND_STORY_LUT_GENERATIVE_PRIMARY=false
+      // V4 P1.2: legacy 8-LUT brand-vertical matcher is retired. Spec system
+      // is the only resolution path. Brand-palette LUT trim layered on top of
+      // the genre LUT is the default; set BRAND_STORY_LUT_GENERATIVE_PRIMARY=false
       // to disable the brand pass (genre LUT only).
       const generativePrimary =
         String(process.env.BRAND_STORY_LUT_GENERATIVE_PRIMARY || 'true').toLowerCase() !== 'false';
-      // Legacy fallback flag — only consulted when spec system is OFF. Stays opt-in.
-      const generativeFallbackMode = process.env.BRAND_STORY_LUT_GENERATIVE === 'true';
 
       let resolvedLutId;
       let brandLutId = null;
 
-      if (useSpecSystem) {
-        // ── SPEC SYSTEM PATH ────────────────────────────────────────────
-        progress('lut', 'spec system: matching genre + mood → genre LUT');
-        const genreMatch = await matchByGenreAndMood(story);
-        resolvedLutId = genreMatch.lutId;
-        progress('lut', `genre LUT → ${resolvedLutId}`);
+      // ── SPEC SYSTEM PATH (single canonical resolution) ──────────────
+      // V4 Phase 5b — runs unconditionally regardless of brandKit (Fix 3).
+      progress('lut', 'spec system: matching genre + mood → genre LUT');
+      const genreMatch = await matchByGenreAndMood(story);
+      resolvedLutId = genreMatch.lutId;
+      progress('lut', `genre LUT → ${resolvedLutId}`);
 
-        if (generativePrimary) {
-          const genre = story.subject?.genre || story.storyline?.genre;
-          const strength = getStrengthForGenre(genre);
-          progress('lut', `synthesizing brand-palette LUT (genre=${genre}, strength=${strength.toFixed(2)})`);
-          try {
-            const brandGen = await generateLutFromBrandKit(brandKit, { strength });
-            if (brandGen?.lutId) {
-              brandLutId = brandGen.lutId;
-              progress('lut', `brand trim → ${brandLutId}`);
-            } else {
-              progress('lut', 'brand palette ineligible (rejected by quality gates) — genre LUT only');
-            }
-          } catch (err) {
-            logger.warn(`V4: brand LUT synthesis failed (${err.message}) — genre LUT only`);
-          }
-        }
-      } else {
-        // ── LEGACY PATH (preserves existing behavior) ───────────────────
-        progress('lut', 'matching brand kit → LUT (legacy library)');
-        const lutMatch = await matchBrandKitToLut(brandKit);
-        resolvedLutId = lutMatch.lutId;
-
-        if (generativeFallbackMode) {
-          const libraryPath = getLutFilePath(resolvedLutId);
-          if (!libraryPath) {
-            try {
-              progress('lut', `library LUT ${resolvedLutId} missing on disk — synthesizing generative fallback`);
-              const generated = await generateLutFromBrandKit(brandKit, { strength: 0.35 });
-              if (generated?.lutId) {
-                resolvedLutId = generated.lutId;
-                progress('lut', `generative fallback → ${resolvedLutId}`);
-              } else {
-                progress('lut', `generative fallback produced no LUT (no palette) — keeping ${resolvedLutId} (ungraded)`);
-              }
-            } catch (err) {
-              logger.warn(`V4: generative LUT fallback failed (${err.message}) — keeping library id ${resolvedLutId} (will render ungraded)`);
-            }
+      // Brand-palette LUT trim only when brandKit is present (no palette
+      // → no synthesis input). V4 Phase 7: pass commercial_brief into
+      // strength resolution so non-photoreal style_categories get the
+      // 0.10 STYLE_BYPASS_STRENGTH instead of the photoreal genre default
+      // (a hand_doodle_animated commercial graded at 0.25 commercial-genre
+      // strength would smash the cel-shaded look back toward photoreal).
+      if (generativePrimary && brandKit) {
+        const genre = story.subject?.genre || story.storyline?.genre;
+        const strength = getStrengthForGenreWithStyle(genre, story.commercial_brief);
+        progress('lut', `synthesizing brand-palette LUT (genre=${genre}, strength=${strength.toFixed(2)})`);
+        try {
+          const brandGen = await generateLutFromBrandKit(brandKit, { strength });
+          if (brandGen?.lutId) {
+            brandLutId = brandGen.lutId;
+            progress('lut', `brand trim → ${brandLutId}`);
           } else {
-            progress('lut', `matched → ${resolvedLutId} (library .cube on disk — using hand-crafted)`);
+            progress('lut', 'brand palette ineligible (rejected by quality gates) — genre LUT only');
           }
-        } else {
-          progress('lut', `matched → ${resolvedLutId}`);
+        } catch (err) {
+          logger.warn(`V4: brand LUT synthesis failed (${err.message}) — genre LUT only`);
         }
       }
 
-      const updates = { brand_kit_lut_id: resolvedLutId };
-      if (brandLutId) updates.brand_palette_lut_id = brandLutId;
-      await updateBrandStory(storyId, userId, updates);
-      story.brand_kit_lut_id = resolvedLutId;
-      if (brandLutId) story.brand_palette_lut_id = brandLutId;
+      // V4 P1.2 — spec system always runs, so resolvedLutId is always set
+      // (matchByGenreAndMood returns the SPEC_SAFE_FALLBACK if no match).
+      // Persist unconditionally.
+      if (resolvedLutId) {
+        const updates = { brand_kit_lut_id: resolvedLutId };
+        if (brandLutId) updates.brand_palette_lut_id = brandLutId;
+        await updateBrandStory(storyId, userId, updates);
+        story.brand_kit_lut_id = resolvedLutId;
+        if (brandLutId) story.brand_palette_lut_id = brandLutId;
+      } else {
+        progress('lut', 'no LUT resolution path ran (no spec system, no brandKit) — PostProduction will use the safe fallback');
+      }
     }
 
     // ─── Step 2b: Sonic Series Bible (lazy + idempotent — mirrors LUT pattern) ───
@@ -3223,14 +3594,19 @@ Respond with ONLY valid JSON:
       sonicSeriesBible: story.sonic_series_bible || null,
       productIntegrationStyle: productIntegrationStyleForValidator,
       subject: story.subject,
-      brandKit
+      brandKit,
+      // V4 Phase 5b — Fix 7. The brief-coherence validator (anchor vs
+      // brief.style_category) needs the commercial_brief in scope. Other
+      // validators (dialogue density, monoculture) read it for opt-out
+      // signals (voiceover-heavy briefs skip the dialogue-thin warning).
+      commercialBrief: story.commercial_brief || null
     };
     let qualityReport = { validator: null, doctor: null };
     try {
       const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, validatorOpts);
       qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
       sceneGraph = layer1.repaired;
-      const blockerList = layer1.issues.filter(i => i.severity === 'blocker');
+      const blockerList = layer1.issues.filter(i => isBlockerOrCritical(i.severity));
       const warningList = layer1.issues.filter(i => i.severity === 'warning');
       const blockerIds = blockerList.map(i => i.id).join(', ') || 'none';
       const warningIds = warningList.map(i => i.id).join(', ') || 'none';
@@ -3257,7 +3633,7 @@ Respond with ONLY valid JSON:
           const layer1b = validateScreenplay(sceneGraph, story.storyline || {}, personas, validatorOpts);
           qualityReport.validator_post_doctor = { issues: layer1b.issues, stats: layer1b.stats };
           sceneGraph = layer1b.repaired;
-          const postDocBlockerList = layer1b.issues.filter(i => i.severity === 'blocker');
+          const postDocBlockerList = layer1b.issues.filter(i => isBlockerOrCritical(i.severity));
           const postDocWarningList = layer1b.issues.filter(i => i.severity === 'warning');
           const postDocBlockerIds = postDocBlockerList.map(i => i.id).join(', ') || 'none';
           const postDocWarningIds = postDocWarningList.map(i => i.id).join(', ') || 'none';
@@ -3298,7 +3674,31 @@ Respond with ONLY valid JSON:
     };
     const anyDirectorEnabled = Object.values(directorModes).some(m => m !== 'off');
     let directorAgent = null;
-    const directorReport = { retries: {}, modes: directorModes };
+    const directorReport = { retries: {}, modes: directorModes, notes: [] };
+
+    // V4 P1.4 — Notes-severity surfacing.
+    //
+    // Note-severity findings are advisory: they do not gate ship and do not
+    // trigger Doctor/retake. Before P1.4 they were silently dropped. Now we
+    // accumulate them into directorReport.notes[] with source context so the
+    // panel can surface "the Director said X about this scene" without
+    // forcing remediation. Idempotent — safe to call repeatedly per verdict.
+    const accumulateNotes = (verdict, source) => {
+      if (!verdict || !Array.isArray(verdict.findings)) return;
+      for (const f of verdict.findings) {
+        if (!f) continue;
+        if (typeof f.severity !== 'string') continue;
+        if (f.severity.toLowerCase() !== 'note') continue;
+        directorReport.notes.push({
+          source,
+          id: f.id || null,
+          message: f.message || '',
+          dimension: f.dimension || null,
+          scope: f.scope || null,
+          remediation_hint: f.remediation?.prompt_delta || null
+        });
+      }
+    };
 
     // Format a verdict for the SSE/log progress detail string. On error
     // (Vertex truncation / network / quota — see logs.txt 2026-04-25 for the
@@ -3312,6 +3712,20 @@ Respond with ONLY valid JSON:
       const scoreStr = (v?.overall_score == null) ? '—' : v.overall_score;
       return `${verdictStr} (score ${scoreStr})`;
     };
+
+    // V4 Phase 7 / B5 — per-Lens genre routing. Commercial stories run the
+    // commercial-craft rubric variants (different DIMENSIONS — same verdict
+    // shape, same retry contract, same N6 parallelization). The orchestrator
+    // picks the method here; DirectorAgent itself is genre-stateless.
+    //
+    //   Lens 0/A (commercial brief)        → judgeCommercialBrief        (B1, in generateStoryline)
+    //   Lens A   (screenplay)              → judgeCommercialScreenplay
+    //   Lens B   (scene_master)            → judgeCommercialSceneMaster
+    //   Lens C   (beat)                    → judgeCommercialBeat
+    //   Lens D   (episode picture lock)    → judgeCommercialEpisode      (B2, done above)
+
+    // Initialize the director agent FIRST so the genre-routing predicate below
+    // sees the live instance, not the null placeholder declared at line 3676.
     if (anyDirectorEnabled) {
       try {
         directorAgent = new DirectorAgent();
@@ -3324,6 +3738,18 @@ Respond with ONLY valid JSON:
         directorAgent = null;
       }
     }
+
+    // V4 P4.4 — Bug fix. Before P4.4 these constants evaluated BEFORE directorAgent
+    // was initialized (the conditional below ran AFTER the constant binding), so
+    // `isCommercialEp` was always false even for commercial stories. That silently
+    // routed commercial stories to PRESTIGE rubrics — the wrong dimensions, the
+    // wrong reference library, the wrong ship gate. Moving initialization above
+    // the constants fixes the routing.
+    const isCommercialEp = !!(directorAgent && isCommercialGenre(story));
+    const commercialJudgeExtras = isCommercialEp ? {
+      commercialBrief: story.commercial_brief || null,
+      brandKit: brandKit || null
+    } : {};
 
     // Compute previous-episode final intensity once (used by Lens A judge prompt).
     let previousFinalIntensity = null;
@@ -3341,20 +3767,28 @@ Respond with ONLY valid JSON:
     // ─── Lens A — Table Read (post-screenplay, post-Doctor) ───
     if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY] !== 'off') {
       const lensAMode = directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY];
+      // Phase 7 / B5 — route by genre. Commercial → judgeCommercialScreenplay
+      // (different DIMENSIONS, same verdict shape).
+      const lensAFn = isCommercialEp
+        ? directorAgent.judgeCommercialScreenplay.bind(directorAgent)
+        : directorAgent.judgeScreenplay.bind(directorAgent);
+      const lensALabel = isCommercialEp ? DIRECTOR_CHECKPOINTS.COMMERCIAL_SCREENPLAY : DIRECTOR_CHECKPOINTS.SCREENPLAY;
       try {
-        const verdictA = await directorAgent.judgeScreenplay({
+        const verdictA = await lensAFn({
           sceneGraph,
           personas,
           storyBible: story?.storyline || null,
           sonicSeriesBible: story?.sonic_series_bible || null,
           previousEpisodesSummary: lastCliffhanger || '',
-          storyFocus: story?.story_focus || 'drama',
+          storyFocus: isCommercialEp ? 'commercial' : (story?.story_focus || 'drama'),
           previousFinalIntensity,
-          isRetry: false
+          isRetry: false,
+          ...commercialJudgeExtras
         });
         directorReport.screenplay = verdictA;
+        accumulateNotes(verdictA, 'lens_a:screenplay');
         progress('director:screenplay', fmtVerdict(verdictA), {
-          checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+          checkpoint: lensALabel,
           mode: lensAMode,
           verdict: verdictA?.verdict,
           score: verdictA?.overall_score,
@@ -3391,11 +3825,15 @@ Respond with ONLY valid JSON:
             // Convert director critical findings into Doctor-compatible issue
             // shape and force-run punchUpScreenplay (bypasses the doctor env
             // flag — the user's blocking-mode opt-in IS the trigger).
+            // V4 P0.1 — emit canonical 'critical'. The Doctor accepts both
+            // 'critical' (canonical) and 'blocker' (legacy alias) via
+            // isBlockerOrCritical(), so this is an in-place vocabulary
+            // unification with zero behavioral change.
             const doctorIssues = (verdictA.findings || [])
               .filter(f => f.severity === 'critical')
               .map(f => ({
                 id: f.id,
-                severity: 'blocker',
+                severity: 'critical',
                 scope: f.scope,
                 message: f.message,
                 hint: f.remediation?.prompt_delta || ''
@@ -3433,20 +3871,22 @@ Respond with ONLY valid JSON:
             }
 
             // Re-judge with isRetry=true (forces retry_authorization=false in verdict)
-            const verdictA2 = await directorAgent.judgeScreenplay({
+            const verdictA2 = await lensAFn({
               sceneGraph,
               personas,
               storyBible: story?.storyline || null,
               sonicSeriesBible: story?.sonic_series_bible || null,
               previousEpisodesSummary: lastCliffhanger || '',
-              storyFocus: story?.story_focus || 'drama',
+              storyFocus: isCommercialEp ? 'commercial' : (story?.story_focus || 'drama'),
               previousFinalIntensity,
-              isRetry: true
+              isRetry: true,
+              ...commercialJudgeExtras
             });
             directorReport.screenplay_retry = verdictA2;
+            accumulateNotes(verdictA2, 'lens_a:screenplay_retry');
             directorReport.retries = decision.nextRetriesState;
             progress('director:screenplay', `retry verdict: ${fmtVerdict(verdictA2)}`, {
-              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+              checkpoint: lensALabel,
               retry: true,
               verdict: verdictA2?.verdict,
               score: verdictA2?.overall_score
@@ -3513,7 +3953,11 @@ Respond with ONLY valid JSON:
 
     const preflight = router.preflight({
       scenes: sceneGraph.scenes,
-      costCapUsd
+      costCapUsd,
+      // V4 Phase 5b — N3. Genre threading lets the router enforce the
+      // commercial-only ref-stack precondition (no scene_master_url → mark
+      // beats as requires_scene_master_remediation).
+      genre: story.subject?.genre || story.storyline?.genre || ''
     });
 
     progress('preflight', `${preflight.beatCount} beats, est $${preflight.totalEstimatedCost.toFixed(2)} / cap $${costCapUsd.toFixed(2)}`);
@@ -3532,20 +3976,66 @@ Respond with ONLY valid JSON:
     const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
       this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
 
-    await generateSceneMasters({
-      scenes: sceneGraph.scenes,
-      visualStylePrefix: sceneGraph.visual_style_prefix,
-      personas,
-      subjectReferenceImages,
-      storyFocus: story.story_focus || 'product',
-      // Phase 6 (2026-04-28) — feed genre + integration style so Scene Master
-      // ref ordering / cap can switch to commercial mode (persona-first, cap 4).
-      genre: story.subject?.genre || story.storyline?.genre || '',
-      productIntegrationStyle: story.product_integration_style || '',
-      userId,
-      uploadBuffer: uploadBufferToStorage,
-      baseSeed: previousReady.length * 100 // varies per episode, deterministic across retries
-    });
+    try {
+      await generateSceneMasters({
+        scenes: sceneGraph.scenes,
+        visualStylePrefix: sceneGraph.visual_style_prefix,
+        personas,
+        subjectReferenceImages,
+        storyFocus: story.story_focus || 'product',
+        // Phase 6 (2026-04-28) — feed genre + integration style so Scene Master
+        // ref ordering / cap can switch to commercial mode (persona-first, cap 4).
+        genre: story.subject?.genre || story.storyline?.genre || '',
+        productIntegrationStyle: story.product_integration_style || '',
+        // V4 Phase 7 — thread commercial_brief so Scene Master directive can
+        // branch identity language on style_category (non-photoreal styles get
+        // archetype-preserving directive instead of "preserve exact facial structure").
+        commercialBrief: story.commercial_brief || null,
+        userId,
+        uploadBuffer: uploadBufferToStorage,
+        baseSeed: previousReady.length * 100 // varies per episode, deterministic across retries
+      });
+    } catch (smErr) {
+      // V4 Phase 5b — N1 hard gate. For commercial stories, Scene Master
+      // failure across all 5 tiers (Tier 0 sanitize → Tier 2 Gemini rewrite
+      // → Tier 3 model fallback) is fatal. Mark the episode awaiting_user_review
+      // and halt — do NOT ship a 6-of-8 cut as we did for story `77d6eaaf`
+      // (logs.txt 2026-04-28).
+      if (smErr instanceof SceneMasterFatalError) {
+        progress('scene_masters', `FATAL: ${smErr.message} — escalating to user_review`);
+        await updateBrandStoryEpisode(newEpisode.id, userId, {
+          status: 'awaiting_user_review',
+          error_message: `Scene Master generation FAILED for commercial. ${smErr.message}`
+        }).catch(() => {});
+        throw smErr;
+      }
+      // Non-fatal Scene Master failures are surfaced via scene.scene_master_error
+      // (legacy degradation path for non-commercial); rethrow others.
+      throw smErr;
+    }
+
+    // V4 Phase 5b — N1 hard gate (orchestrator layer). Defense-in-depth:
+    // assert that EVERY commercial scene has a non-null scene_master_url after
+    // the Tier chain. If any scene still lacks one (e.g. Tier 3 returned a
+    // result the upload pipeline silently dropped), halt + escalate.
+    {
+      const isCommercialStory = String(story.subject?.genre || story.storyline?.genre || '').toLowerCase().trim() === 'commercial';
+      if (isCommercialStory) {
+        const orphanScenes = (sceneGraph.scenes || []).filter(s => !s?.scene_master_url);
+        if (orphanScenes.length > 0) {
+          const ids = orphanScenes.map(s => s.scene_id || '?').join(', ');
+          progress('scene_masters', `FATAL: ${orphanScenes.length} commercial scene(s) lack scene_master_url after Tier chain (scene_ids=[${ids}]) — escalating to user_review`);
+          await updateBrandStoryEpisode(newEpisode.id, userId, {
+            status: 'awaiting_user_review',
+            error_message: `Scene Master availability gate failed for commercial: ${orphanScenes.length} scene(s) without scene_master_url (scene_ids=[${ids}])`
+          }).catch(() => {});
+          throw new SceneMasterFatalError(
+            `Scene Master availability gate failed: ${orphanScenes.length} commercial scene(s) without scene_master_url`,
+            { scene_ids: orphanScenes.map(s => s.scene_id) }
+          );
+        }
+      }
+    }
 
     // ─── Step 6.5: Director Agent (Layer 3) — Lens B "Look Dev Review" ───
     // Per-scene multimodal critique. Per-checkpoint mode resolution:
@@ -3557,20 +4047,111 @@ Respond with ONLY valid JSON:
       const lensBMode = directorModes[DIRECTOR_CHECKPOINTS.SCENE_MASTER];
       directorReport.scene_master = {};
       const lutId = story?.brand_kit_lut_id || story?.locked_lut_id || null;
-      for (const scene of sceneGraph.scenes) {
-        if (!scene?.scene_master_url) continue;
+
+      // V4 Phase 5b — N6 (Phase 1) + N1 (third layer). First-pass verdicts
+      // run in parallel via Promise.allSettled (per-scene verdicts are
+      // independent). Retries stay sequential below — they mutate scene
+      // state and call generateSceneMasters which is rare path.
+      //
+      // Plus: scenes with null scene_master_url emit a SYNTHETIC hard_reject
+      // verdict so the judge layer's audit trail captures the failure even
+      // when the upstream Tier chain (Fix 9 + N4) couldn't produce a panel
+      // for non-commercial degradation. Without this, story-level audit
+      // queries showed "no Lens B verdict" for the failed scene rather than
+      // the actual failure mode.
+      const firstPassPromises = sceneGraph.scenes.map(async (scene) => {
+        if (!scene?.scene_master_url) {
+          // Synthetic hard_reject — captures the upstream failure in the
+          // Director audit trail. For commercial this is unreachable (N1
+          // halts the orchestrator before this point); for non-commercial
+          // this records the degradation explicitly.
+          return {
+            scene,
+            verdictB: {
+              verdict: 'hard_reject',
+              overall_score: 0,
+              findings: [{
+                id: 'scene_master_unavailable',
+                severity: 'critical',
+                scope: `scene:${scene.scene_id}`,
+                message: `Scene Master generation failed across all 5 tiers (Tier 0/2/3 exhausted) — scene shipped without canonical panel.`,
+                evidence: scene.scene_master_error || 'no error message captured',
+                remediation: {
+                  action: 'user_review',
+                  prompt_delta: '',
+                  target_fields: ['scene_visual_anchor_prompt'],
+                  target: 'anchor'
+                }
+              }],
+              commendations: [],
+              retry_authorization: false,
+              judge_model: 'synthetic',
+              latency_ms: 0,
+              cost_usd: 0,
+              error: scene.scene_master_error || 'scene_master_url is null'
+            }
+          };
+        }
         try {
-          let verdictB = await directorAgent.judgeSceneMaster({
+          // Phase 7 / B5 — route by genre. Commercial → judgeCommercialSceneMaster.
+          const lensBFn = isCommercialEp
+            ? directorAgent.judgeCommercialSceneMaster.bind(directorAgent)
+            : directorAgent.judgeSceneMaster.bind(directorAgent);
+          const verdictB = await lensBFn({
             scene,
             sceneMasterImage: scene.scene_master_url,
             sceneMasterMime: 'image/jpeg',
             personas,
             lutId,
             visualStylePrefix: sceneGraph.visual_style_prefix || '',
-            storyFocus: story.story_focus || 'drama',
-            isRetry: false
+            storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama'),
+            isRetry: false,
+            ...commercialJudgeExtras
           });
+          return { scene, verdictB };
+        } catch (firstPassErr) {
+          return { scene, verdictB: { verdict: null, error: firstPassErr.message }, error: firstPassErr };
+        }
+      });
+
+      const firstPassResults = await Promise.allSettled(firstPassPromises);
+
+      // Now walk the results sequentially. Retries (which call
+      // generateSceneMasters and re-judge) stay one-at-a-time so they don't
+      // race on shared state like the seed counter or the upload bucket.
+      for (const settled of firstPassResults) {
+        if (settled.status !== 'fulfilled') {
+          logger.warn(`Lens B first-pass settle rejected: ${settled.reason?.message || settled.reason}`);
+          continue;
+        }
+        const { scene, verdictB: firstVerdict, error: firstErr } = settled.value;
+        if (!scene) continue;
+        if (firstErr) {
+          logger.warn(`V4 Director Agent Lens B (scene ${scene.scene_id}) failed (non-fatal): ${firstErr.message}`);
+          directorReport.scene_master[scene.scene_id] = { error: firstErr.message };
+          continue;
+        }
+        // Synthetic verdict for null SM — record + continue (no retry path).
+        if (firstVerdict?.judge_model === 'synthetic') {
+          directorReport.scene_master[scene.scene_id] = firstVerdict;
+          progress('director:scene_master', `scene ${scene.scene_id}: SYNTHETIC hard_reject (scene_master unavailable)`, {
+            checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+            mode: lensBMode,
+            scene_id: scene.scene_id,
+            verdict: 'hard_reject',
+            score: 0,
+            synthetic: true
+          });
+          continue;
+        }
+        if (!scene?.scene_master_url) continue;
+        try {
+          // V4 Phase 5b — N6. Reuse the first-pass verdict from the parallel
+          // batch above instead of re-judging. The retry path below (which
+          // mutates scene state) stays sequential and unchanged.
+          let verdictB = firstVerdict;
           directorReport.scene_master[scene.scene_id] = verdictB;
+          accumulateNotes(verdictB, `lens_b:scene_master:${scene.scene_id}`);
           progress('director:scene_master', `scene ${scene.scene_id}: ${fmtVerdict(verdictB)}`, {
             checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
             mode: lensBMode,
@@ -3625,6 +4206,9 @@ Respond with ONLY valid JSON:
                   // Phase 6 — same commercial-mode plumbing as the main call.
                   genre: story.subject?.genre || story.storyline?.genre || '',
                   productIntegrationStyle: story.product_integration_style || '',
+                  // V4 Phase 7 — thread commercial_brief so the retake honors
+                  // the same style-aware identity directive as the first pass.
+                  commercialBrief: story.commercial_brief || null,
                   userId,
                   uploadBuffer: uploadBufferToStorage,
                   baseSeed: (previousReady.length * 100) + 1 // shift seed for the retry
@@ -3639,20 +4223,26 @@ Respond with ONLY valid JSON:
 
               // Re-judge with isRetry=true (forces retry_authorization=false)
               if (scene.scene_master_url) {
-                verdictB = await directorAgent.judgeSceneMaster({
+                // Phase 7 / B5 — route by genre.
+                const lensBRetryFn = isCommercialEp
+                  ? directorAgent.judgeCommercialSceneMaster.bind(directorAgent)
+                  : directorAgent.judgeSceneMaster.bind(directorAgent);
+                const lensBLabel = isCommercialEp ? DIRECTOR_CHECKPOINTS.COMMERCIAL_SCENE_MASTER : DIRECTOR_CHECKPOINTS.SCENE_MASTER;
+                verdictB = await lensBRetryFn({
                   scene,
                   sceneMasterImage: scene.scene_master_url,
                   sceneMasterMime: 'image/jpeg',
                   personas,
                   lutId,
                   visualStylePrefix: sceneGraph.visual_style_prefix || '',
-                  storyFocus: story.story_focus || 'drama',
-                  isRetry: true
+                  storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama'),
+                  isRetry: true,
+                  ...commercialJudgeExtras
                 });
                 directorReport.scene_master[scene.scene_id] = verdictB;
                 directorReport.retries = decision.nextRetriesState;
                 progress('director:scene_master', `scene ${scene.scene_id} retry verdict: ${fmtVerdict(verdictB)}`, {
-                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  checkpoint: lensBLabel,
                   scene_id: scene.scene_id,
                   retry: true,
                   verdict: verdictB?.verdict,
@@ -3709,6 +4299,13 @@ Respond with ONLY valid JSON:
       userId,
       subjectReferenceImages,
       subject: story.subject || null,
+      // V4 Phase 5b — N3. Generators read episodeContext.genre to enforce
+      // commercial-only ref-stack precondition.
+      genre: story.subject?.genre || story.storyline?.genre || '',
+      // V4 Phase 7 — commercial_brief threads style_category through to the
+      // persona-lock pre-pass identity directive (StoryboardHelpers) and to
+      // the per-beat generators' style-aware paths.
+      commercial_brief: story.commercial_brief || null,
       // Subject Bible (Phase 1.1) — persistent cross-episode subject spec
       subject_bible: story.subject?.subject_bible || story.subject_bible || null,
       // Location Bible (Phase 1.2) — persistent cross-episode location dictionary
@@ -3946,9 +4543,14 @@ Respond with ONLY valid JSON:
           //              Second fail OR hard_reject → episode awaiting_user_review.
           if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.BEAT] !== 'off' && beat.endframe_url) {
             const lensCMode = directorModes[DIRECTOR_CHECKPOINTS.BEAT];
+            // Phase 7 / B5 — route by genre. Commercial → judgeCommercialBeat.
+            const lensCFn = isCommercialEp
+              ? directorAgent.judgeCommercialBeat.bind(directorAgent)
+              : directorAgent.judgeBeat.bind(directorAgent);
+            const lensCLabel = isCommercialEp ? DIRECTOR_CHECKPOINTS.COMMERCIAL_BEAT : DIRECTOR_CHECKPOINTS.BEAT;
             try {
               if (!directorReport.beat) directorReport.beat = {};
-              let verdictC = await directorAgent.judgeBeat({
+              let verdictC = await lensCFn({
                 beat,
                 scene,
                 endframeImage: beat.endframe_url,
@@ -3963,16 +4565,18 @@ Respond with ONLY valid JSON:
                   costUsd: result.costUsd || null,
                   metadata: result.metadata || null
                 },
-                storyFocus: story.story_focus || 'drama',
+                storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama'),
                 // Phase 4 — context for product_identity_lock + product_subtlety
                 productIntegrationStyle: story.product_integration_style || 'naturalistic_placement',
                 productSignatureFeatures: story.subject?.signature_features || [],
                 subjectName: story.subject?.name || null,
-                isRetry: false
+                isRetry: false,
+                ...commercialJudgeExtras
               });
               directorReport.beat[beat.beat_id] = verdictC;
+              accumulateNotes(verdictC, `lens_c:beat:${beat.beat_id}`);
               progress('director:beat', `beat ${beat.beat_id}: ${fmtVerdict(verdictC)}`, {
-                checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                checkpoint: lensCLabel,
                 mode: lensCMode,
                 beat_id: beat.beat_id,
                 verdict: verdictC?.verdict,
@@ -3982,12 +4586,94 @@ Respond with ONLY valid JSON:
 
               // Blocking-mode retry path
               if (lensCMode === 'blocking') {
+                // V4 Wave 6 / F6 — compose the beat's effective "brief" for
+                // the nudge_to_brief_ratio anti-runaway telemetry. Ratio
+                // compares the proposed nudge mass against the beat's
+                // composed directive that flowed through to the generator
+                // on the first pass. > 1.5× → halt+escalate (auto-fix is
+                // working AGAINST quality).
+                const beatBriefForRatio = [
+                  beat.dialogue || '',
+                  beat.expression_notes || '',
+                  beat.action_notes || '',
+                  beat.subtext || '',
+                  scene?.scene_visual_anchor_prompt || '',
+                  sceneGraph?.visual_style_prefix || ''
+                ].filter(Boolean).join(' ');
                 const decision = decideDirectorRetry({
                   verdict: verdictC,
                   checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
                   artifactKey: beat.beat_id,
-                  retriesState: directorReport.retries
+                  retriesState: directorReport.retries,
+                  // V4 Phase 5b — Fix 8. Enables hard_reject auto-fix on
+                  // commercial stories (default-on per user-confirmed plan
+                  // 2026-04-29). Non-commercial honors the legacy escalate-
+                  // immediately behavior unless BRAND_STORY_AUTOFIX_BEAT_HARDREJECT
+                  // is set in env.
+                  isCommercialStory: !!story.commercial_brief,
+                  originalBrief: beatBriefForRatio
                 });
+
+                // V4 Wave 6 / F6 — persist the ratio for telemetry queries
+                // and Director Panel chip surfacing. Column added in the
+                // add_auto_fix_attempts.sql migration.
+                if (Number.isFinite(decision.nudgeToBriefRatio)) {
+                  beat.nudge_to_brief_ratio = Number(decision.nudgeToBriefRatio.toFixed(3));
+                  await updateBrandStoryEpisode(newEpisode.id, userId, {
+                    last_nudge_to_brief_ratio: beat.nudge_to_brief_ratio,
+                    last_auto_fix_class: decision.targetClass || null
+                  }).catch(() => {});
+                }
+
+                // V4 Phase 5b — Fix 8 + N5. When the auto-fix decision targets
+                // the IDENTITY class, route the second attempt through a
+                // different model (OmniHuman 1.5 for dialogue beats, Veo 3.1
+                // for non-dialogue) by stamping beat.preferred_generator.
+                // The router resolves the override via GENERATOR_NAME_MAP at
+                // route time. First identity failure: rebuild ref stack, same
+                // model. Second failure: this fallback route.
+                //
+                // V4 Wave 6 / F1 — GROUP_DIALOGUE_TWOSHOT EXPLICITLY EXCLUDED from
+                // the OmniHuman fallback path. OmniHuman 1.5 takes ONE imageUrl
+                // + ONE audioUrl ([services/OmniHumanService.js:47]) — it cannot
+                // render two faces in one shot. A two-shot beat carries two
+                // personas and combined dialogue audio; routing it to OmniHuman
+                // would crash at the input-shape boundary. The proper fallback
+                // is SRS-decompile-on-the-fly (zip persona_indexes[] + dialogues[]
+                // into exchanges[] → ShotReverseShotCompiler.expandBeat → N
+                // alternating closeups, each routed to OmniHuman individually).
+                // That's a Phase 8 structural enhancement (requires in-place
+                // beat-array mutation during iteration). For Wave 6 we mark the
+                // beat as requires_decompile_for_retake and escalate cleanly so
+                // the Director Panel can offer the manual decompile affordance.
+                if (decision.shouldRetry && decision.targetClass === 'identity') {
+                  if (beat.type === 'GROUP_DIALOGUE_TWOSHOT') {
+                    beat.requires_decompile_for_retake = true;
+                    progress('director:beat',
+                      `beat ${beat.beat_id} IDENTITY on GROUP_DIALOGUE_TWOSHOT: ` +
+                      `auto-fix unsafe (OmniHuman is single-portrait). ` +
+                      `Marking for manual SRS decompile + escalating to user_review.`
+                    );
+                    // Force escalation rather than the unsafe OmniHuman route.
+                    decision.shouldRetry = false;
+                    decision.shouldEscalate = true;
+                    decision.reason = 'GROUP_DIALOGUE_TWOSHOT IDENTITY-class — auto-fix unsafe; recommend manual SRS decompile retake';
+                  } else {
+                    const isDialogueType = ['TALKING_HEAD_CLOSEUP', 'DIALOGUE_IN_SCENE', 'SHOT_REVERSE_SHOT_CHILD'].includes(beat.type);
+                    if (isDialogueType) {
+                      beat.preferred_generator = 'TalkingHeadCloseupGenerator';
+                      progress('director:beat', `beat ${beat.beat_id} IDENTITY auto-fix: routing to OmniHuman 1.5 (Mode A fallback)`);
+                    } else {
+                      // Non-dialogue IDENTITY → Veo 3.1 with persona-locked first frame.
+                      // BRollGenerator already uses Veo and supports first-frame
+                      // anchoring. ReactionGenerator + InsertShotGenerator also
+                      // route through Veo; for non-dialogue beats keeping the
+                      // existing generator and stamping director_nudge is
+                      // sufficient (Veo retries with the corrective hint).
+                      progress('director:beat', `beat ${beat.beat_id} IDENTITY auto-fix: rebuilding ref stack on Veo (same generator)`);
+                    }
+                  }
+                }
 
                 if (decision.shouldEscalate && !decision.shouldRetry) {
                   await updateBrandStoryEpisode(newEpisode.id, userId, {
@@ -4060,8 +4746,8 @@ Respond with ONLY valid JSON:
                       logger.warn(`beat ${beat.beat_id} retake endframe extraction failed: ${endErr.message}`);
                     }
 
-                    // Re-judge with isRetry=true
-                    verdictC = await directorAgent.judgeBeat({
+                    // Re-judge with isRetry=true (Phase 7 / B5 — same lensCFn helper).
+                    verdictC = await lensCFn({
                       beat,
                       scene,
                       endframeImage: beat.endframe_url || retakeUrl,
@@ -4076,13 +4762,15 @@ Respond with ONLY valid JSON:
                         costUsd: result2.costUsd || null,
                         metadata: result2.metadata || null
                       },
-                      storyFocus: story.story_focus || 'drama',
+                      storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama'),
                       productIntegrationStyle: story.product_integration_style || 'naturalistic_placement',
                       productSignatureFeatures: story.subject?.signature_features || [],
                       subjectName: story.subject?.name || null,
-                      isRetry: true
+                      isRetry: true,
+                      ...commercialJudgeExtras
                     });
                     directorReport.beat[beat.beat_id] = verdictC;
+                    accumulateNotes(verdictC, `lens_c:beat:${beat.beat_id}:retry`);
                     directorReport.retries = decision.nextRetriesState;
                     progress('director:beat', `beat ${beat.beat_id} retry verdict: ${fmtVerdict(verdictC)}`, {
                       checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
@@ -4368,7 +5056,9 @@ Respond with ONLY valid JSON:
 
     // ─── Step 10: Upload final + mark ready ───
     progress('upload', 'uploading final episode video');
-    const finalVideoUrl = await uploadBufferToStorage(
+    // V4 Wave 6 / F2 — `let` instead of `const` so the Lens D auto-reassemble
+    // path below can reassign to the reassembled URL when re-judge passes.
+    let finalVideoUrl = await uploadBufferToStorage(
       finalVideoBuffer,
       'videos/v4-final',
       `episode-${newEpisode.episode_number}-final.mp4`,
@@ -4382,8 +5072,23 @@ Respond with ONLY valid JSON:
     // resolveDirectorMode() downgrades 'blocking' → 'advisory' for this lens.
     if (directorAgent && finalVideoUrl && directorModes[DIRECTOR_CHECKPOINTS.EPISODE] !== 'off') {
       const lensDMode = directorModes[DIRECTOR_CHECKPOINTS.EPISODE];
+      // V4 Phase 7 / B2 — route Lens D by genre. Commercial stories get
+      // judgeCommercialEpisode (commercial dimensions: creative_bravery /
+      // brand_recall / hook_first_1_5s / tagline_landing / etc.) instead
+      // of the prestige judgeEpisode (rhythm / music_ducking / cliffhanger_sting).
+      // The verdict integrates into N2's ship-gate lifecycle below — same
+      // verdict.kind / verdict.overall_score contract; the SCORING DIMENSIONS
+      // are commercial-calibrated.
+      const isCommercialEp = isCommercialGenre(story);
+      const lensDFn = isCommercialEp
+        ? directorAgent.judgeCommercialEpisode.bind(directorAgent)
+        : directorAgent.judgeEpisode.bind(directorAgent);
+      const lensDLabel = isCommercialEp ? DIRECTOR_CHECKPOINTS.COMMERCIAL_EPISODE : DIRECTOR_CHECKPOINTS.EPISODE;
       try {
-        const verdictD = await directorAgent.judgeEpisode({
+        // judgeCommercialEpisode and judgeEpisode share buildEpisode-style args;
+        // commercialEpisode uses { episodeVideoBuffer, sceneGraph, episodeMeta }.
+        // We pass a superset that satisfies both; extra fields are ignored.
+        const verdictD = await lensDFn({
           // 2026-04-28 fix: Vertex rejects arbitrary HTTPS URIs in file_data
           // for video (returns 400 INVALID_ARGUMENT). Pass the buffer for
           // inline_data transport — works reliably for assembled episodes
@@ -4401,19 +5106,206 @@ Respond with ONLY valid JSON:
             beatCount: enrichedBeatMetadata.length,
             sceneCount: sceneGraph.scenes?.length || 0
           },
-          storyFocus: story.story_focus || 'drama'
+          // For judgeCommercialEpisode (Phase 6 contract): episodeMeta carries
+          // the commercial-craft dimensions context that the rubric reads.
+          episodeMeta: isCommercialEp ? {
+            commercial_brief: story.commercial_brief || null,
+            brand_kit: brandKit || null,
+            episode_number: newEpisode.episode_number,
+            episode_title: sceneGraph.title || `Episode ${newEpisode.episode_number}`,
+            cta_text: story.cta_text || story.storyline?.cta_text || null
+          } : undefined,
+          storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama')
         });
         directorReport.episode = verdictD;
+        accumulateNotes(verdictD, 'lens_d:episode');
         progress('director:episode', `episode: ${fmtVerdict(verdictD)}`, {
-          checkpoint: DIRECTOR_CHECKPOINTS.EPISODE,
+          checkpoint: lensDLabel,
           mode: lensDMode,
           verdict: verdictD?.verdict,
           score: verdictD?.overall_score,
           findings: (verdictD?.findings || []).length
         });
       } catch (dirErr) {
-        logger.warn(`V4 Director Agent Lens D failed (non-fatal): ${dirErr.message}`);
+        logger.warn(`V4 Director Agent Lens D (${lensDLabel}) failed (non-fatal): ${dirErr.message}`);
         directorReport.episode = { error: dirErr.message };
+      }
+    }
+
+    // V4 P1.3 — Lens D ship gate, full parity across all genres.
+    //
+    // User-confirmed 2026-04-29: reverses the earlier commercial-only Wave 5
+    // scoping. Reassemble cost (~$0.10-0.50 per soft-reject in compute,
+    // ffmpeg-only stages 3/4/6, no model calls) is acceptable for the quality
+    // gain on non-commercial work. Quality-first principle.
+    //
+    // Decision matrix (applies to all genres):
+    //   pass | pass_with_notes (score >= 75) → ship
+    //   soft_reject (60-75) → ONE auto-reassemble (LUT swap + music re-mix
+    //                          + sub re-burn) → re-judge:
+    //                          ↳ score >= 75 → ship
+    //                          ↳ score 60-75 → ready_with_director_warning
+    //                          ↳ score < 60  → awaiting_user_review
+    //   soft_reject (< 60)  → straight to awaiting_user_review
+    //   hard_reject         → awaiting_user_review
+    //
+    // Score-only ladder, no regression-protection rule (user-confirmed):
+    // post-reassemble score is trusted absolutely. If reassemble lands at 76
+    // and the original was 80, ship at 76 — the gate cares about absolute
+    // craft bar, not relative motion.
+    let finalEpisodeStatus = 'ready';
+    const verdictDFinal = directorReport.episode || null;
+    const lensDScore = Number.isFinite(verdictDFinal?.overall_score) ? verdictDFinal.overall_score : null;
+    const lensDVerdict = verdictDFinal?.verdict || null;
+
+    // V4 Wave 6 / F2 — Lens D auto-reassemble path. Wires the soft_reject
+    // 60-75 case to actually invoke this.reassembleEpisode (which re-runs
+    // post-production stages 3/4/6) and re-judge before escalating.
+    // Replaces the Wave 5 stub that queued the remediation but always
+    // escalated. The reassembleEpisode infrastructure has existed since
+    // Phase 1b ([services/BrandStoryService.js reassembleEpisode]) — we
+    // just weren't calling it from the ship-gate.
+    let lensDAutoReassembleAttempted = false;
+    let reassembledFinalVideoUrl = null;
+    let reassembledFinalVideoBuffer = null;
+
+    // V4 P1.3 — full-parity ship gate runs for ALL genres now (commercial
+    // and prestige). Lens D advisory-only path retired.
+    if (lensDVerdict) {
+      const passes = (lensDVerdict === 'pass' || lensDVerdict === 'pass_with_notes') && (lensDScore == null || lensDScore >= 75);
+      if (!passes) {
+        if (lensDVerdict === 'hard_reject' || (lensDScore != null && lensDScore < 60)) {
+          finalEpisodeStatus = 'awaiting_user_review';
+          progress('director:episode', `Lens D ship gate: ${lensDVerdict} (score=${lensDScore}) — escalating to user_review`);
+        } else if (lensDVerdict === 'soft_reject' && lensDScore != null && lensDScore >= 60) {
+          // Score 60-75 — try ONE auto-reassemble. Identify which axes are
+          // remediable via post-production-only stages (no beat re-render).
+          const findingIds = new Set((verdictDFinal.findings || []).map(f => f.id));
+          const lutMismatch = findingIds.has('lut_mismatch') || findingIds.has('lut_consistency_cross_scene') || findingIds.has('lut_mood_fit');
+          const musicMissing = findingIds.has('music_dialogue_ducking_feel');
+          const subsMissing = findingIds.has('subtitle_legibility_taste');
+          const remediable = lutMismatch || musicMissing || subsMissing;
+
+          if (!remediable) {
+            // No post-production-only fix path. Escalate.
+            finalEpisodeStatus = 'awaiting_user_review';
+            progress('director:episode', `Lens D ship gate: soft_reject (score=${lensDScore}) — no remediable axes — escalating to user_review`);
+          } else {
+            // Persist the in-progress final + LUT override BEFORE reassemble
+            // so reassembleEpisode picks them up from the episode row.
+            const overrideUpdates = {
+              scene_description: sceneGraph,
+              final_video_url: finalVideoUrl,
+              subtitle_url: subtitleUrl,
+              status: 'regenerating_beat', // transient; reassembleEpisode sets this too
+              director_report: directorReport
+            };
+            // LUT override: when Lens D flagged LUT mismatch, swap to the
+            // genre default for the next pass. The genre-pool validator
+            // (N7) accepts this since it's the genre default by definition.
+            if (lutMismatch) {
+              const genreForOverride = story.subject?.genre || story.storyline?.genre;
+              const genreDefault = getDefaultLutForGenre(genreForOverride);
+              if (genreDefault?.id && genreDefault.id !== episodeLutId) {
+                overrideUpdates.lut_id = genreDefault.id;
+                progress('director:episode', `Lens D auto-reassemble: LUT override ${episodeLutId} → ${genreDefault.id} (genre=${genreForOverride})`);
+              } else {
+                overrideUpdates.lut_id = episodeLutId;
+              }
+            } else {
+              overrideUpdates.lut_id = episodeLutId;
+            }
+
+            await updateBrandStoryEpisode(newEpisode.id, userId, overrideUpdates).catch((persistErr) => {
+              logger.warn(`Lens D auto-reassemble: pre-persist failed (non-fatal): ${persistErr.message}`);
+            });
+
+            try {
+              progress('director:episode', `Lens D ship gate: soft_reject (score=${lensDScore}) — invoking auto-reassemble (lut=${lutMismatch}, music=${musicMissing}, subs=${subsMissing})`);
+              await this.reassembleEpisode(storyId, userId, newEpisode.id, onProgress);
+              lensDAutoReassembleAttempted = true;
+
+              // Reload the episode to capture the new final_video_url written
+              // by reassembleEpisode (it suffixes -reassemble-{ts}).
+              const reassembledEpisode = await getBrandStoryEpisodeById(newEpisode.id, userId);
+              reassembledFinalVideoUrl = reassembledEpisode?.final_video_url || finalVideoUrl;
+
+              // Download the reassembled buffer for re-judging (Vertex needs
+              // inline_data for video, not a URL).
+              try {
+                const reassembledResp = await axios.get(reassembledFinalVideoUrl, { responseType: 'arraybuffer', timeout: 90000 });
+                reassembledFinalVideoBuffer = Buffer.from(reassembledResp.data);
+              } catch (downloadErr) {
+                logger.warn(`Lens D auto-reassemble: failed to download new final for re-judge (${downloadErr.message}) — escalating`);
+                finalEpisodeStatus = 'awaiting_user_review';
+              }
+
+              // Re-judge with the reassembled cut.
+              if (reassembledFinalVideoBuffer && directorAgent) {
+                // V4 P1.3 — genre-aware re-judge (matches the original verdict's
+                // rubric path, regardless of commercial vs prestige).
+                const lensDFn2 = isCommercialEp
+                  ? directorAgent.judgeCommercialEpisode.bind(directorAgent)
+                  : directorAgent.judgeEpisode.bind(directorAgent);
+                try {
+                  const verdictD2 = await lensDFn2({
+                    episodeVideoBuffer: reassembledFinalVideoBuffer,
+                    episodeVideoUrl: reassembledFinalVideoUrl,
+                    videoMime: 'video/mp4',
+                    sceneGraph,
+                    sonicSeriesBible: story?.sonic_series_bible || null,
+                    sonicWorld: sceneGraph?.sonic_world || null,
+                    postProductionManifest: {
+                      lutId: overrideUpdates.lut_id,
+                      musicBedUrl: null,
+                      subtitleUrl,
+                      beatCount: enrichedBeatMetadata?.length || 0,
+                      sceneCount: sceneGraph.scenes?.length || 0
+                    },
+                    storyFocus: story.story_focus || 'drama',
+                    isRetry: true
+                  });
+                  directorReport.episode_reassembled = verdictD2;
+                  const reScore = Number.isFinite(verdictD2?.overall_score) ? verdictD2.overall_score : null;
+                  const reVerdict = verdictD2?.verdict || null;
+                  // V4 P1.3 — score-only ladder, no regression rule (user-confirmed):
+                  //   re-verdict pass | pass_with_notes ≥ 75 → ready
+                  //   re-verdict 60-75                       → ready_with_director_warning (new status)
+                  //   re-verdict < 60 OR hard_reject         → awaiting_user_review
+                  const rePass = (reVerdict === 'pass' || reVerdict === 'pass_with_notes') && (reScore == null || reScore >= 75);
+                  const reInWarningBand = reScore != null && reScore >= 60 && reScore < 75;
+                  progress('director:episode', `Lens D re-judge after reassemble: ${reVerdict} (score=${reScore})`);
+                  if (rePass) {
+                    finalEpisodeStatus = 'ready';
+                    finalVideoUrl = reassembledFinalVideoUrl;
+                  } else if (reInWarningBand && reVerdict !== 'hard_reject') {
+                    finalEpisodeStatus = 'ready_with_director_warning';
+                    finalVideoUrl = reassembledFinalVideoUrl;
+                    progress('director:episode',
+                      `re-verdict ${reVerdict} score=${reScore} in 60-75 warning band → ` +
+                      `status=ready_with_director_warning (verdict drilldown surfaces in panel)`
+                    );
+                  } else {
+                    finalEpisodeStatus = 'awaiting_user_review';
+                    // Keep reassembled URL as the user-review candidate (better
+                    // than the original — even if not passing, it's the more-
+                    // remediated cut).
+                    finalVideoUrl = reassembledFinalVideoUrl;
+                  }
+                } catch (reJudgeErr) {
+                  logger.warn(`Lens D re-judge failed after reassemble (${reJudgeErr.message}) — escalating to user_review`);
+                  finalEpisodeStatus = 'awaiting_user_review';
+                  finalVideoUrl = reassembledFinalVideoUrl;
+                }
+              } else if (!reassembledFinalVideoBuffer) {
+                finalEpisodeStatus = 'awaiting_user_review';
+              }
+            } catch (reassembleErr) {
+              logger.warn(`Lens D auto-reassemble FAILED (${reassembleErr.message}) — escalating to user_review`);
+              finalEpisodeStatus = 'awaiting_user_review';
+            }
+          }
+        }
       }
     }
 
@@ -4421,12 +5313,17 @@ Respond with ONLY valid JSON:
       scene_description: sceneGraph,
       final_video_url: finalVideoUrl,
       subtitle_url: subtitleUrl,
-      status: 'ready',
+      status: finalEpisodeStatus,
       lut_id: episodeLutId,
-      director_report: directorReport
+      director_report: directorReport,
+      lens_d_auto_reassemble_attempted: lensDAutoReassembleAttempted
     });
 
-    progress('complete', `Episode ${newEpisode.episode_number} ready: ${finalVideoUrl}`);
+    if (finalEpisodeStatus === 'ready') {
+      progress('complete', `Episode ${newEpisode.episode_number} ready: ${finalVideoUrl}`);
+    } else {
+      progress('awaiting_user_review', `Episode ${newEpisode.episode_number} flagged by Lens D ship gate — user review required`);
+    }
 
     // ─── Step 11: Update story_so_far appendix for continuity ───
     try {
@@ -5094,6 +5991,24 @@ Respond with ONLY valid JSON:
     const productIntegrationStyle = story.product_integration_style
       || ((story.story_focus || 'product') === 'product' ? 'naturalistic_placement' : 'naturalistic_placement');
 
+    // V4 Phase 5b — resolve the genre LUT pool from the spec library and pass
+    // it to BOTH the system prompt (for the lutBlock instructions) AND the
+    // user prompt (for the lut_id schema enum). This eliminates the legacy
+    // 8-LUT bypass that produced bs_cool_noir on the hyperreal commercial in
+    // story `77d6eaaf` (logs.txt 2026-04-28). When hasBrandKitLut is true the
+    // pool is unused (Gemini emits no lut_id), but we resolve it anyway for
+    // logging clarity.
+    const screenplayGenre = story.subject?.genre || story.storyline?.genre || null;
+    // V4 P1.2 — spec system is the only LUT system; no flag check needed.
+    const genreLutPool = screenplayGenre
+      ? getGenreLutPool(screenplayGenre).map(l => ({
+          id: l.id,
+          look: l.look,
+          mood_keywords: l.mood_keywords,
+          reference_films: l.reference_films
+        }))
+      : null;
+
     const systemPrompt = getEpisodeSystemPromptV4(story.storyline, previousEpisodes, personas, {
       subject: story.subject,
       storyFocus: story.story_focus || 'product',
@@ -5135,12 +6050,17 @@ Respond with ONLY valid JSON:
       storyLanguage: story.language
         || story.subject?.language
         || (personas?.[0]?.language)
-        || 'en'
+        || 'en',
+      // V4 Phase 5b — genre LUT pool eliminates the legacy 8-LUT bypass.
+      genreLutPool
     });
 
     const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {
       hasBrandKitLut,
-      sonicSeriesBible: story.sonic_series_bible || null
+      sonicSeriesBible: story.sonic_series_bible || null,
+      // V4 Phase 5b — same pool so the lut_id enum in the JSON schema is
+      // genre-pool-only (no legacy 8-LUT enum).
+      genreLutPool
     });
 
     const parsed = await callVertexGeminiJson({

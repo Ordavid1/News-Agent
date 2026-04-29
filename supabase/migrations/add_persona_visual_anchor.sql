@@ -1,0 +1,57 @@
+-- V4 Phase 5b — PersonaVisualAnchor extraction.
+--
+-- Persists a vision-grounded `visual_anchor` record on every persona that
+-- has reference photos. The anchor becomes ground truth for every text-only
+-- decision stage downstream (storyline writer, CharacterSheetDirector,
+-- VoiceAcquisition, CastBible). Closes the cascading-invention root cause
+-- exposed by story `77d6eaaf` "Sydney+macbook3" (logs.txt 2026-04-28):
+-- uploaded woman → invented male protagonist "Elias" → male character sheets
+-- → wrong-gender voice baked into final cut.
+--
+-- SCHEMA NOTE:
+--   `persona_config` is already a JSONB column on `brand_stories`. The new
+--   field `persona_config.personas[i].visual_anchor` is JSONB-nested — NO
+--   schema-level column change required. This migration is a documentation
+--   anchor for the contract + adds an optional GIN index on the new key
+--   path for fast lookups in the Director Panel UI ("which stories have
+--   persona inversions to escalate?").
+--
+-- VISUAL_ANCHOR JSONB SHAPE (informational; enforced by services/v4/PersonaVisualAnchor.js):
+--   {
+--     // identity
+--     apparent_age_range:           string,                    // "25-35"
+--     apparent_gender_presentation: 'female'|'male'|'androgynous'|'unknown',
+--     ethnicity_visual_descriptors: string,                    // "olive complexion, european features"
+--     hair_color, hair_texture, hair_length_style: string,
+--     eye_color, skin_tone_descriptor:             string,
+--     build:                        string,                    // "slim athletic"
+--     distinctive_features:         string[],                  // ["scar above left brow"]
+--     // presence
+--     posture_baseline:             string,
+--     energy_register:              'grounded'|'coiled'|'effervescent'|'withdrawn'|'commanding'|'soft'|'guarded',
+--     micro_expression_baseline:    string,
+--     gaze_quality:                 'direct'|'averted'|'middle_distance'|'soft_engaged',
+--     // craft register
+--     recommended_focal_length_mm:  string,                    // "85-100"
+--     recommended_lighting_register: string,
+--     // provenance
+--     source:                       'upload_vision'|'sheet_vision'|'persona_bible_only',
+--     vision_confidence:            number,                    // 0..1
+--     low_confidence_fields:        string[],
+--     vision_call_id:               string,                    // sha256(photo_urls)
+--     extracted_at:                 ISO 8601 timestamp
+--   }
+
+-- Optional GIN index on persona_config — accelerates Director Panel queries
+-- like "which stories have personas with low vision_confidence" or
+-- "which personas need a re-extraction". GIN on JSONB supports the @> and
+-- existence operators used by the Director Panel API.
+--
+-- Idempotent: skipped if the index already exists.
+CREATE INDEX IF NOT EXISTS idx_brand_stories_persona_config_gin
+  ON brand_stories USING gin (persona_config jsonb_path_ops);
+
+-- No row-level migration required — visual_anchor is opt-in. Existing stories
+-- with thin personas can be backfilled via the new endpoint
+--   POST /api/brand-stories/:id/personas/:personaIndex/re-extract-visual-anchor
+-- which reads persona.reference_image_urls + writes back to persona_config.

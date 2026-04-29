@@ -41,11 +41,11 @@ const PROFILE_HTML_GENRES = [
 ];
 
 function loadValidLutIds() {
+  // V4 P1.2: legacy 8-LUT pool retired. Only spec ids count as valid.
   const lutLibPath = path.resolve(__dirname, '..', '..', 'assets', 'luts', 'library.json');
   const lutLib = JSON.parse(fs.readFileSync(lutLibPath, 'utf-8'));
   const ids = new Set();
   for (const e of (lutLib.creative || [])) ids.add(e.id);
-  for (const e of (lutLib.creative_legacy || [])) ids.add(e.id);
   return ids;
 }
 

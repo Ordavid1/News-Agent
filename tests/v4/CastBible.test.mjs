@@ -34,7 +34,7 @@ import {
 describe('DEFAULT_CAST_BIBLE — structural invariants', () => {
   test('default bible passes its own validator with no blockers', () => {
     const issues = validateCastBible(DEFAULT_CAST_BIBLE);
-    const blockers = issues.filter(i => i.severity === 'blocker');
+    const blockers = issues.filter(i => i.severity === 'critical');
     assert.equal(blockers.length, 0, `default bible has blockers: ${JSON.stringify(blockers)}`);
   });
 
@@ -64,24 +64,24 @@ describe('DEFAULT_CAST_BIBLE — structural invariants', () => {
 
 describe('validateCastBible — blocker rules', () => {
   test('rejects null bible', () => {
-    const blockers = validateCastBible(null).filter(i => i.severity === 'blocker');
+    const blockers = validateCastBible(null).filter(i => i.severity === 'critical');
     assert.ok(blockers.length > 0);
   });
 
   test('rejects non-object bible', () => {
-    const blockers = validateCastBible('not an object').filter(i => i.severity === 'blocker');
+    const blockers = validateCastBible('not an object').filter(i => i.severity === 'critical');
     assert.ok(blockers.length > 0);
   });
 
   test('rejects bible whose principals is not an array', () => {
-    const blockers = validateCastBible({ principals: 'nope' }).filter(i => i.severity === 'blocker');
+    const blockers = validateCastBible({ principals: 'nope' }).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field === 'principals'));
   });
 
   test('rejects principal without persona_index', () => {
     const blockers = validateCastBible({
       principals: [{ name: 'Sydney' }]
-    }).filter(i => i.severity === 'blocker');
+    }).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.field.includes('persona_index')));
   });
 
@@ -91,12 +91,12 @@ describe('validateCastBible — blocker rules', () => {
         { persona_index: 0, name: 'A' },
         { persona_index: 0, name: 'B' }
       ]
-    }).filter(i => i.severity === 'blocker');
+    }).filter(i => i.severity === 'critical');
     assert.ok(blockers.some(i => i.message.includes('duplicated')));
   });
 
   test('accepts empty principals (default bible shape)', () => {
-    const blockers = validateCastBible({ principals: [] }).filter(i => i.severity === 'blocker');
+    const blockers = validateCastBible({ principals: [] }).filter(i => i.severity === 'critical');
     assert.equal(blockers.length, 0);
   });
 
@@ -105,7 +105,7 @@ describe('validateCastBible — blocker rules', () => {
       principals: [
         { persona_index: 0, name: 'Sydney', gender_resolved_from: 'storyline_signal' }
       ]
-    }).filter(i => i.severity === 'blocker');
+    }).filter(i => i.severity === 'critical');
     assert.equal(blockers.length, 0);
   });
 
@@ -222,6 +222,111 @@ describe('Phase 3.5 — inferPersonaGenderForCast', () => {
     const result = inferPersonaGenderForCast(null, null);
     assert.equal(result.gender, 'unknown');
     assert.equal(result.resolved_from, 'unknown');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 Phase 5b + Wave 6 / F4 — visual_anchor cascade (Step 0)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('V4 Phase 5b + Wave 6 / F4 — visual_anchor cascade', () => {
+  test('returns visual_anchor when anchor is decisive AND vision_confidence ≥ floor', () => {
+    const persona = {
+      name: 'Persona 1',
+      visual_anchor: {
+        apparent_gender_presentation: 'female',
+        vision_confidence: 0.92
+      }
+    };
+    const result = inferPersonaGenderForCast(persona, null);
+    assert.equal(result.gender, 'female');
+    assert.equal(result.resolved_from, 'visual_anchor');
+  });
+
+  test('visual_anchor priority OVERRIDES storyline signal even if storyline says male', () => {
+    // The 77d6eaaf bug: female photo, storyline invented "Elias = male".
+    // visual_anchor must win.
+    const persona = {
+      name: 'Persona 1',
+      visual_anchor: {
+        apparent_gender_presentation: 'female',
+        vision_confidence: 0.85
+      }
+    };
+    const storyChar = {
+      name: 'Persona 1',
+      visual_description: 'A bearded man in a tuxedo. He is the king of his domain.'
+    };
+    const result = inferPersonaGenderForCast(persona, storyChar);
+    assert.equal(result.gender, 'female');
+    assert.equal(result.resolved_from, 'visual_anchor');
+  });
+
+  test('F4 — DOWNGRADES to text inference when vision_confidence < 0.5 (default floor)', () => {
+    const persona = {
+      name: 'Persona 1',
+      description: 'A young woman with red hair. Her gaze is steady.',
+      visual_anchor: {
+        apparent_gender_presentation: 'female',
+        vision_confidence: 0.4 // below floor — anchor is a hint, not ground truth
+      }
+    };
+    const result = inferPersonaGenderForCast(persona, null);
+    assert.equal(result.gender, 'female');
+    // NOT 'visual_anchor' — fell through to text inference because confidence too low
+    assert.equal(result.resolved_from, 'persona_signal');
+  });
+
+  test('F4 — uses anchor when vision_confidence missing (legacy anchors treated confident)', () => {
+    const persona = {
+      name: 'Persona 1',
+      visual_anchor: {
+        apparent_gender_presentation: 'male'
+        // no vision_confidence field — legacy anchor; treat as confident
+      }
+    };
+    const result = inferPersonaGenderForCast(persona, null);
+    assert.equal(result.gender, 'male');
+    assert.equal(result.resolved_from, 'visual_anchor');
+  });
+
+  test('F4 — anchor with unknown/androgynous gender presentation falls through (cascade continues)', () => {
+    const persona = {
+      name: 'Persona 1',
+      visual_anchor: {
+        apparent_gender_presentation: 'unknown',
+        vision_confidence: 0.9
+      },
+      gender: 'female' // explicit gender exists
+    };
+    const result = inferPersonaGenderForCast(persona, null);
+    // anchor unknown → falls through to Step 1 (persona_explicit)
+    assert.equal(result.gender, 'female');
+    assert.equal(result.resolved_from, 'persona_explicit');
+  });
+
+  test('F4 — confidence floor is env-tunable', () => {
+    const prev = process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR;
+    process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR = '0.8';
+    try {
+      const persona = {
+        name: 'Persona 1',
+        // Rich text — ≥2 female markers ("woman", "she", "her") so the
+        // text-inference fallback returns 'female' decisively.
+        description: 'A young woman in her thirties. She is determined. Her hair is dark.',
+        visual_anchor: {
+          apparent_gender_presentation: 'female',
+          vision_confidence: 0.6 // above default 0.5 but below override 0.8
+        }
+      };
+      const result = inferPersonaGenderForCast(persona, null);
+      // 0.6 < 0.8 floor → falls through to text inference → resolves female
+      assert.equal(result.gender, 'female');
+      assert.equal(result.resolved_from, 'persona_signal');
+    } finally {
+      if (prev === undefined) delete process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR;
+      else process.env.BRAND_STORY_VISION_CONFIDENCE_FLOOR = prev;
+    }
   });
 });
 

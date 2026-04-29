@@ -20,7 +20,10 @@ import {
   BEAT_VERDICT_SCHEMA,
   EPISODE_VERDICT_SCHEMA,
   COMMERCIAL_BRIEF_VERDICT_SCHEMA,
-  COMMERCIAL_EPISODE_VERDICT_SCHEMA
+  COMMERCIAL_EPISODE_VERDICT_SCHEMA,
+  COMMERCIAL_SCREENPLAY_VERDICT_SCHEMA,
+  COMMERCIAL_SCENE_MASTER_VERDICT_SCHEMA,
+  COMMERCIAL_BEAT_VERDICT_SCHEMA
 } from './director-rubrics/verdictSchema.mjs';
 import { buildScreenplayJudgePrompt } from './director-rubrics/screenplayRubric.mjs';
 import { buildSceneMasterJudgePrompt } from './director-rubrics/sceneMasterRubric.mjs';
@@ -30,6 +33,9 @@ import {
   buildCommercialBriefJudgePrompt,
   buildCommercialEpisodeJudgePrompt
 } from './director-rubrics/commercialRubric.mjs';
+import { buildCommercialScreenplayJudgePrompt } from './director-rubrics/commercialScreenplayRubric.mjs';
+import { buildCommercialSceneMasterJudgePrompt } from './director-rubrics/commercialSceneMasterRubric.mjs';
+import { buildCommercialBeatJudgePrompt } from './director-rubrics/commercialBeatRubric.mjs';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -148,7 +154,13 @@ export const CHECKPOINTS = Object.freeze({
   // runs BEFORE the screenplay writer; the commercial-episode check is the
   // Lens D variant for assembled commercial spots.
   COMMERCIAL_BRIEF: 'commercial_brief',
-  COMMERCIAL_EPISODE: 'commercial_episode'
+  COMMERCIAL_EPISODE: 'commercial_episode',
+  // V4 Phase 7 — full commercial Director ladder. Lens A / B / C variants
+  // for stories whose genre === 'commercial'. The orchestrator routes by
+  // genre and these checkpoints persist into director_report.
+  COMMERCIAL_SCREENPLAY: 'commercial_screenplay',
+  COMMERCIAL_SCENE_MASTER: 'commercial_scene_master',
+  COMMERCIAL_BEAT: 'commercial_beat'
 });
 
 const VALID_MODES = new Set(['off', 'shadow', 'blocking', 'advisory']);
@@ -200,11 +212,21 @@ export class DirectorBlockingHaltError extends Error {
  * @returns {'off' | 'shadow' | 'blocking' | 'advisory'}
  */
 export function resolveDirectorMode(checkpoint) {
+  // V4 Phase 7 — the genre-routed commercial checkpoints inherit the same
+  // env flag as their prestige counterparts because the orchestrator picks
+  // ONE method per checkpoint by genre. A single BRAND_STORY_DIRECTOR_BEAT
+  // flag governs both judgeBeat AND judgeCommercialBeat. The COMMERCIAL_BRIEF
+  // checkpoint (Lens 0/A) keeps its own flag so it can be gated independently.
   const perCheckpointKey = ({
-    [CHECKPOINTS.SCREENPLAY]:   'BRAND_STORY_DIRECTOR_SCREENPLAY',
-    [CHECKPOINTS.SCENE_MASTER]: 'BRAND_STORY_DIRECTOR_SCENE_MASTER',
-    [CHECKPOINTS.BEAT]:         'BRAND_STORY_DIRECTOR_BEAT',
-    [CHECKPOINTS.EPISODE]:      'BRAND_STORY_DIRECTOR_EPISODE'
+    [CHECKPOINTS.SCREENPLAY]:            'BRAND_STORY_DIRECTOR_SCREENPLAY',
+    [CHECKPOINTS.SCENE_MASTER]:          'BRAND_STORY_DIRECTOR_SCENE_MASTER',
+    [CHECKPOINTS.BEAT]:                  'BRAND_STORY_DIRECTOR_BEAT',
+    [CHECKPOINTS.EPISODE]:               'BRAND_STORY_DIRECTOR_EPISODE',
+    [CHECKPOINTS.COMMERCIAL_BRIEF]:      'BRAND_STORY_DIRECTOR_COMMERCIAL_BRIEF',
+    [CHECKPOINTS.COMMERCIAL_EPISODE]:    'BRAND_STORY_DIRECTOR_EPISODE',
+    [CHECKPOINTS.COMMERCIAL_SCREENPLAY]: 'BRAND_STORY_DIRECTOR_SCREENPLAY',
+    [CHECKPOINTS.COMMERCIAL_SCENE_MASTER]: 'BRAND_STORY_DIRECTOR_SCENE_MASTER',
+    [CHECKPOINTS.COMMERCIAL_BEAT]:       'BRAND_STORY_DIRECTOR_BEAT'
   })[checkpoint];
 
   const raw = (process.env[perCheckpointKey] || process.env.BRAND_STORY_DIRECTOR_AGENT || 'off')
@@ -213,8 +235,10 @@ export function resolveDirectorMode(checkpoint) {
     : (raw === 'false' ? 'off' : raw);
   let mode = VALID_MODES.has(normalized) ? normalized : 'off';
 
-  // Lens D never auto-retries; downgrade 'blocking' → 'advisory'.
-  if (checkpoint === CHECKPOINTS.EPISODE && mode === 'blocking') {
+  // Lens D never auto-retries; downgrade 'blocking' → 'advisory'. Same for
+  // the commercial Lens D variant.
+  if ((checkpoint === CHECKPOINTS.EPISODE || checkpoint === CHECKPOINTS.COMMERCIAL_EPISODE)
+      && mode === 'blocking') {
     mode = 'advisory';
   }
   return mode;
@@ -321,6 +345,62 @@ export class DirectorAgent {
       verdict.retry_authorization = false;  // commercial picture lock is advisory
     }
     return verdict;
+  }
+
+  /**
+   * V4 Phase 7 — COMMERCIAL Lens A (screenplay). Replaces the prestige
+   * screenplayRubric (story_spine / character_voice / dialogue_craft /
+   * subtext_density / etc.) with commercial-craft dimensions
+   * (creative_concept_clarity / visual_signature_strength / hook_first_1_5s
+   * / story_compression / tagline_landing_setup / product_role /
+   * style_category_fidelity / anti_brief_adherence). Routed by genre at the
+   * BrandStoryService call site. Text-only; same latency profile as
+   * judgeScreenplay.
+   */
+  async judgeCommercialScreenplay(args) {
+    const { systemPrompt, userPrompt } = buildCommercialScreenplayJudgePrompt(args);
+    return this._call({
+      systemPrompt,
+      userPrompt,
+      schema: COMMERCIAL_SCREENPLAY_VERDICT_SCHEMA,
+      checkpointLabel: CHECKPOINTS.COMMERCIAL_SCREENPLAY
+    });
+  }
+
+  /**
+   * V4 Phase 7 — COMMERCIAL Lens B (Scene Master). Replaces the prestige
+   * sceneMasterRubric (genre_register_visual / lut_mood_fit) with commercial
+   * dimensions (style_category_fidelity / style_palette_fit /
+   * visual_signature_consistency). Multimodal (still + text); same latency
+   * profile as judgeSceneMaster.
+   */
+  async judgeCommercialSceneMaster(args) {
+    const { systemPrompt, userParts } = buildCommercialSceneMasterJudgePrompt(args);
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: COMMERCIAL_SCENE_MASTER_VERDICT_SCHEMA,
+      checkpointLabel: CHECKPOINTS.COMMERCIAL_SCENE_MASTER
+    });
+  }
+
+  /**
+   * V4 Phase 7 — COMMERCIAL Lens C (beat). Replaces the prestige beatRubric
+   * continuity dimensions (lighting_continuity / lens_continuity /
+   * identity_lock) with commercial-aware ones (art_direction_consistency /
+   * framing_intent / identity_lock_stylized). Findings emit Phase 5b's
+   * `target` enum WITH the new `style` value for art-direction / palette
+   * / framing-vocab drift. Multimodal (endframe + optional midframe + text);
+   * same latency profile as judgeBeat.
+   */
+  async judgeCommercialBeat(args) {
+    const { systemPrompt, userParts } = buildCommercialBeatJudgePrompt(args);
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: COMMERCIAL_BEAT_VERDICT_SCHEMA,
+      checkpointLabel: CHECKPOINTS.COMMERCIAL_BEAT
+    });
   }
 
   /**
