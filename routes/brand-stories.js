@@ -1201,6 +1201,141 @@ router.post('/:id/episodes/:episodeId/reassemble', v4ReassembleLimiter, csrfProt
 });
 
 /**
+ * POST /api/brand-stories/:id/episodes/:episodeId/director-review
+ *
+ * V4 P0.5 — Director Review Resolution Layer.
+ *
+ * Resolves a Director-Agent BLOCKING-MODE halt that landed the episode in
+ * `awaiting_user_review`. The user provides one of three actions:
+ *
+ *   • approve         — clear halt at face value (only meaningful at Lens D
+ *                       when final_video_url exists)
+ *   • edit_and_retry  — capture user notes/edits for a future resume; flips
+ *                       status to 'failed' so user can re-trigger generation
+ *   • discard         — mark episode 'failed' with user reason
+ *
+ * Body schema:
+ *   {
+ *     action: 'approve' | 'edit_and_retry' | 'discard' (required),
+ *     notes?: string,           // user remediation note
+ *     edited_anchor?: string,   // Lens B halts only — anchor override
+ *     edited_dialogue?: string  // Lens C halts only — dialogue override
+ *   }
+ *
+ * Auth: requires authenticated session + CSRF + ownership of the episode.
+ * Telemetry: every resolution writes a row to `director_halt_resolutions`.
+ */
+router.post('/:id/episodes/:episodeId/director-review', csrfProtection, async (req, res) => {
+  try {
+    const { action, notes, edited_anchor, edited_dialogue } = req.body || {};
+
+    if (!action || !['approve', 'edit_and_retry', 'discard'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid or missing 'action' (expected: approve | edit_and_retry | discard)`
+      });
+    }
+
+    // Length guards — prevent abusive payloads from reaching downstream
+    // Gemini calls (which would otherwise charge tokens for 100KB notes).
+    const MAX_NOTES_LEN = 4000;
+    const MAX_OVERRIDE_LEN = 4000;
+    if (typeof notes === 'string' && notes.length > MAX_NOTES_LEN) {
+      return res.status(400).json({ success: false, error: `notes exceeds ${MAX_NOTES_LEN} chars` });
+    }
+    if (typeof edited_anchor === 'string' && edited_anchor.length > MAX_OVERRIDE_LEN) {
+      return res.status(400).json({ success: false, error: `edited_anchor exceeds ${MAX_OVERRIDE_LEN} chars` });
+    }
+    if (typeof edited_dialogue === 'string' && edited_dialogue.length > MAX_OVERRIDE_LEN) {
+      return res.status(400).json({ success: false, error: `edited_dialogue exceeds ${MAX_OVERRIDE_LEN} chars` });
+    }
+
+    const result = await brandStoryService.resolveDirectorReview(
+      req.params.id,
+      req.user.id,
+      req.params.episodeId,
+      {
+        action,
+        notes: typeof notes === 'string' ? notes : null,
+        edited_anchor: typeof edited_anchor === 'string' ? edited_anchor : null,
+        edited_dialogue: typeof edited_dialogue === 'string' ? edited_dialogue : null
+      }
+    );
+    return res.json(result);
+  } catch (error) {
+    const msg = error?.message || 'Failed to resolve director review';
+    // Distinguish "expected" client errors (validation, not-found, wrong-state)
+    // from server errors so the panel can show appropriate UX.
+    const isClientError =
+      msg.includes('not found') ||
+      msg.includes('access denied') ||
+      msg.includes('does not belong') ||
+      msg.includes('not in awaiting_user_review') ||
+      msg.includes('invalid action');
+    const status = isClientError ? 400 : 500;
+    logger.error(`director-review resolution error: ${msg}`);
+    return res.status(status).json({ success: false, error: msg });
+  }
+});
+
+/**
+ * POST /api/brand-stories/:id/episodes/:episodeId/director-review/auto-edit
+ *
+ * V4 hotfix 2026-04-30 — Smart Edit & Retry. Returns a synthesized edit
+ * directive built from the halt verdict's findings + the failed artifact's
+ * content. Replaces the previous flow where the user had to type free-form
+ * director notes (which they don't have the directing knowledge to write).
+ *
+ * Response:
+ *   {
+ *     success: true,
+ *     notes: string,             // ready to feed into resolveDirectorReview as `notes`
+ *     edited_anchor: string|null,
+ *     edited_dialogue: string|null,
+ *     source: 'rich' | 'cheap',  // 'rich' = Gemini-synthesized; 'cheap' = prompt_delta concat
+ *     halt_summary: { checkpoint, artifact_id, verdict_score, finding_count }
+ *   }
+ *
+ * Caller (Director Panel) shows the directive in a confirmation modal; user
+ * clicks "Apply" to POST to /director-review with action=edit_and_retry +
+ * the returned notes (and optional anchor/dialogue overrides).
+ */
+router.post('/:id/episodes/:episodeId/director-review/auto-edit', csrfProtection, async (req, res) => {
+  try {
+    const result = await brandStoryService.synthesizeDirectorReviewEdit({
+      storyId: req.params.id,
+      userId: req.user.id,
+      episodeId: req.params.episodeId
+    });
+
+    // Surface a small summary alongside the synthesized notes so the panel
+    // can render the halt context without re-fetching the episode.
+    const ep = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    const halt = ep?.director_report?.halt || {};
+    return res.json({
+      success: true,
+      ...result,
+      halt_summary: {
+        checkpoint: halt.checkpoint || null,
+        artifact_id: halt.scene_id || halt.beat_id || halt.artifactKey || null,
+        verdict_score: Number.isFinite(halt.verdict?.overall_score) ? halt.verdict.overall_score : null,
+        verdict_kind: halt.verdict?.verdict || null,
+        finding_count: Array.isArray(halt.verdict?.findings) ? halt.verdict.findings.length : 0
+      }
+    });
+  } catch (error) {
+    const msg = error?.message || 'Failed to synthesize director-review edit';
+    const isClientError =
+      msg.includes('not found') ||
+      msg.includes('access denied') ||
+      msg.includes('not in awaiting_user_review');
+    const status = isClientError ? 400 : 500;
+    logger.error(`director-review auto-edit error: ${msg}`);
+    return res.status(status).json({ success: false, error: msg });
+  }
+});
+
+/**
  * GET /api/brand-stories/personas/voice-library
  * Return the curated ElevenLabs preset voice library for the Director's Panel
  * persona override picker.

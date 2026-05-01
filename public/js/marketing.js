@@ -6819,7 +6819,12 @@ const IN_PROGRESS_EPISODE_STATUSES = new Set([
     'compositing', 'post_production', 'publishing',
     // V4 pipeline
     'brand_safety_check', 'generating_scene_masters', 'generating_beats',
-    'assembling', 'applying_lut'
+    'assembling', 'applying_lut',
+    // V4 hotfix 2026-05-01 — Edit & Retry / Regenerate Beat path. Without
+    // this entry, the panel-close → showStoryDetail handoff sees the
+    // episode as terminal and stops polling; the user gets a "Pending"
+    // badge with no spinner instead of live progress.
+    'regenerating_beat'
 ]);
 
 const isEpisodeInProgress = (ep) => IN_PROGRESS_EPISODE_STATUSES.has(ep?.status);
@@ -8544,9 +8549,14 @@ function renderEpisodeTimeline(episodes) {
             post_production: '<span class="text-blue-500">Post-production...</span>',
             compositing: '<span class="text-blue-500">Compositing...</span>',
             ready: '<span class="text-green-600 font-medium">Ready</span>',
+            ready_with_director_warning: '<span class="text-yellow-700 font-medium">⚠️ Ready (Director Warning)</span>',
             publishing: '<span class="text-blue-500">Publishing...</span>',
             published: '<span class="text-green-700 font-medium">Published</span>',
-            failed: '<span class="text-red-500">Failed</span>'
+            failed: '<span class="text-red-500">Failed</span>',
+            // V4 hotfix 2026-04-30 — awaiting_user_review needs visible
+            // attention-grabbing signal at the card level so the user knows
+            // a halt is pending without opening the panel.
+            awaiting_user_review: '<span class="px-2 py-0.5 rounded bg-yellow-100 text-yellow-900 font-semibold text-xs animate-pulse">⚠️ Director paused — your review needed</span>'
         };
 
         const isReady = ep.status === 'ready' || ep.status === 'published';
@@ -8560,7 +8570,8 @@ function renderEpisodeTimeline(episodes) {
             generating_scene_masters: '<span class="text-blue-500">Generating Scene Masters...</span>',
             generating_beats: '<span class="text-blue-500">Generating beats...</span>',
             assembling: '<span class="text-blue-500">Assembling episode...</span>',
-            applying_lut: '<span class="text-blue-500">Applying color grade...</span>'
+            applying_lut: '<span class="text-blue-500">Applying color grade...</span>',
+            regenerating_beat: '<span class="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold text-xs animate-pulse">🎬 Regenerating beat — applying director directive…</span>'
         };
         const statusHtml = v4StatusIcons[ep.status] || statusIcons[ep.status] || statusIcons.pending;
 
@@ -8580,6 +8591,21 @@ function renderEpisodeTimeline(episodes) {
                         ${_renderShotChips(scene)}
                     </div>`}
                     <p class="text-sm text-ink-500 line-clamp-2">${escapeHtml(scene.narrative_beat || scene.hook || '')}</p>
+                    ${ep.status === 'awaiting_user_review' ? `
+                    <div class="mt-2 px-3 py-2 bg-yellow-50 border border-yellow-300 rounded text-xs text-yellow-900">
+                        <strong>⚠️ Director paused for your review.</strong>
+                        Open the Director Panel to approve, edit & retry, or discard.
+                        ${(() => {
+                            const halt = ep.director_report?.halt || {};
+                            if (halt.checkpoint || halt.verdict) {
+                                const ck = halt.checkpoint ? `Lens ${halt.checkpoint}` : '';
+                                const art = halt.scene_id || halt.beat_id ? ` · ${halt.scene_id || halt.beat_id}` : '';
+                                const score = (halt.verdict && Number.isFinite(halt.verdict.overall_score)) ? ` · score ${halt.verdict.overall_score}` : '';
+                                return `<div class="mt-1 font-mono">${escapeHtml(ck + art + score)}</div>`;
+                            }
+                            return '';
+                        })()}
+                    </div>` : ''}
                     ${ep.error_message ? `<p class="mt-1 text-xs text-red-500">${escapeHtml(ep.error_message)}</p>` : ''}
                     ${isV4 ? _renderV4SceneGraph(ep) : _renderStoryboardFilmstrip(ep)}
                     ${ep.narration_audio_url ? `

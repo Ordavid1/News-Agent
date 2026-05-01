@@ -292,14 +292,65 @@ export async function generateLutFromPalette({ colorPalette, strength = 0.35, br
 
   // Quality gate — reject palettes that would damage faces / crush channels /
   // produce banding. May return a downscaled strength to use instead.
-  const validation = validateBrandPalette({ targets, strength });
+  //
+  // V4 P3.5 — Graceful-degrade on skin-preservation failure.
+  //
+  // Before P3.5: skin failure → reject the palette outright → orchestrator
+  // falls back to genre-LUT only → brand identity is LOST entirely.
+  // Real-world impact: a magenta-heavy brand palette at strength 0.35 fails
+  // skin preservation; the system reverts to pure genre LUT and the
+  // commercial loses its brand color identity even though a softer pull
+  // (strength 0.18 or 0.09) would have been safe AND brand-coherent.
+  //
+  // After P3.5: on skin failure ONLY, retry with strength * 0.5 up to 3 times
+  // (strength chain: e.g. 0.35 → 0.175 → 0.0875 → 0.044). Each retry runs
+  // the full validateBrandPalette (NOT just skin) so we don't accidentally
+  // accept a luma-span violation. If strength drops below 0.05, give up
+  // (the LUT would be visually negligible anyway). Other quality gates
+  // (chroma, luma span) still hard-reject on first failure — they're
+  // strength-independent properties.
+  let validation = validateBrandPalette({ targets, strength });
+  let effectiveStrength = strength;
+  let degradationSteps = 0;
+  const MIN_USEFUL_STRENGTH = 0.05;
+  const MAX_DEGRADATION_STEPS = 3;
+
+  if (!validation.ok && /skin/i.test(validation.reason || '')) {
+    // Strength-dependent failure → try graceful-degrade. Keep halving until
+    // we either pass validation OR drop below the useful-floor.
+    while (
+      !validation.ok &&
+      /skin/i.test(validation.reason || '') &&
+      effectiveStrength * 0.5 >= MIN_USEFUL_STRENGTH &&
+      degradationSteps < MAX_DEGRADATION_STEPS
+    ) {
+      const reduced = +(effectiveStrength * 0.5).toFixed(3);
+      logger.info(
+        `generateLutFromPalette: skin gate failed at strength ${effectiveStrength.toFixed(2)} ` +
+        `(${validation.reason}) — retrying at ${reduced.toFixed(2)} (degrade step ${degradationSteps + 1}/${MAX_DEGRADATION_STEPS})`
+      );
+      effectiveStrength = reduced;
+      degradationSteps += 1;
+      validation = validateBrandPalette({ targets, strength: effectiveStrength });
+    }
+    if (validation.ok && degradationSteps > 0) {
+      logger.info(
+        `generateLutFromPalette: graceful-degrade succeeded at strength ${effectiveStrength.toFixed(2)} ` +
+        `after ${degradationSteps} step(s). Brand identity preserved at reduced pull.`
+      );
+    }
+  }
+
   if (!validation.ok) {
-    logger.warn(`generateLutFromPalette: palette rejected (${validation.reason})`);
+    logger.warn(
+      `generateLutFromPalette: palette rejected (${validation.reason})` +
+      (degradationSteps > 0 ? ` after ${degradationSteps} graceful-degrade attempt(s) — strength bottomed out at ${effectiveStrength.toFixed(2)}` : '')
+    );
     return { lutId: null, filePath: null, isGenerated: false, rejected: true, reason: validation.reason };
   }
-  let effectiveStrength = strength;
-  if (validation.downscaleStrengthTo != null && validation.downscaleStrengthTo < strength) {
-    logger.info(`generateLutFromPalette: downscaling strength ${strength.toFixed(2)} → ${validation.downscaleStrengthTo.toFixed(2)} (${validation.reason})`);
+
+  if (validation.downscaleStrengthTo != null && validation.downscaleStrengthTo < effectiveStrength) {
+    logger.info(`generateLutFromPalette: downscaling strength ${effectiveStrength.toFixed(2)} → ${validation.downscaleStrengthTo.toFixed(2)} (${validation.reason})`);
     effectiveStrength = validation.downscaleStrengthTo;
   }
 
@@ -395,6 +446,252 @@ export async function generateLutFromPalette({ colorPalette, strength = 0.35, br
   logger.info(`generated LUT written: ${fullPath} (${sizeKB}KB, ${lines.length - 7} cube entries)`);
 
   return { lutId, filePath: fullPath, isGenerated: true, effectiveStrength };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 hotfix 2026-04-30 — Story-content-derived tonal trim presets.
+//
+// Why: when a story has NO brand_kit configured, the post-production
+// pipeline previously applied ONLY the genre creative LUT
+// (e.g. bs_action_teal_orange_punch) at full strength. Genre LUTs are
+// designed as the AGGRESSIVE first-pass grade, intended to be tempered
+// by a brand-palette trim layer at lower strength. With no trim layer
+// the genre LUT dominates: bs_action_teal_orange_punch crushes shadows
+// to near-black on dim Veo shots, reading as noir/B&W on screen even
+// though the source clips look fine in the panel preview. Reported
+// 2026-04-30 production test on action-genre story `4f24ebfa...`.
+//
+// The fix: when brandKit is null, derive a 3-color tonal palette from
+// the genre's character (warmth, contrast direction, saturation register)
+// using built-in presets that map each genre to a coherent "story-mood"
+// palette. Caller passes this palette through `generateLutFromPalette`
+// to produce a `gen_*` LUT that serves as the trim layer at low strength
+// (0.10-0.20), softening the genre LUT's aggression.
+//
+// These presets are TONAL TRIMS — they pull the grade gently toward a
+// genre-coherent direction (action: warm umber + cool steel; drama:
+// gentle gold + soft shadow; horror: cool desaturation; etc.). They are
+// NOT "brand-equivalent" — they're a fallback for stories without
+// authored brand identity. When a brand_kit IS present, that path wins.
+
+const _STORY_TONAL_TRIM_PRESETS_RAW = ({
+  action: {
+    description: 'Action genre tonal trim — warm umber shadow + cool steel highlight, balanced midtone. Tempers the teal/orange punch LUT toward a more naturalistic register.',
+    targets: [
+      [0.18, 0.13, 0.10],  // warm umber shadow
+      [0.55, 0.50, 0.48],  // neutral midtone
+      [0.78, 0.82, 0.86]   // cool steel highlight
+    ],
+    strength: 0.15
+  },
+  thriller: {
+    description: 'Thriller — Fincher-amber lift + cool teal mid. Anchors faces against the genre LUT.',
+    targets: [
+      [0.18, 0.14, 0.10],
+      [0.42, 0.50, 0.55],
+      [0.70, 0.65, 0.55]
+    ],
+    strength: 0.15
+  },
+  drama: {
+    description: 'Drama tonal trim — gentle gold warmth in skin midtone + soft natural shadow. Preserves face separation.',
+    targets: [
+      [0.20, 0.16, 0.12],
+      [0.60, 0.50, 0.42],
+      [0.85, 0.80, 0.72]
+    ],
+    strength: 0.12
+  },
+  romance: {
+    description: 'Romance — warm Kodak Portra-style: cream highlight, peach midtone, rose shadow.',
+    targets: [
+      [0.30, 0.20, 0.20],
+      [0.65, 0.50, 0.42],
+      [0.92, 0.86, 0.78]
+    ],
+    strength: 0.18
+  },
+  horror: {
+    description: 'Horror — cool desaturation, sickly green lift in shadow, pale highlight. Subtle to avoid genre-LUT amplification.',
+    targets: [
+      [0.10, 0.14, 0.12],
+      [0.40, 0.45, 0.40],
+      [0.78, 0.82, 0.78]
+    ],
+    strength: 0.12
+  },
+  noir: {
+    description: 'Noir — silver midtones, cyan lift in shadow, paper-white highlight. Honors B&W tradition without crushing.',
+    targets: [
+      [0.10, 0.14, 0.18],
+      [0.50, 0.50, 0.50],
+      [0.90, 0.90, 0.88]
+    ],
+    strength: 0.12
+  },
+  mystery: {
+    description: 'Mystery — same as noir tonal direction but slightly warmer for skin.',
+    targets: [
+      [0.12, 0.14, 0.16],
+      [0.52, 0.48, 0.46],
+      [0.86, 0.84, 0.80]
+    ],
+    strength: 0.12
+  },
+  comedy: {
+    description: 'Comedy — bright clean highlights, neutral midtones, lifted shadow. Soften genre LUT toward Wes-Anderson-pastel range.',
+    targets: [
+      [0.30, 0.28, 0.25],
+      [0.65, 0.62, 0.58],
+      [0.95, 0.92, 0.88]
+    ],
+    strength: 0.10
+  },
+  fantasy: {
+    description: 'Fantasy — emerald lift in shadow, warm highlight, painterly skin midtone.',
+    targets: [
+      [0.10, 0.18, 0.14],
+      [0.55, 0.48, 0.40],
+      [0.88, 0.84, 0.75]
+    ],
+    strength: 0.15
+  },
+  scifi: {
+    description: 'Sci-Fi — cool clinical white, silver-cyan midtone, charcoal shadow.',
+    targets: [
+      [0.10, 0.12, 0.16],
+      [0.50, 0.55, 0.60],
+      [0.92, 0.94, 0.96]
+    ],
+    strength: 0.12
+  },
+  'sci-fi': null, // alias — resolved below
+  period: {
+    description: 'Period — sepia warmth in shadow, vintage-film highlight rolloff, kodachrome midtone saturation.',
+    targets: [
+      [0.22, 0.16, 0.10],
+      [0.62, 0.52, 0.42],
+      [0.90, 0.85, 0.72]
+    ],
+    strength: 0.15
+  },
+  documentary: {
+    description: 'Documentary — minimal trim. Preserves source naturalism.',
+    targets: [
+      [0.18, 0.18, 0.18],
+      [0.55, 0.55, 0.55],
+      [0.85, 0.85, 0.85]
+    ],
+    strength: 0.05
+  },
+  inspirational: {
+    description: 'Inspirational — golden hour lift in highlight, warm umber shadow.',
+    targets: [
+      [0.22, 0.16, 0.10],
+      [0.65, 0.55, 0.42],
+      [0.95, 0.88, 0.72]
+    ],
+    strength: 0.15
+  },
+  'slice-of-life': {
+    description: 'Slice-of-life — naturalistic warm cast, gentle.',
+    targets: [
+      [0.20, 0.18, 0.15],
+      [0.60, 0.55, 0.50],
+      [0.88, 0.85, 0.80]
+    ],
+    strength: 0.10
+  },
+  adventure: {
+    description: 'Adventure — outdoor warmth, sky-blue highlight, earthy shadow.',
+    targets: [
+      [0.18, 0.15, 0.10],
+      [0.55, 0.50, 0.42],
+      [0.78, 0.82, 0.88]
+    ],
+    strength: 0.13
+  },
+  commercial: {
+    description: 'Commercial fallback — hyperreal punch with neutral skin protection.',
+    targets: [
+      [0.18, 0.15, 0.13],
+      [0.62, 0.55, 0.50],
+      [0.92, 0.90, 0.86]
+    ],
+    strength: 0.15
+  }
+});
+
+// Resolve aliases AND freeze. We assign sci-fi before freezing so the frozen
+// preset map is fully self-contained (no post-freeze mutation).
+_STORY_TONAL_TRIM_PRESETS_RAW['sci-fi'] = _STORY_TONAL_TRIM_PRESETS_RAW.scifi;
+const STORY_TONAL_TRIM_PRESETS = Object.freeze(_STORY_TONAL_TRIM_PRESETS_RAW);
+
+const DEFAULT_STORY_TONAL_TRIM = STORY_TONAL_TRIM_PRESETS.drama;
+
+/**
+ * V4 hotfix 2026-04-30 — Generate a trim-layer LUT for stories WITHOUT a
+ * brand_kit, derived from the story's genre and tonal register. This is
+ * the "auto-LUT-from-story-content" path the user remembered:
+ *
+ *   - When brandKit IS provided → delegate to generateLutFromBrandKit.
+ *   - When brandKit is null     → look up the genre's tonal-trim preset
+ *                                  and synthesize a low-strength LUT from
+ *                                  that 3-color palette. Output id starts
+ *                                  with `gen_story_` so it's traceable in
+ *                                  logs and post-production stage 3 reads.
+ *
+ * The synthesized LUT serves as the BRAND-PALETTE-TRIM EQUIVALENT — applied
+ * as a SECOND pass on top of the genre creative LUT, gently tempering its
+ * aggression. Without this trim layer, action-genre stories crush shadows
+ * to near-black (the noir/B&W effect reported on story `4f24ebfa...`).
+ *
+ * @param {Object} params
+ * @param {string} params.genre              - story genre (drama/action/horror/etc.)
+ * @param {Object} [params.brandKit]         - optional; if present, takes precedence
+ * @param {number} [params.strengthOverride] - optional explicit strength
+ * @returns {Promise<{lutId: string, filePath: string, isGenerated: true, isStoryTrim?: boolean} | null>}
+ */
+export async function generateStoryTrimLut({ genre, brandKit = null, strengthOverride = null } = {}) {
+  // brandKit wins when present.
+  if (brandKit?.color_palette?.length) {
+    return generateLutFromBrandKit(brandKit, { strength: strengthOverride });
+  }
+
+  const key = String(genre || '').toLowerCase().trim();
+  const preset = STORY_TONAL_TRIM_PRESETS[key] || DEFAULT_STORY_TONAL_TRIM;
+
+  if (!preset || !Array.isArray(preset.targets) || preset.targets.length === 0) {
+    return null;
+  }
+
+  // Convert preset's normalized [r,g,b] targets to {hex} entries the
+  // existing generator expects.
+  const colorPalette = preset.targets.map(([r, g, b]) => {
+    const hex = '#' +
+      Math.round(r * 255).toString(16).padStart(2, '0') +
+      Math.round(g * 255).toString(16).padStart(2, '0') +
+      Math.round(b * 255).toString(16).padStart(2, '0');
+    return { hex };
+  });
+
+  const strength = strengthOverride != null ? strengthOverride : preset.strength;
+
+  const result = await generateLutFromPalette({
+    colorPalette,
+    strength,
+    brandName: `story_trim_${key}`
+  });
+
+  if (result?.rejected) {
+    logger.warn(`generateStoryTrimLut: tonal-trim palette rejected for genre=${key} — ${result.reason}`);
+    return null;
+  }
+  if (result?.lutId) {
+    // Re-tag the id for traceability — it's a story-derived trim, not a brand trim.
+    return { ...result, isStoryTrim: true, genrePreset: key };
+  }
+  return null;
 }
 
 /**

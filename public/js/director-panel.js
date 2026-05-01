@@ -353,13 +353,19 @@
       class: 'flex-1 overflow-hidden flex flex-col lg:flex-row'
     }, [leftPane, rightPane]);
 
+    // V4 P0.5 — Director Review halt banner. Only renders when episode is
+    // in `awaiting_user_review` status. Sits above the header so it's the
+    // first thing the user sees on a halted episode.
+    const haltBanner = el('div', { id: 'dpHaltBanner' });
+
     const modal = el('div', {
       class: 'bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col'
-    }, [header, progressDetails, sceneTimelineWrap, beatStripWrap, body]);
+    }, [haltBanner, header, progressDetails, sceneTimelineWrap, beatStripWrap, body]);
 
     panelRoot.appendChild(modal);
 
     renderHeader();
+    renderHaltBanner();
     renderProgressFeed();
     renderSceneTimeline();
     renderBeatStrip();
@@ -686,8 +692,16 @@
               regenBtn.textContent = `Retry: Apply L3 nudge & regenerate beat ${beatId}`;
               return;
             }
-            flashStatus(`Regenerate started for ${beatId} with director nudge`, false);
-            regenBtn.textContent = `Started — see progress feed`;
+            flashStatus(`Regenerate started for ${beatId} — closing panel`, false);
+            regenBtn.textContent = `Started — closing…`;
+            // V4 hotfix 2026-05-01 — close the panel so the user sees the
+            // episode card flip to the regenerating_beat in-progress badge
+            // and the parent polling loop picks up live progress. Without
+            // this the user is stuck staring at the panel with no signal
+            // that anything is happening.
+            if (typeof window.closeDirectorPanel === 'function') {
+              setTimeout(() => window.closeDirectorPanel(), 600);
+            }
           } catch (err) {
             flashStatus(`Regenerate error: ${err.message}`, true);
             regenBtn.disabled = false;
@@ -839,6 +853,253 @@
       }, 'Close')
     ]);
     node.appendChild(row);
+  }
+
+  // V4 P0.5 — Director Review Resolution halt banner.
+  //
+  // When episode.status === 'awaiting_user_review', surface a yellow
+  // warning banner at the top of the panel showing:
+  //   • the halted checkpoint + artifact id (scene_id / beat_id)
+  //   • verdict score + verdict kind
+  //   • findings drilldown (severity / message / dimension)
+  //   • three CTAs: Approve / Edit & Retry / Discard
+  //
+  // SECURITY: every dynamic value uses textContent or el() with text children
+  // — no innerHTML on user-controlled data per the file's security contract.
+  function renderHaltBanner() {
+    const node = document.getElementById('dpHaltBanner');
+    if (!node) return;
+    clear(node);
+
+    const ep = activeEpisode || {};
+    if (ep.status !== 'awaiting_user_review') {
+      // Banner only shows on halted episodes — leave the slot empty otherwise.
+      return;
+    }
+
+    const dr = ep.director_report || {};
+    const halt = dr.halt || {};
+    const checkpoint = halt.checkpoint || 'unknown';
+    const artifactId = halt.scene_id || halt.beat_id || halt.artifactKey || null;
+    const verdict = halt.verdict || null;
+    const score = (verdict && Number.isFinite(verdict.overall_score)) ? verdict.overall_score : null;
+    const kind = verdict?.verdict || null;
+    const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+
+    // Headline row — checkpoint + artifact + score
+    const headlineParts = [
+      el('span', { class: 'text-base' }, '\u26A0\uFE0F'),  // ⚠️
+      el('span', { class: 'font-semibold' }, 'Director paused for your review')
+    ];
+    if (checkpoint) {
+      headlineParts.push(el('span', { class: 'text-yellow-800/70 text-xs' }, '\u00A0\u2014\u00A0'));
+      headlineParts.push(el('span', { class: 'font-mono text-xs px-1.5 py-0.5 rounded bg-yellow-200/60 text-yellow-900' },
+        `Lens ${checkpoint}`));
+    }
+    if (artifactId) {
+      headlineParts.push(el('span', { class: 'font-mono text-xs px-1.5 py-0.5 rounded bg-yellow-200/60 text-yellow-900 ml-1' },
+        artifactId));
+    }
+    if (score != null) {
+      headlineParts.push(el('span', { class: 'text-xs px-1.5 py-0.5 rounded bg-yellow-300/60 text-yellow-900 ml-1' },
+        `score ${score}`));
+    }
+    if (kind) {
+      headlineParts.push(el('span', { class: 'text-xs px-1.5 py-0.5 rounded bg-yellow-300/60 text-yellow-900 ml-1' },
+        kind));
+    }
+    const headline = el('div', { class: 'flex items-center gap-2 flex-wrap mb-2' }, headlineParts);
+
+    // Reason line (if any)
+    const reasonLine = halt.reason
+      ? el('div', { class: 'text-xs text-yellow-900/80 mb-2' }, halt.reason)
+      : null;
+
+    // Findings drilldown — collapsible
+    const findingsItems = findings.map((f) => {
+      const sev = String(f?.severity || '').toLowerCase();
+      const sevColor =
+        sev === 'critical' ? 'bg-red-100 text-red-800' :
+        sev === 'warning'  ? 'bg-yellow-100 text-yellow-800' :
+        'bg-surface-100 text-ink-700';
+      return el('li', { class: 'flex items-start gap-2 text-xs py-1' }, [
+        el('span', { class: `font-mono px-1.5 py-0.5 rounded ${sevColor} flex-shrink-0` }, sev || 'note'),
+        el('div', { class: 'flex-1 min-w-0' }, [
+          el('div', { class: 'text-ink-800' }, f?.message || '(no message)'),
+          f?.dimension
+            ? el('div', { class: 'text-[11px] text-ink-500 mt-0.5' }, `dim: ${f.dimension}`)
+            : null,
+          f?.remediation?.prompt_delta
+            ? el('div', { class: 'text-[11px] text-ink-600 mt-0.5 italic' }, `\u2192 ${f.remediation.prompt_delta}`)
+            : null
+        ].filter(Boolean))
+      ]);
+    });
+    const findingsList = findings.length > 0
+      ? el('details', { class: 'mb-2 border border-yellow-300/50 rounded bg-white/40' }, [
+          el('summary', { class: 'cursor-pointer text-xs font-medium px-2 py-1 text-yellow-900' },
+            `${findings.length} finding(s) \u2014 click to expand`),
+          el('ul', { class: 'px-3 py-1' }, findingsItems)
+        ])
+      : null;
+
+    // Action CTAs
+    const ctaRow = el('div', { class: 'flex items-center gap-2 flex-wrap' }, [
+      el('button', {
+        class: 'px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700',
+        onclick: () => _dpResolveHalt('approve')
+      }, 'Approve & Continue'),
+      el('button', {
+        class: 'px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700',
+        onclick: () => _dpResolveHalt('edit_and_retry')
+      }, 'Edit & Retry'),
+      el('button', {
+        class: 'px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-700',
+        onclick: () => _dpResolveHalt('discard')
+      }, 'Discard')
+    ]);
+
+    const banner = el('div', {
+      class: 'bg-yellow-50 border-b-2 border-yellow-400 px-5 py-3'
+    }, [headline, reasonLine, findingsList, ctaRow].filter(Boolean));
+
+    node.appendChild(banner);
+  }
+
+  // V4 P0.5 — handle the user's halt resolution decision.
+  // V4 hotfix 2026-04-30 — Smart Edit & Retry: instead of prompting the user
+  // for free-form notes (which they don't have directing knowledge to write),
+  // we POST to the new /director-review/auto-edit endpoint which synthesizes
+  // a director-grade edit directive from the verdict findings + failed
+  // artifact content. The user sees the synthesized directive in a confirm
+  // modal and can apply it (or cancel + edit by hand if they want).
+  async function _dpResolveHalt(action) {
+    if (!activeEpisodeId || !activeStoryId) return;
+
+    let notes = null;
+    let editedAnchor = null;
+    let editedDialogue = null;
+
+    if (action === 'edit_and_retry') {
+      // Step 1 — fetch the auto-synthesized edit directive.
+      flashStatus('Synthesizing director-grade edit directive…', false);
+      let auto;
+      try {
+        const autoRes = await fetch(
+          `/api/brand-stories/${encodeURIComponent(activeStoryId)}/episodes/${encodeURIComponent(activeEpisodeId)}/director-review/auto-edit`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+            body: '{}'
+          }
+        );
+        auto = await autoRes.json().catch(() => ({}));
+        if (!autoRes.ok || !auto?.success) {
+          flashStatus(auto?.error || `Auto-edit synthesis failed (${autoRes.status})`, true);
+          return;
+        }
+      } catch (err) {
+        flashStatus(err?.message || 'Network error during auto-edit synthesis', true);
+        return;
+      }
+
+      // Step 2 — show the synthesized directive in a confirm dialog.
+      const summary = auto.halt_summary || {};
+      const sourceTag = auto.source === 'rich' ? '(AI-synthesized from verdict + scene content)' : '(compiled from verdict findings)';
+      const confirmMsg = [
+        `Smart Edit & Retry ${sourceTag}`,
+        '',
+        `Halt: Lens ${summary.checkpoint || '?'}${summary.artifact_id ? ` · ${summary.artifact_id}` : ''}${summary.verdict_score != null ? ` · score ${summary.verdict_score}` : ''} · ${summary.finding_count || 0} finding(s)`,
+        '',
+        'The system will splice this directive into the next render nudge:',
+        '',
+        '──────────────────────────',
+        auto.notes || '(no directive synthesized)',
+        '──────────────────────────',
+        auto.edited_anchor ? '\n[Scene anchor will be replaced with the synthesized override.]' : '',
+        auto.edited_dialogue ? '\n[Beat dialogue will be replaced with the synthesized override.]' : '',
+        '',
+        'Click OK to apply and re-trigger generation. Cancel to back out.'
+      ].filter(Boolean).join('\n');
+
+      const confirmed = window.confirm(confirmMsg);
+      if (!confirmed) return;
+
+      notes = auto.notes || null;
+      editedAnchor = auto.edited_anchor || null;
+      editedDialogue = auto.edited_dialogue || null;
+    } else if (action === 'discard') {
+      const confirmed = window.confirm(
+        'Discard this episode? This marks it as failed and cannot be undone (you can re-trigger generation afterwards).'
+      );
+      if (!confirmed) return;
+      notes = window.prompt('Optional reason for discard (recorded in audit trail):', '') || null;
+    } else if (action === 'approve') {
+      // No prompt for approve — it's a clean accept.
+      const ep = activeEpisode || {};
+      if (!ep.final_video_url) {
+        const proceed = window.confirm(
+          'No video has been assembled yet — Approve will mark the episode failed (no cut to ship). ' +
+          'Use Edit & Retry or Discard instead. Continue anyway?'
+        );
+        if (!proceed) return;
+      }
+    }
+
+    try {
+      const res = await fetch(
+        `/api/brand-stories/${encodeURIComponent(activeStoryId)}/episodes/${encodeURIComponent(activeEpisodeId)}/director-review`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf()
+          },
+          body: JSON.stringify({
+            action,
+            notes,
+            edited_anchor: editedAnchor,
+            edited_dialogue: editedDialogue
+          })
+        }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) {
+        flashStatus(body?.error || `Resolution failed (${res.status})`, true);
+        return;
+      }
+      flashStatus(body.message || 'Halt resolved', false);
+
+      // V4 hotfix 2026-05-01 — once the halt is resolved (approve / edit_and_retry / discard),
+      // close the panel and let the parent brand-stories detail view take over.
+      // closeDirectorPanel() refreshes the story detail, which auto-resumes
+      // polling for any in-progress episode (regenerating_beat is a
+      // recognized in-progress status). The user sees the panel disappear,
+      // the episode card flip to the in-progress badge, and the spinner
+      // re-engage — same UX as the initial Generate flow.
+      if (action === 'edit_and_retry' || action === 'approve' || action === 'discard') {
+        if (typeof window.closeDirectorPanel === 'function') {
+          window.closeDirectorPanel();
+          return;
+        }
+      }
+
+      // Fallback (defense-in-depth): if the close helper is missing, at
+      // least re-fetch the episode and re-render the banner.
+      const refreshed = await fetch(
+        `/api/brand-stories/${encodeURIComponent(activeStoryId)}/episodes/${encodeURIComponent(activeEpisodeId)}`,
+        { credentials: 'include' }
+      ).then(r => r.json()).catch(() => null);
+      if (refreshed?.episode) {
+        activeEpisode = refreshed.episode;
+        renderHaltBanner();
+        renderHeader();
+      }
+    } catch (err) {
+      flashStatus(err?.message || 'Network error resolving halt', true);
+    }
   }
 
   function renderProgressFeed() {

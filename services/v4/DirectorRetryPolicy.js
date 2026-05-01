@@ -135,16 +135,19 @@ export function decideRetry(params = {}) {
   }
 
   // V4 Phase 5b — Fix 8. Hard-reject auto-fix on first encounter.
-  // Default behavior (legacy): hard_reject → escalate immediately.
-  // Opt-in (commercial AND/OR BRAND_STORY_AUTOFIX_BEAT_HARDREJECT=true):
-  //   First hard_reject on a beat (within budget) → ONE auto-fix attempt
+  // V4 hotfix 2026-05-01: default flipped from 'false' to 'true' (user-confirmed).
+  // Rationale: the auto-fix path is bounded (1 attempt per beat, anti-runaway
+  // nudge_to_brief_ratio guard at 1.5×), so always-on is safer than
+  // always-halt. Set BRAND_STORY_AUTOFIX_BEAT_HARDREJECT=false to disable.
+  //
+  // First hard_reject on a beat (within budget) → ONE auto-fix attempt
   //   using the verdict's findings + remediation.target taxonomy. The
   //   orchestrator (BrandStoryService) reads `nudgePromptDelta` and
   //   `targetClass` from this decision and dispatches per-class.
   // Second hard_reject (budget exhausted) → escalate (no infinite loops).
   if (verdictValue === 'hard_reject') {
     const autofixOptIn =
-      String(process.env.BRAND_STORY_AUTOFIX_BEAT_HARDREJECT || 'false').toLowerCase() === 'true';
+      String(process.env.BRAND_STORY_AUTOFIX_BEAT_HARDREJECT || 'true').toLowerCase() !== 'false';
     const autofixCommercial = !!params.isCommercialStory;
     const autofixEnabled = autofixOptIn || autofixCommercial;
     if (!autofixEnabled || checkpoint !== 'beat') {

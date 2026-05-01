@@ -513,3 +513,165 @@ export function buildLegacyHardcodedSheets({ description, wardrobe, styleHint })
     }
   ];
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 character-sheet richness — 3-axis view grid (2026-04-29)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Originally the app generated character sheets via an n8n workflow with
+// THREE coverage axes:
+//   • Body angles  — 3/4 front (45°), pure rear, pure side profile (90°)
+//   • Detail macros — head/face, upper chest, signature item, lower legs/boots
+//   • (Implicit single arc state)
+//
+// V4 CharacterSheetDirector replaced this with `arc_state × {hero, closeup}`
+// — 4 views all roughly front-facing, varying in EMOTIONAL register but
+// not in camera angle. That trade lost geometric coverage downstream:
+// REACTION / walk-away / pure-side dialogue beats had no matched-angle
+// reference; INSERT_SHOT beats had no detail macros.
+//
+// This module restores the original geometric + detail axes and combines
+// them with V4's arc-state axis. The result per persona:
+//   - Non-principal: 3 angles × 1 arc (act1) + 4 details =  7 views
+//   - Principal:     3 angles × 2 arcs (act1+act3) + 4 details = 10 views
+//
+// Plus the existing CIP 3-angle bank (canonical_identity_urls) — kept
+// independent. Beat generators consume both.
+
+/**
+ * Body-angle definitions for the 3-angle axis. Each entry is a framing
+ * directive that gets appended to the arc-state brief's flux_prompt as a
+ * FRAMING OVERRIDE block. The brief retains the wardrobe / lighting /
+ * emotional register language; only camera angle changes per view.
+ *
+ * Aspect 9:16 chosen for all three: the persona reference stack feeds 9:16
+ * downstream beats; 1:1 is reserved for detail macros where region focus
+ * matters more than full-body framing.
+ */
+export const CHARACTER_BODY_ANGLES = Object.freeze([
+  {
+    slot: 'front34',
+    aspect: '9:16',
+    framing:
+      'FULL BODY, 3/4 front view at 45 degrees rotated slightly right. ' +
+      'Slight forward lean, feet shoulder-width apart, eye-level camera. ' +
+      'Pure white seamless studio background. Subject fully isolated, head-to-toe in frame.'
+  },
+  {
+    slot: 'rear',
+    aspect: '9:16',
+    framing:
+      'FULL BODY, pure REAR view, standing straight, back to camera. ' +
+      'Wardrobe back fully visible (jacket back, plate carrier, satchel, etc.). ' +
+      'Hands relaxed at sides, eye-level camera. Pure white seamless studio background. ' +
+      'Head-to-toe in frame.'
+  },
+  {
+    slot: 'side90',
+    aspect: '9:16',
+    framing:
+      'FULL BODY, pure SIDE PROFILE 90 degrees, standing tall, natural relaxed posture. ' +
+      'Strong jawline visible, character silhouette clearly readable. ' +
+      'Eye-level camera, pure white seamless studio background, head-to-toe in frame.'
+  }
+]);
+
+/**
+ * Compose the per-angle Flux prompt by appending the angle's framing override
+ * to the arc-state brief. Preserves the brief's emotional / wardrobe /
+ * lighting language; instructs the model that only the camera angle changes.
+ *
+ * @param {string}   briefFluxPrompt  - the arc-state brief.flux_prompt
+ * @param {Object}   angle            - one entry from CHARACTER_BODY_ANGLES
+ * @returns {string}
+ */
+export function composeAngleVariantPrompt(briefFluxPrompt, angle) {
+  return [
+    String(briefFluxPrompt || '').trim(),
+    '',
+    `FRAMING OVERRIDE: ${angle.framing}`,
+    '',
+    'IMPORTANT: this is the SAME EXACT character — preserve face structure, wardrobe, ' +
+    'gear, accessories, hair, and the brief\'s emotional register. ONLY the camera angle ' +
+    'changes from the established front identity. Same lighting, same wardrobe, same posture intent ' +
+    '(adjusted for the new angle). Reference image identity is invariant.'
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * Build the 4 detail-macro prompts for a persona. These are persona-level
+ * (NOT per arc state) — signature gear / wardrobe / face features don't
+ * change with emotional state. Each macro is a square (1:1) close-up
+ * focused on a specific body region. Beats consuming reference_image_urls
+ * for INSERT_SHOTs (hand on accessory, signature item hero, boot pull-up,
+ * etc.) get region-specific anchors.
+ *
+ * Templates parameterize CHARACTER (the persona's description), WARDROBE
+ * (resolved wardrobe field if present), and SIGNATURE_ITEM (resolved
+ * signature accessory if present). Defaults gracefully when fields aren't
+ * authored.
+ *
+ * @param {Object} persona             - persona record (description, wardrobe, signature_item, visual_anchor)
+ * @param {Object} [opts]              - optional overrides
+ * @param {string} [opts.description]  - already-resolved persona description text
+ * @param {string} [opts.wardrobe]     - already-resolved wardrobe summary
+ * @returns {Array<{label: string, prompt: string}>}
+ */
+export function buildDetailMacroPrompts(persona, { description = null, wardrobe = null } = {}) {
+  const characterDesc =
+    description ||
+    persona?.visual_description ||
+    persona?.description ||
+    'the same character as in the reference image';
+  const wardrobeDesc =
+    wardrobe ||
+    persona?.wardrobe ||
+    persona?.style_characteristics?.wardrobe ||
+    'as established in the reference image';
+  const signatureItem =
+    persona?.signature_item ||
+    persona?.signature_accessory ||
+    persona?.visual_anchor?.signature_accessory ||
+    'their signature accessory or distinguishing item';
+
+  return [
+    {
+      slot: 'head',
+      prompt:
+        `Close-up macro shot of ${characterDesc} — head and neck region only. ` +
+        'Featuring the headwear / hair styling, eyewear (if present), facial hair ' +
+        '(if present), neck wardrobe (collar, scarf, comms gear). ' +
+        'Sharp focus on facial structure (inter-ocular distance, nose geometry, jawline, lip shape, brow arch), ' +
+        'skin texture, and material grain on headwear. Pure white seamless background. ' +
+        'Hyperrealistic 8K detail. No text, no watermark.'
+    },
+    {
+      slot: 'chest',
+      prompt:
+        `Close-up macro shot of ${characterDesc} — upper chest region only. ` +
+        `Featuring the wardrobe top: ${wardrobeDesc}. Show collar detail, fabric ` +
+        'layering, any cross-body straps / harnesses / jewelry / patches / pins. ' +
+        'Sharp focus on fabric contrast, material texture, stitch detail, and any ' +
+        'badge or logo. Pure white seamless background. Hyperrealistic 8K detail. ' +
+        'No text, no watermark.'
+    },
+    {
+      slot: 'signature',
+      prompt:
+        `Close-up macro shot of ${characterDesc} — signature item: ${signatureItem}. ` +
+        'Whether hanging via strap / clipped / mounted / handheld, render the item in ' +
+        'sharp focus against the character\'s body. Show the patina, surface texture, ' +
+        'mechanical detail, any wear marks. Pure white seamless background. ' +
+        'Hyperrealistic 8K detail. No text, no watermark.'
+    },
+    {
+      slot: 'boots',
+      prompt:
+        `Close-up macro shot of ${characterDesc} — lower legs and footwear region only. ` +
+        'Show pants / trousers / lower garment tucking or resting over boot/shoe top. ' +
+        'Sharp focus on footwear material grain, sole construction, scuff / wear patterns, ' +
+        'pant fabric weave, any ankle accessories. Pure white seamless background. ' +
+        'Hyperrealistic 8K detail. No text, no watermark.'
+    }
+  ];
+}

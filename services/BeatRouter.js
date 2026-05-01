@@ -92,18 +92,48 @@ const GENERATOR_NAME_MAP = {
   TalkingHeadCloseupGenerator
 };
 
+// V4 P4.1 — Routing table is data-first. Each entry can declare:
+//   text_rendering_override: false  — beat is EXEMPT from the
+//                                     requires_text_rendering Kling V3 Pro
+//                                     reroute (see TEXT_OVERRIDE_EXEMPT logic).
+//                                     Reason field documents WHY each beat
+//                                     opts out.
+// Adding a new beat type that needs text-rendering exemption: set the field
+// in the routing entry below — no code change required.
 const ROUTING = {
   // Mode B primary — Kling O3 Omni → Sync Lipsync v3 chain
-  TALKING_HEAD_CLOSEUP: { generator: CinematicDialogueGenerator, mode: 'B' },
-  DIALOGUE_IN_SCENE:    { generator: CinematicDialogueGenerator, mode: 'B' },
-  GROUP_DIALOGUE_TWOSHOT: { generator: GroupTwoShotGenerator },
+  // Speech beats: text override would silently drop dialogue. Speech wins.
+  TALKING_HEAD_CLOSEUP: {
+    generator: CinematicDialogueGenerator, mode: 'B',
+    text_rendering_override: false,
+    text_rendering_reason: 'Speech beat — text-override route is silent Kling V3 Pro; would drop dialogue.'
+  },
+  DIALOGUE_IN_SCENE: {
+    generator: CinematicDialogueGenerator, mode: 'B',
+    text_rendering_override: false,
+    text_rendering_reason: 'Speech beat — text-override route is silent Kling V3 Pro; would drop dialogue.'
+  },
+  GROUP_DIALOGUE_TWOSHOT: {
+    generator: GroupTwoShotGenerator,
+    text_rendering_override: false,
+    text_rendering_reason: 'Multi-speaker beat — text-override would lose the dialogue track.'
+  },
 
   // Silent / reaction — Kling O3 Omni (for silent stare) or Veo 3.1 (for reaction)
   SILENT_STARE: { generator: SilentStareGenerator },
   REACTION:     { generator: ReactionGenerator },
 
-  // Product hero — Veo 3.1 with first/last frame anchor
-  INSERT_SHOT: { generator: InsertShotGenerator },
+  // Product hero — Veo 3.1 with first/last frame anchor.
+  // Caught 2026-04-11: Gemini flagged a MacBook Pro hero as
+  // requires_text_rendering → routed to ActionGenerator → lost the MacBook
+  // reference and rendered a generic text-on-screen Kling V3 Pro shot.
+  // INSERT_SHOT exists specifically for product-anchor preservation; never
+  // override.
+  INSERT_SHOT: {
+    generator: InsertShotGenerator,
+    text_rendering_override: false,
+    text_rendering_reason: 'Preserves Veo first-frame product anchor; text-override would drop product reference.'
+  },
 
   // Action / montage — Kling V3 Pro (prompt-first)
   ACTION_NO_DIALOGUE: { generator: ActionGenerator },
@@ -112,15 +142,27 @@ const ROUTING = {
   // Atmospheric — Veo 3.1 Standard with native ambient
   B_ROLL_ESTABLISHING: { generator: BRollGenerator },
 
-  // Opt-in voice-over beat
-  VOICEOVER_OVER_BROLL: { generator: VoiceoverBRollGenerator },
+  // Opt-in voice-over beat — text-override would silence the VO track.
+  // Caught 2026-04-21: action-genre run produced a speechless episode
+  // because Gemini flagged every VO beat with visible signage as
+  // requires_text_rendering, dropping the narration.
+  VOICEOVER_OVER_BROLL: {
+    generator: VoiceoverBRollGenerator,
+    text_rendering_override: false,
+    text_rendering_reason: 'VO beat — text-override route is silent; would drop the voice-over track.'
+  },
 
   // V4 Phase 6.1 — narrative bridge beats. Veo 3.1 Standard with
   // first+last-frame anchoring, same free tier as B_ROLL_ESTABLISHING.
   SCENE_BRIDGE: { generator: BridgeBeatGenerator },
 
-  // Post-production (ffmpeg only, no API cost)
-  TEXT_OVERLAY_CARD:     { generator: TextOverlayCardGenerator, noApiCost: true },
+  // Post-production (ffmpeg only, no API cost). Already a text-card path —
+  // override is meaningless here (it's already the explicit text route).
+  TEXT_OVERLAY_CARD: {
+    generator: TextOverlayCardGenerator, noApiCost: true,
+    text_rendering_override: false,
+    text_rendering_reason: 'Already an ffmpeg text-card path — override is a no-op.'
+  },
   SPEED_RAMP_TRANSITION: { generator: null, noApiCost: true, assemblerOnly: true }
   // SPEED_RAMP_TRANSITION is applied by the assembler between beats,
   // not generated as its own clip.
@@ -293,18 +335,16 @@ class BeatRouter {
     // let INSERT_SHOT always flow through InsertShotGenerator regardless of
     // the flag. In-scene text (storefront signs, billboards, caption cards)
     // still correctly routes through the override on other beat types.
-    const TEXT_OVERRIDE_EXEMPT_TYPES = new Set([
-      'TEXT_OVERLAY_CARD',
-      'INSERT_SHOT',
-      'VOICEOVER_OVER_BROLL',
-      'TALKING_HEAD_CLOSEUP',
-      'DIALOGUE_IN_SCENE',
-      'GROUP_DIALOGUE_TWOSHOT'
-    ]);
-    if (
-      beat.requires_text_rendering &&
-      !TEXT_OVERRIDE_EXEMPT_TYPES.has(beat.type)
-    ) {
+    // V4 P4.1 — Data-driven text-rendering override. The exempt list is now
+    // a per-beat-type field on the ROUTING table (text_rendering_override: false)
+    // instead of a hardcoded set. Adding/removing beat types from the exempt
+    // list happens in the table, no code change. Default behavior when the
+    // field is absent: beat IS subject to override (preserves the original
+    // Action/B-roll/etc routing-to-Kling-V3-Pro behavior for in-scene text).
+    const routingEntry = ROUTING[beat.type];
+    const isExemptFromTextOverride =
+      routingEntry && routingEntry.text_rendering_override === false;
+    if (beat.requires_text_rendering && !isExemptFromTextOverride) {
       return {
         GeneratorClass: ActionGenerator,
         mode: 'text_override',

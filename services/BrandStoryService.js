@@ -84,10 +84,13 @@ import {
   estimateEpisodeDuration
 } from './v4/PostProduction.js';
 import { getOrCreateProgressEmitter } from './v4/ProgressEmitter.js';
-import { generateLutFromBrandKit } from './v4/GenerativeLut.js';
+import { generateLutFromBrandKit, generateStoryTrimLut } from './v4/GenerativeLut.js';
 import {
   isEnabled as isCharacterSheetDirectorEnabled,
-  generateAllVariants as csdGenerateAllVariants
+  generateAllVariants as csdGenerateAllVariants,
+  CHARACTER_BODY_ANGLES,
+  composeAngleVariantPrompt,
+  buildDetailMacroPrompts
 } from './v4/CharacterSheetDirector.js';
 import {
   extractPersonaVisualAnchor,
@@ -469,7 +472,11 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
             logger.info(`Lens 0/A commercial-brief verdict: ${verdictKind} (score=${briefVerdict?.overall_score ?? 'n/a'}, mode=${briefMode})`);
 
             if (briefMode === 'blocking' && verdictKind === 'hard_reject') {
-              // Halt + escalate. Storyline must not run on a hard_rejected brief.
+              // Halt + escalate (BLOCKING ONLY). Storyline must not run on a
+              // hard_rejected brief in blocking mode.
+              // Advisory mode: log the hard_reject for the panel but proceed
+              // with the rejected brief — the user sees the verdict and decides
+              // whether to ship downstream.
               await updateBrandStory(storyId, userId, {
                 status: 'awaiting_user_review',
                 commercial_brief: commercialBrief,
@@ -480,7 +487,13 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
               );
             }
 
-            if (briefMode === 'blocking' && verdictKind === 'soft_reject' && briefVerdict?.retry_authorization === true) {
+            // V4 hotfix 2026-04-30 — Advisory mode now also auto-retries on
+            // soft_reject (parity with blocking on the AUTO-RETRY axis; differs
+            // only on the HALT axis). The check below was previously
+            // `briefMode === 'blocking'`; expanded to include 'advisory' so
+            // self-improving behavior runs even when the user opted out of
+            // halts.
+            if ((briefMode === 'blocking' || briefMode === 'advisory') && verdictKind === 'soft_reject' && briefVerdict?.retry_authorization === true) {
               // ONE re-run with the director's nudge spliced in. The findings
               // become an additional STORY_DIRECTOR_NUDGE block on the brief
               // generator's user prompt — mirroring the Phase 5 nudge contract.
@@ -2508,30 +2521,63 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
         const { variants, isPrincipal } = await csdGenerateAllVariants({ persona, story, brandKit });
         csdMeta = { variants: Object.keys(variants), is_principal: isPrincipal };
 
-        // Each arc-state variant emits TWO views: a hero (9:16) and a closeup (1:1).
-        // The principal/supporting policy already controlled how many variants we
-        // get; here we just expand each variant into the two canonical views.
+        // V4 character-sheet richness — 3-axis view grid (2026-04-29).
+        //
+        // Replaces the prior `arc_state × {hero, closeup}` emit (4 views, all
+        // front-facing) with a 3-axis structure that restores the original
+        // n8n workflow's geometric + detail coverage WHILE keeping V4's arc
+        // emotional variation:
+        //
+        //   Axis 1 — Body angles    × CHARACTER_BODY_ANGLES (3 entries)
+        //                             front 3/4 (45°), pure rear, side 90°
+        //   Axis 2 — Arc states     × variants (1 for non-principal, 2-3 for principal)
+        //   Axis 3 — Detail macros  × buildDetailMacroPrompts (4 entries — once per persona)
+        //                             head, upper chest, signature item, lower legs/boots
+        //
+        // Result per persona:
+        //   - Non-principal: 3 angles × 1 arc + 4 details =  7 views
+        //   - Principal:     3 angles × 2 arcs + 4 details = 10 views
+        //   - HIGH_QUALITY:  3 angles × 3 arcs + 4 details = 13 views
+        //
+        // Plus the existing CIP 3-angle bank (canonical_identity_urls) — kept
+        // independent. Beat generators consume both: reference_image_urls
+        // (this stack) for matched-angle / detail anchors, canonical_identity_urls
+        // for Kling element-binding identity lock.
+        //
+        // Cost: ~$0.04 per Flux call × 7-13 calls per persona = $0.28-$0.52,
+        // ~6-11 minutes per persona. Quality-first tradeoff.
         views = [];
         for (const [arcState, brief] of Object.entries(variants)) {
+          for (const angle of CHARACTER_BODY_ANGLES) {
+            views.push({
+              label: `${arcState}-${angle.slot}`,
+              prompt: composeAngleVariantPrompt(brief.flux_prompt, angle),
+              negative_prompt: brief.negative_prompt || undefined,
+              aspect: angle.aspect,
+              arc_state: arcState,
+              angle_slot: angle.slot
+            });
+          }
+        }
+
+        // Detail macros — generated once per persona (not per arc state).
+        // The macros reference the persona's seed photo + freshly-rendered
+        // angle views (heroInputImages stack, accumulated by the loop).
+        const detailMacros = buildDetailMacroPrompts(persona, { description, wardrobe });
+        for (const macro of detailMacros) {
           views.push({
-            label: `${arcState}-hero`,
-            prompt: brief.flux_prompt,
-            negative_prompt: brief.negative_prompt || undefined,
-            aspect: '9:16',
-            arc_state: arcState
-          });
-          views.push({
-            label: `${arcState}-closeup`,
-            // Closeup variant: tighten the brief to head-and-shoulders. We
-            // simply append a framing instruction; the director-authored brief
-            // already contains the dimensions-driven craft.
-            prompt: `${brief.flux_prompt}\n\nFRAMING OVERRIDE: head-and-shoulders close-up at the same emotional state and lighting register. Same wardrobe, same eye-state, same posture intent.`,
-            negative_prompt: brief.negative_prompt || undefined,
+            label: `detail-${macro.slot}`,
+            prompt: macro.prompt,
             aspect: '1:1',
-            arc_state: arcState
+            detail_slot: macro.slot
           });
         }
-        logger.info(`CharacterSheetDirector: generated ${Object.keys(variants).length} variants × 2 views = ${views.length} views for ${name} (principal=${isPrincipal})`);
+
+        logger.info(
+          `CharacterSheetDirector: 3-axis grid emitted — ` +
+          `${Object.keys(variants).length} arc(s) × ${CHARACTER_BODY_ANGLES.length} angles + ${detailMacros.length} details = ` +
+          `${views.length} views for ${name} (principal=${isPrincipal})`
+        );
       } catch (err) {
         logger.warn(`CharacterSheetDirector failed (${err.message}) — falling back to legacy hardcoded prompts`);
         views = null;
@@ -2594,12 +2640,20 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       );
       newImageUrls.push(imageUrl);
 
-      // Phase 5 — record per-arc-state URL into sheet_variants when present.
+      // V4 P-character-sheet-richness — record per-arc-state URL into
+      // sheet_variants under the angle slot (front34 / rear / side90).
+      // Legacy hero/closeup slots remain readable for back-compat with the
+      // legacy fallback path below (which uses hero/closeup labels).
       if (view.arc_state) {
         if (!sheetVariants[view.arc_state]) sheetVariants[view.arc_state] = {};
-        const slot = view.label.includes('closeup') ? 'closeup' : 'hero';
+        const slot =
+          view.angle_slot ||
+          (view.label.includes('closeup') ? 'closeup' : 'hero');
         sheetVariants[view.arc_state][slot] = imageUrl;
-        sheetVariants[view.arc_state].prompt = view.prompt;  // last write wins (hero variant)
+        // Last write wins for the prompt field — when 3-axis grid is used,
+        // this captures whichever angle finished last for that arc state.
+        // It's used downstream for diagnostics, not routing.
+        sheetVariants[view.arc_state].prompt = view.prompt;
       }
 
       // After hero shot, add it as reference for subsequent views
@@ -2630,7 +2684,40 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
     // the identity anchor selection.
     const allRefs = [...newImageUrls, ...existingImages];
 
-    logger.info(`Character sheet for ${name}: ${newImageUrls.length} Flux views (identity-anchored) + ${existingImages.length} originals (style context) = ${allRefs.length} total refs`);
+    // V4 P-character-sheet-richness — face-bearing subset for the CIP front
+    // anchor. The CIP front prompt explicitly says "extract the constant
+    // facial structure" — rear views contribute zero face data AND fal.ai's
+    // content checker can flag fitted-clothing rear views (logs.txt
+    // 2026-04-29: persona shipped without ANY CIP because the CIP front call
+    // included rear views that tripped content moderation).
+    //
+    // Filter rules:
+    //   • Include `*-front34` (face front-on)
+    //   • Include `*-side90` (jawline visible)
+    //   • Include `detail-head` (closest face reference)
+    //   • Include all user originals (face visible by design)
+    //   • EXCLUDE `*-rear` (no face data + content-checker risk)
+    //   • EXCLUDE `detail-chest`, `detail-signature`, `detail-boots` (no face)
+    //
+    // Order: face-richest first so ref[0] is the best face anchor.
+    const isFaceBearing = (url) =>
+      typeof url === 'string' && (
+        url.includes('-front34') ||
+        url.includes('-side90') ||
+        url.includes('detail-head')
+      );
+    const fluxFaceRefs = newImageUrls.filter(isFaceBearing);
+    const detailHeadFirst = fluxFaceRefs.filter(u => u.includes('detail-head'));
+    const front34Refs = fluxFaceRefs.filter(u => u.includes('-front34'));
+    const side90Refs = fluxFaceRefs.filter(u => u.includes('-side90'));
+    const cipFaceRefs = [
+      ...detailHeadFirst,   // closest face reference at slot 0 (heaviest weight)
+      ...front34Refs,       // front-facing across arc states
+      ...side90Refs,        // jawline reference
+      ...existingImages     // user originals (natural-light ground truth)
+    ];
+
+    logger.info(`Character sheet for ${name}: ${newImageUrls.length} Flux views (identity-anchored) + ${existingImages.length} originals (style context) = ${allRefs.length} total refs (CIP face refs: ${cipFaceRefs.length})`);
 
     // 7. V4 Phase 9 — Canonical Identity Portrait (CIP) stage.
     //
@@ -2662,6 +2749,10 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
           // 10MP input+output cap AND to avoid arc-state averaging that muddies
           // the angle-lock).
           numFluxViews: newImageUrls.length,
+          // V4 P-character-sheet-richness — face-bearing subset for the CIP
+          // front anchor (excludes rear views that have no face data and
+          // can trip fal.ai's content checker on fitted clothing).
+          faceRefs: cipFaceRefs,
           userId,
           baseSeed,
           // V4 Phase 7 — thread commercial_brief so non-photoreal styles get
@@ -2705,7 +2796,7 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
    * Returns empty array if Flux isn't available — caller falls back to
    * ordered reference_image_urls.
    */
-  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, numFluxViews = null, userId, baseSeed, commercialBrief = null }) {
+  async _generateCanonicalIdentityPortrait({ name, personaIndex, description, styleHint, allRefs, numFluxViews = null, faceRefs = null, userId, baseSeed, commercialBrief = null }) {
     if (!fluxFalService.isAvailable()) return [];
 
     logger.info(`  ${name}: canonicalizing identity (CIP stage)...`);
@@ -2771,9 +2862,16 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
 
     let frontUrl = null;
     try {
+      // V4 P-character-sheet-richness — CIP front uses face-bearing refs only
+      // (excludes rear views that contribute zero face data + trip fal.ai's
+      // content checker on fitted-clothing rear views). Falls back to
+      // allRefs.slice when caller didn't pass faceRefs (legacy fallback path).
+      const cipFrontRefs = (Array.isArray(faceRefs) && faceRefs.length > 0)
+        ? faceRefs.slice(0, 6)   // 6 face refs ≈ 4MP + 5×1MP + 2MP output ≈ 11MP-ish; fal downsizes refs[2+] further so stays under 10MP cap in practice
+        : allRefs.slice(0, 8);
       const frontResult = await fluxFalService.generatePortrait({
         prompt: cipFrontPrompt,
-        referenceImages: allRefs.slice(0, 8),
+        referenceImages: cipFrontRefs,
         options: {
           aspectRatio: '9:16',
           seed: baseSeed + 100 // offset from character sheet seeds to get a distinct roll
@@ -3279,13 +3377,27 @@ Respond with ONLY valid JSON:
    * @param {Function} [onProgress] - optional progress callback (stage, detail)
    * @returns {Promise<Object>} the completed episode record
    */
-  async runV4Pipeline(storyId, userId, onProgress) {
+  async runV4Pipeline(storyId, userId, onProgress, resumeOptions = null) {
+    // V4 hotfix 2026-05-01 — Resume mode (`resumeOptions.episodeId` set):
+    // skip screenplay generation + Lens A + episode creation; pick up the
+    // pipeline at Step 6 (Scene Master generation) using the persisted
+    // scene_description from the existing episode. Used by Edit & Retry on
+    // Lens B halts so the user's synthesized directive lands on the failed
+    // scene without losing the episode's prior screenplay/cast/voice work.
+    //
+    // resumeOptions shape:
+    //   { episodeId: string, sceneEdits?: { sceneId, notes?, edited_anchor? } }
+    const isResume = !!resumeOptions?.episodeId;
+
     // SSE emitter is created lazily once we know the episode_id (after the
     // first DB insert). For pre-episode-creation stages we still log + call
     // the legacy callback, but the SSE stream starts at the moment the
     // episode record exists. This matches the natural URL shape:
     // /api/brand-stories/:id/episodes/:episodeId/stream
     let emitter = null;
+    if (isResume) {
+      try { emitter = getOrCreateProgressEmitter(resumeOptions.episodeId); } catch {}
+    }
 
     const progress = (stage, detail, extras = {}) => {
       logger.info(`[V4Pipeline] ${stage}: ${detail}`);
@@ -3297,12 +3409,59 @@ Respond with ONLY valid JSON:
       }
     };
 
-    progress('start', `V4 pipeline starting for story ${storyId}`);
+    progress('start', isResume
+      ? `V4 pipeline RESUMING for story ${storyId} from episode ${resumeOptions.episodeId}`
+      : `V4 pipeline starting for story ${storyId}`);
 
     // ─── Load story + validate ───
     const story = await getBrandStoryById(storyId, userId);
     if (!story) throw new Error(`V4: story ${storyId} not found`);
     if (!story.storyline) throw new Error(`V4: story ${storyId} has no storyline (run generateStoryline first)`);
+
+    // V4 hotfix 2026-05-01 — Resume mode: load the existing episode now so
+    // downstream Steps 3/3b/3c/5 can pull persisted state (sceneGraph,
+    // qualityReport, directorReport, episode_number) and skip the
+    // upstream-only work (screenplay generation, Lens A judging, episode
+    // creation). Apply user edits from `resumeOptions.sceneEdits` to the
+    // failed scene right here so the rest of the pipeline sees a clean,
+    // edited scene-graph.
+    let existingEpisodeForResume = null;
+    if (isResume) {
+      existingEpisodeForResume = await getBrandStoryEpisodeById(resumeOptions.episodeId, userId);
+      if (!existingEpisodeForResume) {
+        throw new Error(`V4 resume: episode ${resumeOptions.episodeId} not found`);
+      }
+      const persisted = existingEpisodeForResume.scene_description || {};
+      if (!Array.isArray(persisted.scenes) || persisted.scenes.length === 0) {
+        throw new Error(`V4 resume: episode ${resumeOptions.episodeId} has no scene-graph to resume from`);
+      }
+      // Apply sceneEdits (notes / edited_anchor) to the failed scene IN-PLACE
+      // on the persisted scene_description. The mutated copy becomes the
+      // sceneGraph the pipeline operates on; the DB write happens at Step 5.
+      if (resumeOptions.sceneEdits?.sceneId) {
+        const sceneEdits = resumeOptions.sceneEdits;
+        const targetScene = (persisted.scenes || []).find(s => s.scene_id === sceneEdits.sceneId);
+        if (targetScene) {
+          const baseAnchor = sceneEdits.edited_anchor || targetScene.scene_visual_anchor_prompt || targetScene.location || '';
+          if (sceneEdits.notes) {
+            targetScene.scene_visual_anchor_prompt = `${baseAnchor}. DIRECTOR'S RETAKE NOTE: ${sceneEdits.notes}`.trim();
+          } else if (sceneEdits.edited_anchor) {
+            targetScene.scene_visual_anchor_prompt = sceneEdits.edited_anchor;
+          }
+          targetScene.scene_master_url = null;
+          progress('resume', `applied user edits to scene ${sceneEdits.sceneId} (notes=${!!sceneEdits.notes}, anchor_rewrite=${!!sceneEdits.edited_anchor})`, {
+            episode_id: resumeOptions.episodeId,
+            scene_id: sceneEdits.sceneId,
+            resume: true
+          });
+        } else {
+          logger.warn(`V4 resume: scene ${sceneEdits.sceneId} not found in persisted scene-graph — proceeding without edits`);
+        }
+      }
+      // Stash the mutated scene-graph back on the episode object for the
+      // downstream Step 3 resume branch.
+      existingEpisodeForResume.scene_description = persisted;
+    }
 
     // Persist persona_config mutations from voice acquisition / LUT matching
     let personas = Array.isArray(story.persona_config?.personas)
@@ -3625,20 +3784,55 @@ Respond with ONLY valid JSON:
       // 0.10 STYLE_BYPASS_STRENGTH instead of the photoreal genre default
       // (a hand_doodle_animated commercial graded at 0.25 commercial-genre
       // strength would smash the cel-shaded look back toward photoreal).
-      if (generativePrimary && brandKit) {
+      if (generativePrimary) {
         const genre = story.subject?.genre || story.storyline?.genre;
         const strength = getStrengthForGenreWithStyle(genre, story.commercial_brief);
-        progress('lut', `synthesizing brand-palette LUT (genre=${genre}, strength=${strength.toFixed(2)})`);
-        try {
-          const brandGen = await generateLutFromBrandKit(brandKit, { strength });
-          if (brandGen?.lutId) {
-            brandLutId = brandGen.lutId;
-            progress('lut', `brand trim → ${brandLutId}`);
-          } else {
-            progress('lut', 'brand palette ineligible (rejected by quality gates) — genre LUT only');
+
+        if (brandKit) {
+          // Brand-kit path — synthesize a brand-palette trim LUT from the
+          // user's authored brand colors. Highest fidelity to brand identity.
+          progress('lut', `synthesizing brand-palette LUT (genre=${genre}, strength=${strength.toFixed(2)})`);
+          try {
+            const brandGen = await generateLutFromBrandKit(brandKit, { strength });
+            if (brandGen?.lutId) {
+              brandLutId = brandGen.lutId;
+              progress('lut', `brand trim → ${brandLutId}`);
+            } else {
+              progress('lut', 'brand palette ineligible (rejected by quality gates) — falling through to story-content trim');
+            }
+          } catch (err) {
+            logger.warn(`V4: brand LUT synthesis failed (${err.message}) — falling through to story-content trim`);
           }
-        } catch (err) {
-          logger.warn(`V4: brand LUT synthesis failed (${err.message}) — genre LUT only`);
+        }
+
+        // V4 hotfix 2026-04-30 — story-content fallback trim layer.
+        //
+        // When brandKit is null OR the brand-palette path produced no usable
+        // trim, derive a trim LUT from the story's GENRE register (using the
+        // built-in STORY_TONAL_TRIM_PRESETS map in GenerativeLut.js). This
+        // serves as the brand-palette-equivalent SECOND PASS that tempers
+        // the genre creative LUT's aggression. Without it, the genre LUT
+        // dominates and crushes shadows on dim Veo shots — which is exactly
+        // what produced the "noir/B&W" appearance reported on story
+        // `4f24ebfa...` (action genre + no brand kit + bs_action_teal_orange_punch
+        // applied at full strength = near-monochrome shadow regions).
+        //
+        // Story-trim runs at the genre's GENRE_STRENGTH (typically 0.10-0.30,
+        // same calibration as brand-trim) but uses preset palettes coherent
+        // with each genre's visual register. Output id is `gen_*` (cached).
+        if (!brandLutId) {
+          progress('lut', `synthesizing story-content trim LUT (genre=${genre}, strength=${strength.toFixed(2)}) — no brand kit available`);
+          try {
+            const storyGen = await generateStoryTrimLut({ genre, brandKit: null, strengthOverride: strength });
+            if (storyGen?.lutId) {
+              brandLutId = storyGen.lutId;
+              progress('lut', `story trim → ${brandLutId} (genre preset: ${storyGen.genrePreset || genre})`);
+            } else {
+              progress('lut', 'no story-content trim available for this genre — genre LUT only (may produce aggressive grade on dim shots)');
+            }
+          } catch (err) {
+            logger.warn(`V4: story-content trim synthesis failed (${err.message}) — genre LUT only`);
+          }
         }
       }
 
@@ -3695,7 +3889,9 @@ Respond with ONLY valid JSON:
     }
 
     // ─── Step 3: Gemini V4 scene-graph generation ───
-    progress('screenplay', 'generating V4 scene-graph via Gemini');
+    progress('screenplay', isResume
+      ? `RESUME: skipping screenplay generation — using persisted scene-graph from episode ${resumeOptions.episodeId}`
+      : 'generating V4 scene-graph via Gemini');
     const previousEpisodes = await getBrandStoryEpisodes(storyId, userId);
     const previousReady = previousEpisodes.filter(e => e.status === 'ready' || e.status === 'published');
     const previousVisualStyle = story.storyline?.visual_style_prefix || '';
@@ -3718,9 +3914,11 @@ Respond with ONLY valid JSON:
     // episode got episode_number=1 and collided with the existing row.
     // Caught 2026-04-11: Episode 1 stuck in 'regenerating_beat' → Generate
     // Episode 2 → previousReady=[] → episode_number=1 → UNIQUE violation.
-    const nextEpisodeNumber = previousEpisodes.length + 1;
+    const nextEpisodeNumber = isResume
+      ? existingEpisodeForResume.episode_number
+      : (previousEpisodes.length + 1);
 
-    let sceneGraph = await this._generateV4Screenplay({
+    let sceneGraph = isResume ? existingEpisodeForResume.scene_description : await this._generateV4Screenplay({
       story,
       personas,
       previousEpisodes: previousReady.slice(-3), // last 3 READY episodes for continuity
@@ -3766,8 +3964,15 @@ Respond with ONLY valid JSON:
       // signals (voiceover-heavy briefs skip the dialogue-thin warning).
       commercialBrief: story.commercial_brief || null
     };
-    let qualityReport = { validator: null, doctor: null };
-    try {
+    // V4 hotfix 2026-05-01 — Resume mode: load persisted qualityReport
+    // from existing episode (Layer 1 validator + Doctor already ran during
+    // the original pipeline pass; re-running them on the same scene-graph
+    // would be a no-op at best and could re-flag warnings the user already
+    // moved past).
+    let qualityReport = isResume
+      ? (existingEpisodeForResume.quality_report || { validator: null, doctor: null })
+      : { validator: null, doctor: null };
+    if (!isResume) try {
       const layer1 = validateScreenplay(sceneGraph, story.storyline || {}, personas, validatorOpts);
       qualityReport.validator = { issues: layer1.issues, stats: layer1.stats };
       sceneGraph = layer1.repaired;
@@ -3839,7 +4044,41 @@ Respond with ONLY valid JSON:
     };
     const anyDirectorEnabled = Object.values(directorModes).some(m => m !== 'off');
     let directorAgent = null;
-    const directorReport = { retries: {}, modes: directorModes, notes: [] };
+    // V4 hotfix 2026-05-01 — Resume mode: inherit the persisted directorReport
+    // from the existing episode so prior verdicts (Lens A pass), retry budgets,
+    // and notes survive the resume. Clear `halt` since the user has resolved
+    // it; record the resume in `resume_history` for the audit trail.
+    const directorReport = isResume
+      ? (() => {
+          const persisted = existingEpisodeForResume.director_report || {};
+          const inherited = {
+            retries: persisted.retries || {},
+            modes: directorModes,
+            notes: Array.isArray(persisted.notes) ? persisted.notes : [],
+            screenplay: persisted.screenplay || null,
+            screenplay_retry: persisted.screenplay_retry || null,
+            scene_master: persisted.scene_master || {},
+            beat: persisted.beat || {},
+            episode: persisted.episode || null,
+            resume_history: Array.isArray(persisted.resume_history) ? persisted.resume_history : []
+          };
+          // Reset retry budget for the failed scene_master so the user
+          // override counts as a fresh attempt, not a continuation of the
+          // exhausted retry chain. Without this, decideDirectorRetry sees
+          // retries=1 already and immediately escalates.
+          if (resumeOptions.sceneEdits?.sceneId && inherited.retries?.scene_master) {
+            delete inherited.retries.scene_master[resumeOptions.sceneEdits.sceneId];
+          }
+          inherited.resume_history.push({
+            from_checkpoint: 'scene_master',
+            scene_id: resumeOptions.sceneEdits?.sceneId || null,
+            had_notes: !!resumeOptions.sceneEdits?.notes,
+            had_anchor_rewrite: !!resumeOptions.sceneEdits?.edited_anchor,
+            ts: new Date().toISOString()
+          });
+          return inherited;
+        })()
+      : { retries: {}, modes: directorModes, notes: [] };
 
     // V4 P1.4 — Notes-severity surfacing.
     //
@@ -3930,7 +4169,9 @@ Respond with ONLY valid JSON:
     }
 
     // ─── Lens A — Table Read (post-screenplay, post-Doctor) ───
-    if (directorAgent && directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY] !== 'off') {
+    // V4 hotfix 2026-05-01 — Skip Lens A on resume (it ran during the
+    // original pipeline pass; persisted verdict is already on directorReport.screenplay).
+    if (!isResume && directorAgent && directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY] !== 'off') {
       const lensAMode = directorModes[DIRECTOR_CHECKPOINTS.SCREENPLAY];
       // Phase 7 / B5 — route by genre. Commercial → judgeCommercialScreenplay
       // (different DIMENSIONS, same verdict shape).
@@ -3960,8 +4201,11 @@ Respond with ONLY valid JSON:
           findings: (verdictA?.findings || []).length
         });
 
-        // Blocking mode — decide retry vs escalate
-        if (lensAMode === 'blocking') {
+        // V4 hotfix 2026-04-30 — Advisory and Blocking BOTH auto-retry on
+        // soft_reject. Only Blocking halts on retry-exhausted / hard_reject.
+        // The retry path below runs whenever decision.shouldRetry is true
+        // regardless of mode; the halt path is gated on `lensAMode === 'blocking'`.
+        if (lensAMode === 'blocking' || lensAMode === 'advisory') {
           const decision = decideDirectorRetry({
             verdict: verdictA,
             checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
@@ -3969,16 +4213,25 @@ Respond with ONLY valid JSON:
           });
 
           if (decision.shouldEscalate && !decision.shouldRetry) {
-            // No episode row exists yet (we run before createBrandStoryEpisode);
-            // throwing here halts the pipeline before the row is created — the
-            // route handler logs but does NOT create a row to mark, so the user
-            // never sees a partial episode. The director_report is intentionally
-            // not persisted in this path; the next attempt is a clean retry.
-            throw new DirectorBlockingHaltError({
-              checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
-              verdict: verdictA,
-              reason: decision.reason
-            });
+            if (lensAMode === 'blocking') {
+              // BLOCKING — halt before episode row creation. The route handler
+              // logs but does NOT create a row to mark, so the user never sees
+              // a partial episode. The director_report is intentionally not
+              // persisted in this path; the next attempt is a clean retry.
+              throw new DirectorBlockingHaltError({
+                checkpoint: DIRECTOR_CHECKPOINTS.SCREENPLAY,
+                verdict: verdictA,
+                reason: decision.reason
+              });
+            } else {
+              // ADVISORY — log the verdict and proceed with the rejected
+              // screenplay. Verdict is already in directorReport.screenplay
+              // for panel surfacing; user decides whether to ship.
+              logger.info(
+                `[V4Pipeline] director:screenplay advisory mode — ` +
+                `escalation triggered (${decision.reason}) but proceeding without halt`
+              );
+            }
           }
 
           if (decision.shouldRetry) {
@@ -4083,15 +4336,29 @@ Respond with ONLY valid JSON:
     this._brandSafetyFilter(sceneGraph);
 
     // ─── Step 5: Create episode record + run BeatRouter preflight ───
-    const newEpisode = await createBrandStoryEpisode(storyId, userId, {
-      episode_number: nextEpisodeNumber,
-      scene_description: sceneGraph,
-      pipeline_version: 'v4',
-      status: 'generating_scene_masters',
-      cost_cap_usd: costCapUsd,
-      quality_report: qualityReport,
-      director_report: directorReport
-    });
+    // V4 hotfix 2026-05-01 — Resume mode: reuse the existing episode (do
+    // NOT insert a new row, which would collide on episode_number unique
+    // index AND lose the user's halt-resolution audit trail). Just update
+    // status + persist the edited scene-graph + cleared directorReport.
+    const newEpisode = isResume
+      ? { id: resumeOptions.episodeId }
+      : await createBrandStoryEpisode(storyId, userId, {
+          episode_number: nextEpisodeNumber,
+          scene_description: sceneGraph,
+          pipeline_version: 'v4',
+          status: 'generating_scene_masters',
+          cost_cap_usd: costCapUsd,
+          quality_report: qualityReport,
+          director_report: directorReport
+        });
+    if (isResume) {
+      await updateBrandStoryEpisode(resumeOptions.episodeId, userId, {
+        status: 'generating_scene_masters',
+        scene_description: sceneGraph,
+        director_report: directorReport,
+        error_message: null
+      });
+    }
 
     // Activate SSE emitter now that we have the episode_id. From this point
     // onward every progress(...) call also broadcasts to any connected
@@ -4326,8 +4593,9 @@ Respond with ONLY valid JSON:
             findings: (verdictB?.findings || []).length
           });
 
-          // Blocking-mode retry path
-          if (lensBMode === 'blocking') {
+          // V4 hotfix 2026-04-30 — Advisory and Blocking BOTH auto-retry on
+          // soft_reject. Halt path is gated to blocking-only.
+          if (lensBMode === 'blocking' || lensBMode === 'advisory') {
             const decision = decideDirectorRetry({
               verdict: verdictB,
               checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
@@ -4336,16 +4604,34 @@ Respond with ONLY valid JSON:
             });
 
             if (decision.shouldEscalate && !decision.shouldRetry) {
-              await updateBrandStoryEpisode(newEpisode.id, userId, {
-                status: 'awaiting_user_review',
-                director_report: directorReport
-              });
-              throw new DirectorBlockingHaltError({
-                checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
-                verdict: verdictB,
-                artifactKey: scene.scene_id,
-                reason: decision.reason
-              });
+              if (lensBMode === 'blocking') {
+                // BLOCKING — halt + persist context for the panel.
+                directorReport.halt = {
+                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  scene_id: scene.scene_id,
+                  artifactKey: scene.scene_id,
+                  verdict: verdictB,
+                  reason: decision.reason,
+                  pass: 'first',
+                  ts: new Date().toISOString()
+                };
+                await updateBrandStoryEpisode(newEpisode.id, userId, {
+                  status: 'awaiting_user_review',
+                  director_report: directorReport
+                });
+                throw new DirectorBlockingHaltError({
+                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  verdict: verdictB,
+                  artifactKey: scene.scene_id,
+                  reason: decision.reason
+                });
+              } else {
+                // ADVISORY — log + proceed with the rejected scene master.
+                logger.info(
+                  `[V4Pipeline] director:scene_master advisory mode — scene ${scene.scene_id} ` +
+                  `escalation triggered (${decision.reason}) but proceeding without halt`
+                );
+              }
             }
 
             if (decision.shouldRetry) {
@@ -4354,12 +4640,78 @@ Respond with ONLY valid JSON:
                 scene_id: scene.scene_id,
                 retry: true
               });
-              // Splice director nudge into the scene's anchor prompt for the
-              // re-render. Clearing scene_master_url forces generateSceneMasters
-              // to regenerate this scene; other scenes (which already have URLs)
-              // are skipped by the helper's resume-path check.
+
+              // V4 hotfix 2026-05-01 — Smart retry for Lens B (mirrors the
+              // Lens C wiring at ~line 5085). Replaces the cheap concat of
+              // `decision.nudgePromptDelta` with a Gemini-synthesized
+              // directive that has access to the scene's full content
+              // (anchor prompt, persona names, LUT, visual style) AND the
+              // verdict findings. Smart synth produces a richer remediation
+              // ("the lighting reads as overcast vs. the screenplay's golden
+              // hour — push warmer key light from camera right, soften
+              // shadows on the principal's face") vs. the cheap concat
+              // ("framing too wide; add character closer"). Set
+              // V4_SMART_RETRY=false to fall back to cheap concat.
+              let lensBRetryDirective = decision.nudgePromptDelta;
+              let lensBEditedAnchor = null;
+              if (process.env.V4_SMART_RETRY !== 'false') {
+                progress('director:scene_master', `scene ${scene.scene_id} smart-retry: synthesizing director directive`, {
+                  checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                  scene_id: scene.scene_id,
+                  smart_retry: true
+                });
+                try {
+                  const sceneArtifactContent = {
+                    type: 'scene_master',
+                    scene_id: scene.scene_id,
+                    location: scene.location || null,
+                    scene_visual_anchor_prompt: scene.scene_visual_anchor_prompt || null,
+                    visual_style_prefix: sceneGraph.visual_style_prefix || null,
+                    lut_id: lutId || null,
+                    persona_names: (personas || []).map(p => p.name).filter(Boolean),
+                    beat_count: Array.isArray(scene.beats) ? scene.beats.length : 0
+                  };
+                  const synthB = await this._synthesizeEditFromContext({
+                    verdict: verdictB,
+                    checkpoint: 'scene_master',
+                    artifactId: scene.scene_id,
+                    artifactContent: sceneArtifactContent
+                  });
+                  lensBRetryDirective = synthB.notes || decision.nudgePromptDelta;
+                  lensBEditedAnchor = synthB.edited_anchor || null;
+                  directorReport.scene_master[scene.scene_id + '_smart_retry'] = {
+                    source: synthB.source,
+                    directive: synthB.notes,
+                    edited_anchor: synthB.edited_anchor || null,
+                    attempted_at: new Date().toISOString()
+                  };
+                  progress('director:scene_master',
+                    `scene ${scene.scene_id} smart-retry directive synthesized (source: ${synthB.source})`,
+                    { scene_id: scene.scene_id, smart_retry: true, synth_source: synthB.source }
+                  );
+                  if (synthB.edited_anchor) {
+                    progress('director:scene_master',
+                      `scene ${scene.scene_id} smart-retry: anchor rewritten by synthesis`,
+                      { scene_id: scene.scene_id, smart_retry: true }
+                    );
+                  }
+                } catch (synthErr) {
+                  logger.warn(
+                    `scene ${scene.scene_id} smart synthesis failed (${synthErr.message}) — ` +
+                    `falling back to cheap concat directive for the retry`
+                  );
+                }
+              }
+
+              // Splice director directive into the scene's anchor prompt for
+              // the re-render. If smart synthesis produced a full anchor
+              // rewrite, use that as the base instead of the original.
+              // Clearing scene_master_url forces generateSceneMasters to
+              // regenerate this scene; other scenes (which already have
+              // URLs) are skipped by the helper's resume-path check.
               const originalAnchor = scene.scene_visual_anchor_prompt || scene.location || '';
-              scene.scene_visual_anchor_prompt = `${originalAnchor}. DIRECTOR'S RETAKE NOTE: ${decision.nudgePromptDelta}`.trim();
+              const baseAnchor = lensBEditedAnchor || originalAnchor;
+              scene.scene_visual_anchor_prompt = `${baseAnchor}. DIRECTOR'S RETAKE NOTE: ${lensBRetryDirective}`.trim();
               scene.scene_master_url = null;
               try {
                 await generateSceneMasters({
@@ -4422,16 +4774,35 @@ Respond with ONLY valid JSON:
                   retriesState: directorReport.retries
                 });
                 if (final.shouldEscalate) {
-                  await updateBrandStoryEpisode(newEpisode.id, userId, {
-                    status: 'awaiting_user_review',
-                    director_report: directorReport
-                  });
-                  throw new DirectorBlockingHaltError({
-                    checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
-                    verdict: verdictB,
-                    artifactKey: scene.scene_id,
-                    reason: `retake still ${verdictB?.verdict} — escalating`
-                  });
+                  if (lensBMode === 'blocking') {
+                    // BLOCKING — halt + persist context for the panel.
+                    directorReport.halt = {
+                      checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                      scene_id: scene.scene_id,
+                      artifactKey: scene.scene_id,
+                      verdict: verdictB,
+                      reason: `retake still ${verdictB?.verdict} — escalating`,
+                      pass: 'retry',
+                      ts: new Date().toISOString()
+                    };
+                    await updateBrandStoryEpisode(newEpisode.id, userId, {
+                      status: 'awaiting_user_review',
+                      director_report: directorReport
+                    });
+                    throw new DirectorBlockingHaltError({
+                      checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+                      verdict: verdictB,
+                      artifactKey: scene.scene_id,
+                      reason: `retake still ${verdictB?.verdict} — escalating`
+                    });
+                  } else {
+                    // ADVISORY — proceed with the post-retry verdict; user
+                    // sees the failed verdict in the panel.
+                    logger.info(
+                      `[V4Pipeline] director:scene_master advisory mode — scene ${scene.scene_id} ` +
+                      `retake still ${verdictB?.verdict} — proceeding without halt`
+                    );
+                  }
                 }
               }
             }
@@ -4749,8 +5120,9 @@ Respond with ONLY valid JSON:
                 findings: (verdictC?.findings || []).length
               });
 
-              // Blocking-mode retry path
-              if (lensCMode === 'blocking') {
+              // V4 hotfix 2026-04-30 — Advisory and Blocking BOTH auto-retry
+              // on soft_reject. Halt path is gated to blocking-only.
+              if (lensCMode === 'blocking' || lensCMode === 'advisory') {
                 // V4 Wave 6 / F6 — compose the beat's effective "brief" for
                 // the nudge_to_brief_ratio anti-runaway telemetry. Ratio
                 // compares the proposed nudge mass against the beat's
@@ -4841,17 +5213,37 @@ Respond with ONLY valid JSON:
                 }
 
                 if (decision.shouldEscalate && !decision.shouldRetry) {
-                  await updateBrandStoryEpisode(newEpisode.id, userId, {
-                    status: 'awaiting_user_review',
-                    scene_description: sceneGraph,
-                    director_report: directorReport
-                  });
-                  throw new DirectorBlockingHaltError({
-                    checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
-                    verdict: verdictC,
-                    artifactKey: beat.beat_id,
-                    reason: decision.reason
-                  });
+                  if (lensCMode === 'blocking') {
+                    // BLOCKING — halt + persist context for the panel.
+                    directorReport.halt = {
+                      checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                      beat_id: beat.beat_id,
+                      scene_id: scene?.scene_id || null,
+                      artifactKey: beat.beat_id,
+                      verdict: verdictC,
+                      reason: decision.reason,
+                      pass: 'first',
+                      ts: new Date().toISOString()
+                    };
+                    await updateBrandStoryEpisode(newEpisode.id, userId, {
+                      status: 'awaiting_user_review',
+                      scene_description: sceneGraph,
+                      director_report: directorReport
+                    });
+                    throw new DirectorBlockingHaltError({
+                      checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                      verdict: verdictC,
+                      artifactKey: beat.beat_id,
+                      reason: decision.reason
+                    });
+                  } else {
+                    // ADVISORY — log + ship the beat as-is. Verdict is in
+                    // directorReport.beat for panel surfacing.
+                    logger.info(
+                      `[V4Pipeline] director:beat advisory mode — beat ${beat.beat_id} ` +
+                      `escalation triggered (${decision.reason}) but proceeding without halt`
+                    );
+                  }
                 }
 
                 if (decision.shouldRetry) {
@@ -4861,11 +5253,86 @@ Respond with ONLY valid JSON:
                     retry: true
                   });
 
+                  // V4 hotfix 2026-05-01 — Smart retry replaces cheap retry as
+                  // the SOLE retry mechanism. Previously the pipeline ran two
+                  // retries: (1) cheap concat of `finding.remediation.prompt_delta`
+                  // strings, then (2) smart Gemini synthesis if cheap also failed.
+                  // But the cost differential was ~$0.01 (one Gemini synth call)
+                  // and the time differential was ~5s (synth call latency) —
+                  // negligible compared to the ~170s of Kling+Sync rendering
+                  // per retry. Running cheap-then-smart added an entire wasted
+                  // ~170s + ~$1.10 retry attempt for marginal benefit. One
+                  // smart retry beats two retries on every dimension that
+                  // matters (latency, cost, fix probability).
+                  //
+                  // Set V4_SMART_RETRY=false to fall back to cheap concat
+                  // (escape hatch for cost-conscious runs OR if Gemini synth
+                  // quality regresses). Default: smart retry on.
+                  let retryDirective = decision.nudgePromptDelta;
+                  let retryEditedDialogue = null;
+                  if (process.env.V4_SMART_RETRY !== 'false') {
+                    progress('director:beat', `beat ${beat.beat_id} smart-retry: synthesizing director directive`, {
+                      checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                      beat_id: beat.beat_id,
+                      smart_retry: true
+                    });
+                    try {
+                      const artifactContent = {
+                        type: 'beat',
+                        beat_id: beat.beat_id,
+                        beat_type: beat.type,
+                        dialogue: beat.dialogue || beat.voiceover_text || null,
+                        subtext: beat.subtext || null,
+                        expression_notes: beat.expression_notes || null,
+                        emotion: beat.emotion || null,
+                        duration_seconds: beat.duration_seconds || null,
+                        scene_id: scene?.scene_id || null,
+                        scene_anchor: scene?.scene_visual_anchor_prompt || scene?.location || null,
+                        ambient_bed_prompt: scene?.ambient_bed_prompt || null
+                      };
+                      const synth = await this._synthesizeEditFromContext({
+                        verdict: verdictC,
+                        checkpoint: 'beat',
+                        artifactId: beat.beat_id,
+                        artifactContent
+                      });
+                      retryDirective = synth.notes;
+                      retryEditedDialogue = synth.edited_dialogue;
+                      directorReport.beat[beat.beat_id + '_smart_retry'] = {
+                        source: synth.source,
+                        directive: synth.notes,
+                        edited_dialogue: synth.edited_dialogue || null,
+                        attempted_at: new Date().toISOString()
+                      };
+                      progress('director:beat',
+                        `beat ${beat.beat_id} smart-retry directive synthesized (source: ${synth.source})`,
+                        { beat_id: beat.beat_id, smart_retry: true, synth_source: synth.source }
+                      );
+                      if (synth.edited_dialogue) {
+                        progress('director:beat',
+                          `beat ${beat.beat_id} smart-retry: dialogue rewritten by synthesis`,
+                          { beat_id: beat.beat_id, smart_retry: true }
+                        );
+                      }
+                    } catch (synthErr) {
+                      logger.warn(
+                        `beat ${beat.beat_id} smart synthesis failed (${synthErr.message}) — ` +
+                        `falling back to cheap concat directive for the retry`
+                      );
+                      // retryDirective stays as decision.nudgePromptDelta (cheap concat).
+                    }
+                  }
+
                   // Stamp director_nudge so generators splice it into the model
                   // prompt via BaseBeatGenerator._appendDirectorNudge / per-generator
-                  // prompt builders. Clear endframe_url so the new render's frame
-                  // is what subsequent beats chain off of.
-                  beat.director_nudge = decision.nudgePromptDelta;
+                  // prompt builders. Optionally swap dialogue if smart synthesis
+                  // produced a rewrite (restored after the render so Lens A
+                  // coherence sees the authored line on the record).
+                  beat.director_nudge = retryDirective;
+                  const originalRetryDialogue = beat.dialogue || null;
+                  if (retryEditedDialogue) {
+                    beat.dialogue = retryEditedDialogue;
+                  }
                   beat.generated_video_url = null;
                   beat.endframe_url = null;
 
@@ -4878,6 +5345,17 @@ Respond with ONLY valid JSON:
                       episodeContext,
                       previousBeat
                     });
+
+                    // V4 hotfix 2026-05-01 — Restore the original authored
+                    // dialogue on the beat record now that the render captured
+                    // the smart-synthesized version in audio. Lens A coherence
+                    // checks + downstream consumers should see the authored
+                    // line on `beat.dialogue`; the synthesized rewrite lives
+                    // only in the rendered audio stream + the audit row at
+                    // directorReport.beat[<id>_smart_retry].edited_dialogue.
+                    if (retryEditedDialogue && originalRetryDialogue) {
+                      beat.dialogue = originalRetryDialogue;
+                    }
 
                     // Re-run QC8 (cheap) and replace the buffer
                     let qc2 = null;
@@ -4962,18 +5440,40 @@ Respond with ONLY valid JSON:
                       artifactKey: beat.beat_id,
                       retriesState: directorReport.retries
                     });
+
+
                     if (final.shouldEscalate) {
-                      await updateBrandStoryEpisode(newEpisode.id, userId, {
-                        status: 'awaiting_user_review',
-                        scene_description: sceneGraph,
-                        director_report: directorReport
-                      });
-                      throw new DirectorBlockingHaltError({
-                        checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
-                        verdict: verdictC,
-                        artifactKey: beat.beat_id,
-                        reason: `retake still ${verdictC?.verdict} — escalating`
-                      });
+                      if (lensCMode === 'blocking') {
+                        // BLOCKING — halt + persist context for the panel.
+                        directorReport.halt = {
+                          checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                          beat_id: beat.beat_id,
+                          scene_id: scene?.scene_id || null,
+                          artifactKey: beat.beat_id,
+                          verdict: verdictC,
+                          reason: `retake still ${verdictC?.verdict} — escalating`,
+                          pass: 'retry',
+                          ts: new Date().toISOString()
+                        };
+                        await updateBrandStoryEpisode(newEpisode.id, userId, {
+                          status: 'awaiting_user_review',
+                          scene_description: sceneGraph,
+                          director_report: directorReport
+                        });
+                        throw new DirectorBlockingHaltError({
+                          checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
+                          verdict: verdictC,
+                          artifactKey: beat.beat_id,
+                          reason: `retake still ${verdictC?.verdict} — escalating`
+                        });
+                      } else {
+                        // ADVISORY — log + ship the post-retry beat. The
+                        // verdict is in directorReport.beat for panel surfacing.
+                        logger.info(
+                          `[V4Pipeline] director:beat advisory mode — beat ${beat.beat_id} ` +
+                          `retake still ${verdictC?.verdict} — proceeding without halt`
+                        );
+                      }
                     }
                   } catch (regenErr) {
                     if (regenErr instanceof DirectorBlockingHaltError) throw regenErr;
@@ -5005,6 +5505,30 @@ Respond with ONLY valid JSON:
             director_report: directorReport
           });
         } catch (err) {
+          // V4 hotfix 2026-04-30 — Director blocking-mode halt MUST propagate.
+          // Before this fix, the per-beat catch swallowed DirectorBlockingHaltError
+          // along with all other errors, which meant `BRAND_STORY_DIRECTOR_AGENT=blocking`
+          // did NOT halt the episode at the offending beat — the pipeline marked
+          // the beat 'failed' and marched on through the remaining beats, only
+          // eventually halting at Lens D (post-assembly). This wasted cost on
+          // beats that would never ship and confused the user (logs showed
+          // "halted" but pipeline continued). The Scene Master loop at
+          // line 4528 already had the same instanceof guard; the beat loop
+          // was missing it. Producing the halt outward to the runV4Pipeline
+          // outer catch is what marks the episode awaiting_user_review per the
+          // halt-context persistence shipped in P0.5.
+          if (err instanceof DirectorBlockingHaltError) {
+            logger.error(`beat ${beat.beat_id} HALTED (blocking-mode propagation): ${err.message}`);
+            // Mark the beat failed before re-throwing so the panel reflects which
+            // beat triggered the halt; the halt-context on directorReport.halt was
+            // already persisted at the originating Lens C halt site.
+            beat.status = 'failed';
+            beat.error_message = err.message;
+            await updateBrandStoryEpisode(newEpisode.id, userId, {
+              scene_description: sceneGraph
+            });
+            throw err; // surface to outer pipeline → episode awaiting_user_review
+          }
           logger.error(`beat ${beat.beat_id} failed: ${err.message}`);
           beat.status = 'failed';
           beat.error_message = err.message;
@@ -5036,6 +5560,53 @@ Respond with ONLY valid JSON:
         }
       }
 
+      // V4 hotfix 2026-04-30 — auto-bridge fallback. When the screenplay
+      // generator did NOT emit `scene.bridge_to_next` BUT scenes are in
+      // distinct locations, synthesize a default bridge spec so the viewer
+      // gets narrative connective tissue instead of an unexplained jump.
+      // The user reported "the video made no viewing sense" on a story where
+      // only 1 of 2 scene boundaries had a bridge — the other was a hard
+      // cut between Plaza → Pavilion with no transit.
+      //
+      // Detection: distinct location strings (case-insensitive trim) is the
+      // primary signal. If scene.location isn't reliably populated, fall
+      // back to "always bridge unless the next scene is in the same scope"
+      // which is generous but cheap — bridge clips cost ~$0 (Veo tier 1).
+      //
+      // Set V4_BRIDGE_BEATS_AUTO=false to disable the auto-fallback and
+      // restore the strict "only when Gemini emitted bridge_to_next" path.
+      const sceneIdxForBridge = sceneGraph.scenes.indexOf(scene);
+      const nextSceneForBridge = sceneGraph.scenes[sceneIdxForBridge + 1];
+      const autoBridgeEnabled = process.env.V4_BRIDGE_BEATS_AUTO !== 'false';
+      const _normLoc = (s) => String(s?.location || '').toLowerCase().trim();
+      const locationsDiffer = nextSceneForBridge
+        && _normLoc(scene) && _normLoc(nextSceneForBridge)
+        && _normLoc(scene) !== _normLoc(nextSceneForBridge);
+      const shouldAutoBridge =
+        autoBridgeEnabled &&
+        nextSceneForBridge &&
+        !scene.bridge_to_next &&
+        locationsDiffer;
+      if (shouldAutoBridge) {
+        scene.bridge_to_next = {
+          framing: 'bridge_transit',
+          duration_seconds: 2.5,
+          visual_prompt:
+            `Transit shot connecting "${scene.location || 'previous location'}" to ` +
+            `"${nextSceneForBridge.location || 'next location'}". ` +
+            'Smooth movement, naturalistic lighting register matching the originating scene\'s ambient mood. ' +
+            'No persona on-screen; environmental B-roll only. Veo first-frame anchored to the scene endframe; ' +
+            'last-frame hint is the next scene\'s master.',
+          ambient_sound: scene.ambient_bed_prompt || '',
+          _auto_generated: true
+        };
+        logger.info(
+          `[V4Pipeline] auto-bridge: scene ${scene.scene_id || `s${sceneIdxForBridge}`} → ` +
+          `${nextSceneForBridge.scene_id || `s${sceneIdxForBridge + 1}`} ` +
+          `(distinct locations) — synthesizing default bridge_to_next spec`
+        );
+      }
+
       if (process.env.V4_BRIDGE_BEATS !== 'false' && scene.bridge_to_next && typeof scene.bridge_to_next === 'object') {
         const sceneIdx = sceneGraph.scenes.indexOf(scene);
         const nextScene = sceneGraph.scenes[sceneIdx + 1];
@@ -5049,7 +5620,8 @@ Respond with ONLY valid JSON:
             ambient_sound: scene.bridge_to_next.ambient_sound || '',
             bridge_from_scene_endframe_url: previousBeat?.endframe_url || null,
             bridge_to_scene_master_url: nextScene.scene_master_url || null,
-            personas_present: []
+            personas_present: [],
+            _auto_generated: scene.bridge_to_next._auto_generated === true
           };
           try {
             const result = await router.generate({
@@ -5796,6 +6368,22 @@ Respond with ONLY valid JSON:
       }
     }
 
+    // V4 hotfix 2026-04-30 — load brand_kit for episodeMeta. Before this fix
+    // the regenerate-beat path referenced `brandKit` in episodeMeta below
+    // without ever loading it, throwing ReferenceError("brandKit is not defined")
+    // at the post-production call. Manual reassemble (reassembleEpisode) loaded
+    // it correctly; only this regenerate path was broken. The pattern mirrors
+    // runV4Pipeline's brand_kit load (lines 918-921).
+    let brandKit = null;
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        if (job?.brand_kit) brandKit = job.brand_kit;
+      } catch (err) {
+        logger.warn(`V4 regen: failed to load brand_kit (non-fatal): ${err.message}`);
+      }
+    }
+
     // ─── Step 6: enrich metadata for subtitles/ducking + re-run post-prod ───
     progress('post_production', 'reassembling episode with regenerated beat');
     await updateBrandStoryEpisode(episodeId, userId, {
@@ -5918,6 +6506,730 @@ Respond with ONLY valid JSON:
    * @param {Function} [onProgress] - SSE-style progress callback
    * @returns {Promise<Object>} the updated episode record
    */
+  /**
+   * V4 P0.5 — Director Review Resolution Layer.
+   *
+   * Resolve a Director-Agent BLOCKING-MODE halt that landed an episode in
+   * `awaiting_user_review`. The user provides one of three actions:
+   *
+   *   • approve         — clear halt at face value. Only meaningful at Lens D
+   *                       (when final_video_url exists). For Lens A/B/C halts
+   *                       there is no rendered video to ship; falls through
+   *                       to the same outcome as discard with a friendly
+   *                       error_message noting nothing was assembled.
+   *
+   *   • edit_and_retry  — re-run from the halted checkpoint with the user's
+   *                       notes spliced into the next director nudge AND
+   *                       optional anchor/dialogue overrides applied. Bypasses
+   *                       the standard auto-retry budget (this is a manual
+   *                       override). MVP: implemented as a SOFT clear that
+   *                       flips status to 'failed' and instructs the user to
+   *                       re-trigger episode generation. Full resume-from-
+   *                       checkpoint orchestration (snapshot-based pipeline
+   *                       resumption) is deferred — see plan P0.5.2 option (a)
+   *                       for the snapshot persistence work that unlocks
+   *                       in-place resume.
+   *
+   *   • discard         — mark episode 'failed' with user reason in
+   *                       error_message. No resumption.
+   *
+   * Every resolution is recorded in director_halt_resolutions for telemetry
+   * (see add_director_halt_resolutions.sql migration).
+   *
+   * @param {string} storyId
+   * @param {string} userId
+   * @param {string} episodeId
+   * @param {Object} decision
+   * @param {'approve' | 'edit_and_retry' | 'discard'} decision.action
+   * @param {string} [decision.notes]            user remediation note
+   * @param {string} [decision.edited_anchor]    Lens B halts only — anchor override
+   * @param {string} [decision.edited_dialogue]  Lens C halts only — dialogue override
+   * @returns {Promise<{ success: boolean, status: string, message: string, resolutionId: string }>}
+   */
+  /**
+   * V4 hotfix 2026-04-30 — Auto-synthesize an Edit & Retry directive from the
+   * halt verdict + the failed artifact's content. Replaces the previous flow
+   * where the user had to type free-form director notes (which they don't have
+   * the directing knowledge to write).
+   *
+   * Strategy:
+   *   1. CHEAP layer — collect every finding's `remediation.prompt_delta`
+   *      from the halt verdict. These are already generator-actionable
+   *      hints emitted by the Director Agent rubric. If we have ≥1 prompt_delta,
+   *      we have a usable baseline.
+   *   2. RICH layer — feed [verdict findings + dimension scores + halted beat
+   *      dialogue/anchor + scene context] to Vertex Gemini and ask it to
+   *      synthesize ONE sharp, actionable edit directive that addresses the
+   *      critical findings. Returns a 1-3 sentence directive, plus optional
+   *      anchor/dialogue overrides for Lens B/C respectively.
+   *
+   * Cheap layer always runs (offline, deterministic). Rich layer runs when
+   * Vertex is configured. If rich layer fails, falls back to cheap.
+   *
+   * @param {Object} params
+   * @param {string} params.storyId
+   * @param {string} params.userId
+   * @param {string} params.episodeId
+   * @returns {Promise<{ notes: string, edited_anchor: string|null, edited_dialogue: string|null, source: 'rich'|'cheap' }>}
+   */
+  async synthesizeDirectorReviewEdit({ storyId, userId, episodeId } = {}) {
+    const { supabaseAdmin } = await import('./supabase.js');
+    const { data: episode, error } = await supabaseAdmin
+      .from('brand_story_episodes')
+      .select('id, status, scene_description, director_report')
+      .eq('id', episodeId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw new Error(`synthesizeDirectorReviewEdit: read failed: ${error.message}`);
+    if (!episode) throw new Error('Episode not found or access denied');
+    if (episode.status !== 'awaiting_user_review') {
+      throw new Error(`Episode is not in awaiting_user_review state (current: ${episode.status})`);
+    }
+
+    const dr = episode.director_report || {};
+    const halt = dr.halt || {};
+    const verdict = halt.verdict || null;
+    const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+    const checkpoint = halt.checkpoint || 'unknown';
+    const artifactId = halt.scene_id || halt.beat_id || halt.artifactKey || null;
+
+    // ── Cheap layer: collect existing prompt_delta hints from findings ──
+    const promptDeltas = findings
+      .map(f => f?.remediation?.prompt_delta)
+      .filter(s => typeof s === 'string' && s.trim().length > 0);
+    const messages = findings.map(f => `- [${f.severity}] ${f.message}`).filter(Boolean).join('\n');
+
+    let cheapNotes;
+    if (promptDeltas.length > 0) {
+      cheapNotes = [
+        `Director-flagged issues at Lens ${checkpoint}${artifactId ? ` (${artifactId})` : ''}:`,
+        messages,
+        '',
+        'Apply these corrective directives to the next render:',
+        ...promptDeltas.map((d, i) => `${i + 1}. ${d}`)
+      ].filter(Boolean).join('\n');
+    } else if (messages) {
+      cheapNotes = `Director-flagged issues at Lens ${checkpoint}:\n${messages}\n\nAddress these in the next render.`;
+    } else {
+      cheapNotes = `Director halted at Lens ${checkpoint} but emitted no specific findings. Re-run with care.`;
+    }
+
+    // ── Find the failed artifact's content for the rich-layer Gemini call ──
+    let artifactContent = null;
+    const sceneGraph = episode.scene_description || {};
+    if (checkpoint === 'beat' && halt.beat_id) {
+      for (const scene of (sceneGraph.scenes || [])) {
+        const beat = (scene.beats || []).find(b => b.beat_id === halt.beat_id);
+        if (beat) {
+          artifactContent = {
+            type: 'beat',
+            beat_id: beat.beat_id,
+            beat_type: beat.type,
+            dialogue: beat.dialogue || beat.voiceover_text || null,
+            subtext: beat.subtext || null,
+            expression_notes: beat.expression_notes || null,
+            emotion: beat.emotion || null,
+            duration_seconds: beat.duration_seconds || null,
+            scene_id: scene.scene_id || null,
+            scene_anchor: scene.scene_visual_anchor_prompt || scene.location || null,
+            ambient_bed_prompt: scene.ambient_bed_prompt || null
+          };
+          break;
+        }
+      }
+    } else if ((checkpoint === 'scene_master' || checkpoint === 'commercial_scene_master') && halt.scene_id) {
+      const scene = (sceneGraph.scenes || []).find(s => s.scene_id === halt.scene_id);
+      if (scene) {
+        artifactContent = {
+          type: 'scene_master',
+          scene_id: scene.scene_id,
+          scene_master_url: scene.scene_master_url || null,
+          location: scene.location || null,
+          scene_anchor: scene.scene_visual_anchor_prompt || null,
+          opposing_intents: scene.opposing_intents || null,
+          beats: (scene.beats || []).slice(0, 5).map(b => ({
+            beat_id: b.beat_id, type: b.type, dialogue: b.dialogue
+          }))
+        };
+      }
+    }
+
+    // ── Rich layer: ask Vertex Gemini to cross-analyze and synthesize ──
+    let richResult = null;
+    try {
+      if (isVertexGeminiConfigured() && (findings.length > 0 || promptDeltas.length > 0)) {
+        const systemPrompt = [
+          'You are a film DIRECTOR resolving a halted V4 brand-story pipeline.',
+          'The Director Agent (Lens A/B/C/D rubric) flagged a halt at the checkpoint below.',
+          'Your job: synthesize ONE sharp, generator-actionable edit directive that addresses the CRITICAL findings, drawn from BOTH the verdict findings AND the actual artifact content.',
+          '',
+          'Output ONLY a JSON object with this shape (no markdown, no prose):',
+          '{',
+          '  "directive": "<2-4 sentences, generator-actionable, sharp directorial language; combines the most important findings into ONE coherent retake note>",',
+          '  "edited_anchor": "<for scene_master halts: a rewritten scene_visual_anchor_prompt that solves the flagged issues; null for non-scene halts>",',
+          '  "edited_dialogue": "<for beat halts where dialogue is the issue: a rewritten dialogue line; null otherwise>"',
+          '}',
+          '',
+          'Constraints:',
+          '- Directive MUST address all CRITICAL findings (do not drop any).',
+          '- Use cinematography vocabulary when relevant (lens choice, blocking, composition, light direction, performance).',
+          '- DO NOT add new unrelated craft directions; stay focused on what the verdict flagged.',
+          '- Edited anchor/dialogue should be drop-in replacements for the originals.'
+        ].join('\n');
+
+        const userPayload = {
+          checkpoint,
+          artifact_id: artifactId,
+          verdict_score: verdict?.overall_score ?? null,
+          verdict_kind: verdict?.verdict ?? null,
+          findings: findings.map(f => ({
+            severity: f.severity,
+            dimension: f.dimension || null,
+            message: f.message,
+            evidence: f.evidence || null,
+            remediation_hint: f.remediation?.prompt_delta || null,
+            target: f.remediation?.target || null
+          })),
+          dimension_scores: verdict?.dimension_scores || null,
+          artifact: artifactContent
+        };
+
+        const parsed = await callVertexGeminiJson({
+          systemPrompt,
+          userPrompt: JSON.stringify(userPayload),
+          config: { temperature: 0.5, maxOutputTokens: 1024 },
+          timeoutMs: 30000
+        });
+        if (parsed && typeof parsed.directive === 'string' && parsed.directive.trim().length > 0) {
+          richResult = {
+            directive: parsed.directive.trim(),
+            edited_anchor: typeof parsed.edited_anchor === 'string' && parsed.edited_anchor.trim() ? parsed.edited_anchor.trim() : null,
+            edited_dialogue: typeof parsed.edited_dialogue === 'string' && parsed.edited_dialogue.trim() ? parsed.edited_dialogue.trim() : null
+          };
+        }
+      }
+    } catch (err) {
+      logger.warn(`[P0.5] synthesizeDirectorReviewEdit: rich layer failed (${err.message}) — falling back to cheap layer`);
+    }
+
+    if (richResult) {
+      // Compose final notes by combining the rich directive with the cheap
+      // findings list (so the audit trail shows both human-readable findings
+      // AND the synthesized directive).
+      const composedNotes = [
+        richResult.directive,
+        '',
+        '— Synthesized from director findings:',
+        messages
+      ].filter(Boolean).join('\n');
+      logger.info(`[P0.5] synthesizeDirectorReviewEdit ${episodeId}: rich layer succeeded (${composedNotes.length} chars)`);
+      return {
+        notes: composedNotes.slice(0, 4000),
+        edited_anchor: richResult.edited_anchor ? richResult.edited_anchor.slice(0, 4000) : null,
+        edited_dialogue: richResult.edited_dialogue ? richResult.edited_dialogue.slice(0, 4000) : null,
+        source: 'rich'
+      };
+    }
+
+    logger.info(`[P0.5] synthesizeDirectorReviewEdit ${episodeId}: cheap layer (${cheapNotes.length} chars)`);
+    return {
+      notes: cheapNotes.slice(0, 4000),
+      edited_anchor: null,
+      edited_dialogue: null,
+      source: 'cheap'
+    };
+  }
+
+  /**
+   * V4 Option C — Pure synthesis helper for the auto-smart-retry path.
+   *
+   * Same logic as `synthesizeDirectorReviewEdit` but takes the verdict +
+   * artifact context directly (in-memory) instead of reading from the DB.
+   * The auto-smart-retry path calls this from inside the Lens C beat-loop
+   * BEFORE the halt is persisted (because we're trying to RECOVER from the
+   * soft_reject, not surface it for user review).
+   *
+   * @param {Object}   params
+   * @param {Object}   params.verdict           - the failing Lens C/B/A verdict
+   * @param {string}   params.checkpoint        - 'beat' | 'scene_master' | 'screenplay' | etc.
+   * @param {string}   params.artifactId        - beat_id or scene_id (for log + payload)
+   * @param {Object}   [params.artifactContent] - in-memory artifact (beat or scene) — for the rich layer
+   * @returns {Promise<{ notes: string, edited_anchor: string|null, edited_dialogue: string|null, source: 'rich'|'cheap' }>}
+   */
+  async _synthesizeEditFromContext({ verdict, checkpoint, artifactId, artifactContent = null } = {}) {
+    const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
+
+    // Cheap layer
+    const promptDeltas = findings
+      .map(f => f?.remediation?.prompt_delta)
+      .filter(s => typeof s === 'string' && s.trim().length > 0);
+    const messages = findings.map(f => `- [${f.severity}] ${f.message}`).filter(Boolean).join('\n');
+
+    let cheapNotes;
+    if (promptDeltas.length > 0) {
+      cheapNotes = [
+        `Director-flagged issues at Lens ${checkpoint}${artifactId ? ` (${artifactId})` : ''}:`,
+        messages,
+        '',
+        'Apply these corrective directives to the next render:',
+        ...promptDeltas.map((d, i) => `${i + 1}. ${d}`)
+      ].filter(Boolean).join('\n');
+    } else if (messages) {
+      cheapNotes = `Director-flagged issues at Lens ${checkpoint}:\n${messages}\n\nAddress these in the next render.`;
+    } else {
+      cheapNotes = `Director halted at Lens ${checkpoint} but emitted no specific findings. Re-run with care.`;
+    }
+
+    // Rich layer — Gemini cross-analysis
+    let richResult = null;
+    try {
+      if (isVertexGeminiConfigured() && (findings.length > 0 || promptDeltas.length > 0)) {
+        const systemPrompt = [
+          'You are a film DIRECTOR resolving a halted V4 brand-story pipeline.',
+          'The Director Agent (Lens A/B/C/D rubric) flagged a halt at the checkpoint below.',
+          'Your job: synthesize ONE sharp, generator-actionable edit directive that addresses the CRITICAL findings, drawn from BOTH the verdict findings AND the actual artifact content.',
+          '',
+          'Output ONLY a JSON object with this shape (no markdown, no prose):',
+          '{',
+          '  "directive": "<2-4 sentences, generator-actionable, sharp directorial language; combines the most important findings into ONE coherent retake note>",',
+          '  "edited_anchor": "<for scene_master halts: a rewritten scene_visual_anchor_prompt that solves the flagged issues; null for non-scene halts>",',
+          '  "edited_dialogue": "<for beat halts where dialogue is the issue: a rewritten dialogue line; null otherwise>"',
+          '}',
+          '',
+          'Constraints:',
+          '- Directive MUST address all CRITICAL findings (do not drop any).',
+          '- Use cinematography vocabulary when relevant (lens choice, blocking, composition, light direction, performance).',
+          '- DO NOT add new unrelated craft directions; stay focused on what the verdict flagged.',
+          '- Edited anchor/dialogue should be drop-in replacements for the originals.'
+        ].join('\n');
+
+        const userPayload = {
+          checkpoint,
+          artifact_id: artifactId,
+          verdict_score: verdict?.overall_score ?? null,
+          verdict_kind: verdict?.verdict ?? null,
+          findings: findings.map(f => ({
+            severity: f.severity,
+            dimension: f.dimension || null,
+            message: f.message,
+            evidence: f.evidence || null,
+            remediation_hint: f.remediation?.prompt_delta || null,
+            target: f.remediation?.target || null
+          })),
+          dimension_scores: verdict?.dimension_scores || null,
+          artifact: artifactContent
+        };
+
+        // V4 hotfix 2026-04-30 — maxOutputTokens budget calibration.
+        //
+        // Original 1024 hit MAX_TOKENS in production: Gemini 3 Flash Preview's
+        // HIDDEN thinking consumed 981 tokens of the 1024 budget, leaving only
+        // 29 for visible candidate JSON → Vertex dropped the partial structured
+        // response. Same defect documented in DirectorAgent.js:60-143
+        // (thinkingLevel='minimal' silently ignored; hidden thinking takes
+        // ~87% of budget regardless). User-confirmed 2026-04-30: skip 8192
+        // first-attempt and go straight to 12288 to avoid the wasted call.
+        //
+        // 12288 budget @ thinkingLevel='low' → ~6000 hidden thinking + ~6288
+        // visible → directive + edited_anchor + edited_dialogue payload fits
+        // with comfortable margin (~600-800 chars actual, ~1200-1600 tokens).
+        const parsed = await callVertexGeminiJson({
+          systemPrompt,
+          userPrompt: JSON.stringify(userPayload),
+          config: {
+            temperature: 0.5,
+            maxOutputTokens: 12288,
+            thinkingLevel: 'low'
+          },
+          timeoutMs: 90000
+        });
+        if (parsed && typeof parsed.directive === 'string' && parsed.directive.trim().length > 0) {
+          richResult = {
+            directive: parsed.directive.trim(),
+            edited_anchor: typeof parsed.edited_anchor === 'string' && parsed.edited_anchor.trim() ? parsed.edited_anchor.trim() : null,
+            edited_dialogue: typeof parsed.edited_dialogue === 'string' && parsed.edited_dialogue.trim() ? parsed.edited_dialogue.trim() : null
+          };
+        }
+      }
+    } catch (err) {
+      logger.warn(`[P0.5/auto-smart-retry] _synthesizeEditFromContext: rich layer failed (${err.message}) — falling back to cheap layer`);
+    }
+
+    if (richResult) {
+      const composedNotes = [
+        richResult.directive,
+        '',
+        '— Synthesized from director findings:',
+        messages
+      ].filter(Boolean).join('\n');
+      return {
+        notes: composedNotes.slice(0, 4000),
+        edited_anchor: richResult.edited_anchor ? richResult.edited_anchor.slice(0, 4000) : null,
+        edited_dialogue: richResult.edited_dialogue ? richResult.edited_dialogue.slice(0, 4000) : null,
+        source: 'rich'
+      };
+    }
+    return {
+      notes: cheapNotes.slice(0, 4000),
+      edited_anchor: null,
+      edited_dialogue: null,
+      source: 'cheap'
+    };
+  }
+
+  async resolveDirectorReview(storyId, userId, episodeId, decision = {}) {
+    const { action, notes = null, edited_anchor = null, edited_dialogue = null } = decision;
+
+    if (!['approve', 'edit_and_retry', 'discard'].includes(action)) {
+      throw new Error(`resolveDirectorReview: invalid action "${action}" (expected approve | edit_and_retry | discard)`);
+    }
+
+    // Read the episode + verify ownership + halt state.
+    const { supabaseAdmin } = await import('./supabase.js');
+    const { data: episode, error: readErr } = await supabaseAdmin
+      .from('brand_story_episodes')
+      .select('id, story_id, status, final_video_url, director_report, episode_number')
+      .eq('id', episodeId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (readErr) throw new Error(`Failed to read episode: ${readErr.message}`);
+    if (!episode) throw new Error('Episode not found or access denied');
+    if (episode.story_id !== storyId) throw new Error('Episode does not belong to this story');
+    if (episode.status !== 'awaiting_user_review') {
+      throw new Error(`Episode is not in awaiting_user_review state (current: ${episode.status}). Nothing to resolve.`);
+    }
+
+    // Extract halt context from director_report. Halt sites populate this
+    // (see plan P0.5.2 — when full snapshot persistence ships, the haltContext
+    // also includes a snapshot_uri for in-place resume). For MVP we just read
+    // checkpoint + artifact_id + verdict for the audit row.
+    const dr = episode.director_report || {};
+    const halt = dr.halt || {};
+    const haltCheckpoint =
+      halt.checkpoint ||
+      // Fallback: infer from which lens last produced a verdict.
+      (dr.episode ? 'episode' :
+       dr.beat ? 'beat' :
+       dr.scene_master ? 'scene_master' :
+       dr.screenplay ? 'screenplay' : 'unknown');
+    const haltArtifactId = halt.scene_id || halt.beat_id || halt.artifactKey || null;
+    const haltVerdict = halt.verdict || null;
+    const haltScore = Number.isFinite(haltVerdict?.overall_score) ? haltVerdict.overall_score : null;
+    const haltKind = haltVerdict?.verdict || null;
+
+    // Determine new episode status based on action + has_video.
+    const hasFinalVideo = !!episode.final_video_url;
+    let newStatus;
+    let newErrorMessage = null;
+    let resumptionOutcome = null;
+    let userMessage;
+
+    if (action === 'approve') {
+      if (hasFinalVideo) {
+        // Lens D-equivalent: video exists, user accepts the verdict — ship it.
+        newStatus = 'ready';
+        resumptionOutcome = 'shipped';
+        userMessage = 'Approved — episode shipped at user discretion despite director verdict.';
+      } else {
+        // No video to ship — approving an A/B/C halt is meaningless.
+        // Treat as discard with a clarifying message.
+        newStatus = 'failed';
+        newErrorMessage = `User approved halt at Lens ${haltCheckpoint} but no video was assembled — nothing to ship. Re-trigger episode generation to retry.`;
+        resumptionOutcome = 'failed';
+        userMessage = 'Approve action mapped to discard — there was no rendered video to ship at the halt point. Re-trigger episode generation.';
+      }
+    } else if (action === 'edit_and_retry') {
+      // V4 hotfix 2026-05-01 — Real in-place retry (replaces MVP record-and-mark-failed).
+      //
+      // For Lens C beat halts (the most common halt class), apply the
+      // synthesized directive + optional dialogue/anchor overrides directly
+      // to the beat in scene_description, clear the failed render artifacts,
+      // and trigger `regenerateBeatInEpisode` in the background. That route
+      // already handles single-beat re-render + reassemble + upload.
+      //
+      // For Lens A (screenplay) and Lens B (scene_master) halts, in-place
+      // resume requires more orchestration (re-running the screenplay
+      // generator OR re-rendering a scene master + downstream beats); kept
+      // as record-notes-and-mark-failed until the snapshot-resume work lands.
+      // For Lens D (episode), reassembleEpisode is the right tool but it's
+      // already exposed as a separate manual route.
+
+      const updatedDirectorReport = {
+        ...dr,
+        user_review_resolution: {
+          action,
+          notes,
+          edited_anchor,
+          edited_dialogue,
+          resolved_at: new Date().toISOString(),
+          halt_checkpoint: haltCheckpoint,
+          halt_artifact_id: haltArtifactId
+        }
+      };
+
+      // ── Lens C beat in-place retry ──
+      if (haltCheckpoint === 'beat' && halt.beat_id) {
+        const sceneGraph = episode.scene_description || {};
+        let targetBeat = null;
+        let targetScene = null;
+        for (const scene of (sceneGraph.scenes || [])) {
+          const beat = (scene.beats || []).find(b => b.beat_id === halt.beat_id);
+          if (beat) {
+            targetBeat = beat;
+            targetScene = scene;
+            break;
+          }
+        }
+        if (!targetBeat) {
+          throw new Error(`edit_and_retry: beat ${halt.beat_id} not found in episode scene_description`);
+        }
+
+        // Apply user-provided / synthesized overrides to the beat in-place.
+        if (notes && typeof notes === 'string') {
+          targetBeat.director_nudge = notes;
+        }
+        if (edited_dialogue && typeof edited_dialogue === 'string') {
+          targetBeat.dialogue = edited_dialogue;
+        }
+        if (edited_anchor && typeof edited_anchor === 'string' && targetScene) {
+          targetScene.scene_visual_anchor_prompt = edited_anchor;
+        }
+        // Clear failed-render artifacts so the regenerate path treats the
+        // beat as un-rendered.
+        targetBeat.generated_video_url = null;
+        targetBeat.endframe_url = null;
+        targetBeat.status = 'pending';
+        targetBeat.error_message = null;
+
+        // Flip episode out of awaiting_user_review into a regenerating state
+        // so the panel + status badge reflect that work is in progress.
+        const { error: updateErr } = await supabaseAdmin
+          .from('brand_story_episodes')
+          .update({
+            status: 'regenerating_beat',
+            scene_description: sceneGraph,
+            director_report: updatedDirectorReport,
+            error_message: null
+          })
+          .eq('id', episodeId)
+          .eq('user_id', userId);
+        if (updateErr) throw new Error(`Failed to update episode: ${updateErr.message}`);
+
+        // Kick the regenerate path in the BACKGROUND. The route handler
+        // already returned 200 to the user before this point in the
+        // resolveDirectorReview flow; this Promise is fire-and-forget so the
+        // user sees an immediate response, and the panel polls for updates
+        // via the SSE/refresh path.
+        this.regenerateBeatInEpisode(storyId, userId, episodeId, halt.beat_id)
+          .then(() => {
+            logger.info(`[P0.5] edit_and_retry ${episodeId}: beat ${halt.beat_id} regenerate completed`);
+          })
+          .catch((regenErr) => {
+            logger.error(`[P0.5] edit_and_retry ${episodeId}: beat ${halt.beat_id} regenerate failed: ${regenErr.message}`);
+            // Mark episode failed if regenerate path itself crashed (it has
+            // its own error handling but defense-in-depth).
+            supabaseAdmin
+              .from('brand_story_episodes')
+              .update({
+                status: 'failed',
+                error_message: `Edit & Retry regenerate failed: ${regenErr.message}`
+              })
+              .eq('id', episodeId)
+              .eq('user_id', userId)
+              .then(() => {})
+              .catch(() => {});
+          });
+
+        newStatus = 'regenerating_beat';
+        userMessage = `Edit & Retry: beat ${halt.beat_id} re-rendering with ${notes ? 'synthesized directive' : 'no notes'}${edited_dialogue ? ' + dialogue rewrite' : ''}${edited_anchor ? ' + anchor rewrite' : ''}. Watch the panel for progress.`;
+        resumptionOutcome = 'in_place_retry_running';
+
+        const resolutionId = await this._recordHaltResolution({
+          episodeId, storyId, userId,
+          haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason: halt.reason || null,
+          action, notes, editedAnchor: edited_anchor, editedDialogue: edited_dialogue,
+          resumptionOutcome
+        });
+        logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens C in-place retry) → beat ${halt.beat_id} regenerating (resolution=${resolutionId})`);
+        return { success: true, status: newStatus, message: userMessage, resolutionId };
+      }
+
+      // ── Lens B scene_master in-place resume ──
+      // V4 hotfix 2026-05-01 — Lens B halts now resume in-place by re-running
+      // the V4 pipeline from the Scene Master step (`runV4Pipeline` accepts
+      // `resumeOptions = { episodeId, sceneEdits }`). The resume path skips
+      // screenplay generation, Lens A judging, and episode creation; it
+      // applies the user's synthesized notes / edited_anchor to the failed
+      // scene, clears scene_master_url, resets that scene's retry budget,
+      // and lets the pipeline regenerate + re-judge from there onward.
+      if (haltCheckpoint === 'scene_master' && halt.scene_id) {
+        // Persist the resolution row + flip status BEFORE kicking the
+        // background pipeline so the panel sees the regenerating state.
+        const { error: updateErrLensB } = await supabaseAdmin
+          .from('brand_story_episodes')
+          .update({
+            status: 'generating_scene_masters',
+            director_report: updatedDirectorReport,
+            error_message: null
+          })
+          .eq('id', episodeId)
+          .eq('user_id', userId);
+        if (updateErrLensB) throw new Error(`Failed to update episode: ${updateErrLensB.message}`);
+
+        // Kick the resume pipeline in the BACKGROUND so the route handler
+        // returns 200 immediately. The panel polls + the SSE stream
+        // re-engages now that the episode has flipped out of awaiting_user_review.
+        const sceneEdits = {
+          sceneId: halt.scene_id,
+          notes: (notes && typeof notes === 'string') ? notes : null,
+          edited_anchor: (edited_anchor && typeof edited_anchor === 'string') ? edited_anchor : null
+        };
+        this.runV4Pipeline(storyId, userId, null, { episodeId, sceneEdits })
+          .then(() => {
+            logger.info(`[P0.5] edit_and_retry ${episodeId}: Lens B resume completed for scene ${halt.scene_id}`);
+          })
+          .catch((resumeErr) => {
+            // Halt-on-retry inside the resume pipeline is a normal outcome
+            // (the user's edit might still not pass) — surface the new halt
+            // via the persisted directorReport.halt that the resume pipeline
+            // already wrote. Only mark failed if the error is NOT a halt.
+            const isExpectedHalt = resumeErr?.constructor?.name === 'DirectorBlockingHaltError';
+            if (isExpectedHalt) {
+              logger.info(`[P0.5] edit_and_retry ${episodeId}: Lens B resume re-halted at ${resumeErr.checkpoint || halt.scene_id} — panel shows new verdict`);
+              return;
+            }
+            logger.error(`[P0.5] edit_and_retry ${episodeId}: Lens B resume failed: ${resumeErr.message}`);
+            supabaseAdmin
+              .from('brand_story_episodes')
+              .update({
+                status: 'failed',
+                error_message: `Edit & Retry resume failed: ${resumeErr.message}`
+              })
+              .eq('id', episodeId)
+              .eq('user_id', userId)
+              .then(() => {})
+              .catch(() => {});
+          });
+
+        newStatus = 'generating_scene_masters';
+        userMessage = `Edit & Retry: scene ${halt.scene_id} re-rendering with ${notes ? 'synthesized directive' : 'no notes'}${edited_anchor ? ' + anchor rewrite' : ''}. Watch the panel for progress.`;
+        resumptionOutcome = 'in_place_resume_running';
+
+        const resolutionId = await this._recordHaltResolution({
+          episodeId, storyId, userId,
+          haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason: halt.reason || null,
+          action, notes, editedAnchor: edited_anchor, editedDialogue: edited_dialogue,
+          resumptionOutcome
+        });
+        logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens B in-place resume) → scene ${halt.scene_id} regenerating (resolution=${resolutionId})`);
+        return { success: true, status: newStatus, message: userMessage, resolutionId };
+      }
+
+      // ── Lens A/D halts — record notes, mark failed (in-place resume
+      // for screenplay-stage halts (Lens A) requires re-running screenplay
+      // generation with notes spliced into the prompt; assembly-stage halts
+      // (Lens D) have a separate `reassembleEpisode` route).
+      newStatus = 'failed';
+      newErrorMessage = `User requested edit_and_retry at Lens ${haltCheckpoint}` +
+        (notes ? ` with notes: "${notes.slice(0, 200)}"` : '') +
+        `. In-place resume from Lens ${haltCheckpoint} is not yet supported (Lens C beat halts get in-place retry; other lens halts need re-trigger generation).`;
+      resumptionOutcome = 'pending_retry';
+      userMessage = `Edit notes recorded for Lens ${haltCheckpoint} halt. In-place resume not yet supported at this checkpoint — re-trigger episode generation; notes will be carried into the next run.`;
+
+      const { error: updateErr } = await supabaseAdmin
+        .from('brand_story_episodes')
+        .update({
+          status: newStatus,
+          error_message: newErrorMessage,
+          director_report: updatedDirectorReport
+        })
+        .eq('id', episodeId)
+        .eq('user_id', userId);
+      if (updateErr) throw new Error(`Failed to update episode: ${updateErr.message}`);
+
+      const resolutionId = await this._recordHaltResolution({
+        episodeId, storyId, userId,
+        haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason: halt.reason || null,
+        action, notes, editedAnchor: edited_anchor, editedDialogue: edited_dialogue,
+        resumptionOutcome
+      });
+      logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens ${haltCheckpoint} record-notes) → status=${newStatus} (resolution=${resolutionId})`);
+      return { success: true, status: newStatus, message: userMessage, resolutionId };
+    } else {
+      // discard
+      newStatus = 'failed';
+      newErrorMessage = notes
+        ? `Discarded by user at Lens ${haltCheckpoint}: ${notes.slice(0, 200)}`
+        : `Discarded by user at Lens ${haltCheckpoint}.`;
+      resumptionOutcome = null; // discard has no resumption outcome
+      userMessage = 'Episode discarded. Re-trigger episode generation when ready.';
+    }
+
+    // Single update for approve and discard paths.
+    const { error: updateErr } = await supabaseAdmin
+      .from('brand_story_episodes')
+      .update({
+        status: newStatus,
+        error_message: newErrorMessage
+      })
+      .eq('id', episodeId)
+      .eq('user_id', userId);
+    if (updateErr) throw new Error(`Failed to update episode: ${updateErr.message}`);
+
+    const resolutionId = await this._recordHaltResolution({
+      episodeId, storyId, userId,
+      haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason: halt.reason || null,
+      action, notes, editedAnchor: edited_anchor, editedDialogue: edited_dialogue,
+      resumptionOutcome
+    });
+    logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} → status=${newStatus} (resolution=${resolutionId})`);
+    return { success: true, status: newStatus, message: userMessage, resolutionId };
+  }
+
+  /**
+   * V4 P0.5 — Internal helper to record a halt-resolution audit row.
+   * Best-effort: if the audit table write fails, log it but don't fail the
+   * resolution itself. The episode status update is the load-bearing operation.
+   */
+  async _recordHaltResolution({
+    episodeId, storyId, userId,
+    haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason,
+    action, notes, editedAnchor, editedDialogue,
+    resumptionOutcome
+  }) {
+    try {
+      const { supabaseAdmin } = await import('./supabase.js');
+      const { data, error } = await supabaseAdmin
+        .from('director_halt_resolutions')
+        .insert({
+          episode_id: episodeId,
+          story_id: storyId,
+          user_id: userId,
+          halted_at_checkpoint: haltCheckpoint,
+          halted_artifact_id: haltArtifactId,
+          halt_verdict_score: haltScore,
+          halt_verdict_kind: haltKind,
+          halt_reason: haltReason,
+          user_action: action,
+          user_notes: notes,
+          user_edited_anchor: editedAnchor,
+          user_edited_dialogue: editedDialogue,
+          resumption_outcome: resumptionOutcome,
+          resolved_at: action === 'discard' ? new Date().toISOString() : null
+        })
+        .select('id')
+        .single();
+      if (error) {
+        logger.warn(`[P0.5] halt resolution audit insert failed (non-fatal): ${error.message}`);
+        return null;
+      }
+      return data?.id || null;
+    } catch (err) {
+      logger.warn(`[P0.5] halt resolution audit failed (non-fatal): ${err.message}`);
+      return null;
+    }
+  }
+
   async reassembleEpisode(storyId, userId, episodeId, onProgress) {
     let emitter = null;
     try {
@@ -6228,15 +7540,74 @@ Respond with ONLY valid JSON:
       genreLutPool
     });
 
-    const parsed = await callVertexGeminiJson({
-      systemPrompt,
-      userPrompt,
-      config: {
-        temperature: 0.85,
-        maxOutputTokens: 8192
-      },
-      timeoutMs: 90000
-    });
+    // V4 hotfix 2026-04-30 — retry on Gemini structured-output truncation.
+    //
+    // Production failure mode (logs.txt 2026-04-30 episode 2 generation):
+    // Gemini 3 Flash returns finishReason=STOP with total_output=4523/8192
+    // (well under cap) but the JSON is truncated mid-string at position 10383
+    // — Gemini just stopped emitting text mid-narrative-beat with no closing
+    // quote/comma/brace. The shared parseGeminiJson repair chain handles
+    // markdown fences, raw newlines in strings, and trailing commas, but it
+    // cannot reconstruct content Gemini never emitted.
+    //
+    // This is non-deterministic: re-running the same prompt at slightly
+    // different sampling produces a complete output most of the time. The
+    // retry uses (a) bumped maxOutputTokens for more headroom, (b) lower
+    // temperature for more deterministic emission, (c) a fresh sampling roll.
+    // We retry exactly ONCE — if Gemini still emits truncated JSON, surface
+    // the original error with full diagnostic context (prompt size, output
+    // token count, finishReason). Most failures recover on the first retry.
+    let parsed;
+    let firstAttemptError = null;
+    try {
+      parsed = await callVertexGeminiJson({
+        systemPrompt,
+        userPrompt,
+        config: {
+          temperature: 0.85,
+          maxOutputTokens: 8192
+        },
+        timeoutMs: 90000
+      });
+    } catch (err) {
+      // Only retry on parse-failure or response-truncation errors. Other
+      // errors (auth, network, quota) won't be helped by a retry.
+      const msg = err?.message || '';
+      const isParseFailure = msg.includes('unparseable JSON');
+      const isTruncation = msg.includes('truncated') || msg.includes('MAX_TOKENS');
+      if (!isParseFailure && !isTruncation) throw err;
+
+      firstAttemptError = err;
+      logger.warn(
+        `V4 screenplay: first Gemini attempt failed (${msg.slice(0, 200)}). ` +
+        `Retrying with higher token budget + lower temperature for determinism.`
+      );
+
+      try {
+        parsed = await callVertexGeminiJson({
+          systemPrompt,
+          userPrompt,
+          config: {
+            temperature: 0.65,         // lower → more deterministic on retry
+            maxOutputTokens: 12288     // bump from 8192 to give Gemini room to complete the JSON
+          },
+          timeoutMs: 120000             // longer timeout for the higher-budget call
+        });
+        logger.info(`V4 screenplay: retry succeeded after first attempt's truncation`);
+      } catch (retryErr) {
+        logger.error(
+          `V4 screenplay: retry also failed (${retryErr.message}). ` +
+          `Original error: ${firstAttemptError.message}`
+        );
+        // Surface the retry error (it has the same shape as the original);
+        // include the original in the message for full diagnostic context.
+        throw new Error(
+          `V4 screenplay generation failed after 1 retry. ` +
+          `First attempt: ${firstAttemptError.message.slice(0, 250)} | ` +
+          `Retry: ${retryErr.message.slice(0, 250)}`
+        );
+      }
+    }
 
     if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) {
       throw new Error('V4: Gemini returned no scenes');

@@ -31,6 +31,7 @@
 // regrade-LUT or framing-recipe re-roll, not a beat re-render.
 
 import { buildSharedSystemHeader, buildGenreRegisterHint } from './sharedHeader.mjs';
+import { buildFramingTaxonomyHint, getVerificationSignature } from '../masterclass/framingTaxonomy.mjs';
 import { isStylizedStrong, isNonPhotorealStyle, resolveStyleCategory } from '../CreativeBriefDirector.js';
 
 const COMMERCIAL_LENS_C_BLOCK = `CHECKPOINT C — Commercial Dailies (post-beat, per beat). LENS C — COMMERCIAL. Runs AFTER QC8 deterministic checks pass.
@@ -155,6 +156,20 @@ export function buildCommercialBeatJudgePrompt({
   if (routingMetadata) {
     userParts.push({ text: `<routing_metadata>\n${JSON.stringify(routingMetadata, null, 2)}\n</routing_metadata>` });
   }
+
+  // V4 P0.3 — FramingTaxonomy threading (commercial variant). Commercial
+  // framing is recipe-driven by design (the brief explicitly names recipes
+  // like anamorphic_signature_closeup, speed_ramp_action). Surface the
+  // taxonomy + pinned recipe verification signature.
+  userParts.push({ text: `<framing_taxonomy>\n${buildFramingTaxonomyHint()}\n</framing_taxonomy>` });
+  const pinnedFramingId = beat?.framing_intent?.id || beat?.framing?.id || beat?.framing_id || null;
+  if (pinnedFramingId) {
+    const sig = getVerificationSignature(pinnedFramingId);
+    if (sig) {
+      userParts.push({ text: `<framing_pinned>\n${sig}\nVerify the rendered clip honors this recipe; deduct heavily from framing_intent / camera_move_intent if it does not.\n</framing_pinned>` });
+    }
+  }
+
   userParts.push({ text: `<product_placement_context>\n${JSON.stringify({
     product_integration_style: productIntegrationStyle,
     subject_name: subjectName,

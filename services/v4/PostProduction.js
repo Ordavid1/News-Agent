@@ -2652,26 +2652,45 @@ export async function runPostProduction({
         // audio.
         //
         // Phase 4 obsoletes this for new episodes: with the episode-level
-        // sonic_world, the base bed plays UNCUT under every scene boundary,
-        // so 'cut' is sonically safe. Skip the auto-upgrade in that case so
-        // the user's intentional 'cut' choices are preserved.
-        const hasSonicWorldUpgradeBypass = sceneDescription?.sonic_world
-          && typeof sceneDescription.sonic_world === 'object';
-        if (!hasSonicWorldUpgradeBypass) {
-          for (let i = 0; i < scenePaths.length - 1; i++) {
+        // V4 hotfix 2026-04-30 — auto-upgrade 'cut' → 'dissolve' at scene
+        // boundaries is now ALWAYS applied (was previously bypassed when
+        // sonic_world was present). The prior bypass reasoning was: with
+        // sonic_world the base bed plays uncut under every scene boundary,
+        // so video cuts are "sonically safe." But that ignored two things:
+        //
+        //   1. Per-beat NATIVE audio (the in-clip Veo/Kling audio at
+        //      varying ducked levels: 35%/60%/20%) still hard-cuts at scene
+        //      boundaries. Sonic_world only smooths the AMBIENT bed.
+        //
+        //   2. VIDEO transitions are entirely separate from sonic_world —
+        //      a 0.5s dissolve adds visual continuity that the bed cannot
+        //      provide. Hard video cuts at scene boundaries still read as
+        //      jarring even with smooth ambient.
+        //
+        // Reported 2026-04-30 production test on action-genre story `4f24ebfa...`:
+        // user reported "hard cuts on audio and SFX that was just terrible
+        // to listen to" — sonic_world was present (3 J-cut overlays per logs)
+        // but every scene boundary was 'transition→next=cut'. Removing the
+        // bypass restores the soft scene transition for both video AND the
+        // per-beat native audio (acrossfade in the bridge-clip path).
+        //
+        // Scenes that genuinely want hard cuts (action genre, intentional
+        // jarring montage moments) can still emit `transition_to_next: 'cut'`
+        // explicitly on the screenplay — only the DEFAULT undefined-OR-cut
+        // case gets upgraded. emotional_hold scenes still force 'fadeblack'
+        // earlier in this function (line 2629), so dramatic punctuation is
+        // preserved.
+        for (let i = 0; i < scenePaths.length - 1; i++) {
+          if (scenePaths[i].transitionToNext === 'cut' && !scenePaths[i].endsOnHold) {
             const curBed = scenePaths[i].ambientBedPrompt;
             const nextBed = scenePaths[i + 1].ambientBedPrompt;
-            if (
-              scenePaths[i].transitionToNext === 'cut' &&
-              !scenePaths[i].endsOnHold &&
-              curBed && nextBed && curBed !== nextBed
-            ) {
-              logger.info(
-                `scene ${i} → ${i + 1}: upgrading 'cut' → 'dissolve' for ` +
-                `ambient-bed continuity (differing beds — legacy path)`
-              );
-              scenePaths[i].transitionToNext = 'dissolve';
-            }
+            const reason = (curBed && nextBed && curBed !== nextBed)
+              ? 'differing ambient beds'
+              : 'soft-transition default for scene-boundary continuity';
+            logger.info(
+              `scene ${i} → ${i + 1}: upgrading 'cut' → 'dissolve' (${reason})`
+            );
+            scenePaths[i].transitionToNext = 'dissolve';
           }
         }
 

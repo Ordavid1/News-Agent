@@ -9,6 +9,7 @@
 
 import { buildSharedSystemHeader, buildGenreRegisterHint } from './sharedHeader.mjs';
 import { buildModelKbPart } from '../VideoKnowledgeBase.js';
+import { buildFramingTaxonomyHint, getVerificationSignature } from '../masterclass/framingTaxonomy.mjs';
 
 const LENS_C_BLOCK = `CHECKPOINT C — Dailies (post-beat, per beat). LENS C. Runs AFTER QC8 deterministic checks pass.
 
@@ -115,6 +116,20 @@ export function buildBeatJudgePrompt({
     userParts.push({ text: `<routing_metadata>\n${JSON.stringify(routingMetadata, null, 2)}\n</routing_metadata>` });
     const kbPart = buildModelKbPart(routingMetadata);
     if (kbPart) userParts.push(kbPart);
+  }
+
+  // V4 P0.3 — FramingTaxonomy threading. Inject the named-recipe vocabulary
+  // so the judge can verify framing_intent / camera_move_intent against
+  // canonical signatures. Generic taxonomy is always available; when the
+  // beat pins a specific recipe via beat.framing_intent.id, surface its
+  // verification signature explicitly.
+  userParts.push({ text: `<framing_taxonomy>\n${buildFramingTaxonomyHint()}\n</framing_taxonomy>` });
+  const pinnedFramingId = beat?.framing_intent?.id || beat?.framing?.id || beat?.framing_id || null;
+  if (pinnedFramingId) {
+    const sig = getVerificationSignature(pinnedFramingId);
+    if (sig) {
+      userParts.push({ text: `<framing_pinned>\n${sig}\nVerify the rendered clip honors this recipe; deduct heavily from framing_intent / camera_move_intent if it does not.\n</framing_pinned>` });
+    }
   }
   // Phase 4 product context — surfaced so the Director can score
   // product_identity_lock + product_subtlety with the right reference.

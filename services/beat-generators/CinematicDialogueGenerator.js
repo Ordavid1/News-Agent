@@ -29,6 +29,11 @@
 
 import BaseBeatGenerator from './BaseBeatGenerator.js';
 import { buildKlingElementsFromPersonas, buildKlingSubjectElement } from '../KlingFalService.js';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 
 // Cost constants for estimator (per-second rates × typical duration)
 const COST_KLING_OMNI_STANDARD_PER_SEC = 0.168;
@@ -90,8 +95,59 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     if (!episodeContext?.uploadAudio) {
       throw new Error(`beat ${beat.beat_id}: episodeContext.uploadAudio helper required for Mode B`);
     }
+    // V4 hotfix 2026-04-30 — emotional_hold trailing-silence pad.
+    //
+    // When the screenplay marks a dialogue beat with `emotional_hold: true`,
+    // the TARGET beat duration includes a deliberate post-speech pause for
+    // visual emotional impact (e.g., 2.8s of dialogue + 1.2s holding the
+    // shot on the character's reaction = 4s total). TTS correctly skips
+    // speed-auto-calibration to preserve the natural-length speech.
+    //
+    // BUT: before this fix, Stages B and C had no awareness of emotional_hold:
+    //   • Stage B (Kling) was told `duration: Math.round(ttsResult.actualDurationSec)`
+    //     → Kling renders 2.8s, the 1.2s emotional pause is LOST entirely.
+    //   • Stage C (Sync Lipsync v3 in bounce mode) syncs 2.8s audio to 2.8s
+    //     video → fine, but the BEAT INTENT (the held silence) is gone.
+    //
+    // Fix (Option 1 from architectural review): Pad the TTS audio with
+    // ffmpeg-generated silence at the END so total audio duration matches
+    // the BEAT'S targetDuration. Kling then renders the full beat duration
+    // (line below), and Sync v3 receives audio with real silence in the
+    // trailing region — bounce mode keeps the mouth still during silence,
+    // delivering the emotional hold as designed.
+    //
+    // Only fires when emotional_hold AND there's a meaningful gap (>0.3s);
+    // tiny gaps (rounding noise) fall through to bounce-mode mirroring.
+    const isEmotionalHold = beat.emotional_hold === true;
+    const speechDur = ttsResult.actualDurationSec || targetDuration;
+    const padNeeded = isEmotionalHold && (targetDuration - speechDur) > 0.3;
+    let finalAudioBuffer = ttsResult.audioBuffer;
+    let finalAudioDurationSec = speechDur;
+    if (padNeeded) {
+      const padSec = +(targetDuration - speechDur).toFixed(3);
+      try {
+        finalAudioBuffer = this._padAudioWithSilence(
+          ttsResult.audioBuffer,
+          padSec,
+          beat.beat_id
+        );
+        finalAudioDurationSec = targetDuration;
+        this.logger.info(
+          `[${beat.beat_id}] emotional_hold: padded TTS audio ` +
+          `${speechDur.toFixed(2)}s → ${targetDuration.toFixed(2)}s (+${padSec}s silence) ` +
+          `for Kling render + Sync v3 lipsync`
+        );
+      } catch (err) {
+        this.logger.warn(
+          `[${beat.beat_id}] emotional_hold pad failed (${err.message}) — ` +
+          `falling through to TTS-natural duration; emotional hold visual will be lost`
+        );
+        // finalAudioBuffer stays as the original; finalAudioDurationSec stays as speechDur
+      }
+    }
+
     const audioUrl = await episodeContext.uploadAudio({
-      buffer: ttsResult.audioBuffer,
+      buffer: finalAudioBuffer,
       filename: `beat-${beat.beat_id}-tts.mp3`,
       mimeType: 'audio/mpeg'
     });
@@ -261,13 +317,24 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     // previously unguarded.
     this._validatePromptAgainstAnchor(finalKlingPrompt, persona, beat.beat_id);
 
-    this.logger.info(`[${beat.beat_id}] Stage B: Kling O3 Omni Standard (${elements.length} element(s))`);
+    // V4 hotfix 2026-04-30 — Kling renders to the FULL beat duration when
+    // emotional_hold is set so the post-speech emotional pause survives in
+    // the rendered clip. Without emotional_hold, behavior is unchanged
+    // (renders to TTS natural duration as before).
+    const klingTargetDuration = padNeeded
+      ? Math.round(targetDuration)
+      : Math.round(ttsResult.actualDurationSec);
+
+    this.logger.info(
+      `[${beat.beat_id}] Stage B: Kling O3 Omni Standard ` +
+      `(${elements.length} element(s), duration=${klingTargetDuration}s${padNeeded ? ' [emotional_hold]' : ''})`
+    );
     const klingResult = await kling.generateDialogueBeat({
       startFrameUrl,
       elements,
       prompt: finalKlingPrompt,
       options: {
-        duration: Math.round(ttsResult.actualDurationSec),
+        duration: klingTargetDuration,
         aspectRatio: '9:16',
         generateAudio: true
       }
@@ -284,15 +351,19 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       audioUrl
     });
 
-    // Total cost accounting
-    const klingCost = COST_KLING_OMNI_STANDARD_PER_SEC * ttsResult.actualDurationSec;
+    // Total cost accounting — Kling cost reflects the actual render duration
+    // (which is targetDuration when emotional_hold padded, else TTS natural).
+    const klingCost = COST_KLING_OMNI_STANDARD_PER_SEC * klingTargetDuration;
     const syncCost = COST_SYNC_LIPSYNC_V3_FLAT;
     const ttsCost = COST_TTS_PER_CHAR * dialogue.length;
     const totalCost = klingCost + syncCost + ttsCost;
 
     return {
       videoBuffer: syncResult.videoBuffer,
-      durationSec: ttsResult.actualDurationSec,
+      // Reported duration matches what was actually rendered (so downstream
+      // assembly + duration-trace logs are accurate). When emotional_hold
+      // padded, this is targetDuration; else it's the TTS natural length.
+      durationSec: padNeeded ? finalAudioDurationSec : ttsResult.actualDurationSec,
       modelUsed: 'mode-b/kling-o3-omni+sync-lipsync-v3',
       costUsd: totalCost,
       metadata: {
@@ -305,6 +376,54 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
         voiceBound: !!persona.kling_voice_id
       }
     };
+  }
+
+  /**
+   * V4 hotfix 2026-04-30 — Pad an MP3 audio buffer with `padSec` of silence
+   * appended to the end. Used by the emotional_hold path to make the
+   * audio's total duration match the BEAT's targetDuration so Kling renders
+   * the full hold AND Sync v3 sees real silence in the trailing region
+   * (keeping the mouth still during the emotional pause).
+   *
+   * Uses ffmpeg `apad` filter with `pad_dur` option — most reliable apad
+   * variant across ffmpeg builds. Falls back to `aevalsrc` concat if apad
+   * fails (older ffmpeg builds without pad_dur).
+   *
+   * @param {Buffer} audioBuffer - source MP3 (typically TTS output)
+   * @param {number} padSec      - seconds of silence to append (must be >0)
+   * @param {string} beatId      - for log/temp-file naming
+   * @returns {Buffer} padded MP3 buffer
+   */
+  _padAudioWithSilence(audioBuffer, padSec, beatId) {
+    if (!Buffer.isBuffer(audioBuffer) || audioBuffer.length === 0) {
+      throw new Error('_padAudioWithSilence: audioBuffer empty');
+    }
+    if (!Number.isFinite(padSec) || padSec <= 0) {
+      throw new Error(`_padAudioWithSilence: invalid padSec=${padSec}`);
+    }
+
+    const tmpDir = os.tmpdir();
+    const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const inputPath = path.join(tmpDir, `cdg-${beatId}-${stamp}-in.mp3`);
+    const outputPath = path.join(tmpDir, `cdg-${beatId}-${stamp}-out.mp3`);
+
+    fs.writeFileSync(inputPath, audioBuffer);
+    try {
+      // apad pad_dur appends padSec seconds of silence after the input.
+      execFileSync('ffmpeg', [
+        '-y',
+        '-i', inputPath,
+        '-af', `apad=pad_dur=${padSec.toFixed(3)}`,
+        '-c:a', 'libmp3lame',
+        '-q:a', '2',
+        outputPath
+      ], { stdio: ['ignore', 'ignore', 'pipe'] });
+      const padded = fs.readFileSync(outputPath);
+      return padded;
+    } finally {
+      try { fs.unlinkSync(inputPath); } catch {}
+      try { fs.unlinkSync(outputPath); } catch {}
+    }
   }
 }
 
