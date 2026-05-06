@@ -152,30 +152,79 @@ class BRollGenerator extends BaseBeatGenerator {
         })
       : null;
 
-    const result = await veo.generateWithFrames({
-      firstFrameUrl, // null is OK — VeoFalService goes text-only when absent
-      lastFrameUrl: null,
-      prompt,
-      options: {
-        duration,
-        aspectRatio: '9:16',
-        generateAudio: true, // the whole point of using Veo for B-roll
-        tier: 'standard',
-        personaNames,
-        sanitizationContext: {
-          subjectName: location, // tier-2 fallback describes the location
-          subjectDescription: atmosphere,
-          stylePrefix
-        },
-        regenerateSafeFirstFrame: safeRegenCallback,
-        telemetry: {
-          userId: episodeContext?.userId,
-          episodeId: episodeContext?.episodeId,
-          beatId: beat.beat_id,
-          beatType: beat.type
+    let result;
+    try {
+      result = await veo.generateWithFrames({
+        firstFrameUrl, // null is OK — VeoFalService goes text-only when absent
+        lastFrameUrl: null,
+        prompt,
+        options: {
+          duration,
+          aspectRatio: '9:16',
+          generateAudio: true, // the whole point of using Veo for B-roll
+          tier: 'standard',
+          personaNames,
+          sanitizationContext: {
+            subjectName: location, // tier-2 fallback describes the location
+            subjectDescription: atmosphere,
+            stylePrefix
+          },
+          regenerateSafeFirstFrame: safeRegenCallback,
+          // 2026-05-06 — Veo→Kling fallback (Step 5). Stage 1.5 SFX overlay
+          // already runs for kling-v3-pro modelUsed strings, so the post-prod
+          // pipeline replaces Veo's native ambient with EL SFX automatically
+          // when this fallback fires.
+          skipTextOnlyFallback: true,
+          telemetry: {
+            userId: episodeContext?.userId,
+            episodeId: episodeContext?.episodeId,
+            beatId: beat.beat_id,
+            beatType: beat.type
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent on B_ROLL (${(err.message || '').slice(0, 80)})`
+        : `Veo error on B_ROLL (${(err.message || '').slice(0, 80)})`;
+      this.logger.warn(
+        `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro`
+      );
+
+      const klingBrollPrompt = this._appendDirectorNudge([
+        verticalDirective,
+        stylePrefix,
+        `Establishing shot: ${location}.`,
+        framingIntent,
+        `Atmosphere: ${atmosphere}.`,
+        `Camera: ${cameraMove}.`,
+        identityDirective,
+        wardrobeDirective,
+        'No characters speaking — pure environment shot.',
+        `Ambient: ${ambientSound}.`
+      ].filter(Boolean).join(' '), beat);
+
+      const hasPersonasInBeat = Array.isArray(beat.personas_present) && beat.personas_present.length > 0;
+
+      return await this._fallbackToKlingForVeoFailure({
+        beat, scene, refStack, personas, episodeContext, previousBeat,
+        routingMetadata: undefined,
+        prompt: klingBrollPrompt,
+        duration,
+        beatTypeLabel: 'broll',
+        includeSubject: !!beat.subject_focus,
+        includePersonaElements: hasPersonasInBeat,
+        fallbackReason,
+        veoSanitizationTier: null,
+        generateAudio: true,
+        extraMetadata: {
+          location,
+          hasAnchor: !!firstFrameUrl,
+          personaLocked: !!personaLockUrl,
+          subjectNaturalFrame: !!subjectNaturalUrl
+        }
+      });
+    }
 
     // Use the ACTUAL duration returned by Veo (may be snapped up to {4,6,8}
     // because Vertex only accepts those bins).

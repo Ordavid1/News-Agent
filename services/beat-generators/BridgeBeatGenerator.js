@@ -105,29 +105,75 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
       .map(p => p && p.name)
       .filter(n => typeof n === 'string' && n.length > 0);
 
-    const result = await veo.generateWithFrames({
-      firstFrameUrl,
-      lastFrameUrl,
-      prompt,
-      options: {
-        duration,
-        aspectRatio: '9:16',
-        generateAudio: true,
-        tier: 'standard',
-        personaNames,
-        sanitizationContext: {
-          subjectName: 'transit shot',
-          subjectDescription: visualPrompt,
-          stylePrefix
-        },
-        telemetry: {
-          userId: episodeContext?.userId,
-          episodeId: episodeContext?.episodeId,
-          beatId: beat.beat_id,
-          beatType: beat.type
+    let result;
+    try {
+      result = await veo.generateWithFrames({
+        firstFrameUrl,
+        lastFrameUrl,
+        prompt,
+        options: {
+          duration,
+          aspectRatio: '9:16',
+          generateAudio: true,
+          tier: 'standard',
+          personaNames,
+          sanitizationContext: {
+            subjectName: 'transit shot',
+            subjectDescription: visualPrompt,
+            stylePrefix
+          },
+          // 2026-05-06 — Veo→Kling fallback (Step 7). Veo's first+last
+          // interpolation is the bridge's signature — Kling V3 Pro can't
+          // replicate that exactly. Fallback produces a kinetic motion shot
+          // (acceptable degradation vs no bridge at all).
+          skipTextOnlyFallback: true,
+          telemetry: {
+            userId: episodeContext?.userId,
+            episodeId: episodeContext?.episodeId,
+            beatId: beat.beat_id,
+            beatType: beat.type
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent on SCENE_BRIDGE (${(err.message || '').slice(0, 80)})`
+        : `Veo error on SCENE_BRIDGE (${(err.message || '').slice(0, 80)})`;
+      this.logger.warn(
+        `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro (no first+last interp)`
+      );
+
+      const klingBridgePrompt = this._appendDirectorNudge([
+        stylePrefix,
+        'Scene bridge — connective transit shot.',
+        framingRecipe,
+        visualPrompt,
+        wardrobeDirective,
+        'Seamless movement, no dialogue.',
+        `Ambient: ${ambientSound}.`
+      ].filter(Boolean).join(' '), beat);
+
+      const hasPersonasInBridge = personasInBridge.length > 0;
+
+      return await this._fallbackToKlingForVeoFailure({
+        beat, scene, refStack, personas, episodeContext, previousBeat,
+        routingMetadata: undefined,
+        prompt: klingBridgePrompt,
+        duration,
+        beatTypeLabel: 'bridge',
+        includeSubject: false,
+        includePersonaElements: hasPersonasInBridge,
+        fallbackReason,
+        veoSanitizationTier: null,
+        generateAudio: true,
+        extraMetadata: {
+          firstFrameUrl,
+          lastFrameUrl,
+          personaLocked: !!personaLockUrl,
+          bridgeKind: 'narrative_transit'
+        }
+      });
+    }
 
     const actualDuration = result.duration || duration;
 

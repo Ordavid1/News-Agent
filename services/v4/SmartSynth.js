@@ -41,6 +41,7 @@
 import axios from 'axios';
 import winston from 'winston';
 import { callVertexGeminiJson, isVertexGeminiConfigured } from './VertexGemini.js';
+import { getVeoFailureKnowledge } from './VeoFailureGuidance.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -127,6 +128,27 @@ export async function synthesizeRetakeDirective({
   const findings = Array.isArray(verdict.findings) ? verdict.findings : [];
   const regressionWarning = _detectRegression(priorAttempts);
 
+  // Veo Failure-Learning Agent (2026-05-06) — load the auto-learned guidance
+  // block ONCE per synth call and thread it through both rich layers. The
+  // block tells Gemini which phrasings Vertex AI Veo has refused on prior
+  // beats, so SmartSynth doesn't synthesise a directive that re-enters a
+  // known-failing pattern (the failure mode in s2b1: "dead sparrow" was
+  // refused at every tier; SmartSynth's diagnosis missed that the root cause
+  // was content-filter, not visual fidelity, and the retake re-tripped the
+  // same filter). Best-effort — failure to load NEVER blocks synthesis.
+  let veoFailureGuidanceBlock = '';
+  try {
+    const knowledge = await getVeoFailureKnowledge();
+    if (knowledge && typeof knowledge.getGeminiSystemPromptBlock === 'function') {
+      veoFailureGuidanceBlock = knowledge.getGeminiSystemPromptBlock({
+        modelId: 'veo-3.1-vertex',
+        minSeverity: ['medium', 'high', 'critical']
+      });
+    }
+  } catch (failureKnowledgeErr) {
+    logger.warn(`[${logPrefix}] Veo failure-knowledge unavailable (${failureKnowledgeErr.message}) — synthesizing without guidance block`);
+  }
+
   // Cheap layer — always ready as the floor. Pure string composition.
   const cheapDirective = _buildCheapDirective({ findings, checkpoint, artifactId, priorAttempts });
 
@@ -155,7 +177,8 @@ export async function synthesizeRetakeDirective({
         verdict, findings, checkpoint, artifactId,
         artifactUrl, artifactMimeType,
         artifactContent, referenceImages,
-        priorAttempts, craftContext, logPrefix
+        priorAttempts, craftContext, logPrefix,
+        veoFailureGuidanceBlock
       });
       if (result) {
         logger.info(`[${logPrefix}] multimodal layer succeeded (directive=${result.directive.length}ch, refs=${result.reference_image_count}, latency=${result.model_latency_ms}ms, visible_tokens=${result.visible_tokens})`);
@@ -182,7 +205,8 @@ export async function synthesizeRetakeDirective({
   try {
     result = await _textRichLayer({
       verdict, findings, checkpoint, artifactId,
-      artifactContent, priorAttempts, craftContext, logPrefix
+      artifactContent, priorAttempts, craftContext, logPrefix,
+      veoFailureGuidanceBlock
     });
     if (result) {
       logger.info(`[${logPrefix}] text-rich layer succeeded (directive=${result.directive.length}ch, latency=${result.model_latency_ms}ms, visible_tokens=${result.visible_tokens})`);
@@ -295,7 +319,8 @@ async function _multimodalLayer({
   verdict, findings, checkpoint, artifactId,
   artifactUrl, artifactMimeType,
   artifactContent, referenceImages,
-  priorAttempts, craftContext, logPrefix
+  priorAttempts, craftContext, logPrefix,
+  veoFailureGuidanceBlock = ''
 }) {
   // ── Fetch the artifact + reference images ──
   const t0 = Date.now();
@@ -345,7 +370,7 @@ async function _multimodalLayer({
 
   const t1 = Date.now();
   const parsed = await callVertexGeminiJson({
-    systemPrompt: _buildSystemPrompt({ checkpoint, includesImage: true, includesReferences: refParts.length > 0 }),
+    systemPrompt: _buildSystemPrompt({ checkpoint, includesImage: true, includesReferences: refParts.length > 0, veoFailureGuidanceBlock }),
     userParts,
     config: {
       temperature: SYNTH_TEMPERATURE,
@@ -365,7 +390,8 @@ async function _multimodalLayer({
 
 async function _textRichLayer({
   verdict, findings, checkpoint, artifactId,
-  artifactContent, priorAttempts, craftContext, logPrefix
+  artifactContent, priorAttempts, craftContext, logPrefix,
+  veoFailureGuidanceBlock = ''
 }) {
   const userPayload = _buildVerdictPayload({
     verdict, findings, checkpoint, artifactId,
@@ -374,7 +400,7 @@ async function _textRichLayer({
 
   const t0 = Date.now();
   const parsed = await callVertexGeminiJson({
-    systemPrompt: _buildSystemPrompt({ checkpoint, includesImage: false, includesReferences: false }),
+    systemPrompt: _buildSystemPrompt({ checkpoint, includesImage: false, includesReferences: false, veoFailureGuidanceBlock }),
     userPrompt: JSON.stringify(userPayload),
     config: {
       temperature: SYNTH_TEMPERATURE,
@@ -431,13 +457,25 @@ function _buildCheapDirective({ findings, checkpoint, artifactId, priorAttempts 
 // Internal — payload + prompt builders
 // ─────────────────────────────────────────────────────────────────────────
 
-function _buildSystemPrompt({ checkpoint, includesImage, includesReferences }) {
+function _buildSystemPrompt({ checkpoint, includesImage, includesReferences, veoFailureGuidanceBlock = '' }) {
   const lines = [
     'You are a film DIRECTOR resolving a halted V4 brand-story pipeline.',
     'The Director Agent (Lens A/B/C/D rubric) flagged a halt at the checkpoint below.',
     'Your job: synthesize ONE sharp, generator-actionable retake directive that addresses the CRITICAL findings.',
     ''
   ];
+
+  // Veo Failure-Learning Agent (2026-05-06) — when present, the auto-learned
+  // guidance block lists known phrasings Vertex AI Veo has refused on prior
+  // beats. SmartSynth must NOT synthesise a directive that re-enters one of
+  // these patterns, otherwise the next render will trip the same content
+  // filter (observed s2b1 dead-sparrow loop, 2026-05-06 17:25-17:27).
+  if (veoFailureGuidanceBlock && typeof veoFailureGuidanceBlock === 'string') {
+    lines.push(veoFailureGuidanceBlock);
+    lines.push('');
+    lines.push('When the failure being remediated is a CONTENT-FILTER refusal (Vertex usage-guidelines), the directive\'s job is to PRESERVE THE BEAT\'S NARRATIVE INTENT (subject, mood, story function) while expressing it in phrasing that does not trip the patterns above. Do NOT abandon the beat\'s symbolism; reach for an alternative composition that achieves the same dramatic purpose.');
+    lines.push('');
+  }
 
   if (includesImage) {
     lines.push('You can SEE the rejected artifact (image/frame).');

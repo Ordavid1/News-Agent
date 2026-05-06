@@ -150,28 +150,87 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     const personaNames = (personas || [])
       .map(p => p && p.name)
       .filter(n => typeof n === 'string' && n.length > 0);
-    const veoResult = await veo.generateWithFrames({
-      firstFrameUrl,
-      prompt: veoPrompt,
-      options: {
-        duration,
-        aspectRatio: '9:16',
-        generateAudio: true, // keep ambient; orchestrator will duck it under V.O.
-        tier: 'standard',
-        personaNames,
-        sanitizationContext: {
-          subjectName: location,
-          subjectDescription: 'atmospheric establishing b-roll',
-          stylePrefix
-        },
-        telemetry: {
-          userId: episodeContext?.userId,
-          episodeId: episodeContext?.episodeId,
-          beatId: beat.beat_id,
-          beatType: beat.type
+    let veoResult;
+    try {
+      veoResult = await veo.generateWithFrames({
+        firstFrameUrl,
+        prompt: veoPrompt,
+        options: {
+          duration,
+          aspectRatio: '9:16',
+          generateAudio: true, // keep ambient; orchestrator will duck it under V.O.
+          tier: 'standard',
+          personaNames,
+          sanitizationContext: {
+            subjectName: location,
+            subjectDescription: 'atmospheric establishing b-roll',
+            stylePrefix
+          },
+          // 2026-05-06 — Veo→Kling fallback (Step 6). Only the visual stage
+          // falls back; the V.O. audio (Stage A above) is already produced
+          // and the orchestrator's post-production V.O. overlay + ducking
+          // pass runs on the Kling output identically.
+          skipTextOnlyFallback: true,
+          telemetry: {
+            userId: episodeContext?.userId,
+            episodeId: episodeContext?.episodeId,
+            beatId: beat.beat_id,
+            beatType: beat.type
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent on VOICEOVER_OVER_BROLL (${(err.message || '').slice(0, 80)})`
+        : `Veo error on VOICEOVER_OVER_BROLL (${(err.message || '').slice(0, 80)})`;
+      this.logger.warn(
+        `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro (V.O. audio preserved)`
+      );
+
+      const klingVoBrollPrompt = this._appendDirectorNudge([
+        verticalDirective,
+        stylePrefix,
+        `B-roll of ${location}.`,
+        `Camera: ${cameraMove}.`,
+        identityDirective,
+        wardrobeDirective,
+        'Atmospheric and evocative, no characters speaking.',
+        'Ambient sound bed only (natural environment).'
+      ].filter(Boolean).join(' '), beat);
+
+      const hasPersonasInBeat = (Array.isArray(beat.personas_present) && beat.personas_present.length > 0)
+        || !!personaLockUrl;
+
+      const fallbackResult = await this._fallbackToKlingForVeoFailure({
+        beat, scene, refStack, personas, episodeContext, previousBeat,
+        routingMetadata: undefined,
+        prompt: klingVoBrollPrompt,
+        duration,
+        beatTypeLabel: 'vo-broll',
+        includeSubject: false,
+        includePersonaElements: hasPersonasInBeat,
+        fallbackReason,
+        veoSanitizationTier: null,
+        generateAudio: true, // Kling provides ambient; post-prod ducks it under V.O.
+        extraMetadata: {
+          voAudioUrl,
+          voiceId,
+          voiceoverText,
+          personaLocked: !!personaLockUrl,
+          subjectNaturalFrame: !!subjectNaturalUrl,
+          // CRITICAL: orchestrator hook for V.O. overlay + ducking is
+          // preserved on the fallback path. Without this, post-prod skips
+          // the V.O. mix and the user gets silent video.
+          needsVoiceoverMix: true
+        }
+      });
+
+      // Adjust modelUsed string to reflect the V.O. component too.
+      fallbackResult.modelUsed = `kling-v3-pro/vo-broll (veo-fallback) + elevenlabs`;
+      // Add the TTS cost (already paid above in Stage A) to the result.
+      fallbackResult.costUsd = (fallbackResult.costUsd || 0) + COST_TTS_PER_CHAR * voiceoverText.length;
+      return fallbackResult;
+    }
 
     // Use the ACTUAL duration returned by Veo (may be snapped up to {4,6,8}
     // because Vertex only accepts those bins for image_to_video).

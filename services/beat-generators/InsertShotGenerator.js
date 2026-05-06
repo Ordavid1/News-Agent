@@ -155,30 +155,82 @@ class InsertShotGenerator extends BaseBeatGenerator {
         })
       : null;
 
-    const result = await veo.generateWithFrames({
-      firstFrameUrl,
-      lastFrameUrl,
-      prompt,
-      options: {
-        duration,
-        aspectRatio: '9:16',
-        generateAudio: true,
-        tier: 'standard',
-        personaNames,
-        sanitizationContext: {
-          subjectName: subjectNameForFallback,
-          subjectDescription: subjectDescriptionForFallback,
-          stylePrefix
-        },
-        regenerateSafeFirstFrame: safeRegenCallback,
-        telemetry: {
-          userId: episodeContext?.userId,
-          episodeId: episodeContext?.episodeId,
-          beatId: beat.beat_id,
-          beatType: beat.type
+    let result;
+    try {
+      result = await veo.generateWithFrames({
+        firstFrameUrl,
+        lastFrameUrl,
+        prompt,
+        options: {
+          duration,
+          aspectRatio: '9:16',
+          generateAudio: true,
+          tier: 'standard',
+          personaNames,
+          sanitizationContext: {
+            subjectName: subjectNameForFallback,
+            subjectDescription: subjectDescriptionForFallback,
+            stylePrefix
+          },
+          regenerateSafeFirstFrame: safeRegenCallback,
+          // 2026-05-06 — Veo→Kling fallback (Step 4). Skip the wasteful
+          // tier3-no-image attempt; on persistent content-filter refusal
+          // route to Kling V3 Pro with the subject element anchor. The
+          // logs.txt 2026-05-06 evidence (beat s2b1 INSERT_SHOT) showed
+          // that without this, the unanchored tier3-no-image output got
+          // hard_rejected by the Director Agent (score 35) and halted the
+          // episode after auto-retry hit the same death spiral.
+          skipTextOnlyFallback: true,
+          telemetry: {
+            userId: episodeContext?.userId,
+            episodeId: episodeContext?.episodeId,
+            beatId: beat.beat_id,
+            beatType: beat.type
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent on INSERT_SHOT (${(err.message || '').slice(0, 80)})`
+        : `Veo error on INSERT_SHOT (${(err.message || '').slice(0, 80)})`;
+      this.logger.warn(
+        `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro (subject element anchor)`
+      );
+
+      // Build a Kling-friendly product-hero prompt. Persona elements are
+      // disabled — INSERT_SHOT is product-focused, the subject element is
+      // the identity anchor.
+      const klingInsertPrompt = this._appendDirectorNudge([
+        verticalDirective,
+        stylePrefix,
+        `Macro insert shot of ${subjectFocus}.`,
+        framingRecipe,
+        `Lighting: ${lightingIntent}.`,
+        `Camera: ${cameraMove}.`,
+        'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
+        ambientSound ? `Ambient: ${ambientSound}.` : ''
+      ].filter(Boolean).join(' '), beat);
+
+      return await this._fallbackToKlingForVeoFailure({
+        beat, scene, refStack, personas, episodeContext, previousBeat,
+        routingMetadata: undefined,
+        prompt: klingInsertPrompt,
+        duration,
+        beatTypeLabel: 'insert',
+        includeSubject: true,
+        includePersonaElements: false, // INSERT_SHOT is product-hero; no persona faces
+        fallbackReason,
+        veoSanitizationTier: null,
+        generateAudio: true,
+        extraMetadata: {
+          subjectFocus,
+          firstFrameUrl,
+          lastFrameUrl,
+          personaLocked: !!personaLockUrl,
+          sceneIntegratedProductLock: !!siplUrl
+        }
+      });
+    }
 
     // Use the ACTUAL duration returned by Veo (may be snapped up to {4,6,8}
     // because Vertex only accepts those bins for image_to_video).

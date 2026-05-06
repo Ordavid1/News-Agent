@@ -1027,6 +1027,139 @@ class BaseBeatGenerator {
       return null;
     }
   }
+
+  /**
+   * 2026-05-06 — Veo→Kling fallback (Step 2).
+   *
+   * Shared Kling V3 Pro fallback used by every Veo beat generator
+   * (VeoActionGenerator, InsertShotGenerator, BRollGenerator,
+   * VoiceoverBRollGenerator, BridgeBeatGenerator, ReactionGenerator).
+   *
+   * Triggered when `veo.generateWithFrames(... { skipTextOnlyFallback: true })`
+   * throws `VeoContentFilterPersistentError` — Veo's content filter
+   * persistently refused all anchored tiers, and we'd rather route to a
+   * different model than ship unanchored text-only output that's guaranteed
+   * to face-drift / lose subject matter (Director Agent hard-rejects it
+   * with score 35-42, halting the episode — see logs.txt 2026-05-06).
+   *
+   * Kling V3 Pro has a different content-filter posture AND uses
+   * persona/subject elements as the anchor (not first-frame), so the same
+   * persona-lock still that Veo refused never gets re-submitted to Kling.
+   *
+   * @param {Object} args
+   * @param {Object} args.beat
+   * @param {Object} args.scene
+   * @param {Array}  args.refStack
+   * @param {Object[]} args.personas
+   * @param {Object} args.episodeContext
+   * @param {Object} [args.previousBeat]
+   * @param {Object} [args.routingMetadata]
+   * @param {string} args.prompt - the prompt to feed Kling (caller-built)
+   * @param {number} args.duration - target duration seconds
+   * @param {string} args.beatTypeLabel - short label appended to modelUsed (e.g. 'action', 'insert', 'broll', 'vo-broll', 'bridge', 'reaction')
+   * @param {boolean} [args.includeSubject=false] - add buildKlingSubjectElement when beat.subject_present
+   * @param {boolean} [args.includePersonaElements=true] - add buildKlingElementsFromPersonas
+   * @param {string}  [args.fallbackReason] - human-readable reason from caller's catch block
+   * @param {string|null} [args.veoSanitizationTier]
+   * @param {boolean} [args.generateAudio=true]
+   * @param {Array}   [args.extraMetadata] - merged into result.metadata for caller-specific fields
+   * @returns {Promise<{videoBuffer: Buffer, durationSec: number, modelUsed: string, costUsd: number, metadata: Object}>}
+   */
+  async _fallbackToKlingForVeoFailure({
+    beat,
+    scene,
+    refStack,
+    personas = [],
+    episodeContext,
+    previousBeat,
+    routingMetadata,
+    prompt,
+    duration,
+    beatTypeLabel,
+    includeSubject = false,
+    includePersonaElements = true,
+    fallbackReason = '',
+    veoSanitizationTier = null,
+    generateAudio = true,
+    extraMetadata = {}
+  }) {
+    const { kling } = this.falServices;
+    if (!kling) {
+      throw new Error(
+        `${this.constructor.name}: Veo unusable AND kling service not in deps — beat ${beat?.beat_id || '?'} cannot fall back. ${fallbackReason}`
+      );
+    }
+
+    // Lazy import to avoid circular module-load between BaseBeatGenerator and KlingFalService.
+    const { buildKlingElementsFromPersonas, buildKlingSubjectElement } = await import('../KlingFalService.js');
+
+    // Kling clamps action beats to [3, 15]s. Most Veo beats run [2, 8]s, so
+    // ensure 3s minimum for Kling.
+    const klingDuration = Math.max(3, Math.min(15, duration || 5));
+
+    // Build elements[] anchor — different from Veo's first-frame anchor.
+    let elements = [];
+    if (includePersonaElements) {
+      const personasInShot = [];
+      if (Array.isArray(beat?.persona_indexes)) {
+        for (const idx of beat.persona_indexes) {
+          if (personas[idx]) personasInShot.push(personas[idx]);
+        }
+      } else if (typeof beat?.persona_index === 'number' && personas[beat.persona_index]) {
+        personasInShot.push(personas[beat.persona_index]);
+      } else if (Array.isArray(beat?.personas_present) && beat.personas_present.length > 0) {
+        // personas_present is an integer array on B_ROLL / VOICEOVER_OVER_BROLL
+        for (const idx of beat.personas_present) {
+          if (typeof idx === 'number' && personas[idx]) personasInShot.push(personas[idx]);
+        }
+      }
+      const built = buildKlingElementsFromPersonas(personasInShot);
+      elements = built.elements || [];
+    }
+
+    if (includeSubject && (beat?.subject_present || beat?.subject_focus) && elements.length < 3) {
+      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
+      if (subjectElement) elements.push(subjectElement);
+    }
+
+    // Start frame: re-use the unified picker — same selection logic as the
+    // Veo path (previous endframe → scene master → refStack → null).
+    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat, {});
+
+    this.logger.info(
+      `[${beat?.beat_id || '?'}] Kling V3 Pro ${beatTypeLabel.toUpperCase()} (Veo fallback, ${klingDuration}s, ` +
+      `${startFrameUrl ? 'anchored' : 'text-only'}, ${elements.length} element(s))`
+    );
+
+    const result = await kling.generateActionBeat({
+      startFrameUrl,
+      elements,
+      prompt,
+      options: {
+        duration: klingDuration,
+        aspectRatio: '9:16',
+        generateAudio
+      }
+    });
+
+    const COST_KLING_V3_PRO_PER_SEC = 0.224;
+
+    return {
+      videoBuffer: result.videoBuffer,
+      durationSec: klingDuration,
+      modelUsed: `kling-v3-pro/${beatTypeLabel} (veo-fallback)`,
+      costUsd: COST_KLING_V3_PRO_PER_SEC * klingDuration,
+      metadata: {
+        klingVideoUrl: result.videoUrl,
+        primaryAttempt: 'veo-3.1-standard',
+        primaryFailureReason: fallbackReason || 'Veo content filter persistent on anchored tiers',
+        veoSanitizationTier,
+        fallbackChain: ['veo-3.1-standard', 'kling-v3-pro'],
+        originalType: routingMetadata?.originalType || beat?.type,
+        ...extraMetadata
+      }
+    };
+  }
 }
 
 export default BaseBeatGenerator;

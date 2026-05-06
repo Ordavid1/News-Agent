@@ -47,6 +47,33 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
+/**
+ * 2026-05-06 — Veo→Kling fallback (Step 1).
+ *
+ * Thrown by VeoService.generateWithFrames when the caller passes
+ * `skipTextOnlyFallback: true` AND all anchored tiers (1, 2, 2.5, 3) refused.
+ * Beat generators with a Kling fallback (VeoActionGenerator,
+ * InsertShotGenerator, BRollGenerator, VoiceoverBRollGenerator,
+ * BridgeBeatGenerator, ReactionGenerator) catch this and re-route to
+ * `kling.generateActionBeat` via `BaseBeatGenerator._fallbackToKlingForVeoFailure`.
+ *
+ * `isVeoContentFilter: true` is preserved for back-compat with existing
+ * catchers that test the legacy flag (`isVeoContentFilterError`).
+ */
+class VeoContentFilterPersistentError extends Error {
+  constructor(prompt, lastErr) {
+    super(
+      `Veo content filter persistent — all anchored tiers refused. ` +
+      `Prompt: "${(prompt || '').slice(0, 180)}"`
+    );
+    this.name = 'VeoContentFilterPersistentError';
+    this.isVeoContentFilterPersistent = true;
+    this.isVeoContentFilter = true; // back-compat
+    this.originalError = lastErr || null;
+    this.prompt = prompt || '';
+  }
+}
+
 class VeoService {
   constructor() {
     this._available = null; // lazy-evaluated
@@ -112,7 +139,20 @@ class VeoService {
       // any non-empty subset is useful (a userId alone makes the row queryable
       // per-tenant; a beatId + beatType makes it queryable per-cluster).
       // Shape: { userId, episodeId, beatId, beatType }
-      telemetry = {}
+      telemetry = {},
+      // 2026-05-06 — Veo→Kling fallback (Step 1).
+      //
+      // When `true`, SKIP the tier3-no-image (text-only) attempt entirely.
+      // After all anchored tiers (1, 2, 2.5, 3) refuse, throw
+      // `VeoContentFilterPersistentError` (isVeoContentFilterPersistent=true)
+      // instead of producing an unanchored text-only video. Beat generators
+      // that have a Kling fallback pass this so we (a) save ~80s of useless
+      // tier3 polling and (b) never ship the unanchored output that the
+      // Director Agent will hard_reject anyway (production evidence:
+      // logs.txt 2026-05-06 beat s2b1 INSERT_SHOT score=35 → episode halt).
+      //
+      // Default false preserves back-compat for any non-V4 callers.
+      skipTextOnlyFallback = false
       // generateAudio and tier are ignored on Vertex — Veo 3.1 Standard always
       // generates audio and is always the highest tier on this backend.
     } = options;
@@ -179,7 +219,11 @@ class VeoService {
       logger.warn(`pre-flight rules unavailable (${preflightErr.message}) — using original prompt`);
     }
 
-    const attempts = [
+    // 2026-05-06 — when caller opts into skipTextOnlyFallback, the tier3-no-image
+    // attempt is REMOVED from the chain entirely. The post-loop block then
+    // throws VeoContentFilterPersistentError instead of attempting text-only.
+    // Beat generators with a Kling fallback consume this signal to re-route.
+    const _allAttempts = [
       {
         label: 'original',
         prompt: preflightPrompt,
@@ -207,6 +251,9 @@ class VeoService {
         lastFrame: null
       }
     ];
+    const attempts = skipTextOnlyFallback
+      ? _allAttempts.filter(a => a.label !== 'tier3-no-image')
+      : _allAttempts;
 
     let lastErr = null;
     let attemptUsed = null;
@@ -314,7 +361,18 @@ class VeoService {
               `Escalating directly to text-only tier (tier3-no-image).`
             );
           }
-          attemptIndex = attempts.findIndex(a => a.label === 'tier3-no-image');
+          // 2026-05-06 — when caller opted out of text-only fallback, tier3
+          // was filtered out of attempts[] and findIndex returns -1. Break
+          // out of the loop so the post-loop `if (!result)` block throws
+          // VeoContentFilterPersistentError with the IMAGE-violation context.
+          // Without this guard, attemptIndex = -1 would infinite-loop.
+          const tier3Index = attempts.findIndex(a => a.label === 'tier3-no-image');
+          if (tier3Index === -1) {
+            // Anchored tiers exhausted; caller will route to Kling.
+            attemptIndex = attempts.length;
+            continue;
+          }
+          attemptIndex = tier3Index;
           continue;
         }
 
@@ -324,9 +382,8 @@ class VeoService {
     }
 
     if (!result) {
-      // All tiers refused (including text-only). Record the hard failure
-      // for the Veo Failure-Learning Agent (fire-and-forget) BEFORE throwing,
-      // so a Director Agent halt cycle can't suppress the telemetry.
+      // All tiers refused. Telemetry records the hard failure (fire-and-forget)
+      // BEFORE throwing so a Director Agent halt cycle can't suppress it.
       VeoFailureCollector.record({
         userId: telemetry.userId,
         episodeId: telemetry.episodeId,
@@ -340,11 +397,26 @@ class VeoService {
         durationSec: clampedDuration,
         aspectRatio,
         modelAttempted: 'veo-3.1-vertex',
-        attemptTierReached: 'hard_failed',
+        attemptTierReached: skipTextOnlyFallback ? 'anchored_tiers_refused' : 'hard_failed',
         recoverySucceeded: false,
         attemptCount: _attemptCount,
         totalDurationMs: Date.now() - _t0
       }).catch(() => {});
+
+      // 2026-05-06 — Veo→Kling fallback (Step 1).
+      //
+      // When caller opted into skipTextOnlyFallback, throw the dedicated
+      // VeoContentFilterPersistentError so beat generators can `instanceof`-
+      // check (or read `isVeoContentFilterPersistent: true`) and route to
+      // Kling. The legacy generic error is preserved for callers without
+      // a fallback (back-compat).
+      if (skipTextOnlyFallback) {
+        logger.warn(
+          `Veo content filter persistent — all anchored tiers refused. ` +
+          `Caller will fall back. Prompt: "${prompt.slice(0, 100)}..."`
+        );
+        throw new VeoContentFilterPersistentError(prompt, lastErr);
+      }
 
       // Final error carries the original prompt for downstream diagnosis + quality_report.
       const finalErr = new Error(
@@ -421,4 +493,4 @@ class VeoService {
 // Singleton export — beat generators import the default
 const veoService = new VeoService();
 export default veoService;
-export { VeoService };
+export { VeoService, VeoContentFilterPersistentError };

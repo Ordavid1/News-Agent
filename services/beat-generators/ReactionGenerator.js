@@ -118,29 +118,73 @@ class ReactionGenerator extends BaseBeatGenerator {
       .map(p => p && p.name)
       .filter(n => typeof n === 'string' && n.length > 0);
 
-    const result = await veo.generateWithFrames({
-      firstFrameUrl,
-      lastFrameUrl: null, // let Veo improvise the end state
-      prompt,
-      options: {
-        duration,
-        aspectRatio: '9:16',
-        generateAudio: true, // Veo's native ambient for the reaction (soft room tone)
-        tier: 'standard',
-        personaNames,
-        sanitizationContext: {
-          subjectName: 'the character',
-          subjectDescription: expressionArc,
-          stylePrefix
-        },
-        telemetry: {
-          userId: episodeContext?.userId,
-          episodeId: episodeContext?.episodeId,
-          beatId: beat.beat_id,
-          beatType: beat.type
+    let result;
+    try {
+      result = await veo.generateWithFrames({
+        firstFrameUrl,
+        lastFrameUrl: null, // let Veo improvise the end state
+        prompt,
+        options: {
+          duration,
+          aspectRatio: '9:16',
+          generateAudio: true, // Veo's native ambient for the reaction (soft room tone)
+          tier: 'standard',
+          personaNames,
+          sanitizationContext: {
+            subjectName: 'the character',
+            subjectDescription: expressionArc,
+            stylePrefix
+          },
+          // 2026-05-06 — Veo→Kling fallback (Step 8). REACTION beats are
+          // 2-4s silent persona close-ups; persona elements[] is mandatory
+          // (the persona IS the beat). Kling V3 Pro produces this fine.
+          skipTextOnlyFallback: true,
+          telemetry: {
+            userId: episodeContext?.userId,
+            episodeId: episodeContext?.episodeId,
+            beatId: beat.beat_id,
+            beatType: beat.type
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent on REACTION (${(err.message || '').slice(0, 80)})`
+        : `Veo error on REACTION (${(err.message || '').slice(0, 80)})`;
+      this.logger.warn(
+        `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro (persona elements[] required)`
+      );
+
+      // Kling-friendly tight closeup prompt — persona elements[] is the
+      // identity anchor (no first-frame needed; no last-frame on reactions).
+      const klingReactionPrompt = this._appendDirectorNudge([
+        verticalDirective,
+        stylePrefix,
+        'Tight closeup on the character. Silent beat, no dialogue.',
+        framingRecipe,
+        identityDirective,
+        wardrobeDirective,
+        `Emotional arc: ${expressionArc}.`,
+        'Micro-expression emphasis, shallow depth of field, intimate framing.'
+      ].filter(Boolean).join(' '), beat);
+
+      return await this._fallbackToKlingForVeoFailure({
+        beat, scene, refStack, personas, episodeContext, previousBeat,
+        routingMetadata: undefined,
+        prompt: klingReactionPrompt,
+        duration,
+        beatTypeLabel: 'reaction',
+        includeSubject: false,
+        includePersonaElements: true, // mandatory — persona is the whole point
+        fallbackReason,
+        veoSanitizationTier: null,
+        generateAudio: true, // Kling provides soft ambient; post-prod handles SFX overlay
+        extraMetadata: {
+          firstFrameUrl,
+          personaLocked: !!personaLockUrl
+        }
+      });
+    }
 
     // Use the ACTUAL duration returned by Veo (may be snapped up to {4,6,8}
     // since Vertex only accepts those bins for image_to_video). The

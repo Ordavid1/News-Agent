@@ -42,6 +42,15 @@ import {
 import { buildCommercialScreenplayJudgePrompt } from './director-rubrics/commercialScreenplayRubric.mjs';
 import { buildCommercialSceneMasterJudgePrompt } from './director-rubrics/commercialSceneMasterRubric.mjs';
 import { buildCommercialBeatJudgePrompt } from './director-rubrics/commercialBeatRubric.mjs';
+// Veo Failure-Learning Agent (2026-05-06). The DirectorAgent's verdicts
+// produce remediation `prompt_delta` strings that the orchestrator feeds back
+// into the next Veo render via SmartSynth. Without the failure-knowledge
+// guidance in scope, Lens B/C/E can recommend a `prompt_delta` that re-enters
+// a known content-filter pattern — the s2b1 dead-sparrow loop is the
+// canonical example. Loaded lazily and prepended in _call() for every Veo-
+// adjacent lens (off for the post-stylization identity gate, where it adds
+// no value and risks muddying a focused face-comparison prompt).
+import { getVeoFailureKnowledge } from './VeoFailureGuidance.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -642,7 +651,10 @@ export class DirectorAgent {
       systemPrompt,
       userParts,
       schema: POST_STYLIZATION_IDENTITY_SCHEMA,
-      checkpointLabel: 'post_stylization_identity'
+      checkpointLabel: 'post_stylization_identity',
+      // Identity gate compares two faces — Veo failure-knowledge phrasing
+      // rules are off-topic here and would only muddy a focused prompt.
+      injectVeoFailureGuidance: false
     });
   }
 
@@ -686,14 +698,38 @@ export class DirectorAgent {
    * schema enforces the §7 verdict contract mechanically so the caller
    * always gets a well-formed object on success.
    */
-  async _call({ systemPrompt, userPrompt, userParts, schema, checkpointLabel, timeoutOverrideMs }) {
+  async _call({ systemPrompt, userPrompt, userParts, schema, checkpointLabel, timeoutOverrideMs, injectVeoFailureGuidance = true }) {
     const t0 = Date.now();
     const effectiveTimeout = (typeof timeoutOverrideMs === 'number' && timeoutOverrideMs > 0)
       ? timeoutOverrideMs
       : this.timeoutMs;
 
+    // Veo Failure-Learning Agent (2026-05-06) — prepend the auto-learned
+    // guidance block so Lens B/C/D/E verdicts emit remediation `prompt_delta`
+    // strings that don't re-enter known-failing content-filter patterns.
+    // Best-effort: a load failure NEVER blocks the verdict. The post-
+    // stylization identity gate opts out (injectVeoFailureGuidance=false)
+    // because it compares two faces and Veo phrasing rules are off-topic.
+    let effectiveSystemPrompt = systemPrompt;
+    if (injectVeoFailureGuidance && systemPrompt) {
+      try {
+        const knowledge = await getVeoFailureKnowledge();
+        if (knowledge && typeof knowledge.getGeminiSystemPromptBlock === 'function') {
+          const block = knowledge.getGeminiSystemPromptBlock({
+            modelId: 'veo-3.1-vertex',
+            minSeverity: ['medium', 'high', 'critical']
+          });
+          if (block && typeof block === 'string' && block.length > 0) {
+            effectiveSystemPrompt = `${systemPrompt}\n\n${block}\n\nWhen recommending a prompt_delta in remediation, ensure the suggested phrasing does not match any of the avoid-patterns above. The remediation must preserve the beat's narrative intent while expressing it in filter-safe language.`;
+          }
+        }
+      } catch (failureKnowledgeErr) {
+        logger.warn(`${checkpointLabel}: Veo failure-knowledge unavailable (${failureKnowledgeErr.message}) — verdict rendered without guidance block`);
+      }
+    }
+
     const makeCall = (tokenBudget, temp) => callVertexGeminiJson({
-      systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       userPrompt,
       userParts,
       config: {

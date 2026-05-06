@@ -184,7 +184,6 @@ class VeoActionGenerator extends BaseBeatGenerator {
     );
 
     let result;
-    let veoFatalError = null;
     try {
       result = await veo.generateWithFrames({
         firstFrameUrl: resolvedFirstFrame,
@@ -204,9 +203,12 @@ class VeoActionGenerator extends BaseBeatGenerator {
             subjectDescription: actionPrompt,
             stylePrefix
           },
-          // Veo Failure-Learning Agent telemetry context — VeoService records
-          // refusals + recoveries against this so the nightly agent can cluster
-          // failures per-episode / per-tenant.
+          // 2026-05-06 — Veo→Kling fallback (Step 3). Skip the wasteful
+          // tier3-no-image attempt; on persistent content-filter refusal
+          // the catch block falls back to Kling V3 Pro via the shared
+          // BaseBeatGenerator helper.
+          skipTextOnlyFallback: true,
+          // Veo Failure-Learning Agent telemetry context.
           telemetry: {
             userId: episodeContext?.userId,
             episodeId: episodeContext?.episodeId,
@@ -216,45 +218,25 @@ class VeoActionGenerator extends BaseBeatGenerator {
         }
       });
     } catch (err) {
-      // Veo refused ALL sanitization tiers including text-only — fall back to Kling.
-      // (VeoService throws with isVeoContentFilter=true when the chain exhausts.)
-      veoFatalError = err;
-    }
+      // VeoContentFilterPersistentError (or any other Veo failure that
+      // exposed itself before we could ship): record the Kling-fallback
+      // trigger so the agent learns, then route to the shared helper.
+      // Non-content-filter errors (auth, network) also get sent to Kling
+      // here — degraded mode is better than failing the beat.
+      const fallbackReason = err.isVeoContentFilterPersistent
+        ? `Veo content filter persistent (${(err.message || '').slice(0, 80)})`
+        : `Veo error (${(err.message || '').slice(0, 80)})`;
 
-    // 2026-05-06 — Kling V3 Pro fallback for content-filter persistent failures.
-    //
-    // Two failure modes both fall back to Kling:
-    //   1. Veo threw — all sanitization tiers refused, including tier3-no-image.
-    //   2. Veo accepted ONLY at tier3-no-image — text-only output with NO
-    //      first-frame anchor. Identity is invented from text alone → guaranteed
-    //      face drift → Director Agent hard_reject (observed 2026-05-05 in
-    //      production: beat s1b2 hit hard_reject score 42 then halted episode).
-    //
-    // Kling has different content-filter sensitivity AND accepts the persona
-    // elements[] anchor (not just first-frame), so it succeeds where Veo
-    // refuses on the same persona-lock still. This converts a guaranteed
-    // failure into a working beat with the documented Kling face_drift_in_action
-    // risk (severity 4, frame 60+) — far better than text-only Veo.
-    const veoTier3 = result && result.sanitizationTier === 'tier3-no-image';
-    const veoUnusable = veoFatalError || veoTier3;
-
-    if (veoUnusable) {
-      const fallbackReason = veoFatalError
-        ? `Veo refused all tiers (${(veoFatalError.message || '').slice(0, 80)})`
-        : `Veo accepted only tier3-no-image (text-only, NO anchor) — would face-drift`;
       this.logger.warn(
         `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro for action beat`
       );
 
-      // Veo Failure-Learning Agent — record the Kling-fallback trigger BEFORE
-      // attempting Kling, so the agent's data captures the trigger event even
-      // if the Kling call itself throws downstream.
       VeoFailureCollector.record({
         userId: episodeContext?.userId,
         episodeId: episodeContext?.episodeId,
         beatId: beat.beat_id,
         beatType: beat.type,
-        error: veoFatalError,
+        error: err,
         errorMessage: fallbackReason,
         prompt,
         personaNames,
@@ -264,13 +246,39 @@ class VeoActionGenerator extends BaseBeatGenerator {
         aspectRatio: '9:16',
         modelAttempted: 'veo-3.1-vertex',
         attemptTierReached: 'kling_fallback',
-        recoverySucceeded: null, // outcome unknown until Kling completes
+        recoverySucceeded: null,
         fallbackModel: 'kling-v3-pro'
       }).catch(() => {});
 
-      return await this._fallbackToKlingAction({
+      // Build a Kling-friendly prompt — terser than the Veo prompt; Kling's
+      // elements[] anchor handles identity, so we don't need the verbose
+      // identity directive Veo needed.
+      const verticalDirectiveKling = 'VERTICAL 9:16. Kinetic action along vertical axis (tilt/crane), vertical blocking. No horizontal wide composition.';
+      const hasPersonas = (Array.isArray(beat.persona_indexes) && beat.persona_indexes.length > 0)
+        || (typeof beat.persona_index === 'number');
+      const identityDirectiveKling = hasPersonas
+        ? 'Identity lock: match facial structure from refs (bone geometry). Same person.'
+        : '';
+
+      const klingPrompt = this._appendDirectorNudge([
+        verticalDirectiveKling,
+        stylePrefix,
+        actionPrompt,
+        cameraNotes,
+        identityDirectiveKling,
+        ambientSound ? `Ambient: ${ambientSound}` : ''
+      ].filter(Boolean).join('. '), beat);
+
+      return await this._fallbackToKlingForVeoFailure({
         beat, scene, refStack, personas, episodeContext, previousBeat, routingMetadata,
-        duration, fallbackReason, veoSanitizationTier: result?.sanitizationTier || null
+        prompt: klingPrompt,
+        duration,
+        beatTypeLabel: 'action',
+        includeSubject: true,        // ACTION beats with subject_present should anchor on it
+        includePersonaElements: true, // persona-driven action — elements[] is the identity anchor
+        fallbackReason,
+        veoSanitizationTier: null,    // tier3 was skipped; not applicable
+        generateAudio: true            // Kling's audio is fine for ambient under silent action
       });
     }
 
@@ -292,117 +300,6 @@ class VeoActionGenerator extends BaseBeatGenerator {
         kineticPostureApplied: !!firstFrameUrl,
         requestedDurationSec: duration,
         snappedDurationSec: actualDuration,
-        originalType: routingMetadata?.originalType || beat.type
-      }
-    };
-  }
-
-  /**
-   * 2026-05-06 — Kling V3 Pro in-process fallback for content-filter persistent
-   * failures on Veo.
-   *
-   * Triggered when Veo content-filter forces tier3-no-image (text-only output)
-   * OR when all Veo tiers refuse outright. Inlined here rather than throwing
-   * so the beat completes successfully on the first attempt instead of
-   * triggering Director Agent hard_reject → orchestrator escalate → episode
-   * halt cycle (which is what production hit on 2026-05-05 beat s1b2).
-   *
-   * Mirrors ActionGenerator's _doGenerate logic: builds Kling V3 Pro prompt
-   * with elements[] persona anchor, calls kling.generateActionBeat(). Identity
-   * is preserved via Kling's elements API (not first-frame) — different anchor
-   * mechanism than Veo, so the same persona-lock IMAGE that Veo's filter
-   * rejected may not even be referenced (Kling uses persona reference URLs).
-   */
-  async _fallbackToKlingAction({ beat, scene, refStack, personas, episodeContext, previousBeat, routingMetadata, duration, fallbackReason, veoSanitizationTier }) {
-    const { kling } = this.falServices;
-    if (!kling) {
-      throw new Error(`VeoActionGenerator: Veo unusable AND kling service not in deps — beat ${beat.beat_id} cannot fall back. ${fallbackReason}`);
-    }
-
-    // Lazy import to avoid circular ref between VeoActionGenerator and ActionGenerator.
-    const { buildKlingElementsFromPersonas, buildKlingSubjectElement } = await import('../KlingFalService.js');
-
-    // Kling clamps action beats to [3, 15]s; we widen the lower bound from
-    // Veo's 8s ceiling so a 5s Veo beat stays 5s on Kling.
-    const klingDuration = Math.max(3, Math.min(15, duration));
-
-    // V4 Tier 2.1 (2026-05-06) — Kling fallback path uses the same unified
-    // picker so the continuity breadcrumb stays set even on the secondary
-    // route. Note: Kling DOES accept first frames even though the filter on
-    // Veo rejected the persona-lock — Kling's moderation runs on prompt
-    // content, not image content, the same way.
-    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat);
-
-    const stylePrefix = episodeContext?.visual_style_prefix || '';
-    const actionPrompt = beat.action_prompt || beat.visual_direction || 'cinematic action beat';
-    const cameraNotes = beat.camera_notes || '';
-    const ambientSound = beat.ambient_sound || '';
-
-    // Same vertical + identity anchoring as ActionGenerator's prompt.
-    const verticalDirective = 'VERTICAL 9:16. Kinetic action along vertical axis (tilt/crane), vertical blocking. No horizontal wide composition.';
-    const hasPersonas = (Array.isArray(beat.persona_indexes) && beat.persona_indexes.length > 0)
-      || (typeof beat.persona_index === 'number');
-    const identityDirective = hasPersonas
-      ? 'Identity lock: match facial structure from refs (bone geometry). Same person.'
-      : '';
-    const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
-
-    const prompt = this._appendDirectorNudge([
-      verticalDirective,
-      stylePrefix,
-      actionPrompt,
-      cameraNotes,
-      identityDirective,
-      subjectDirective,
-      ambientSound ? `Ambient: ${ambientSound}` : ''
-    ].filter(Boolean).join('. '), beat);
-
-    // Build Kling elements[] persona anchor (different mechanism than Veo's first-frame).
-    const personasInShot = [];
-    if (Array.isArray(beat.persona_indexes)) {
-      for (const idx of beat.persona_indexes) {
-        if (personas[idx]) personasInShot.push(personas[idx]);
-      }
-    } else if (typeof beat.persona_index === 'number' && personas[beat.persona_index]) {
-      personasInShot.push(personas[beat.persona_index]);
-    }
-    const { elements } = buildKlingElementsFromPersonas(personasInShot);
-
-    // Subject anchor when room in elements[].
-    if (beat.subject_present && elements.length < 3) {
-      const subjectElement = buildKlingSubjectElement(episodeContext?.subjectReferenceImages);
-      if (subjectElement) {
-        elements.push(subjectElement);
-      }
-    }
-
-    this.logger.info(
-      `[${beat.beat_id}] Kling V3 Pro ACTION (Veo fallback, ${klingDuration}s, ${startFrameUrl ? 'anchored' : 'text-only'}, ${elements.length} element(s))`
-    );
-
-    const COST_KLING_V3_PRO_PER_SEC = 0.224;
-    const result = await kling.generateActionBeat({
-      startFrameUrl,
-      elements,
-      prompt,
-      options: {
-        duration: klingDuration,
-        aspectRatio: '9:16',
-        generateAudio: true
-      }
-    });
-
-    return {
-      videoBuffer: result.videoBuffer,
-      durationSec: klingDuration,
-      modelUsed: `kling-v3-pro/action (veo-fallback)`,
-      costUsd: COST_KLING_V3_PRO_PER_SEC * klingDuration,
-      metadata: {
-        klingVideoUrl: result.videoUrl,
-        primaryAttempt: 'veo-3.1-standard',
-        primaryFailureReason: fallbackReason,
-        veoSanitizationTier,
-        fallbackChain: ['veo-3.1-standard', 'kling-v3-pro'],
         originalType: routingMetadata?.originalType || beat.type
       }
     };
