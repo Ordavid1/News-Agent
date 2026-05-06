@@ -3595,6 +3595,79 @@ Respond with ONLY valid JSON:
           logger.warn(`V4 resume: scene ${sceneEdits.sceneId} not found in persisted scene-graph — proceeding without edits`);
         }
       }
+      // V4 hotfix 2026-05-06 — Approve-and-resume: mark scenes the user
+      // explicitly approved so the Lens B re-judge skips them. The flag
+      // also lives on the persisted scene_description (set in
+      // resolveDirectorReview), but applying it again here is defense-in-depth
+      // for the case where the Approve flow + resume race against the DB
+      // write order.
+      if (Array.isArray(resumeOptions.userApprovedScenes)) {
+        for (const sceneId of resumeOptions.userApprovedScenes) {
+          const target = (persisted.scenes || []).find(s => s.scene_id === sceneId);
+          if (target) {
+            target._user_approved_lens_b = true;
+            progress('resume', `marked scene ${sceneId} as user-approved (Lens B critique will be skipped)`, {
+              episode_id: resumeOptions.episodeId,
+              scene_id: sceneId,
+              resume: true,
+              user_approved: true
+            });
+          }
+        }
+      }
+      // V4 hotfix 2026-05-06 — Lens C beat Edit & Retry: apply the user's
+      // synthesized directive + optional dialogue rewrite + optional anchor
+      // rewrite to the failed beat IN-PLACE, clear its video artifacts so
+      // the beat-loop's resume check (line ~5265 — reuse if status='generated'
+      // && url) falls through to re-render. Also resets the failed beat's
+      // retry budget so the auto-retry inside the resume gets a fresh shot.
+      //
+      // Why this is the right path (vs. the old `regenerateBeatInEpisode`):
+      // that helper assumed every other beat already had a video URL —
+      // designed for "user touches up beat X in a shipped episode". For a
+      // mid-pipeline halt (the common case), the OTHER beats in scenes
+      // following the halt point are still un-rendered. The resume path
+      // through runV4Pipeline naturally continues forward through the
+      // entire beat loop + post-production + Lens D, finishing the
+      // episode end-to-end.
+      if (resumeOptions.beatEdits?.beatId) {
+        const beatEdits = resumeOptions.beatEdits;
+        let targetBeat = null;
+        let parentScene = null;
+        for (const scene of (persisted.scenes || [])) {
+          const b = (scene.beats || []).find(b2 => b2.beat_id === beatEdits.beatId);
+          if (b) {
+            targetBeat = b;
+            parentScene = scene;
+            break;
+          }
+        }
+        if (targetBeat) {
+          if (beatEdits.notes && typeof beatEdits.notes === 'string') {
+            targetBeat.director_nudge = beatEdits.notes;
+          }
+          if (beatEdits.edited_dialogue && typeof beatEdits.edited_dialogue === 'string') {
+            targetBeat.dialogue = beatEdits.edited_dialogue;
+          }
+          if (beatEdits.edited_anchor && typeof beatEdits.edited_anchor === 'string' && parentScene) {
+            parentScene.scene_visual_anchor_prompt = beatEdits.edited_anchor;
+          }
+          // Clear render artifacts so the beat-loop resume check skips its
+          // "reuse cached video" branch and falls through to re-render.
+          targetBeat.generated_video_url = null;
+          targetBeat.endframe_url = null;
+          targetBeat.status = 'pending';
+          targetBeat.error_message = null;
+          progress('resume', `applied user edits to beat ${beatEdits.beatId} (notes=${!!beatEdits.notes}, dialogue_rewrite=${!!beatEdits.edited_dialogue}, anchor_rewrite=${!!beatEdits.edited_anchor})`, {
+            episode_id: resumeOptions.episodeId,
+            beat_id: beatEdits.beatId,
+            scene_id: parentScene?.scene_id,
+            resume: true
+          });
+        } else {
+          logger.warn(`V4 resume: beat ${beatEdits.beatId} not found in persisted scene-graph — proceeding without edits`);
+        }
+      }
       // Stash the mutated scene-graph back on the episode object for the
       // downstream Step 3 resume branch.
       existingEpisodeForResume.scene_description = persisted;
@@ -4206,13 +4279,41 @@ Respond with ONLY valid JSON:
           if (resumeOptions.sceneEdits?.sceneId && inherited.retries?.scene_master) {
             delete inherited.retries.scene_master[resumeOptions.sceneEdits.sceneId];
           }
-          inherited.resume_history.push({
-            from_checkpoint: 'scene_master',
-            scene_id: resumeOptions.sceneEdits?.sceneId || null,
-            had_notes: !!resumeOptions.sceneEdits?.notes,
-            had_anchor_rewrite: !!resumeOptions.sceneEdits?.edited_anchor,
-            ts: new Date().toISOString()
-          });
+          // Same for Lens C beat retries — user Edit & Retry counts as a
+          // fresh attempt, not a continuation of the exhausted retry chain.
+          if (resumeOptions.beatEdits?.beatId && inherited.retries?.beat) {
+            delete inherited.retries.beat[resumeOptions.beatEdits.beatId];
+          }
+          // Clear the halt context — the user resolved it. The pipeline
+          // can still re-halt on a NEW finding, but the old halt is done.
+          delete inherited.halt;
+
+          if (resumeOptions.sceneEdits?.sceneId) {
+            inherited.resume_history.push({
+              from_checkpoint: 'scene_master',
+              scene_id: resumeOptions.sceneEdits.sceneId,
+              had_notes: !!resumeOptions.sceneEdits.notes,
+              had_anchor_rewrite: !!resumeOptions.sceneEdits.edited_anchor,
+              ts: new Date().toISOString()
+            });
+          }
+          if (resumeOptions.beatEdits?.beatId) {
+            inherited.resume_history.push({
+              from_checkpoint: 'beat',
+              beat_id: resumeOptions.beatEdits.beatId,
+              had_notes: !!resumeOptions.beatEdits.notes,
+              had_dialogue_rewrite: !!resumeOptions.beatEdits.edited_dialogue,
+              had_anchor_rewrite: !!resumeOptions.beatEdits.edited_anchor,
+              ts: new Date().toISOString()
+            });
+          }
+          if (Array.isArray(resumeOptions.userApprovedScenes) && resumeOptions.userApprovedScenes.length > 0) {
+            inherited.resume_history.push({
+              from_checkpoint: 'scene_master',
+              user_approved_scenes: resumeOptions.userApprovedScenes,
+              ts: new Date().toISOString()
+            });
+          }
           return inherited;
         })()
       : { retries: {}, modes: directorModes, notes: [] };
@@ -4629,6 +4730,29 @@ Respond with ONLY valid JSON:
       // queries showed "no Lens B verdict" for the failed scene rather than
       // the actual failure mode.
       const firstPassPromises = sceneGraph.scenes.map(async (scene) => {
+        // V4 hotfix 2026-05-06 — Approve-and-resume: if the user explicitly
+        // approved this scene (via the panel's "Approve & Continue" button
+        // at a Lens B halt), emit a synthetic pass verdict and skip the
+        // multimodal Gemini call entirely. The user has overruled the
+        // Director on this artifact; running the judge again would just
+        // re-flag the same issues and re-halt. Costs $0 + 0ms vs the
+        // ~$0.01 + 7-20s of a real Lens B judge call.
+        if (scene?._user_approved_lens_b) {
+          return {
+            scene,
+            verdictB: {
+              verdict: 'pass_with_notes',
+              overall_score: null,  // null score signals user-approved (not Director-judged)
+              findings: [],
+              commendations: [{ description: 'User-approved scene_master (Director critique skipped at user request).' }],
+              retry_authorization: false,
+              judge_model: 'user_approved',
+              latency_ms: 0,
+              cost_usd: 0,
+              user_approved: true
+            }
+          };
+        }
         if (!scene?.scene_master_url) {
           // Synthetic hard_reject — captures the upstream failure in the
           // Director audit trail. For commercial this is unreachable (N1
@@ -4710,6 +4834,20 @@ Respond with ONLY valid JSON:
             verdict: 'hard_reject',
             score: 0,
             synthetic: true
+          });
+          continue;
+        }
+        // V4 hotfix 2026-05-06 — User-approved scene: record the synthetic
+        // pass + skip the auto-retry path entirely. The user has explicitly
+        // overruled the Director on this artifact.
+        if (firstVerdict?.judge_model === 'user_approved') {
+          directorReport.scene_master[scene.scene_id] = firstVerdict;
+          progress('director:scene_master', `scene ${scene.scene_id}: USER_APPROVED (Director critique skipped)`, {
+            checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
+            mode: lensBMode,
+            scene_id: scene.scene_id,
+            verdict: 'pass_with_notes',
+            user_approved: true
           });
           continue;
         }
@@ -5845,17 +5983,14 @@ Respond with ONLY valid JSON:
                 progress
               });
 
-              // V4 Tier 3.2 BLOCKING-MODE behavior. The verdict is already
-              // persisted on beat.lens_e_continuity_verdict by the helper.
-              // Here we act on it when the operational mode is blocking:
-              //   soft_reject → stamp director_nudge so a user-triggered
-              //                 regenerate carries the continuity hint
-              //                 (auto-retry inside the loop is a follow-up
-              //                 tier; the live SSE event already lets the
-              //                 user see the issue and click Regenerate)
-              //   hard_reject → quarantine the failing beat + persist
-              //                 awaiting_user_review (same contract Lens C
-              //                 uses on hard_reject)
+              // V4 Tier 3.2 + 4.1 BLOCKING-MODE behavior:
+              //   soft_reject → SmartSynth-driven 2-tier auto-retake
+              //                 Tier A: re-extract previous endframe + retake current beat
+              //                 Tier B: retake BOTH (previous + current) with fresh directives
+              //                 If Tier B still fails OR regression detected → quarantine + halt
+              //   hard_reject → quarantine the failing beat + persist awaiting_user_review
+              //                 (same contract as Lens C hard_reject)
+              const smartRetakeEnabled = String(process.env.V4_LENS_E_SMART_RETAKE || 'true').toLowerCase() !== 'false';
               if (!lensEResult?.skipped && lensEResult?.verdict && lensEResult.mode === 'blocking') {
                 const v = lensEResult.verdict;
                 const nudgeFromFindings = (Array.isArray(v.findings) ? v.findings : [])
@@ -5863,20 +5998,136 @@ Respond with ONLY valid JSON:
                   .filter(Boolean)
                   .slice(0, 2)
                   .join(' ');
-                if (v.verdict === 'soft_reject' && nudgeFromFindings) {
-                  // Append (don't replace) any existing director_nudge so
-                  // Lens C and Lens E can both stamp guidance for the next
-                  // user-triggered regenerate.
+                if (v.verdict === 'soft_reject' && smartRetakeEnabled && previousBeat) {
+                  // V4 Tier 4.1 — SmartSynth-driven 2-tier auto-retake.
+                  // Mirrors the Lens C smart-retry pattern (multimodal_rich
+                  // → text_rich → cheap_concat with priorAttempts memory +
+                  // regression detection). The wrapper handles SmartSynth
+                  // call + endframe re-extract + router.generate + re-judge
+                  // + synth_history persistence — leaving the orchestrator
+                  // to decide only "did it pass / escalate / continue".
+                  const { runContinuityRetake } = await import('./v4/ContinuitySupervisor.js');
+                  // Tier A: re-extract previous endframe + retake current beat only.
+                  // The previous beat's video buffer is at beatVideoBuffers[length-2]
+                  // because the current beat's buffer was just pushed at length-1.
+                  const prevBeatBufferIdx = beatVideoBuffers.length - 2;
+                  const prevBeatBuffer = (prevBeatBufferIdx >= 0)
+                    ? beatVideoBuffers[prevBeatBufferIdx]
+                    : null;
+                  const retakeUploadVideo = (buf, fname) => uploadBufferToStorage(buf, 'videos/v4-beats', fname, 'video/mp4');
+                  const retakeUploadEndframe = (buf, fname) => uploadBufferToStorage(buf, 'videos/v4-endframes', fname, 'image/jpeg');
+
+                  let lastVerdict = v;
+                  let regressed = false;
+                  let smartPassed = false;
+                  for (const tier of ['A', 'B']) {
+                    progress('director:continuity', `beat ${beat.beat_id} Lens E soft_reject — initiating smart retake (Tier ${tier})`, {
+                      beat_id: beat.beat_id,
+                      scenario_tier: tier
+                    });
+                    let retakeResult;
+                    try {
+                      retakeResult = await runContinuityRetake({
+                        directorAgent,
+                        router,
+                        currentBeat: beat,
+                        previousBeat,
+                        scene,
+                        refStack,
+                        personas,
+                        episodeContext,
+                        directorReport,
+                        previousVerdict: lastVerdict,
+                        scenarioTier: tier,
+                        previousBeatVideoBuffer: prevBeatBuffer,
+                        uploadVideo: retakeUploadVideo,
+                        uploadEndframe: retakeUploadEndframe,
+                        progress
+                      });
+                    } catch (retakeErr) {
+                      logger.warn(`beat ${beat.beat_id} Lens E Tier ${tier} retake threw (non-fatal): ${retakeErr.message}`);
+                      retakeResult = { passed: false, secondVerdict: null, regressionWarning: false };
+                    }
+
+                    // Replace the buffer for the current beat with the retake's
+                    // buffer so post-production sees the new clip. Tier B also
+                    // replaced the previous beat's clip — its buffer has been
+                    // re-extracted via runContinuityRetake's URL writeback;
+                    // re-fetch it to keep beatVideoBuffers aligned with URLs.
+                    if (retakeResult?.retakenBeatIds?.includes(beat.beat_id)) {
+                      try {
+                        const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+                        beatVideoBuffers[beatVideoBuffers.length - 1] = Buffer.from(cached.data);
+                      } catch (fetchErr) {
+                        logger.warn(`beat ${beat.beat_id} Lens E retake buffer re-fetch failed: ${fetchErr.message}`);
+                      }
+                    }
+                    if (tier === 'B' && retakeResult?.retakenBeatIds?.includes(previousBeat.beat_id) && prevBeatBufferIdx >= 0) {
+                      try {
+                        const cached = await axios.get(previousBeat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+                        beatVideoBuffers[prevBeatBufferIdx] = Buffer.from(cached.data);
+                      } catch (fetchErr) {
+                        logger.warn(`previousBeat ${previousBeat.beat_id} Tier B buffer re-fetch failed: ${fetchErr.message}`);
+                      }
+                    }
+
+                    if (retakeResult?.passed) {
+                      smartPassed = true;
+                      progress('director:continuity', `beat ${beat.beat_id} Lens E smart retake (Tier ${tier}) PASSED — chain repaired`, {
+                        beat_id: beat.beat_id,
+                        scenario_tier: tier,
+                        retaken: retakeResult.retakenBeatIds
+                      });
+                      break;
+                    }
+                    if (retakeResult?.regressionWarning) {
+                      regressed = true;
+                      logger.warn(`beat ${beat.beat_id} Lens E smart retake regression detected — halting retake loop`);
+                      break;
+                    }
+                    if (retakeResult?.secondVerdict) lastVerdict = retakeResult.secondVerdict;
+                    // Tier A failed but didn't regress — escalate to Tier B.
+                  }
+
+                  if (!smartPassed) {
+                    // Both tiers exhausted (or regression). Quarantine the
+                    // failing beat and halt to user_review using the same
+                    // contract as Lens C / Lens E hard_reject.
+                    logger.warn(`beat ${beat.beat_id} Lens E smart retake exhausted (regressed=${regressed}) — quarantining + escalating to user_review`);
+                    quarantineBeat(beat, {
+                      verdict: lastVerdict,
+                      reason: regressed
+                        ? 'lens_e_smart_retake_regression'
+                        : 'lens_e_smart_retake_exhausted'
+                    });
+                    await updateBrandStoryEpisode(newEpisode.id, userId, {
+                      status: 'awaiting_user_review',
+                      scene_description: sceneGraph,
+                      director_report: directorReport
+                    });
+                    throw new DirectorBlockingHaltError({
+                      checkpoint: 'continuity',
+                      verdict: lastVerdict,
+                      artifactKey: beat.beat_id,
+                      reason: regressed
+                        ? 'Lens E smart retake regressed across attempts'
+                        : 'Lens E smart retake exhausted (Tier A + Tier B both failed)'
+                    });
+                  }
+                } else if (v.verdict === 'soft_reject' && nudgeFromFindings) {
+                  // Smart-retake disabled OR no previousBeat (first beat of
+                  // episode shouldn't reach here because the helper skips
+                  // with skipped='no_previous_beat'). Fall back to the
+                  // legacy cheap-concat director_nudge path so user-triggered
+                  // regenerate still carries continuity guidance.
                   const existing = typeof beat.director_nudge === 'string' ? beat.director_nudge.trim() : '';
                   beat.director_nudge = existing
                     ? `${existing} CONTINUITY: ${nudgeFromFindings}`
                     : `CONTINUITY: ${nudgeFromFindings}`;
-                  logger.info(`beat ${beat.beat_id} Lens E soft_reject — director_nudge stamped for user-triggered regenerate`);
+                  logger.info(`beat ${beat.beat_id} Lens E soft_reject — smart_retake disabled, director_nudge stamped for user-triggered regenerate`);
                 } else if (v.verdict === 'hard_reject') {
                   // Use the same quarantine contract as Lens C hard_reject.
-                  // Persist awaiting_user_review and halt — the user sees
-                  // the bad beat-pair in the Director Panel and decides
-                  // approve / regenerate / edit.
+                  // Persist awaiting_user_review and halt.
                   logger.warn(`beat ${beat.beat_id} Lens E hard_reject — quarantining + escalating to user_review`);
                   quarantineBeat(beat, {
                     verdict: v,
@@ -6329,12 +6580,96 @@ Respond with ONLY valid JSON:
                 episodeMeta,
                 burnSubtitles: true
               });
-              // Replace the final buffer so Lens D and the upload step
-              // see the EDL'd cut. We update both the result object AND
-              // the local finalVideoBuffer (which is `let` for this).
-              postProductionResult.finalBuffer = reassembled.finalBuffer;
-              postProductionResult.srtContent = reassembled.srtContent;
-              finalVideoBuffer = reassembled.finalBuffer;
+
+              // V4 Tier 4.2 (2026-05-06) — REGRESSION GUARD. Re-judge the
+              // EDL'd cut via Lens F. If the EDL'd cut scores LOWER than
+              // the original, the editor's intervention made things worse
+              // — revert to the original cut + escalate to user_review.
+              // The first verdict (lensFVerdict) is captured in scope from
+              // the outer try block; we compare overall_score against it.
+              //
+              // Cost: +1 multimodal Gemini call per episode where Lens F
+              // had mutations (~$0.12). Hard guarantee that bad EDLs don't ship.
+              //
+              // Disabled via V4_LENS_F_REGRESSION_GUARD=false (default true).
+              const regressionGuardEnabled = String(process.env.V4_LENS_F_REGRESSION_GUARD || 'true').toLowerCase() !== 'false';
+              let secondScore = null;
+              let kept = true;
+              if (regressionGuardEnabled) {
+                try {
+                  progress('director:editor', 'Lens F regression guard: re-judging EDL\'d cut');
+                  // Re-import the helper to keep this nested-try block
+                  // scope-clean (the outer try imported it earlier but
+                  // that binding doesn't reach here).
+                  const { buildContinuitySummary: buildContinuitySummaryGuard } = await import('./v4/ContinuitySupervisor.js');
+                  const continuitySummaryFresh = buildContinuitySummaryGuard(sceneGraph);
+                  const lensCSummaryFresh = directorReport.beat || {};
+                  const secondLensF = await directorAgent.judgeRoughCut({
+                    roughCutVideo: reassembled.finalBuffer,
+                    roughCutMime: 'video/mp4',
+                    sceneGraph,
+                    lensCVerdicts: lensCSummaryFresh,
+                    continuitySummary: continuitySummaryFresh
+                  });
+                  secondScore = Number(secondLensF?.overall_score) || null;
+                  const firstScore = Number(lensFVerdict?.overall_score) || null;
+                  if (secondScore != null && firstScore != null && secondScore < firstScore) {
+                    // REGRESSED — revert to the pre-EDL cut and escalate.
+                    kept = false;
+                    directorReport.editor_lens_f.reverted_due_to_regression = {
+                      first_score: firstScore,
+                      second_score: secondScore,
+                      edl,
+                      ts: new Date().toISOString()
+                    };
+                    progress('director:editor', `Lens F EDL REVERTED — score regressed from ${firstScore} to ${secondScore}`, {
+                      first_score: firstScore,
+                      second_score: secondScore,
+                      reverted: true
+                    });
+                    // Mark episode awaiting_user_review so the user sees the
+                    // editor's intervention failed and can decide manually.
+                    await updateBrandStoryEpisode(newEpisode.id, userId, {
+                      status: 'awaiting_user_review',
+                      scene_description: sceneGraph,
+                      director_report: directorReport
+                    });
+                    // Do NOT replace finalVideoBuffer — keep the original cut.
+                  } else {
+                    // PASSED or improved — keep the EDL'd cut.
+                    directorReport.editor_lens_f.regression_check = {
+                      first_score: firstScore,
+                      second_score: secondScore,
+                      kept: true,
+                      ts: new Date().toISOString()
+                    };
+                    progress('director:editor', `Lens F regression guard: EDL'd cut kept (${firstScore} → ${secondScore})`, {
+                      first_score: firstScore,
+                      second_score: secondScore,
+                      kept: true
+                    });
+                  }
+                } catch (regErr) {
+                  logger.warn(`Lens F regression guard re-judge failed (${regErr.message}) — keeping EDL'd cut as fallback (no second verdict to compare)`);
+                  directorReport.editor_lens_f.regression_check = {
+                    error: regErr.message || String(regErr),
+                    kept: true,
+                    ts: new Date().toISOString()
+                  };
+                }
+              }
+
+              if (kept) {
+                // Replace the final buffer so Lens D and the upload step
+                // see the EDL'd cut. We update both the result object AND
+                // the local finalVideoBuffer (which is `let` for this).
+                postProductionResult.finalBuffer = reassembled.finalBuffer;
+                postProductionResult.srtContent = reassembled.srtContent;
+                finalVideoBuffer = reassembled.finalBuffer;
+              }
+              // If !kept, postProductionResult / finalVideoBuffer remain
+              // pointed at the ORIGINAL pre-EDL cut. Lens D screens that
+              // cut and the upload step uses it.
             }
           } catch (edlErr) {
             logger.warn(`Lens F EDL application threw (non-fatal): ${edlErr.message}`);
@@ -7430,12 +7765,117 @@ Respond with ONLY valid JSON:
         resumptionOutcome = 'shipped';
         userMessage = 'Approved — episode shipped at user discretion despite director verdict.';
       } else {
-        // No video to ship — approving an A/B/C halt is meaningless.
-        // Treat as discard with a clarifying message.
-        newStatus = 'failed';
-        newErrorMessage = `User approved halt at Lens ${haltCheckpoint} but no video was assembled — nothing to ship. Re-trigger episode generation to retry.`;
-        resumptionOutcome = 'failed';
-        userMessage = 'Approve action mapped to discard — there was no rendered video to ship at the halt point. Re-trigger episode generation.';
+        // V4 hotfix 2026-05-06 — Approve at a no-video halt now means:
+        // "trust the existing rendered artifact, skip further Director
+        // critique on it, resume the pipeline forward (beats →
+        // post-production → Lens D → ship)." Previously this just marked
+        // the episode failed, leaving the user stranded with a "re-trigger
+        // generation" message and no button to actually re-trigger.
+        //
+        // Implemented for Lens B (scene_master) halts: the failed scene
+        // already has a scene_master_url; we mark it as user-approved so
+        // the resume's Lens B re-judge skips it, and runV4Pipeline picks
+        // up from Step 6 (Scene Master generation) which short-circuits
+        // for scenes with existing URLs and continues to beats.
+        //
+        // Lens A (screenplay) and Lens C (beat) approve-with-no-video
+        // halts still record-and-fail because they need a different
+        // resume orchestration (Lens A: re-render screenplay forward;
+        // Lens C: skip the failed beat and continue beat sequence).
+        if (haltCheckpoint === 'scene_master' && halt.scene_id) {
+          const sceneGraph = episode.scene_description || {};
+          const targetScene = (sceneGraph.scenes || []).find(s => s.scene_id === halt.scene_id);
+          if (!targetScene || !targetScene.scene_master_url) {
+            // No rendered artifact to approve — fall through to legacy fail.
+            newStatus = 'failed';
+            newErrorMessage = `User approved halt at Lens ${haltCheckpoint} but scene ${halt.scene_id} has no rendered scene_master_url to approve. Re-trigger episode generation.`;
+            resumptionOutcome = 'failed';
+            userMessage = newErrorMessage;
+          } else {
+            // Mark scene as user-approved so the resume's Lens B loop
+            // skips re-judging it. The flag persists in scene_description
+            // so even if the resume hits a transient error and re-runs,
+            // the approval sticks.
+            targetScene._user_approved_lens_b = true;
+
+            const updatedDirectorReportApprove = {
+              ...dr,
+              user_review_resolution: {
+                action: 'approve',
+                resolved_at: new Date().toISOString(),
+                halt_checkpoint: haltCheckpoint,
+                halt_artifact_id: haltArtifactId,
+                semantic: 'trust_artifact_skip_critique_resume_pipeline'
+              }
+            };
+
+            // Persist + flip status BEFORE kicking the resume so the panel
+            // sees the regenerating state.
+            const { error: updateErrApprove } = await supabaseAdmin
+              .from('brand_story_episodes')
+              .update({
+                status: 'generating_scene_masters',
+                scene_description: sceneGraph,
+                director_report: updatedDirectorReportApprove,
+                error_message: null
+              })
+              .eq('id', episodeId)
+              .eq('user_id', userId);
+            if (updateErrApprove) throw new Error(`Failed to update episode: ${updateErrApprove.message}`);
+
+            // Kick the resume in the BACKGROUND. No sceneEdits — we're
+            // explicitly NOT changing the scene; we're approving as-is.
+            // The resume's Lens B loop reads `_user_approved_lens_b` and
+            // emits a synthetic pass verdict for the approved scene
+            // instead of calling Gemini.
+            this.runV4Pipeline(storyId, userId, null, {
+              episodeId,
+              userApprovedScenes: [halt.scene_id]
+            })
+              .then(() => {
+                logger.info(`[P0.5] approve-and-resume ${episodeId}: pipeline completed for scene ${halt.scene_id}`);
+              })
+              .catch((resumeErr) => {
+                const isExpectedHalt = resumeErr?.constructor?.name === 'DirectorBlockingHaltError';
+                if (isExpectedHalt) {
+                  logger.info(`[P0.5] approve-and-resume ${episodeId}: re-halted at ${resumeErr.checkpoint} (different artifact than ${halt.scene_id}) — panel shows new verdict`);
+                  return;
+                }
+                logger.error(`[P0.5] approve-and-resume ${episodeId}: pipeline failed: ${resumeErr.message}`);
+                supabaseAdmin
+                  .from('brand_story_episodes')
+                  .update({
+                    status: 'failed',
+                    error_message: `Approve-and-resume pipeline failed: ${resumeErr.message}`
+                  })
+                  .eq('id', episodeId)
+                  .eq('user_id', userId)
+                  .then(() => {})
+                  .catch(() => {});
+              });
+
+            newStatus = 'generating_scene_masters';
+            userMessage = `Approved — pipeline resuming for scene ${halt.scene_id}. Director critique skipped on this scene; continuing to beats and assembly.`;
+            resumptionOutcome = 'in_place_approve_resume_running';
+
+            const resolutionId = await this._recordHaltResolution({
+              episodeId, storyId, userId,
+              haltCheckpoint, haltArtifactId, haltScore, haltKind, haltReason: halt.reason || null,
+              action, notes: null, editedAnchor: null, editedDialogue: null,
+              resumptionOutcome
+            });
+            logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens B approve-and-resume) → scene ${halt.scene_id} approved, pipeline continuing (resolution=${resolutionId})`);
+            return { success: true, status: newStatus, message: userMessage, resolutionId };
+          }
+        } else {
+          // Lens A / Lens C / unknown halt with no video — keep legacy
+          // record-and-fail behavior until per-checkpoint approve-resume
+          // ships for those checkpoints.
+          newStatus = 'failed';
+          newErrorMessage = `User approved halt at Lens ${haltCheckpoint} but no video was assembled. Approve-and-resume not yet supported at this checkpoint — re-trigger episode generation to retry.`;
+          resumptionOutcome = 'failed';
+          userMessage = `Approve at Lens ${haltCheckpoint} not yet supported as a resume action — re-trigger episode generation. (Lens B approve-and-resume IS supported.)`;
+        }
       }
     } else if (action === 'edit_and_retry') {
       // V4 hotfix 2026-05-01 — Real in-place retry (replaces MVP record-and-mark-failed).
@@ -7496,47 +7936,38 @@ Respond with ONLY valid JSON:
         });
       }
 
-      // ── Lens C beat in-place retry ──
+      // ── Lens C beat Edit & Retry (Option A — runV4Pipeline resume) ──
+      // V4 hotfix 2026-05-06 — Replaced the legacy `regenerateBeatInEpisode`
+      // call with `runV4Pipeline` resume mode for parity with Lens B halts.
+      // The old helper assumed every other beat was already rendered — true
+      // only for "user touches up beat X in a shipped episode". For a
+      // mid-pipeline halt (the common case), beats AFTER the halt point
+      // were never rendered; the old path silently skipped them and shipped
+      // a partial cut. Resume mode walks the entire beat loop forward
+      // (skipping already-rendered beats via the existing resume check at
+      // line ~5265, rendering the rest), then runs Lens D + post-production
+      // + assembly + ship. End-to-end episode completion from any halt point.
       if (haltCheckpoint === 'beat' && halt.beat_id) {
-        const sceneGraph = episode.scene_description || {};
-        let targetBeat = null;
-        let targetScene = null;
-        for (const scene of (sceneGraph.scenes || [])) {
-          const beat = (scene.beats || []).find(b => b.beat_id === halt.beat_id);
-          if (beat) {
-            targetBeat = beat;
-            targetScene = scene;
+        const sceneGraphForVerify = episode.scene_description || {};
+        let beatExists = false;
+        for (const scene of (sceneGraphForVerify.scenes || [])) {
+          if ((scene.beats || []).some(b => b.beat_id === halt.beat_id)) {
+            beatExists = true;
             break;
           }
         }
-        if (!targetBeat) {
+        if (!beatExists) {
           throw new Error(`edit_and_retry: beat ${halt.beat_id} not found in episode scene_description`);
         }
 
-        // Apply user-provided / synthesized overrides to the beat in-place.
-        if (notes && typeof notes === 'string') {
-          targetBeat.director_nudge = notes;
-        }
-        if (edited_dialogue && typeof edited_dialogue === 'string') {
-          targetBeat.dialogue = edited_dialogue;
-        }
-        if (edited_anchor && typeof edited_anchor === 'string' && targetScene) {
-          targetScene.scene_visual_anchor_prompt = edited_anchor;
-        }
-        // Clear failed-render artifacts so the regenerate path treats the
-        // beat as un-rendered.
-        targetBeat.generated_video_url = null;
-        targetBeat.endframe_url = null;
-        targetBeat.status = 'pending';
-        targetBeat.error_message = null;
-
-        // Flip episode out of awaiting_user_review into a regenerating state
-        // so the panel + status badge reflect that work is in progress.
+        // Persist + flip status BEFORE kicking the resume so the panel sees
+        // the regenerating state. The resume itself applies the beat edits
+        // in-place (in runV4Pipeline's resume block); we don't need to mutate
+        // scene_description here.
         const { error: updateErr } = await supabaseAdmin
           .from('brand_story_episodes')
           .update({
             status: 'regenerating_beat',
-            scene_description: sceneGraph,
             director_report: updatedDirectorReport,
             error_message: null
           })
@@ -7544,24 +7975,30 @@ Respond with ONLY valid JSON:
           .eq('user_id', userId);
         if (updateErr) throw new Error(`Failed to update episode: ${updateErr.message}`);
 
-        // Kick the regenerate path in the BACKGROUND. The route handler
-        // already returned 200 to the user before this point in the
-        // resolveDirectorReview flow; this Promise is fire-and-forget so the
-        // user sees an immediate response, and the panel polls for updates
-        // via the SSE/refresh path.
-        this.regenerateBeatInEpisode(storyId, userId, episodeId, halt.beat_id)
+        const beatEdits = {
+          beatId: halt.beat_id,
+          notes: (notes && typeof notes === 'string') ? notes : null,
+          edited_dialogue: (edited_dialogue && typeof edited_dialogue === 'string') ? edited_dialogue : null,
+          edited_anchor: (edited_anchor && typeof edited_anchor === 'string') ? edited_anchor : null
+        };
+
+        // Fire-and-forget the resume pipeline. Same pattern as Lens B.
+        this.runV4Pipeline(storyId, userId, null, { episodeId, beatEdits })
           .then(() => {
-            logger.info(`[P0.5] edit_and_retry ${episodeId}: beat ${halt.beat_id} regenerate completed`);
+            logger.info(`[P0.5] edit_and_retry ${episodeId}: Lens C resume completed for beat ${halt.beat_id}`);
           })
-          .catch((regenErr) => {
-            logger.error(`[P0.5] edit_and_retry ${episodeId}: beat ${halt.beat_id} regenerate failed: ${regenErr.message}`);
-            // Mark episode failed if regenerate path itself crashed (it has
-            // its own error handling but defense-in-depth).
+          .catch((resumeErr) => {
+            const isExpectedHalt = resumeErr?.constructor?.name === 'DirectorBlockingHaltError';
+            if (isExpectedHalt) {
+              logger.info(`[P0.5] edit_and_retry ${episodeId}: Lens C resume re-halted at ${resumeErr.checkpoint || halt.beat_id} — panel shows new verdict`);
+              return;
+            }
+            logger.error(`[P0.5] edit_and_retry ${episodeId}: Lens C resume failed: ${resumeErr.message}`);
             supabaseAdmin
               .from('brand_story_episodes')
               .update({
                 status: 'failed',
-                error_message: `Edit & Retry regenerate failed: ${regenErr.message}`
+                error_message: `Edit & Retry resume failed: ${resumeErr.message}`
               })
               .eq('id', episodeId)
               .eq('user_id', userId)
@@ -7570,8 +8007,8 @@ Respond with ONLY valid JSON:
           });
 
         newStatus = 'regenerating_beat';
-        userMessage = `Edit & Retry: beat ${halt.beat_id} re-rendering with ${notes ? 'synthesized directive' : 'no notes'}${edited_dialogue ? ' + dialogue rewrite' : ''}${edited_anchor ? ' + anchor rewrite' : ''}. Watch the panel for progress.`;
-        resumptionOutcome = 'in_place_retry_running';
+        userMessage = `Edit & Retry: beat ${halt.beat_id} re-rendering with ${notes ? 'synthesized directive' : 'no notes'}${edited_dialogue ? ' + dialogue rewrite' : ''}${edited_anchor ? ' + anchor rewrite' : ''}. Pipeline will continue forward (remaining beats → post-production → ship). Watch the panel for progress.`;
+        resumptionOutcome = 'in_place_resume_running';
 
         const resolutionId = await this._recordHaltResolution({
           episodeId, storyId, userId,
@@ -7579,7 +8016,7 @@ Respond with ONLY valid JSON:
           action, notes, editedAnchor: edited_anchor, editedDialogue: edited_dialogue,
           resumptionOutcome
         });
-        logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens C in-place retry) → beat ${halt.beat_id} regenerating (resolution=${resolutionId})`);
+        logger.info(`[P0.5] resolveDirectorReview ${episodeId}: ${action} (Lens C resume — runV4Pipeline) → beat ${halt.beat_id} re-rendering, pipeline continuing forward (resolution=${resolutionId})`);
         return { success: true, status: newStatus, message: userMessage, resolutionId };
       }
 

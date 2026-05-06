@@ -1114,14 +1114,35 @@
       if (!confirmed) return;
       notes = window.prompt('Optional reason for discard (recorded in audit trail):', '') || null;
     } else if (action === 'approve') {
-      // No prompt for approve — it's a clean accept.
+      // V4 hotfix 2026-05-06 — Approve at a no-video halt now resumes the
+      // pipeline (skips Director critique on the approved artifact, continues
+      // to beats + post-production + Lens D + ship). Previously it just
+      // marked the episode failed, which was confusing UX.
       const ep = activeEpisode || {};
+      const dr = ep.director_report || {};
+      const halt = dr.halt || {};
+      const haltCheckpoint = halt.checkpoint || 'unknown';
       if (!ep.final_video_url) {
-        const proceed = window.confirm(
-          'No video has been assembled yet — Approve will mark the episode failed (no cut to ship). ' +
-          'Use Edit & Retry or Discard instead. Continue anyway?'
-        );
-        if (!proceed) return;
+        // Lens B is the only no-video checkpoint with full approve-and-resume
+        // support today; Lens A / Lens C still record-and-fail.
+        if (haltCheckpoint === 'scene_master') {
+          const proceed = window.confirm(
+            `Approve & Continue at Lens B halt:\n\n` +
+            `The system will trust the existing scene_master for "${halt.scene_id || 'this scene'}" ` +
+            `(skipping further Director critique on it) and resume the pipeline forward — ` +
+            `beats → post-production → final assembly → ship.\n\n` +
+            `OK to proceed?`
+          );
+          if (!proceed) return;
+        } else {
+          const proceed = window.confirm(
+            `Approve at Lens ${haltCheckpoint} is not yet supported as a resume action ` +
+            `(only Lens B scene_master halts can approve-and-resume). ` +
+            `This will mark the episode failed; use Edit & Retry instead, or re-trigger generation.\n\n` +
+            `Continue anyway?`
+          );
+          if (!proceed) return;
+        }
       }
     }
 

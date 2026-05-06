@@ -233,9 +233,10 @@ export function appendSynthHistory({ directorReport, checkpoint, artifactId, syn
   if (!directorReport.synth_history || typeof directorReport.synth_history !== 'object') {
     directorReport.synth_history = {};
   }
-  const bucketKey = checkpoint === 'scene_master' || checkpoint === 'commercial_scene_master' ? 'scene_master'
-                  : checkpoint === 'beat' || checkpoint === 'commercial_beat'                 ? 'beat'
-                  : checkpoint;
+  // V4 Tier 4.1 (2026-05-06) — centralized bucket resolver so 'continuity'
+  // (and any future checkpoint) stays in sync across the three persistence
+  // helpers.
+  const bucketKey = _resolveSynthBucketKey(checkpoint);
   if (!directorReport.synth_history[bucketKey] || typeof directorReport.synth_history[bucketKey] !== 'object') {
     directorReport.synth_history[bucketKey] = {};
   }
@@ -266,9 +267,7 @@ export function appendSynthHistory({ directorReport, checkpoint, artifactId, syn
  */
 export function readSynthHistory({ directorReport, checkpoint, artifactId }) {
   if (!directorReport?.synth_history || !artifactId) return [];
-  const bucketKey = checkpoint === 'scene_master' || checkpoint === 'commercial_scene_master' ? 'scene_master'
-                  : checkpoint === 'beat' || checkpoint === 'commercial_beat'                 ? 'beat'
-                  : checkpoint;
+  const bucketKey = _resolveSynthBucketKey(checkpoint);
   const arr = directorReport.synth_history?.[bucketKey]?.[artifactId];
   return Array.isArray(arr) ? arr : [];
 }
@@ -280,9 +279,7 @@ export function readSynthHistory({ directorReport, checkpoint, artifactId }) {
  */
 export function patchSynthOutcome({ directorReport, checkpoint, artifactId, resultingScore, resultingVerdict }) {
   if (!directorReport?.synth_history || !artifactId) return;
-  const bucketKey = checkpoint === 'scene_master' || checkpoint === 'commercial_scene_master' ? 'scene_master'
-                  : checkpoint === 'beat' || checkpoint === 'commercial_beat'                 ? 'beat'
-                  : checkpoint;
+  const bucketKey = _resolveSynthBucketKey(checkpoint);
   const arr = directorReport.synth_history?.[bucketKey]?.[artifactId];
   if (!Array.isArray(arr) || arr.length === 0) return;
   const last = arr[arr.length - 1];
@@ -465,6 +462,17 @@ function _buildSystemPrompt({ checkpoint, includesImage, includesReferences }) {
   } else if (checkpoint === 'beat' || checkpoint === 'commercial_beat') {
     lines.push('  "edited_anchor": null,');
     lines.push('  "edited_dialogue": "<rewrite of beat dialogue ONLY if dialogue is the primary failure mode; null otherwise>",');
+  } else if (checkpoint === 'continuity') {
+    // V4 Tier 4.1 (2026-05-06) — Lens E. The directive must be a CONTINUITY
+    // FIX directive that the next render of the failing beat will splice
+    // into its prompt as a director_nudge. Anchor + dialogue rewrites are
+    // NOT in scope here; the structural fix is anchored at the prompt-
+    // language level (e.g. "match the lighting key direction from the
+    // previous beat's window-left key", "actor's coffee cup must remain in
+    // left hand from prior beat", "preserve the screen-direction of motion
+    // — subject exited frame-right, must enter frame-left").
+    lines.push('  "edited_anchor": null,');
+    lines.push('  "edited_dialogue": null,');
   } else {
     lines.push('  "edited_anchor": null,');
     lines.push('  "edited_dialogue": null,');
@@ -485,6 +493,24 @@ function _buildSystemPrompt({ checkpoint, includesImage, includesReferences }) {
 }
 
 function _buildMultimodalPreamble({ checkpoint, artifactId, hasReferences }) {
+  // V4 Tier 4.1 (2026-05-06) — `continuity` checkpoint sends TWO artifacts
+  // (prev endframe = "what should match" + current endframe = "what
+  // drifted"). The preamble explicitly labels the comparison so Gemini
+  // grounds the directive in the visual delta between the two frames,
+  // not just the verdict text.
+  if (checkpoint === 'continuity') {
+    return [
+      `── HALT CONTEXT ── checkpoint=continuity artifact_id=${artifactId}`,
+      '',
+      'You will see TWO artifacts below:',
+      '  • PREVIOUS BEAT ENDFRAME — the frame the chain SHOULD continue from. The lighting, props, wardrobe, screen-direction at this frame are the BASELINE.',
+      '  • CURRENT BEAT ENDFRAME — the frame that DRIFTED. The Lens E continuity supervisor scored this pair as breaking continuity.',
+      '',
+      `${hasReferences ? 'Reference images (scene master / persona refs) follow as context.' : ''}`,
+      'Compare the two endframes side by side. Identify the SPECIFIC continuity break (wardrobe drift / prop missing / lighting key flipped / screen-direction reversed / eyeline inconsistency / color temperature shift). Then write a directive that the NEXT render of the current beat will splice into its prompt as a director_nudge — addressing the SPECIFIC drift you see between the two frames.',
+      'Your directive must be specific to the visual gap between the two endframes — not a generic restatement of the verdict.'
+    ].join('\n');
+  }
   return [
     `── HALT CONTEXT ── checkpoint=${checkpoint} artifact_id=${artifactId}`,
     '',
@@ -537,11 +563,31 @@ function _isMultimodalEligibleCheckpoint(checkpoint) {
   // Screenplay halts have no rendered artifact yet — text-only synth is correct.
   // Episode halts have a video, but pulling a 30-90s mp4 into the synth call
   // is expensive; that path stays text-only for now (Lens D has its own
-  // reassemble route). Scene_master and beat halts are the multimodal targets.
+  // reassemble route). Scene_master, beat, and continuity halts are the
+  // multimodal targets.
+  //
+  // V4 Tier 4.1 (2026-05-06) — `continuity` added. Lens E sends two
+  // artifacts (prev endframe + current endframe) so it benefits from
+  // the multimodal layer even more than Lens C: the model can SEE both
+  // ends of the broken chain.
   return checkpoint === 'scene_master'
       || checkpoint === 'commercial_scene_master'
       || checkpoint === 'beat'
-      || checkpoint === 'commercial_beat';
+      || checkpoint === 'commercial_beat'
+      || checkpoint === 'continuity';
+}
+
+/**
+ * V4 Tier 4.1 (2026-05-06) — bucket-key resolver. Centralizes the
+ * checkpoint → synth_history bucket mapping so appendSynthHistory,
+ * readSynthHistory, and patchSynthOutcome stay in sync as new
+ * checkpoints are added.
+ */
+function _resolveSynthBucketKey(checkpoint) {
+  if (checkpoint === 'scene_master' || checkpoint === 'commercial_scene_master') return 'scene_master';
+  if (checkpoint === 'beat' || checkpoint === 'commercial_beat') return 'beat';
+  if (checkpoint === 'continuity') return 'continuity';
+  return checkpoint;
 }
 
 async function _fetchAsInlinePart(url, mimeOverride, logPrefix) {

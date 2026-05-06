@@ -156,10 +156,24 @@ describe('transition()', () => {
     );
   });
 
-  test('superseded is terminal — no outgoing transitions', () => {
+  // V4 hotfix 2026-05-06 — supersede + re-generate is the canonical user-regenerate
+  // (Edit & Retry) flow. Production hit "illegal transition 'superseded' →
+  // 'generating'" when a user clicked Edit & Retry on a Lens C beat halt that
+  // had already been auto-superseded. The intent in supersedeBeat()'s docstring
+  // and BaseBeatGenerator's transition comment was always that this transition
+  // be allowed — the FSM table just had it wrong (terminal, empty Set). Now
+  // it's allowed; the audit trail lives in attempts_log.
+  test('superseded → generating IS legal (user-regenerate / Edit & Retry path)', () => {
+    const beat = { beat_id: 'b1', status: 'superseded', version: 3, attempts_log: [] };
+    transition(beat, 'generating');
+    assert.equal(beat.status, 'generating');
+    assert.equal(beat.version, 4);
+  });
+
+  test('superseded → ready is still illegal (must re-generate first)', () => {
     const beat = { beat_id: 'b1', status: 'superseded', version: 3, attempts_log: [] };
     assert.throws(
-      () => transition(beat, 'generating'),
+      () => transition(beat, 'ready'),
       (err) => err instanceof BeatLifecycleError && err.code === 'illegal_transition'
     );
   });

@@ -50,10 +50,16 @@ import { randomUUID } from 'node:crypto';
  *   generating    → generated | failed
  *   generated     → ready | hard_rejected | superseded
  *   ready         → hard_rejected | superseded
- *   failed        → generating (retry)
+ *   failed        → generating (retry) | superseded
  *   hard_rejected → ready (user-approve = promote-from-quarantine)
+ *                 | generating (user-regenerate from quarantine)
  *                 | superseded (user-regenerate)
- *   superseded    → (terminal — never transitions out; row stays for audit only)
+ *   superseded    → generating (user-regenerate / Edit & Retry)
+ *
+ * Note: superseded is NOT terminal — supersedeBeat() snapshots the
+ * current take into attempts_log, then a subsequent transition() to
+ * generating starts the next attempt. The audit trail lives in
+ * attempts_log; the canonical row's status walks forward.
  */
 export const BEAT_STATUS = Object.freeze({
   PENDING:       'pending',
@@ -106,7 +112,16 @@ const TRANSITIONS = Object.freeze({
   [BEAT_STATUS.READY]:         new Set([BEAT_STATUS.HARD_REJECTED, BEAT_STATUS.SUPERSEDED, BEAT_STATUS.GENERATING]),
   [BEAT_STATUS.FAILED]:        new Set([BEAT_STATUS.GENERATING, BEAT_STATUS.SUPERSEDED]),
   [BEAT_STATUS.HARD_REJECTED]: new Set([BEAT_STATUS.READY, BEAT_STATUS.GENERATING, BEAT_STATUS.SUPERSEDED]),
-  [BEAT_STATUS.SUPERSEDED]:    new Set() // terminal
+  // V4 hotfix 2026-05-06 — SUPERSEDED was previously terminal (empty Set),
+  // which contradicted both the supersedeBeat() docstring AND
+  // BaseBeatGenerator's "Accept GENERATING from any current status
+  // (... superseded → next attempt)" comment. Production hit this when
+  // the user clicked Edit & Retry on a Lens C beat halt: the auto-retry
+  // path called supersedeBeat() during the prior failed attempt, then
+  // regenerateBeatInEpisode → BaseBeatGenerator transition('GENERATING')
+  // threw "illegal transition 'superseded' → 'generating'". The supersede +
+  // re-generate IS the canonical user-regenerate flow; allow it.
+  [BEAT_STATUS.SUPERSEDED]:    new Set([BEAT_STATUS.GENERATING])
 });
 
 /**
