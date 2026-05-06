@@ -8564,6 +8564,18 @@ function renderEpisodeTimeline(episodes) {
         const title = scene.title || 'Episode ' + ep.episode_number;
         const isV4 = ep.pipeline_version === 'v4';
 
+        // 2026-05-05 — Aleph Rec 2 Phase 4 toggle UI. When the user has
+        // opted into Cinema-grade enhancement and the orchestrator passed
+        // the identity hard gate, aleph_enhanced_video_url is sibling to
+        // final_video_url. The toggle pill below lets the viewer compare
+        // the two without leaving the page. Default selection: Cinema-grade
+        // (the upgrade) — matches user expectation that the enhancement is
+        // the "preferred" cut once they've paid for it.
+        const hasAlephEnhancement = !!ep.aleph_enhanced_video_url;
+        const alephJob = ep.aleph_job_metadata || {};
+        const alephScore = alephJob.identity_lock_score || null;
+        const initialVideoUrl = hasAlephEnhancement ? ep.aleph_enhanced_video_url : ep.final_video_url;
+
         // V4 status icon overlay (extends the v2/v3 statusIcons map with V4-specific stages)
         const v4StatusIcons = {
             brand_safety_check: '<span class="text-blue-500">Brand safety check...</span>',
@@ -8576,7 +8588,7 @@ function renderEpisodeTimeline(episodes) {
         const statusHtml = v4StatusIcons[ep.status] || statusIcons[ep.status] || statusIcons.pending;
 
         return `
-            <div class="card-gradient p-4 flex gap-4" data-episode-id="${ep.id}" data-story-id="${escapeHtml(ep.story_id || '')}" data-video-url="${escapeHtml(ep.final_video_url || '')}" data-video-title="${escapeHtml(title)}">
+            <div class="card-gradient p-4 flex gap-4" data-episode-id="${ep.id}" data-story-id="${escapeHtml(ep.story_id || '')}" data-video-url="${escapeHtml(initialVideoUrl || '')}" data-original-video-url="${escapeHtml(ep.final_video_url || '')}" data-aleph-video-url="${escapeHtml(ep.aleph_enhanced_video_url || '')}" data-video-title="${escapeHtml(title)}">
                 <div class="flex-shrink-0 w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center font-bold text-sm">
                     ${ep.episode_number}
                 </div>
@@ -8618,11 +8630,17 @@ function renderEpisodeTimeline(episodes) {
                         ${ep.storyboard_frame_url && !ep.storyboard_panels?.length ? `<img src="${escapeHtml(ep.storyboard_frame_url)}" alt="Storyboard" class="w-20 h-auto rounded border border-surface-200">` : ''}
                         ${isReady && ep.final_video_url ? `
                             <div class="flex flex-col gap-1.5">
+                                ${hasAlephEnhancement ? `
+                                <div class="inline-flex rounded-md border border-amber-300 bg-amber-50 p-0.5 text-[10px] font-medium" role="group" aria-label="Video version toggle">
+                                    <button data-action="select-cinema-grade" class="px-2 py-0.5 rounded bg-amber-500 text-white" title="Runway Aleph cinema-grade stylization (identity ${alephScore || '—'}/100)">\u2728 Cinema-grade</button>
+                                    <button data-action="select-original" class="px-2 py-0.5 rounded text-amber-900 hover:bg-amber-100" title="Pre-Aleph original cut">Original</button>
+                                </div>
+                                ` : ''}
                                 <button data-action="play" class="px-3 py-1.5 text-xs bg-brand-600 text-white rounded hover:bg-brand-700 flex items-center gap-1">
                                     <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                                     Play
                                 </button>
-                                <a href="${escapeHtml(ep.final_video_url)}" download="episode-${ep.episode_number}.mp4" target="_blank" class="px-3 py-1.5 text-xs bg-white border border-surface-300 text-ink-700 rounded hover:bg-surface-50 flex items-center gap-1">
+                                <a data-action="download-link" href="${escapeHtml(initialVideoUrl)}" download="episode-${ep.episode_number}${hasAlephEnhancement ? '-cinema-grade' : ''}.mp4" target="_blank" class="px-3 py-1.5 text-xs bg-white border border-surface-300 text-ink-700 rounded hover:bg-surface-50 flex items-center gap-1">
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                                     Download
                                 </a>
@@ -8638,7 +8656,7 @@ function renderEpisodeTimeline(episodes) {
                 </div>
                 <div class="flex-shrink-0 flex flex-col items-end gap-2">
                     ${videoPlayable
-                        ? `<video src="${escapeHtml(ep.final_video_url)}" data-action="play" class="w-20 h-36 object-cover rounded-lg border border-surface-200 cursor-pointer" muted playsinline></video>`
+                        ? `<video data-thumbnail src="${escapeHtml(initialVideoUrl)}" data-action="play" class="w-20 h-36 object-cover rounded-lg border ${hasAlephEnhancement ? 'border-amber-300 ring-1 ring-amber-200' : 'border-surface-200'} cursor-pointer" muted playsinline></video>`
                         : (ep.final_video_url
                             ? '<div class="w-20 h-36 bg-surface-100 rounded-lg flex items-center justify-center text-ink-300 text-xs text-center p-1">Video not playable in browser</div>'
                             : '<div class="w-20 h-36 bg-surface-100 rounded-lg flex items-center justify-center text-ink-300 text-xs">No video</div>')
@@ -8665,7 +8683,14 @@ function renderEpisodeTimeline(episodes) {
         const videoTitle = card.dataset.videoTitle;
 
         if (action === 'play' && videoUrl) {
-            openEpisodeVideo(videoUrl, videoTitle);
+            // Pass both URLs to the modal so the user can swap inside the player.
+            openEpisodeVideo(videoUrl, videoTitle, {
+                originalUrl: card.dataset.originalVideoUrl,
+                alephUrl: card.dataset.alephVideoUrl,
+                currentSelection: card.dataset.alephVideoUrl && videoUrl === card.dataset.alephVideoUrl
+                    ? 'cinema-grade'
+                    : 'original'
+            });
         } else if (action === 'delete') {
             deleteEpisode(episodeId);
         } else if (action === 'director') {
@@ -8675,29 +8700,154 @@ function renderEpisodeTimeline(episodes) {
             } else {
                 console.warn('Director\'s Panel not loaded');
             }
+        } else if (action === 'select-cinema-grade' || action === 'select-original') {
+            // 2026-05-05 — Aleph Rec 2 Phase 4 toggle. Swap data-video-url on
+            // the card so subsequent Play/Download actions consume the chosen
+            // variant. Update visual state on the toggle pills + thumbnail src.
+            e.preventDefault();
+            const useAleph = action === 'select-cinema-grade';
+            const targetUrl = useAleph ? card.dataset.alephVideoUrl : card.dataset.originalVideoUrl;
+            if (!targetUrl) return;
+
+            card.dataset.videoUrl = targetUrl;
+
+            // Update thumbnail src so the user sees the variant they're about to play
+            const thumbnail = card.querySelector('video[data-thumbnail]');
+            if (thumbnail) thumbnail.src = targetUrl;
+
+            // Update the download link's href + filename to match the selection
+            const downloadLink = card.querySelector('a[data-action="download-link"]');
+            if (downloadLink) {
+                downloadLink.href = targetUrl;
+                const epNumber = card.querySelector('.bg-brand-100')?.textContent?.trim() || '';
+                downloadLink.setAttribute('download', `episode-${epNumber}${useAleph ? '-cinema-grade' : ''}.mp4`);
+            }
+
+            // Visually flip the pills — selected gets amber-500 fill, other goes ghost.
+            const cinemaPill = card.querySelector('[data-action="select-cinema-grade"]');
+            const originalPill = card.querySelector('[data-action="select-original"]');
+            if (cinemaPill && originalPill) {
+                if (useAleph) {
+                    cinemaPill.className = 'px-2 py-0.5 rounded bg-amber-500 text-white';
+                    originalPill.className = 'px-2 py-0.5 rounded text-amber-900 hover:bg-amber-100';
+                } else {
+                    cinemaPill.className = 'px-2 py-0.5 rounded text-amber-900 hover:bg-amber-100';
+                    originalPill.className = 'px-2 py-0.5 rounded bg-amber-500 text-white';
+                }
+            }
         }
     };
 }
 
 /**
  * Open the episode video in a full-screen modal player.
+ *
+ * 2026-05-05 — Aleph Rec 2 Phase 4 enhancement: when `options.alephUrl`
+ * is provided alongside `options.originalUrl`, the modal includes a
+ * Cinema-grade <-> Original toggle pill. The viewer can A/B compare without
+ * leaving the modal — clicking either pill swaps `<video>.src` while
+ * preserving playback position when possible.
+ *
+ * Security: dynamic strings (title, URLs) are written via textContent /
+ * setAttribute on programmatically-created nodes, NOT interpolated into
+ * innerHTML. innerHTML is only used for the static structural shell.
+ *
+ * @param {string} url - the URL to play initially
+ * @param {string} title
+ * @param {Object} [options]
+ * @param {string} [options.originalUrl] - pre-Aleph cut
+ * @param {string} [options.alephUrl] - cinema-grade enhanced cut
+ * @param {'original'|'cinema-grade'} [options.currentSelection]
  */
-function openEpisodeVideo(url, title) {
-    // Simple modal-based player
+function openEpisodeVideo(url, title, options = {}) {
+    const { originalUrl = null, alephUrl = null, currentSelection = 'original' } = options;
+    const hasToggle = !!(originalUrl && alephUrl);
+
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-    modal.innerHTML = `
-        <div class="bg-black rounded-lg overflow-hidden max-w-md w-full max-h-[90vh] flex flex-col">
-            <div class="flex items-center justify-between p-3 bg-ink-900 text-white">
-                <span class="font-medium text-sm truncate">${title}</span>
-                <button onclick="this.closest('.fixed').remove()" class="text-white hover:text-ink-300">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <video src="${url}" controls autoplay class="w-full bg-black" style="max-height: 80vh"></video>
-        </div>
-    `;
+
+    // Build the DOM programmatically so user-controlled strings (title, urls)
+    // never reach innerHTML.
+    const shell = document.createElement('div');
+    shell.className = 'bg-black rounded-lg overflow-hidden max-w-md w-full max-h-[90vh] flex flex-col';
+
+    // Header bar (close button uses inline SVG — static, safe in innerHTML)
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between p-3 bg-ink-900 text-white';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'font-medium text-sm truncate';
+    titleEl.textContent = title || '';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'text-white hover:text-ink-300';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+    closeBtn.addEventListener('click', () => modal.remove());
+
+    header.appendChild(titleEl);
+    header.appendChild(closeBtn);
+
+    // Video element — src set via property (safe)
+    const videoEl = document.createElement('video');
+    videoEl.controls = true;
+    videoEl.autoplay = true;
+    videoEl.className = 'w-full bg-black';
+    videoEl.style.maxHeight = '80vh';
+    videoEl.src = url;
+
+    shell.appendChild(header);
+    shell.appendChild(videoEl);
+
+    // Optional toggle pill row when both variants exist
+    if (hasToggle) {
+        const toggleRow = document.createElement('div');
+        toggleRow.className = 'flex justify-center p-2 bg-ink-900 border-t border-ink-800';
+
+        const pillGroup = document.createElement('div');
+        pillGroup.className = 'inline-flex rounded-md border border-amber-300/40 bg-ink-800 p-0.5 text-xs font-medium';
+        pillGroup.setAttribute('role', 'group');
+
+        const cinemaPill = document.createElement('button');
+        cinemaPill.dataset.modalToggle = 'cinema-grade';
+        cinemaPill.textContent = '\u2728 Cinema-grade';
+
+        const originalPill = document.createElement('button');
+        originalPill.dataset.modalToggle = 'original';
+        originalPill.textContent = 'Original';
+
+        const stylePill = (selected) =>
+            selected
+                ? 'px-3 py-1 rounded bg-amber-500 text-white'
+                : 'px-3 py-1 rounded text-amber-300 hover:bg-ink-700';
+        cinemaPill.className = stylePill(currentSelection === 'cinema-grade');
+        originalPill.className = stylePill(currentSelection === 'original');
+
+        const swap = (target) => {
+            const targetUrl = target === 'cinema-grade' ? alephUrl : originalUrl;
+            if (!targetUrl) return;
+            // Preserve playback position when swapping — the post-Aleph re-run
+            // uses the SAME beat boundaries / music ducking / SRT timing as
+            // the original, so a continuous-time swap reads as a clean A/B.
+            const wasPlaying = !videoEl.paused;
+            const currentTime = videoEl.currentTime || 0;
+            videoEl.src = targetUrl;
+            videoEl.currentTime = currentTime;
+            if (wasPlaying) videoEl.play().catch(() => { /* user-gesture lost */ });
+            cinemaPill.className = stylePill(target === 'cinema-grade');
+            originalPill.className = stylePill(target === 'original');
+        };
+        cinemaPill.addEventListener('click', () => swap('cinema-grade'));
+        originalPill.addEventListener('click', () => swap('original'));
+
+        pillGroup.appendChild(cinemaPill);
+        pillGroup.appendChild(originalPill);
+        toggleRow.appendChild(pillGroup);
+        shell.appendChild(toggleRow);
+    }
+
+    modal.appendChild(shell);
     document.body.appendChild(modal);
 }
 

@@ -32,8 +32,11 @@ class ActionGenerator extends BaseBeatGenerator {
     const duration = Math.max(3, Math.min(15, beat.duration_seconds || 5));
     const isTextOverride = routingMetadata?.mode === 'text_override';
 
-    // Start frame: previous endframe (continuity) → scene master → first persona ref → null (text-only)
-    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene);
+    // V4 Tier 2.1 (2026-05-06) — unified canonical waterfall (priority:
+    // persona-lock → SIPL → subject-natural → bridge-anchor → previous
+    // endframe → scene master → refStack). Passing `beat` enables the
+    // continuity_fallback_reason breadcrumb that Lens C / Lens E read.
+    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat);
 
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const actionPrompt = beat.action_prompt || beat.visual_direction || 'cinematic action beat';
@@ -56,15 +59,34 @@ class ActionGenerator extends BaseBeatGenerator {
       : '';
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
+    // V4 Tier 2.2 (2026-05-06) — per-model color hint, persona wardrobe,
+    // brand palette directives. Spliced near the prompt tail. Empty
+    // strings filtered out by .filter(Boolean).
+    const personasInBeat = this._resolvePersonasInBeat(beat, personas);
+    const colorHint = this._buildPerModelColorHint('kling', episodeContext?.brandKit);
+    const wardrobeDirective = personasInBeat.length > 0
+      ? this._buildWardrobeDirective(personasInBeat[0])
+      : '';
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+    // V4 Tier 2.5 (2026-05-06) — scene continuity sheet (props/lighting/time).
+    const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Tier 3.1 (2026-05-06) — anti-reference directive. Kling-strength.
+    const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'kling');
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       actionPrompt,
       cameraNotes,
       identityDirective,
+      wardrobeDirective,
+      continuityDirective,
       subjectDirective,
+      brandColorDirective,
+      antiRefDirective,
       ambientSound ? `Ambient: ${ambientSound}` : '',
-      textHint.trim()
+      textHint.trim(),
+      colorHint
     ].filter(Boolean).join('. '), beat);
 
     // Action beats may include personas if visible_persona_indexes is present

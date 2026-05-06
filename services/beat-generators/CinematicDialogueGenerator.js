@@ -153,7 +153,9 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     });
 
     // ─── Stage B — Kling O3 Omni Standard cinematic visual ───
-    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene);
+    // V4 Tier 2.1 (2026-05-06) — pass `beat` so unified picker writes
+    // continuity_fallback_reason for Lens C / Lens E.
+    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat);
     if (!startFrameUrl) {
       throw new Error(`beat ${beat.beat_id}: no start frame available (need character sheet or scene master)`);
     }
@@ -232,6 +234,14 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
       : '';
 
+    // V4 Tier 2.2 (2026-05-06) — wardrobe directive (medium priority — safer
+    // for closeups where costume is visible) + brand color (low — accent).
+    // Per-model color hint not added because Kling's 512-char budget is
+    // tight; the per-model framing in identityDirective + framingHint
+    // already biases the visual register.
+    const wardrobeDirective = this._buildWardrobeDirective(persona);
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+
     // Priority-ordered sections. Mandatory ones come first and can never be
     // dropped; optional ones are tried in order and skipped when the budget
     // is spent.
@@ -249,6 +259,9 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       { priority: 'high',      text: emotionHint.trim() },
       { priority: 'medium',    text: expressionHint.trim() },
       { priority: 'medium',    text: actionHint.trim() },
+      // V4 Tier 2.2 — wardrobe runs at medium because closeups reveal costume.
+      { priority: 'medium',    text: wardrobeDirective },
+      { priority: 'low',       text: brandColorDirective },
       { priority: 'low',       text: stylePrefix },
       { priority: 'low',       text: lensHint.trim() }
     ].filter(s => s.text && s.text.length > 0);

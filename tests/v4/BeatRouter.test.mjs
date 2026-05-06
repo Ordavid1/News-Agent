@@ -22,6 +22,7 @@ import {
   ReactionGenerator,
   InsertShotGenerator,
   ActionGenerator,
+  VeoActionGenerator,
   BRollGenerator,
   VoiceoverBRollGenerator,
   TextOverlayCardGenerator,
@@ -67,9 +68,47 @@ describe('BeatRouter.route()', () => {
     assert.equal(r.GeneratorClass, InsertShotGenerator);
   });
 
-  test('ACTION_NO_DIALOGUE routes to ActionGenerator (Kling V3 Pro)', () => {
-    const r = router.route({ type: 'ACTION_NO_DIALOGUE' });
+  // 2026-05-05 — Rec 1 autonomous Veo routing. ACTION_NO_DIALOGUE beats
+  // that fit Veo criteria auto-route to VeoActionGenerator at the router
+  // layer (no longer dependent on Gemini emitting preferred_generator).
+  // The original "always Kling" test split into criteria-aware tests below.
+  test('ACTION_NO_DIALOGUE auto-routes to VeoActionGenerator when fitting Veo criteria (≤8s, simple camera, no text)', () => {
+    const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 5, camera_move: 'simple pan' });
+    assert.equal(r.GeneratorClass, VeoActionGenerator);
+    assert.equal(r.mode, 'auto_veo_routing');
+  });
+
+  test('ACTION_NO_DIALOGUE stays on ActionGenerator (Kling V3 Pro) when duration > 8s (sustained-take grammar)', () => {
+    const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 12, camera_move: 'simple pan' });
     assert.equal(r.GeneratorClass, ActionGenerator);
+  });
+
+  test('ACTION_NO_DIALOGUE stays on ActionGenerator when complex camera grammar named (Veo approximates Dutch/whip-pan)', () => {
+    const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 5, camera_move: 'whip-pan with speed ramp' });
+    assert.equal(r.GeneratorClass, ActionGenerator);
+  });
+
+  test('ACTION_NO_DIALOGUE stays on ActionGenerator when requires_text_rendering=true (Kling text rendering wins)', () => {
+    const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 5, camera_move: 'simple pan', requires_text_rendering: true });
+    assert.equal(r.GeneratorClass, ActionGenerator);
+  });
+
+  test('ACTION_NO_DIALOGUE honors explicit preferred_generator override (no auto-Veo when explicit)', () => {
+    // When director explicitly sets ActionGenerator (Kling), even fitting beats stay there.
+    const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 5, preferred_generator: 'ActionGenerator' });
+    assert.equal(r.GeneratorClass, ActionGenerator);
+    assert.equal(r.mode, 'override');
+  });
+
+  test('ACTION_NO_DIALOGUE auto-routing can be disabled via env flag', () => {
+    const prev = process.env.BRAND_STORY_AUTO_VEO_ACTION_ROUTING;
+    process.env.BRAND_STORY_AUTO_VEO_ACTION_ROUTING = 'false';
+    try {
+      const r = router.route({ type: 'ACTION_NO_DIALOGUE', duration_seconds: 5, camera_move: 'simple pan' });
+      assert.equal(r.GeneratorClass, ActionGenerator);
+    } finally {
+      process.env.BRAND_STORY_AUTO_VEO_ACTION_ROUTING = prev;
+    }
   });
 
   test('B_ROLL_ESTABLISHING routes to BRollGenerator (Veo native ambient)', () => {

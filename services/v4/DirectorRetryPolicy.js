@@ -58,6 +58,153 @@ const STRUCTURAL_DEFECT_IDS = new Set([
   'visual_anchor_inversion'
 ]);
 
+// 2026-05-05 — Rec 1 + Rec 3 Phase A + Rec 4 wiring.
+//
+// Per-dimension auto-fix thresholds. When a verdict comes back as
+// `pass` / `pass_with_notes` but specific dimension scores are below
+// these thresholds, escalate the verdict to `soft_reject` so the existing
+// retry machinery fires automatically. This closes the loop on:
+//   • camera_move_motivation (Rec 4) — Phantom Thread textbook camera grammar
+//   • audio_coherence_episode (Rec 3 Phase A)
+//   • dB_consistency_inter_beat (Rec 3 Phase A)
+//   • sfx_motivation_coherence (Rec 3 Phase A)
+//   • sound_design_intent_match (Rec 3 Phase A)
+//   • spectral_anchor_adherence (Rec 3 Phase A)
+//   • no_fly_list_violations (Rec 3 Phase A — stricter at 75; any violation is bad)
+//
+// Without this, a beat that scores 50/100 on camera_move_motivation but
+// 80+ on every other dimension would yield `pass_with_notes` (overall ~70-75)
+// and never trigger regen — the bug the Director Agent verdict was designed
+// to catch would persist quietly. With this, each named dimension gates
+// independently of overall_score.
+//
+// Thresholds are chosen pessimistically (60 = "noticeable craft failure";
+// 75 for no_fly_list because any audible violation is unacceptable).
+//
+// Per-checkpoint budget cap (1 retry) and nudge_to_brief_ratio runaway guard
+// (1.5×) still apply — escalation here doesn't bypass those safeguards.
+//
+// Opt-out: BRAND_STORY_DIMENSION_THRESHOLD_ESCALATION=false
+const DIMENSION_THRESHOLDS = Object.freeze({
+  // Beat-level (Rec 4)
+  camera_move_motivation: 60,
+  // Episode-level audio (Rec 3 Phase A)
+  audio_coherence_episode: 60,
+  dB_consistency_inter_beat: 60,
+  sfx_motivation_coherence: 60,
+  sound_design_intent_match: 60,
+  spectral_anchor_adherence: 60,
+  no_fly_list_violations: 75
+});
+
+// Map dimension → remediation.target class (used by the auto-fix dispatcher
+// in BrandStoryService to pick the cheapest re-render path). Audio dims map
+// to 'continuity' (the closest existing target — "world-level coherence");
+// camera dims map to 'composition' (single-beat re-render with framing patch).
+// `style` is reserved for commercial style-category drift; not used here.
+const DIMENSION_TARGET_MAP = Object.freeze({
+  camera_move_motivation: 'composition',
+  audio_coherence_episode: 'continuity',
+  dB_consistency_inter_beat: 'continuity',
+  sfx_motivation_coherence: 'continuity',
+  sound_design_intent_match: 'continuity',
+  spectral_anchor_adherence: 'continuity',
+  no_fly_list_violations: 'continuity'
+});
+
+// Per-dimension prompt_delta for the synthesized finding. These splice
+// directly into the next-attempt prompt as the auto-fix nudge. Keep tight
+// (≤ 120 chars per the verdictSchema.mjs prompt_delta cap).
+const DIMENSION_PROMPT_DELTAS = Object.freeze({
+  camera_move_motivation:
+    'Set camera_motivation_reason explicitly — name the EMOTIONAL TURN this move serves (revelation/intimacy/surprise), not the move itself.',
+  audio_coherence_episode:
+    'Tighten sonic_world inheritance — base_palette must hold across all scenes; spectral_anchor must be audible at every scene boundary.',
+  dB_consistency_inter_beat:
+    'Equalize per-beat loudness — episode-level loudnorm pass; reduce inter-beat dB jumps to ≤ 3 LUFS variance.',
+  sfx_motivation_coherence:
+    'Align foley events to actual frame of impact (footstep on stride, glass clink on touch); cut orphaned SFX unrelated to beat action.',
+  sound_design_intent_match:
+    'Realize the music_bed_intent / music_composition_plan literally — match instrumentation, mood arc, and prohibited_instruments respect.',
+  spectral_anchor_adherence:
+    'Spectral anchor (LF + HF presence) must NOT drop below -22dB in any 500ms window; sustain across every cut.',
+  no_fly_list_violations:
+    'Remove SonicSeriesBible.no_fly_list violations — prohibited instruments / tropes / frequencies are hard-banned in the mix.'
+});
+
+/**
+ * 2026-05-05 — Rec 1+3+4 wiring.
+ *
+ * Inspect verdict.dimension_scores for low values against DIMENSION_THRESHOLDS.
+ * When at least one dimension is below threshold AND the verdict isn't
+ * already a hard reject, escalate to soft_reject and synthesize critical
+ * findings so the retry machinery has prompt_deltas to splice.
+ *
+ * Mutates a copy of the verdict — input is not modified. Returns the
+ * possibly-escalated verdict (always returns a non-null object for
+ * non-null inputs; passes through nulls for the no-verdict path).
+ *
+ * Opt-out via env: BRAND_STORY_DIMENSION_THRESHOLD_ESCALATION=false
+ */
+export function escalateVerdictOnLowDimensions(verdict) {
+  if (!verdict || typeof verdict !== 'object') return verdict;
+  if (String(process.env.BRAND_STORY_DIMENSION_THRESHOLD_ESCALATION || 'true').toLowerCase() === 'false') {
+    return verdict;
+  }
+  // Already a reject — don't downgrade further.
+  if (verdict.verdict === 'hard_reject' || verdict.verdict === 'soft_reject') return verdict;
+
+  const scores = verdict.dimension_scores || {};
+  const lowDims = [];
+  for (const [dim, threshold] of Object.entries(DIMENSION_THRESHOLDS)) {
+    const score = scores[dim];
+    if (typeof score === 'number' && score < threshold) {
+      lowDims.push({ dim, score, threshold });
+    }
+  }
+  if (lowDims.length === 0) return verdict;
+
+  // Build a shallow copy of the verdict and synthesize findings for each
+  // low dimension that doesn't already have a critical finding. We don't
+  // overwrite existing findings — just add the synthesized ones the rubric
+  // omitted but the score implies.
+  const escalated = { ...verdict, findings: Array.isArray(verdict.findings) ? [...verdict.findings] : [] };
+  // Keep the cap at 3 (verdictSchema.mjs maxItems on findings).
+  const remainingFindingsBudget = Math.max(0, 3 - escalated.findings.length);
+  const dimsToEmit = lowDims.slice(0, remainingFindingsBudget);
+
+  for (const { dim, score, threshold } of dimsToEmit) {
+    const target = DIMENSION_TARGET_MAP[dim] || 'composition';
+    const promptDelta = DIMENSION_PROMPT_DELTAS[dim] || `Improve ${dim} (scored ${score}/${threshold} threshold).`;
+    escalated.findings.push({
+      id: `${dim}_below_threshold`,
+      severity: 'critical',
+      scope: verdict.checkpoint === 'episode' ? 'episode' : (escalated.findings[0]?.scope || 'episode'),
+      message: `${dim} scored ${score}/100, below auto-fix threshold ${threshold}.`,
+      evidence: `dimension_scores.${dim}=${score}`,
+      remediation: {
+        action: dim.startsWith('camera_') ? 'regenerate_beat' : 'reassemble',
+        prompt_delta: promptDelta.slice(0, 120),
+        target_fields: [dim],
+        target
+      }
+    });
+  }
+
+  // Escalate to soft_reject so decideRetry's retry path fires.
+  escalated.verdict = 'soft_reject';
+
+  // Surface the dimension override on a top-level property so observers
+  // (Director Panel, logs) can see WHY the verdict was escalated.
+  escalated._dimension_threshold_escalation = {
+    triggered_by: lowDims.map(d => `${d.dim}=${d.score}/${d.threshold}`),
+    original_verdict: verdict.verdict,
+    original_overall_score: verdict.overall_score
+  };
+
+  return escalated;
+}
+
 /**
  * True if this finding is "structural" (cannot be fixed by retry — must escalate).
  * Primary signal: remediation.action === 'user_review' (verdictSchema enum).
@@ -102,7 +249,14 @@ export function decideRetry(params = {}) {
     // than stack more nudges.
     originalBrief = ''
   } = params;
-  const v = verdict || {};
+  // 2026-05-05 — Rec 1+3+4 wiring. Pre-escalate the verdict when specific
+  // dimensions score below auto-fix thresholds. This converts a "pass" or
+  // "pass_with_notes" verdict into a "soft_reject" when craft-critical
+  // dimensions like camera_move_motivation or audio_coherence_episode are
+  // below the bar — closing the loop on the new rubric dimensions added
+  // with Recs 1, 3 Phase A, and 4. Idempotent (no-op when no low dims;
+  // no-op when already a reject).
+  const v = escalateVerdictOnLowDimensions(verdict) || {};
   const findings = Array.isArray(v.findings) ? v.findings : [];
   const verdictValue = v.verdict;
 
@@ -389,3 +543,5 @@ function _incrementRetry(state, checkpoint, artifactKey) {
 
 export const RETRY_BUDGETS = BUDGETS;
 export const STRUCTURAL_DEFECTS = STRUCTURAL_DEFECT_IDS;
+// 2026-05-05 — exported for tests + Director Panel surfacing.
+export { DIMENSION_THRESHOLDS, DIMENSION_TARGET_MAP, DIMENSION_PROMPT_DELTAS };

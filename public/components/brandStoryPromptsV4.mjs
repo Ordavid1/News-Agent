@@ -1170,7 +1170,16 @@ export function getEpisodeSystemPromptV4(storyline, previousEpisodes = [], perso
     // legacy 8-LUT bypass that produced bs_cool_noir on commercial). When
     // empty/null AND hasBrandKitLut is false, the prompt instructs Gemini
     // NOT to emit a lut_id — caller will fill in the genre default.
-    genreLutPool = null
+    genreLutPool = null,
+    // Veo Failure-Learning Agent (2026-05-06). Optional pre-rendered guidance
+    // block (string) describing known Veo failure patterns to avoid at
+    // authorship time. Produced by services/v4/VeoFailureKnowledge.mjs's
+    // getGeminiSystemPromptBlock() and threaded through by BrandStoryService.
+    // When empty/null the prompt is unchanged. The block describes phrasings
+    // Vertex AI Veo has refused on prior beats — keeping them out of the
+    // screenplay prevents downstream sanitization-tier retries and
+    // Veo→Kling fallbacks on content-filter rejections.
+    veoFailureGuidanceBlock = ''
   } = options;
 
   const prevBlock = _buildPreviousEpisodesBlock(storyline, previousEpisodes);
@@ -1912,6 +1921,7 @@ BRAND SAFETY (hard filter, applied after):
 - Avoid brand-unsafe content: profanity, defamation, politically charged language, off-brand tone.
 - The speakability and safety rules are enforced by the filter. The CRAFT rules above
   are what separate a cheap screenplay from a prestige one — obey BOTH.
+${(veoFailureGuidanceBlock && typeof veoFailureGuidanceBlock === 'string') ? veoFailureGuidanceBlock : ''}
 
 ───────────────────────────────────────────────
 BUDGET AS CRAFT (cost is a creative constraint, not a reason to go quiet):
@@ -2116,6 +2126,24 @@ OUTPUT JSON SCHEMA (match exactly):
   "visual_style_prefix": "<UNIFIED cinematography brief that runs across every beat in the episode: color temperature, lighting quality, lens feel, film stock reference; concrete enough that the Scene Master panels carry the same look>",${lutField}
   "dialogue_density_intent": "<balanced (default) | silent_register (Drive-style: dialogue is rare and weighted, scenes carry through image and sound) | dialogue_dense (Sorkin/Mamet: the room talks, lines overlap, density itself is the rhythm)>",
   "music_bed_intent": "<music brief for ElevenLabs Music — instrumentation + mood + arc through the episode; ≤ 200 chars${hasBible ? '; MUST NOT include any prohibited_instruments from the Sonic Series Bible' : ''}>",
+  "music_arc": "<OPTIONAL (V4 Tier 3.4, 2026-05-06) — when emitted, declares per-MOVEMENT music intents that get crossfaded into a score architecture (Setup → Disturbance → Turn → Sting). Replaces the single-bed approach with a Hollywood arc. Format: array of { movement: 'setup'|'disturbance'|'turn'|'sting', intent: string, duration_hint_seconds?: number }. Only honored when V4_MOVEMENT_MUSIC=true; otherwise music_bed_intent flat-mode is used.>",
+  "music_composition_plan": {
+    "_comment": "OPTIONAL structured-music plan (Rec 3 Phase A — Sicario / Jóhann Jóhannsson model). When emitted, MusicService routes through the EL Music composition_plan endpoint instead of the flat-prompt path. Use when scene count ≥ 3 AND you want scene-aligned music with explicit cross-section continuity. Each section maps to one scene. The viewer should hear ONE piece evolving across scenes, NOT N stitched cues. CONTINUITY CONTRACT: every section MUST share key_or_modal_center with the previous unless transition_type='musical_match_cut' is declared on the diverging section. Sustain a pedal tone or drone in negative_global so a single ground tone rides under every scene cut. MAX total duration 600s. Omit this field for short stories (≤ 2 scenes) — flat music_bed_intent is correct.",
+    "positive_global": "<the show's sonic DNA: instrumentation + mood that rides across ALL sections. e.g. 'low orchestral strings, sub-bass drone, sparse piano, Jóhannsson texture' — keep ≤ 180 chars>",
+    "negative_global": "<the no-fly list: explicit instruments / tropes the bed NEVER uses. e.g. 'no acoustic guitar, no bright synth pads, no anthemic drums, no needle-drop pop'. Required when SonicSeriesBible.no_fly_list is present.${hasBible ? ' MUST include all prohibited_instruments from the bible.' : ''} Keep ≤ 180 chars>",
+    "key_or_modal_center": "<one shared key the bed sustains across sections. e.g. 'D minor', 'A dorian', 'F# locrian'. Use minor / modal centers for unease; major for resolution. Validator REJECTS plans whose sections declare different keys unless allow_key_changes=true.>",
+    "allow_key_changes": false,
+    "sections": [
+      {
+        "scene_id": "matches scene.scene_id (one section per scene)",
+        "name": "<short label, e.g. 'opening', 'pursuit', 'reveal', 'resolution'>",
+        "duration_seconds": 12,
+        "positive_local": "<scene-specific texture / dynamic / instrumentation INSIDE the global key. e.g. 'sustained string pad with sparse piano motif, hold the sub-bass'. ≤ 140 chars>",
+        "negative_local": "<scene-specific instruments to suppress. e.g. 'no percussion in this section'. Optional — leave blank to inherit only from negative_global.>",
+        "transition_type": "<OPTIONAL: 'continuous' (default — section evolves from prior; same key) | 'musical_match_cut' (an authored break — required when this section uses a DIFFERENT key from the global key_or_modal_center)>"
+      }
+    ]
+  },
   "sonic_world": {
     "_comment": "EPISODE-LEVEL audio architecture (replaces per-scene ambient_bed_prompt). One bed for the whole episode, scene-specific overlays as ADDITIVE layers. ${hasBible ? 'Must inherit from the Sonic Series Bible (see SONIC SERIES BIBLE block above).' : 'Authored fresh — no story-level bible available.'}",
     "base_palette": "${hasBible ? 'Episode-level bed description that REFERENCES and may add to the bible base_palette ambient_keywords. The continuous always-on layer for the WHOLE episode (10-25s+). Example — low industrial drone with concrete reverb tail, faint distant traffic, deep HVAC undertone (the constant). Keep under 220 chars.' : 'Episode-level bed description — the continuous always-on layer for the WHOLE episode. Example — low industrial drone with concrete reverb tail, faint distant traffic. Keep under 220 chars.'}",
@@ -2150,12 +2178,19 @@ OUTPUT JSON SCHEMA (match exactly):
           "beat_id": "s1b1",
           "type": "B_ROLL_ESTABLISHING",
           "framing": "wide_establishing",
+          "_v4_tier_3_1_coverage_axes": "MANDATORY (V4 Tier 3.1, 2026-05-06) — emit ALL FOUR axes on EVERY beat. Within a scene, no two consecutive beats may share coverage_slot OR motion_vector (validator hard-rejects). The b-roll/action collapse symptom is structurally impossible when these are honored.",
+          "coverage_slot": "wide | cowboy | single_a | single_b | two_shot | close | insert | pov | cutaway",
+          "focal_length_hint": "14mm | 24mm | 35mm | 50mm | 85mm | macro",
+          "subject_presence": "primary_in | primary_out | primary_off_screen_audible",
+          "motion_vector": "static | drift_left | drift_right | push_in | pull_out | whip_left | whip_right | rack_focus",
+          "camera_temperament": "handheld | locked | dolly | gimbal",
           "personas_present": [],
           "subject_present": true,
           "location_hero": true,
           "location": "<one-line concrete location grounded in this story's world>",
           "atmosphere": "<2-4 specific sensory anchors — texture, light quality, distance — that prime the scene's emotional temperature>",
           "camera_move": "<one camera move that earns the establishing — what the move reveals matters more than the move itself>",
+          "camera_motivation_reason": "<MANDATORY when camera_move is non-locked. One short sentence — what EMOTIONAL STATE OR DRAMATIC TURN the move is earned by. NOT the move itself; the WHY. Example: 'push-in earned by the protagonist finally seeing what they refused to see' — NOT 'slow push-in for emphasis'. If the beat is a lock-off, replace this with emotional_hold_reason.>",
           "duration_seconds": 3,
           "ambient_sound": "<diegetic sounds in this place: 2-3 specific layers, no music>",
           "requires_text_rendering": true,
@@ -2212,7 +2247,8 @@ OUTPUT JSON SCHEMA (match exactly):
           "subtext": "<the move underneath: the character's awareness of what they're doing and the cost of doing it>",
           "narrative_purpose": "<one sentence: why this is the scene's peak — what gets revealed, what gets refused>",
           "beat_intent": "escalate",
-          "emotional_hold": true
+          "emotional_hold": true,
+          "emotional_hold_reason": "<MANDATORY when emotional_hold is true OR the camera is locked-off. One short sentence — why the camera is HOLDING instead of moving. The hold is a directorial choice: resignation, control, refusal to flinch, ritual stillness, the character refusing to be moved by the line. Example: 'lock-off held because the character refuses to react — the stillness IS the answer'. NOT 'static shot for emphasis'.>"
         },
         {
           "beat_id": "s1b6",
@@ -2220,6 +2256,7 @@ OUTPUT JSON SCHEMA (match exactly):
           "subject_focus": "<the product or hero object, framed as silent witness to the dialogue beat — what it sees, what it costs, what it survives>",
           "lighting_intent": "<one specific lighting move that makes the object read as significant, not decorative>",
           "camera_move": "<one move that connects the object to the prior dialogue beat — a rack focus, a slow push-in, a settle>",
+          "camera_motivation_reason": "<one sentence — what emotional turn the move is earned by; e.g. 'rack focus earned by the line that just landed — the object is what survives the choice'>",
           "duration_seconds": 3,
           "ambient_sound": "<one diegetic detail that grounds the object in the scene — a small, specific sound>",
           "requires_text_rendering": true,
@@ -2246,6 +2283,42 @@ CRITICAL RULES:
 9. Persona references use persona_index (integer) — not name strings.
 10. Stay within the cost cap — don't over-pack beats.
 11. Set "requires_text_rendering": true for ANY beat where legibility of brand/product text is a brand-consistency concern. Examples: a storefront sign visible in a B_ROLL_ESTABLISHING, a billboard behind a character in an ACTION_NO_DIALOGUE beat, a caption on a phone screen. DO NOT set this on INSERT_SHOT beats — the product IS the subject and its branding is already locked by Veo's first-frame reference image. Warped glyphs on in-scene brand lettering is the single most visible failure mode in AI-generated brand films — set this flag whenever in-frame text is narratively meaningful.
+
+11b. CAMERA GRAMMAR — every move must be MOTIVATED. Director Agent grades both delivery (camera_move_intent) and motivation (camera_move_motivation) per beat:
+
+   • For every beat with a non-locked camera (push-in, dolly, crane, tilt, rack focus, whip-pan, speed-ramp, etc.) → MANDATORY field "camera_motivation_reason": one short sentence naming the EMOTIONAL TURN OR DRAMATIC REVELATION the move is earned by.
+
+     GOOD: "push-in earned by the protagonist finally seeing what they refused to see"
+     GOOD: "whip-pan motivated by the surprise of the third character entering frame"
+     GOOD: "dolly-out earned by the moment of release after the line lands"
+     BAD:  "slow push-in for emphasis"
+     BAD:  "dynamic camera work"
+     BAD:  "to make it cinematic"
+
+   • For lock-off / static beats (no camera_move OR camera_move = "locked-off") → MANDATORY field "emotional_hold_reason": one short sentence naming WHY the camera is holding instead of moving. The hold is a directorial choice — resignation, refusal to flinch, ritual stillness, the character refusing to be moved by the line.
+
+     GOOD: "lock-off held because the character refuses to react — the stillness IS the answer"
+     GOOD: "static frame because the gravity of the silence outweighs any move"
+     BAD:  "static shot for emphasis"
+     BAD:  "no camera movement"
+
+   References (the bar): Phantom Thread (every move motivated by character interiority), Sicario tunnel (lock-offs as control), Sony Bravia Balls (lock-offs as gravity-as-spectacle), Apple "1984" (push-in motivated by revolution). Higgsfield Originals signature: discipline of camera move per beat — every move authored, never decorative.
+
+11c. PER-BEAT GENERATOR ROUTING (optional override field "preferred_generator"):
+   For ACTION_NO_DIALOGUE beats only, you MAY set "preferred_generator": "VeoActionGenerator" to opt the beat into Veo 3.1 Standard via Vertex AI (FREE, identity-stable first-frame anchoring) instead of the default Kling V3 Pro path.
+
+   PREFER VeoActionGenerator (FREE, identity-stable) when:
+     • duration_seconds ≤ 8 (Veo's hard ceiling)
+     • requires_text_rendering is false (no in-scene signage)
+     • camera_move is simple (push-in, dolly, tilt) — NOT complex (Dutch tilt, vertigo zoom, anamorphic flare, whip-pan, speed_ramp_action)
+     • persona identity stability matters (close framing on the actor across the full clip)
+
+   STAY ON default (Kling V3 Pro, $1.12 per 5s beat) when:
+     • duration_seconds ≥ 9 (sustained-tension single-take grammar — BR2049 opening, Sicario tunnel, Children of Men single-take — the prestige aspiration; do NOT fragment a single-take vision into 2×4s Veo beats)
+     • complex camera grammar named in camera_notes
+     • requires_text_rendering = true (in-scene signage, brand wordmarks)
+
+   Omit the field to use the default Kling V3 Pro path. The override is for cost-savings + identity-stability on simple kinetic action; the default protects long-form camera grammar.
 
 12. DIALOGUE SIZING (a sizing check — NOT a writing prompt):
     English synthesizes at ~2.3 words/sec at natural pace; the TTS clamps at 0.7×-1.2×.

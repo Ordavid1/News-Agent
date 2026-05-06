@@ -2511,7 +2511,16 @@ export async function runPostProduction({
   sceneGraph = null,
   sceneDescription = null,
   episodeMeta = null,
-  burnSubtitles: shouldBurnSubtitles = true
+  burnSubtitles: shouldBurnSubtitles = true,
+  // 2026-05-05 — Aleph Rec 2: opt commercial episodes into capturing the
+  // post-Stage-3 (post-LUT) intermediate. The orchestrator uploads this
+  // to Supabase Storage as post_lut_intermediate_url so the Aleph
+  // enhancement endpoint has a clean source to operate on (graded video,
+  // no music/cards/subs burned in yet — Option B architecture per Director
+  // Agent A2.1 amendment). When true, the return adds a
+  // postLutIntermediateBuffer field. When false (default — prestige path),
+  // the post-LUT bytes are discarded after Stage 4 consumes them.
+  captureIntermediate = false
 }) {
   if (!Array.isArray(beatVideoBuffers) || beatVideoBuffers.length === 0) {
     throw new Error('runPostProduction: no beat video buffers');
@@ -2764,6 +2773,19 @@ export async function runPostProduction({
     const durAfterLut = probeStreamDurations(gradedPath);
     logger.info(`[duration trace] after stage 3 (creative LUT): container=${durAfterLut.container.toFixed(2)}s video=${durAfterLut.video.toFixed(2)}s audio=${durAfterLut.audio.toFixed(2)}s`);
 
+    // 2026-05-05 — Aleph Rec 2 Phase 1. When the caller opts in (commercial
+    // episodes only, gated upstream), capture the post-LUT bytes here BEFORE
+    // music/cards/subs get baked in. This buffer becomes the
+    // post_lut_intermediate_url that the Aleph enhancement endpoint operates
+    // on later — Option B architecture: identical quality to default-on
+    // Aleph, no shimmering subtitles or stylized title cards, since those
+    // get re-applied AFTER Aleph in the orchestrator's re-run flow.
+    let postLutIntermediateBuffer = null;
+    if (captureIntermediate) {
+      postLutIntermediateBuffer = fs.readFileSync(gradedPath);
+      logger.info(`captureIntermediate=true — post-LUT buffer captured (${(postLutIntermediateBuffer.length / 1024 / 1024).toFixed(1)}MB) for Aleph`);
+    }
+
     // ─── Stage 4 — music bed mix (ducked under dialogue beats) ───
     let currentPath = gradedPath;
     if (musicBedBuffer) {
@@ -2828,7 +2850,10 @@ export async function runPostProduction({
 
     const finalBuffer = fs.readFileSync(currentPath);
     logger.info(`post-production complete — ${(finalBuffer.length / 1024 / 1024).toFixed(1)}MB`);
-    return { finalBuffer, srtContent };
+    // postLutIntermediateBuffer is null unless captureIntermediate=true
+    // (commercial-only path). Orchestrator uploads it to Supabase as
+    // post_lut_intermediate_url for the Aleph enhancement endpoint.
+    return { finalBuffer, srtContent, postLutIntermediateBuffer };
   } finally {
     cleanup(tempPaths);
   }
@@ -2840,6 +2865,106 @@ export async function runPostProduction({
  */
 export function estimateEpisodeDuration(beatMetadata) {
   return beatMetadata.reduce((sum, b) => sum + (b.actual_duration_sec || b.duration_seconds || 0), 0);
+}
+
+/**
+ * 2026-05-05 — Aleph Rec 2 Phase 3 helper.
+ *
+ * Re-run Stages 4 (music duck) → 5 (title/end cards) → 6 (subtitle burn-in)
+ * on an already-assembled, already-graded video. Used by the Aleph
+ * enhancement orchestrator after stylization completes the identity_lock
+ * hard gate: the orchestrator passes the stylized concatenated video path,
+ * and this helper layers music + cards + subs on top to produce a
+ * finished episode with the same UX as the original final_video_url.
+ *
+ * This is the "Option B" architecture from Director Agent verdict A2.1 —
+ * subtitles and title cards are NEVER stylized by Aleph because they're
+ * applied AFTER, on the post-Aleph video, using identical sharp-rendered
+ * SVGs and burned subtitle PNGs.
+ *
+ * Stages 1-3 (normalize / SFX overlay / scene assembly / LUT) are
+ * intentionally NOT re-run — those are upstream of the post-LUT
+ * intermediate that Aleph already operated on.
+ *
+ * @param {Object} params
+ * @param {string} params.assembledVideoPath - path to the stylized + concatenated MP4
+ * @param {Buffer|null} [params.musicBedBuffer] - same buffer used for the original final
+ * @param {Array<Object>} params.beatMetadata - same metadata used for the original final
+ * @param {Object|null} [params.episodeMeta] - { series_title, episode_title, cliffhanger, brand_kit, cta_text }
+ * @param {boolean} [params.burnSubtitles=true]
+ * @returns {Promise<{ finalBuffer: Buffer, srtContent: string|null }>}
+ */
+export async function applyMusicCardsAndSubsToAssembled({
+  assembledVideoPath,
+  musicBedBuffer = null,
+  beatMetadata = [],
+  episodeMeta = null,
+  burnSubtitles: shouldBurnSubtitles = true
+}) {
+  if (!assembledVideoPath) {
+    throw new Error('applyMusicCardsAndSubsToAssembled: assembledVideoPath required');
+  }
+
+  const tempPaths = [];
+  try {
+    let currentPath = assembledVideoPath;
+
+    // ─── Stage 4 — music bed mix (ducked under dialogue beats) ───
+    if (musicBedBuffer) {
+      logger.info(`[Aleph re-run] stage 4: music bed mix with dialogue ducking`);
+      const musicPath = writeBuffer(musicBedBuffer, 'mp3');
+      const mixedPath = tmpPath('mp4');
+      tempPaths.push(musicPath, mixedPath);
+      mixMusicBedWithDucking(currentPath, musicPath, mixedPath, beatMetadata);
+      currentPath = mixedPath;
+    } else {
+      logger.info(`[Aleph re-run] stage 4: no music bed, skipping mix`);
+    }
+
+    // ─── Stage 5 — title + end card overlays ───
+    let titleCardOffsetSec = 0;
+    if (episodeMeta?.series_title || episodeMeta?.episode_title) {
+      logger.info(`[Aleph re-run] stage 5: title + end card overlays`);
+      const withCardsPath = tmpPath('mp4');
+      tempPaths.push(withCardsPath);
+      const videoDuration = probeDurationSec(currentPath);
+      await applyTitleAndEndCards({
+        inputPath: currentPath,
+        outputPath: withCardsPath,
+        seriesTitle: episodeMeta.series_title,
+        episodeTitle: episodeMeta.episode_title,
+        cliffhanger: episodeMeta.cliffhanger,
+        ctaText: episodeMeta.cta_text,
+        brandKit: episodeMeta.brand_kit,
+        videoDurationSec: videoDuration
+      });
+      currentPath = withCardsPath;
+      titleCardOffsetSec = TITLE_CARD_SEC;
+    } else {
+      logger.info(`[Aleph re-run] stage 5: no episodeMeta, skipping overlays`);
+    }
+
+    // ─── Stage 6 — subtitle burn-in ───
+    let srtContent = null;
+    if (shouldBurnSubtitles) {
+      srtContent = buildSrtFromBeats(beatMetadata, titleCardOffsetSec);
+      if (srtContent && srtContent.trim().length > 0) {
+        logger.info(`[Aleph re-run] stage 6: subtitle burn-in`);
+        const withSubsPath = tmpPath('mp4');
+        tempPaths.push(withSubsPath);
+        await burnSubtitles(currentPath, srtContent, withSubsPath);
+        currentPath = withSubsPath;
+      } else {
+        logger.info(`[Aleph re-run] no dialogue beats to subtitle`);
+      }
+    }
+
+    const finalBuffer = fs.readFileSync(currentPath);
+    logger.info(`[Aleph re-run] stages 4-6 complete — ${(finalBuffer.length / 1024 / 1024).toFixed(1)}MB`);
+    return { finalBuffer, srtContent };
+  } finally {
+    cleanup(tempPaths);
+  }
 }
 
 // Phase 1 — exported for unit testing the audio coherence rules.

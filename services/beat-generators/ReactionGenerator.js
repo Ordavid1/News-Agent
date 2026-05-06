@@ -46,14 +46,19 @@ class ReactionGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // Start frame waterfall: persona-lock (best) → previous endframe → scene
-    // master → persona closeup. The waterfall is unchanged when persona-lock
-    // returns null (V4_PERSONA_LOCK_FRAME=false or Seedream failure).
-    const firstFrameUrl = personaLockUrl
-      || previousBeat?.endframe_url
-      || scene?.scene_master_url
-      || persona.reference_image_urls?.[1] // closeup view
-      || persona.reference_image_urls?.[0];
+    // V4 Tier 2.1 (2026-05-06) — unified canonical waterfall. The persona's
+    // closeup reference images become the refStack tail (slots 8-9) when
+    // persona-lock fails AND no endframe / scene-master is available — the
+    // unified picker handles that via refStack[0]. We pre-pend the persona
+    // closeup refs to the local refStack so the picker finds them at tier 9.
+    const localRefStack = [
+      ...(refStack || []),
+      persona.reference_image_urls?.[1], // closeup view
+      persona.reference_image_urls?.[0]
+    ].filter(Boolean);
+    const firstFrameUrl = this._pickStartFrame(localRefStack, previousBeat, scene, beat, {
+      personaLockUrl
+    });
     if (!firstFrameUrl) {
       throw new Error(`beat ${beat.beat_id}: no start frame for REACTION`);
     }
@@ -75,16 +80,36 @@ class ReactionGenerator extends BaseBeatGenerator {
     const identityDirective = this._buildIdentityAnchoringDirective();
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
+    // V4 Tier 2.2 (2026-05-06) — wardrobe + brand palette + per-model
+    // color hint. Wardrobe is the highest-leverage continuity signal for
+    // REACTION beats specifically (the closeup reveals costume detail).
+    const colorHint = this._buildPerModelColorHint('veo', episodeContext?.brandKit);
+    const wardrobeDirective = this._buildWardrobeDirective(persona);
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+    // V4 Tier 2.5 (2026-05-06) — scene continuity sheet.
+    const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Tier 3.1 (2026-05-06) — anti-reference (Veo-strength). REACTION
+    // beats are particularly prone to "same closeup as last beat" because
+    // both ReactionGenerator and CinematicDialogueGenerator default to
+    // tight portraits — the directive forces the model to differ on at
+    // least one axis (subject placement, angle, framing density).
+    const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       'Tight closeup on the character in frame.',
       framingRecipe,
       identityDirective,
+      wardrobeDirective,
+      continuityDirective,
       subjectDirective,
+      brandColorDirective,
+      antiRefDirective,
       'Silent beat, no dialogue.',
       `Emotional arc: ${expressionArc}.`,
-      'Micro-expression emphasis, shallow depth of field, intimate framing.'
+      'Micro-expression emphasis, shallow depth of field, intimate framing.',
+      colorHint
     ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo REACTION (${duration}s, first-frame only)`);
@@ -107,6 +132,12 @@ class ReactionGenerator extends BaseBeatGenerator {
           subjectName: 'the character',
           subjectDescription: expressionArc,
           stylePrefix
+        },
+        telemetry: {
+          userId: episodeContext?.userId,
+          episodeId: episodeContext?.episodeId,
+          beatId: beat.beat_id,
+          beatType: beat.type
         }
       }
     });

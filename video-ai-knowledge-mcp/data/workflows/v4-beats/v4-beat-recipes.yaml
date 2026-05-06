@@ -217,6 +217,24 @@
   primary_endpoint: "fal-ai/kling-video/v3/pro/image-to-video"
   primary_endpoint_alt: "fal-ai/kling-video/v3/pro/text-to-video"
   audio_chain: []
+  # 2026-05-01 — Rec 1 alternative path. VeoActionGenerator routes
+  # ACTION_NO_DIALOGUE through Veo 3.1 Standard via Vertex AI (FREE under
+  # GCP quota). Opted in per-beat via beat.preferred_generator =
+  # 'VeoActionGenerator'. Solves Kling V3 Pro's face_drift_in_action
+  # (frame 60+) — Veo's first-frame anchoring + mid-action persona-lock
+  # holds identity through the full 8s ceiling.
+  alternative_paths:
+    - generator: VeoActionGenerator
+      model: veo-3.1
+      endpoint: "Vertex AI veo-3.1-generate-001 (FREE via GCP Marketplace)"
+      cost_usd: 0.00
+      output_label: "veo-3.1-standard/action (tier N)"
+      strengths_vs_primary:
+        - "first-frame anchoring eliminates Kling's face_drift_in_action (frame 60+)"
+        - "FREE via Vertex (vs $1.12 Kling per 5s beat)"
+      weaknesses_vs_primary:
+        - "8s hard ceiling vs Kling's 15s (no sustained-take grammar)"
+        - "less camera-control fidelity (Dutch tilt / vertigo / anamorphic flare)"
   fallback_models:
     - { model: veo-3.1, trigger: "IDENTITY 2nd-failure" }
   expected_duration_sec: 5
@@ -226,10 +244,28 @@
     persona_anchor: "first 200 chars — CIP front-view (cap action duration at 2.5s for identity stability)"
     action_directive: "next 200 chars — explicit kinetic verb + camera move"
     framing_recipe: "remaining — speed_ramp_action or kinetic recipe"
+  routing_hint: >
+    PREFER VeoActionGenerator (Vertex Veo, FREE) when:
+      • beat.duration_seconds ≤ 8 (Veo hard ceiling)
+      • NO requires_text_rendering (Veo text rendering weaker than Kling V3 Pro)
+      • NO complex camera grammar (Dutch tilt, vertigo zoom, anamorphic
+        flare, whip-pan, speed_ramp_action) — Veo approximates these but
+        Kling delivers them precisely
+      • persona identity stability matters (Veo's first-frame anchoring
+        eliminates Kling's face_drift_in_action)
+    STAY ON ActionGenerator (Kling V3 Pro) when:
+      • beat.duration_seconds ≥ 9 (sustained-tension single-take grammar:
+        BR2049 opening, Sicario tunnel, Children of Men single-take —
+        prestige aspiration; do NOT fragment into 2×4s Veo beats)
+      • complex camera move named in beat.camera_notes
+      • requires_text_rendering = true (in-scene signage, brand wordmarks)
+      • multi-shot montage required
+    Set beat.preferred_generator='VeoActionGenerator' to opt the beat into
+    the Vertex Veo path.
   failure_modes_to_watch:
     - taxonomy_id: identity_drift
       common_signature_id: face_drift_in_action
-      note: "primary risk for action beats"
+      note: "primary risk for ActionGenerator (Kling V3 Pro); ELIMINATED on VeoActionGenerator path (see veo3.yaml veo_face_stability_action)"
     - taxonomy_id: motion
       common_signature_id: text_smoothing_action
     - taxonomy_id: anatomy
@@ -239,9 +275,11 @@
     - blade-runner-2049-opening
     - children-of-men-single-take
   director_notes: >
-    Cap action duration at 2.5s where possible. Kling V3 Pro's signature
-    weakness is face drift past frame 60 in action — production must
-    plan around it.
+    Two-path strategy. Primary stays on Kling V3 Pro for the long-form
+    grammar (single-takes, complex camera moves, in-scene text). Alternative
+    VeoActionGenerator path is the cheap+identity-stable choice for clean
+    kinetic action ≤8s. Routing hint above guides Gemini's per-beat
+    preferred_generator emission.
 
 - beat_type: MONTAGE_SEQUENCE
   generator: MontageSequenceGenerator

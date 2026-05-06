@@ -832,7 +832,27 @@
     const lutId = ep.lut_id || activeStory?.brand_kit_lut_id || activeStory?.locked_lut_id || 'bs_naturalistic';
     const status = ep.status || 'pending';
 
-    const row = el('div', { class: 'flex items-center gap-3 flex-wrap' }, [
+    // 2026-05-05 — Aleph Rec 2 Phase 4: opt-in commercial enhancement.
+    //   - Show button when: commercial episode, status='ready', post-LUT
+    //     intermediate persisted, NO enhancement yet, not currently running
+    //   - Show "running" pill when aleph_job_metadata.status='running'
+    //   - Show "Cinema-grade ✓" pill when aleph_enhanced_video_url exists
+    //   - Show "Identity drift" pill when status='failed_identity_gate'
+    //     (with a tooltip: "original preserved, no charge")
+    const isCommercial = !!(activeStory?.commercial_brief || ep.commercial_brief
+      || (sceneDescription?.creative_concept && (activeStory?.story_focus === 'commercial' || activeStory?.genre === 'commercial')));
+    const alephJob = ep.aleph_job_metadata || {};
+    const alephEnhanced = !!ep.aleph_enhanced_video_url;
+    const alephRunning = alephJob.status === 'running';
+    const alephFailedGate = alephJob.status === 'failed_identity_gate';
+    const alephFailedError = alephJob.status === 'failed_aleph_error';
+    const showEnhanceButton = isCommercial
+      && status === 'ready'
+      && !!ep.post_lut_intermediate_url
+      && !alephEnhanced
+      && !alephRunning;
+
+    const headerChildren = [
       el('h3', { class: 'text-lg font-bold text-ink-800 truncate flex-1' },
         `Director's Panel \u2014 ${sceneDescription.title || `Episode ${ep.episode_number || ''}`}`
       ),
@@ -842,16 +862,56 @@
       el('span', { class: 'px-2 py-0.5 text-[11px] rounded bg-green-100 text-green-700' }, `~$${totalCost.toFixed(2)}`),
       el('span', {
         class: `px-2 py-0.5 text-[11px] rounded ${status === 'ready' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`
-      }, status),
-      el('button', {
-        class: 'px-3 py-1 text-xs bg-white border border-surface-300 text-ink-700 rounded hover:bg-surface-50',
-        onclick: () => window._dpReassemble()
-      }, 'Reassemble'),
-      el('button', {
-        class: 'px-3 py-1 text-xs bg-surface-100 text-ink-700 rounded hover:bg-surface-200',
-        onclick: () => window.closeDirectorPanel()
-      }, 'Close')
-    ]);
+      }, status)
+    ];
+
+    if (alephEnhanced) {
+      const score = alephJob.identity_lock_score
+        ? `\u00A0\u00B7\u00A0identity ${alephJob.identity_lock_score}/100`
+        : '';
+      headerChildren.push(el('span', {
+        class: 'px-2 py-0.5 text-[11px] rounded bg-amber-100 text-amber-800 font-medium',
+        title: 'Cinema-grade Aleph enhancement ready. Toggle in the player below.'
+      }, `\u2728 Cinema-grade${score}`));
+    } else if (alephRunning) {
+      headerChildren.push(el('span', {
+        class: 'px-2 py-0.5 text-[11px] rounded bg-amber-100 text-amber-800 font-medium animate-pulse',
+        title: 'Aleph stylization in progress. Watch the live progress feed below.'
+      }, '\u2728 Enhancing\u2026'));
+    } else if (alephFailedGate) {
+      const score = alephJob.identity_lock_score
+        ? `${alephJob.identity_lock_score}/100`
+        : 'low';
+      headerChildren.push(el('span', {
+        class: 'px-2 py-0.5 text-[11px] rounded bg-orange-100 text-orange-800',
+        title: `Identity drift detected (${score}). Original preserved. ${alephJob.billing_status === 'refunded' ? 'Charge refunded.' : 'No charge.'}`
+      }, '\u2728 Identity drift \u2014 original preserved'));
+    } else if (alephFailedError) {
+      headerChildren.push(el('span', {
+        class: 'px-2 py-0.5 text-[11px] rounded bg-red-100 text-red-700',
+        title: `Aleph error: ${alephJob.error_message || 'unknown'}`
+      }, '\u2728 Enhancement failed'));
+    }
+
+    if (showEnhanceButton) {
+      headerChildren.push(el('button', {
+        class: 'px-3 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 font-medium',
+        title: 'Apply Runway Aleph cinema-grade stylization. Free during testing phase.',
+        onclick: () => window._dpEnhanceWithAleph()
+      }, '\u2728 Enhance with Aleph'));
+    }
+
+    headerChildren.push(el('button', {
+      class: 'px-3 py-1 text-xs bg-white border border-surface-300 text-ink-700 rounded hover:bg-surface-50',
+      onclick: () => window._dpReassemble()
+    }, 'Reassemble'));
+
+    headerChildren.push(el('button', {
+      class: 'px-3 py-1 text-xs bg-surface-100 text-ink-700 rounded hover:bg-surface-200',
+      onclick: () => window.closeDirectorPanel()
+    }, 'Close'));
+
+    const row = el('div', { class: 'flex items-center gap-3 flex-wrap' }, headerChildren);
     node.appendChild(row);
   }
 
@@ -1005,13 +1065,31 @@
       }
 
       // Step 2 — show the synthesized directive in a confirm dialog.
+      // V4 hotfix 2026-05-06 — surface SmartSynth's new fields:
+      //   - diagnosis: 1-2 sentence plain-language explanation of what went wrong
+      //   - source_detail: 'multimodal_rich' | 'text_rich' | 'cheap_concat'
+      //     (multimodal means the synth saw the rejected image vs. text-only)
+      //   - regression_warning: prior attempts have been declining → conservative
+      //   - prior_attempt_count: how many directives have already been tried
+      //   - reference_image_count: persona/scene refs the synth had access to
       const summary = auto.halt_summary || {};
-      const sourceTag = auto.source === 'rich' ? '(AI-synthesized from verdict + scene content)' : '(compiled from verdict findings)';
+      const sourceLabel = auto.source_detail === 'multimodal_rich'
+        ? '🖼️ Multimodal (synth SAW the rejected image + reference images)'
+        : auto.source_detail === 'text_rich'
+        ? '📝 Text-rich (synth received verdict + context, no image)'
+        : '⚙️ Cheap concat (Gemini fallback)';
+      const refTag = auto.reference_image_count > 0 ? ` · ${auto.reference_image_count} ref images` : '';
+      const priorTag = auto.prior_attempt_count > 0 ? ` · ${auto.prior_attempt_count} prior attempt(s)` : '';
+      const confTag = auto.confidence != null ? ` · synth confidence ${(auto.confidence * 100).toFixed(0)}%` : '';
       const confirmMsg = [
-        `Smart Edit & Retry ${sourceTag}`,
+        `Smart Edit & Retry — ${sourceLabel}${refTag}${priorTag}${confTag}`,
         '',
         `Halt: Lens ${summary.checkpoint || '?'}${summary.artifact_id ? ` · ${summary.artifact_id}` : ''}${summary.verdict_score != null ? ` · score ${summary.verdict_score}` : ''} · ${summary.finding_count || 0} finding(s)`,
         '',
+        auto.diagnosis ? `🔍 Synth diagnosis:\n${auto.diagnosis}\n` : '',
+        auto.regression_warning
+          ? '⚠️ REGRESSION WARNING — prior attempts have been scoring LOWER each time. Synth has switched to conservative mode (single-target directive). Consider editing the directive yourself or trying a different angle.\n'
+          : '',
         'The system will splice this directive into the next render nudge:',
         '',
         '──────────────────────────',
@@ -2250,6 +2328,50 @@
       connectSSE();
     } catch (err) {
       flashStatus(`Reassemble failed: ${err.message}`, true);
+    }
+  };
+
+  // 2026-05-05 — Aleph Rec 2 Phase 4: opt-in commercial-only enhancement.
+  // Confirmation copy explicitly names the cost model + identity hard gate
+  // so the user understands what they're agreeing to BEFORE the spend.
+  window._dpEnhanceWithAleph = async function () {
+    const billingEnabled = !!window._brandStoryAlephBillingEnabled; // set by parent page if billing on
+    const costNote = billingEnabled
+      ? 'Cost: ~$12 per enhancement. Auto-refunded if identity check fails.'
+      : 'Free during the current testing phase.';
+    const message =
+      'Apply Runway Aleph cinema-grade stylization to this commercial episode?\n\n' +
+      '• Operates on the post-LUT intermediate (graded video, no music/cards/subs yet)\n' +
+      '• Re-applies music + cards + subtitles AFTER stylization\n' +
+      '• Hard gate: identity_lock must score \u2265 85/100 — if it fails, the original is kept\n' +
+      `• Estimated wait: 3\u20135 minutes for a 60s spot\n\n${costNote}`;
+
+    if (!confirm(message)) return;
+
+    try {
+      const resp = await fetch(`/api/brand-stories/${activeStoryId}/episodes/${activeEpisodeId}/enhance/aleph`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() },
+        body: JSON.stringify({ strength: 0.20 })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error || `Aleph request failed (${resp.status})`);
+      }
+      flashStatus('\u2728 Aleph enhancement started — watch the progress feed');
+      // Update local state so the header re-renders with the "Enhancing\u2026" pill
+      // immediately, before the first SSE tick arrives.
+      if (activeEpisode) {
+        activeEpisode.aleph_job_metadata = {
+          ...activeEpisode.aleph_job_metadata,
+          status: 'running',
+          requested_at: new Date().toISOString()
+        };
+        renderHeader();
+      }
+      connectSSE();
+    } catch (err) {
+      flashStatus(`Aleph enhancement failed: ${err.message}`, true);
     }
   };
 

@@ -51,16 +51,15 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // Start frame precedence:
-    //   1. persona-locked first frame (when persona appears in bridge)
-    //   2. bridge_from_scene_endframe (the outgoing scene's last frame)
-    //   3. previous endframe (beat-level fallback)
-    //   4. current scene master
-    const firstFrameUrl = personaLockUrl
-      || beat.bridge_from_scene_endframe_url
-      || previousBeat?.endframe_url
-      || scene?.scene_master_url
-      || null;
+    // V4 Tier 2.1 (2026-05-06) — unified canonical waterfall. The picker
+    // honors beat.bridge_from_scene_endframe_url at tier 5 (between
+    // SIPL/subject and previous-endframe), which is the right slot for a
+    // scene-to-scene bridge: when Bridge is called, beat.bridge_from_scene_endframe_url
+    // IS the prior scene's last frame (richer signal than previousBeat's
+    // last in-scene endframe), and the unified picker prefers it correctly.
+    const firstFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat, {
+      personaLockUrl
+    });
 
     // End frame: the NEXT scene's master is the bridge's destination anchor.
     // Veo's first-last-frame mode interpolates the transit between them,
@@ -74,13 +73,27 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
       || 'Transit shot connecting the previous scene to the next location';
     const ambientSound = beat.ambient_sound || 'natural transit ambient sound';
 
+    // V4 Tier 2.2 (2026-05-06) — color hint + brand palette. Bridges
+    // benefit specifically from per-model color hint because they cross
+    // from one scene's grade to the next; without explicit cohesion the
+    // bridge can land in the wrong color temperature.
+    const personasInBridge = this._resolvePersonasInBeat(beat, personas);
+    const colorHint = this._buildPerModelColorHint('veo', episodeContext?.brandKit);
+    const wardrobeDirective = personasInBridge.length > 0
+      ? this._buildWardrobeDirective(personasInBridge[0])
+      : '';
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+
     const prompt = this._appendDirectorNudge([
       stylePrefix,
       'Scene bridge — connective transit shot.',
       framingRecipe,
       visualPrompt,
+      wardrobeDirective,
+      brandColorDirective,
       'Seamless movement, no dialogue.',
-      `Ambient: ${ambientSound}.`
+      `Ambient: ${ambientSound}.`,
+      colorHint
     ].filter(Boolean).join(' '), beat);
 
     this.logger.info(
@@ -106,6 +119,12 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
           subjectName: 'transit shot',
           subjectDescription: visualPrompt,
           stylePrefix
+        },
+        telemetry: {
+          userId: episodeContext?.userId,
+          episodeId: episodeContext?.episodeId,
+          beatId: beat.beat_id,
+          beatType: beat.type
         }
       }
     });

@@ -100,11 +100,14 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'natural' })
       : null;
 
-    const firstFrameUrl = personaLockUrl
-      || subjectNaturalUrl
-      || scene?.scene_master_url
-      || previousBeat?.endframe_url
-      || null;
+    // V4 Tier 2.1 (2026-05-06) — unified canonical waterfall (same shape
+    // as BRollGenerator). The picker handles persona-lock-cached → just-
+    // synthesized persona-lock → subject-natural → bridge-anchor → previous-
+    // endframe → scene-master, and writes beat.continuity_fallback_reason.
+    const firstFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat, {
+      personaLockUrl,
+      subjectNaturalUrl
+    });
 
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const location = beat.location || scene?.location || 'atmospheric establishing';
@@ -118,15 +121,29 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       : '';
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
+    // V4 Tier 2.2 (2026-05-06) — color hint + wardrobe + brand palette.
+    const personasInBeat = this._resolvePersonasInBeat(beat, personas);
+    const colorHint = this._buildPerModelColorHint('veo', episodeContext?.brandKit);
+    const wardrobeDirective = personasInBeat.length > 0
+      ? this._buildWardrobeDirective(personasInBeat[0])
+      : '';
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+    // V4 Tier 3.1 (2026-05-06) — anti-reference (Veo-strength).
+    const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
+
     const veoPrompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
       `B-roll of ${location}.`,
       `Camera: ${cameraMove}.`,
       identityDirective,
+      wardrobeDirective,
       subjectDirective,
+      brandColorDirective,
+      antiRefDirective,
       'Atmospheric and evocative.',
-      'Ambient sound bed only (natural environment).'
+      'Ambient sound bed only (natural environment).',
+      colorHint
     ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Stage B: Veo 3.1 B-roll (${duration}s)`);
@@ -146,6 +163,12 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
           subjectName: location,
           subjectDescription: 'atmospheric establishing b-roll',
           stylePrefix
+        },
+        telemetry: {
+          userId: episodeContext?.userId,
+          episodeId: episodeContext?.episodeId,
+          beatId: beat.beat_id,
+          beatType: beat.type
         }
       }
     });

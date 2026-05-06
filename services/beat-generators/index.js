@@ -33,6 +33,11 @@ export { default as SilentStareGenerator } from './SilentStareGenerator.js';
 export { default as ReactionGenerator } from './ReactionGenerator.js';
 export { default as InsertShotGenerator } from './InsertShotGenerator.js';
 export { default as ActionGenerator } from './ActionGenerator.js';
+// 2026-05-01 — Rec 1: Veo 3.1 Standard (Vertex) variant for ACTION_NO_DIALOGUE.
+// Opt-in per-beat via beat.preferred_generator='VeoActionGenerator'.
+// Solves Kling V3 Pro's documented face_drift_in_action (frame 60+) by
+// using Veo's first/last-frame anchoring + mid-action persona-lock.
+export { default as VeoActionGenerator } from './VeoActionGenerator.js';
 export { default as MontageSequenceGenerator } from './MontageSequenceGenerator.js';
 export { default as BRollGenerator } from './BRollGenerator.js';
 export { default as VoiceoverBRollGenerator } from './VoiceoverBRollGenerator.js';

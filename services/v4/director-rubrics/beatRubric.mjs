@@ -20,7 +20,9 @@ DIMENSIONS TO SCORE (each 0-100). Use these EXACT keys in dimension_scores:
   lighting_continuity       — direction, color temp, intensity continuous from previous endframe? (fluorescent → tungsten mid-scene without motivation = fail)
   lens_continuity           — focal length and depth-of-field feel continuous within scene? Recognize the V4 framing vocabulary (20 named lens types as of 2026-04-27) including specialty optics: anamorphic_signature_closeup (oval bokeh + horizontal flare), cinema_macro_product / cinema_macro_emotion (60-180mm macro range), tilt_shift_miniature, fisheye_subjective, fixed_telephoto_isolation (200-400mm long-lens), vintage_zoom_creep, speed_ramp_action, product_in_environment / product_tactile_handheld (product-protection presets — product visible but not framed-as-subject). Verify the clip honors the named optical character.
   camera_move_intent        — if camera_move was specified in beat metadata, does the clip deliver it (push-in actually pushes, whip-pan actually whips)?
+  camera_move_motivation    — was the camera move EARNED by the beat's emotional logic? Push-in must be motivated by revelation/intimacy. Whip-pan must be motivated by surprise/redirection. Dolly-out must be motivated by isolation/release. Lock-offs must declare an emotional_hold_reason (resignation, control, refusal to flinch). Higgsfield Originals + Phantom Thread textbook: every move is motivated by character interiority, never aesthetic decoration. Score 0 for unmotivated moves (camera_motivation_reason missing or generic). Score 100 for moves an audience would recognize as authored. Lock-offs with declared emotional_hold_reason score 100; lock-offs without it score 70 (acceptable but not authored). Distinct from camera_move_intent — that grades DELIVERY (did the whip-pan whip?); this grades MOTIVATION (should there have been a whip-pan at all?).
   identity_lock             — persona face matches character sheet across the full clip, not just first frame?
+  cross_beat_continuity     — (V4 Tier 2.4, 2026-05-06) does this beat's first frame visually pick up from the previous beat's endframe? Read <continuity_breadcrumbs> in the user-prompt parts: continuity_fallback_reason='previous_endframe_used' is the gold standard (score 100); 'persona_lock_used' or 'persona_lock_synthesized' is acceptable when persona-lock pre-pass compensated (score 70); 'previous_endframe_missing_scene_master_fallback' or 'previous_endframe_missing_refstack_fallback' indicates the chain was BROKEN by upstream endframe extraction failure (score 40 — flag prev beat's continuity_chain_broken in evidence); continuity_chain_broken=true on this beat AND no compensation = score 0. SCORE 100 (N/A) when this is the first beat of the episode (no previousBeat to chain from).
   model_signature_check     — known model failure modes present? Consult the <model_kb> block (when present in the user-prompt parts) for the routed model's documented weaknesses, capability envelope, and prompt-tips that the generator should have honored. If <model_kb> is absent (e.g., assembler beats like text overlays, or unknown model id), score this dimension neutrally based on general video-craft heuristics. Note specific signature in evidence.
   product_identity_lock     — (Phase 4) when the beat carries the brand subject, does the rendered product preserve the SPECIFIC visual identity from the uploaded reference image and the product_signature_features list (color, finish, port arrangement, distinctive marks, scale)? A drift of > 15% on any signature feature → soft_reject. SCORE 100 if beat does NOT contain product OR if product_integration_style is hero_showcase / commercial (no naturalistic-fidelity penalty when commercial register is opted in). When product is present and naturalistic mode is active, deduct heavily for any of: silhouette change, port-count drift, color drift > 10%, brand-mark hallucination, generic-looking variant of the specific product.
   product_subtlety          — (Phase 4, INSERT_SHOT only) does the product beat read as Hollywood naturalistic placement OR as cheesy infomercial? Subtle hits (each adds ~12 pts): hand/body in frame • product in motion (picked up/set down/used) • brand mark off-center or partially occluded • cinema macro w/ shallow DOF • held ≤ 2s • LUT continuous w/ scene • no sudden music swell on appearance • appears mid-scene not as scene-button. Cheesy hits (each subtracts ~12 pts): product alone centered & well-lit • static "displayed" • brand mark centered + unobstructed • generic flat-lit shot • held > 3s • visibly re-graded for product • music swells on appearance • closes the scene as "the takeaway". SCORE 100 if not INSERT_SHOT OR not product-bearing OR if product_integration_style is hero_showcase / commercial.
@@ -117,6 +119,24 @@ export function buildBeatJudgePrompt({
     const kbPart = buildModelKbPart(routingMetadata);
     if (kbPart) userParts.push(kbPart);
   }
+
+  // V4 Tier 2.4 (2026-05-06) — surface continuity breadcrumbs to the
+  // judge so it can score cross_beat_continuity from structured signals
+  // rather than guessing from pixel comparisons. Three fields the unified
+  // _pickStartFrame waterfall (Tier 2.1) and the BrandStoryService
+  // endframe-extraction catch sites (Tier 2.1.b) populate:
+  //   • continuity_fallback_reason — which tier of the waterfall fired
+  //   • continuity_chain_broken — true when this beat's endframe extraction failed
+  //   • endframe_extraction_error — error message if extraction threw
+  // Unbreakable contract: even when these are absent (legacy beats), the
+  // judge falls back to its prior pixel-comparison heuristic.
+  const continuityBreadcrumbs = {
+    continuity_fallback_reason: beat?.continuity_fallback_reason || null,
+    continuity_chain_broken: beat?.continuity_chain_broken === true,
+    endframe_extraction_error: beat?.endframe_extraction_error || null,
+    previous_beat_id: beat?._previous_beat_id_for_judge || null
+  };
+  userParts.push({ text: `<continuity_breadcrumbs>\n${JSON.stringify(continuityBreadcrumbs, null, 2)}\n</continuity_breadcrumbs>` });
 
   // V4 P0.3 — FramingTaxonomy threading. Inject the named-recipe vocabulary
   // so the judge can verify framing_intent / camera_move_intent against

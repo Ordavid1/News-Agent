@@ -23,12 +23,18 @@ import {
   COMMERCIAL_EPISODE_VERDICT_SCHEMA,
   COMMERCIAL_SCREENPLAY_VERDICT_SCHEMA,
   COMMERCIAL_SCENE_MASTER_VERDICT_SCHEMA,
-  COMMERCIAL_BEAT_VERDICT_SCHEMA
+  COMMERCIAL_BEAT_VERDICT_SCHEMA,
+  POST_STYLIZATION_IDENTITY_SCHEMA,
+  // V4 Tier 3.2 + 3.5 (2026-05-06) — live in-pipeline lenses.
+  CONTINUITY_VERDICT_SCHEMA,
+  ROUGH_CUT_EDL_SCHEMA
 } from './director-rubrics/verdictSchema.mjs';
 import { buildScreenplayJudgePrompt } from './director-rubrics/screenplayRubric.mjs';
 import { buildSceneMasterJudgePrompt } from './director-rubrics/sceneMasterRubric.mjs';
 import { buildBeatJudgePrompt } from './director-rubrics/beatRubric.mjs';
 import { buildEpisodeJudgePrompt } from './director-rubrics/episodeRubric.mjs';
+// V4 Tier 3.2 (2026-05-06) — Lens E continuity rubric.
+import { buildContinuityJudgePrompt } from './director-rubrics/continuityRubric.mjs';
 import {
   buildCommercialBriefJudgePrompt,
   buildCommercialEpisodeJudgePrompt
@@ -313,6 +319,143 @@ export class DirectorAgent {
   }
 
   /**
+   * V4 Tier 3.2 (2026-05-06) — Lens E "Continuity Supervisor".
+   *
+   * The user's strategic ask: move the Director from a checkpoint critic
+   * to a LIVE pipeline supervisor. Lens E runs BETWEEN beat generations
+   * (after beat N's Lens C pass, before beat N+1 starts) — judging the
+   * RELATIONSHIP between consecutive beats rather than each in isolation.
+   *
+   * Cadence: WITHIN-SCENE only. Cross-scene continuity is owned by Lens F
+   * (Editor Agent). Caller is responsible for not invoking this when
+   * scene_idx changes between prevBeat and currentBeat.
+   *
+   * Live-streamed via the orchestrator's progressEmitter so the Director
+   * Panel UI renders per-pair continuity badges as they happen.
+   *
+   * @param {Object} args - see buildContinuityJudgePrompt
+   */
+  async judgeContinuity(args) {
+    const { systemPrompt, userParts } = buildContinuityJudgePrompt(args);
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: CONTINUITY_VERDICT_SCHEMA,
+      checkpointLabel: 'continuity',
+      timeoutOverrideMs: this.timeoutVideoMs
+    });
+  }
+
+  /**
+   * V4 Tier 3.5 (2026-05-06) — Lens F "Editor Agent".
+   *
+   * Runs once per episode on the assembled rough cut (PostProduction
+   * stage 2 output, BEFORE stage 3 LUT). Authorized to emit a structured
+   * Edit Decision List (drop_beat / swap_beats / retime_beat /
+   * j_cut_audio) that PostProduction stage 2.5 applies before LUT.
+   *
+   * Lens D becomes the SCREENING verdict on the cut, not the assembly.
+   *
+   * Live-streamed via the orchestrator's progressEmitter so the Director
+   * Panel UI renders the proposed EDL and the user can approve / override
+   * / reject in real time.
+   *
+   * @param {Object} args
+   * @param {string|Buffer} args.roughCutVideo - URL or Buffer of the assembled pre-LUT MP4
+   * @param {string} [args.roughCutMime='video/mp4']
+   * @param {Object} args.sceneGraph - the full scene-graph for context
+   * @param {Object[]} [args.lensCVerdicts] - per-beat Lens C verdicts indexed by beat_id
+   * @param {Object} [args.continuitySummary] - { worst_pair, weakest_dim_avg, broken_chain_count } from Lens E
+   */
+  async judgeRoughCut(args) {
+    // Build prompt inline to avoid spinning up a separate rubric module
+    // for what is structurally a wrapper around the EDL schema.
+    const {
+      roughCutVideo,
+      roughCutMime = 'video/mp4',
+      sceneGraph,
+      lensCVerdicts = {},
+      continuitySummary = null
+    } = args || {};
+    if (!roughCutVideo) throw new Error('judgeRoughCut: roughCutVideo is required');
+
+    const systemPrompt = [
+      'You are the EDITOR. The director shot the coverage; you cut the picture. Your job: watch the rough cut as a SEQUENCE and emit an Edit Decision List (EDL) that tightens the storytelling.',
+      '',
+      'CHECKPOINT F — Editor (per episode, pre-LUT). LENS F. Runs on the assembled rough cut BEFORE the LUT pass.',
+      '',
+      'AUTHORIZED EDITS (emit on the EDL field):',
+      '  drop_beat:    beats that do not earn their runtime (max 4)',
+      '  swap_beats:   pairs to reorder (max 3 swaps)',
+      '  retime_beat:  ±0.5s nudges per beat (max 6)',
+      '  j_cut_audio:  audio of beat N+1 starts under beat N tail (max 4 J-cuts)',
+      '',
+      'DIMENSIONS TO SCORE (each 0-100):',
+      '  pace_per_act        — does the cut breathe at the right rate per movement?',
+      '  bridge_quality      — do scene-to-scene transitions land?',
+      '  rhythm_variation    — avoid mechanical "every beat is 4s" feel',
+      '  dialogue_landing    — do exchange beats land their punctuation?',
+      '  cliffhanger_sting   — does the final beat earn its end card?',
+      '',
+      'OUTPUT ONLY THE VERDICT JSON (with edl populated when shouldEdit). No prose preamble.'
+    ].join('\n');
+
+    const userParts = [];
+    userParts.push({ text: `<scene_graph_summary>\n${JSON.stringify({
+      scenes: (sceneGraph?.scenes || []).map(s => ({
+        scene_id: s.scene_id,
+        beat_count: (s.beats || []).length,
+        beat_ids: (s.beats || []).map(b => b.beat_id)
+      })),
+      total_beats: (sceneGraph?.scenes || []).reduce((acc, s) => acc + (s.beats || []).length, 0)
+    }, null, 2)}\n</scene_graph_summary>` });
+
+    if (continuitySummary) {
+      // Compressed summary, not raw Lens E verdicts (per Director note —
+      // raw verdicts blow the multimodal budget).
+      userParts.push({ text: `<continuity_summary_from_lens_e>\n${JSON.stringify(continuitySummary, null, 2)}\n</continuity_summary_from_lens_e>` });
+    }
+
+    const lensCSummary = Object.entries(lensCVerdicts || {})
+      .filter(([, v]) => v && v.verdict)
+      .map(([beatId, v]) => ({ beat_id: beatId, verdict: v.verdict, score: v.overall_score || null }));
+    if (lensCSummary.length > 0) {
+      userParts.push({ text: `<lens_c_summary>\n${JSON.stringify(lensCSummary, null, 2)}\n</lens_c_summary>` });
+    }
+
+    // Attach the rough cut video.
+    if (Buffer.isBuffer(roughCutVideo)) {
+      userParts.push({ text: 'Rough cut (pre-LUT, pre-music-mix):' });
+      userParts.push({ inline_data: { mime_type: roughCutMime, data: roughCutVideo.toString('base64') } });
+    } else if (typeof roughCutVideo === 'string') {
+      userParts.push({ text: 'Rough cut (pre-LUT, pre-music-mix):' });
+      userParts.push({ file_data: { file_uri: roughCutVideo, mime_type: roughCutMime } });
+    }
+
+    userParts.push({ text: 'Grade per Lens F. Output ONLY the verdict JSON with edl field populated.' });
+
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: ROUGH_CUT_EDL_SCHEMA,
+      checkpointLabel: 'rough_cut_editor',
+      timeoutOverrideMs: this.timeoutVideoMs
+    });
+  }
+
+  // V4 Tier 3.6 — Lens G "Sound Supervisor" (NAMED, BUILD DEFERRED).
+  //
+  // The org-chart gap noted by the Director: this pipeline has no sound
+  // supervisor. Lens G would run audio-only on the music + SFX mix between
+  // PostProduction stage 4 (music mix) and stage 5 (cards). 5-dim rubric:
+  // dialogue_intelligibility / music_emotion_fit / sfx_motivation /
+  // silence_use / sting_landing. Authorized to trigger one re-mix pass with
+  // adjusted ducking parameters.
+  //
+  // Build deferred to a future tier — named here so the gap is on the record
+  // and the orchestrator can wire it without service surgery later.
+
+  /**
    * Phase 6 — COMMERCIAL pre-screenplay brief verdict (Lens 0/A combined).
    * Runs ONCE per commercial story BEFORE the screenplay writer is invoked.
    * Validates the CreativeBriefDirector output against the commercial rubric;
@@ -400,6 +543,106 @@ export class DirectorAgent {
       userParts,
       schema: COMMERCIAL_BEAT_VERDICT_SCHEMA,
       checkpointLabel: CHECKPOINTS.COMMERCIAL_BEAT
+    });
+  }
+
+  /**
+   * 2026-05-05 — Aleph Rec 2 Phase 3 hard gate.
+   *
+   * Single-dimension multimodal judge that scores how well a stylized
+   * frame preserves a reference persona's facial bone structure. Used by
+   * AlephEnhancementOrchestrator after gen4_aleph stylization to decide
+   * whether to ship the stylized output (pass at 85+) or discard it and
+   * keep the original final_video_url. Implements the hard gate from
+   * Director Agent verdict A2.2.
+   *
+   * Tiny schema (POST_STYLIZATION_IDENTITY_SCHEMA) keeps this fast — typical
+   * latency 10-30s vs 60-120s for full Lens C. The orchestrator runs this
+   * 1-3 times against representative stylized frames and averages.
+   *
+   * @param {Object} params
+   * @param {Buffer|string} params.stylizedFrameImage - JPG buffer OR URL of the post-Aleph midframe
+   * @param {string} [params.stylizedFrameMime='image/jpeg']
+   * @param {Buffer|string} params.personaReferenceImage - persona's CIP-front (canonical identity portrait)
+   * @param {string} [params.personaReferenceMime='image/jpeg']
+   * @param {string} [params.personaName='the persona']
+   * @returns {Promise<{ identity_lock_score: number, pass: boolean, reasoning: string }>}
+   */
+  async judgePostStylizationIdentity({
+    stylizedFrameImage,
+    stylizedFrameMime = 'image/jpeg',
+    personaReferenceImage,
+    personaReferenceMime = 'image/jpeg',
+    personaName = 'the persona'
+  }) {
+    if (!stylizedFrameImage) throw new Error('judgePostStylizationIdentity: stylizedFrameImage required');
+    if (!personaReferenceImage) throw new Error('judgePostStylizationIdentity: personaReferenceImage required');
+
+    const systemPrompt = [
+      'You are a casting director and identity-fidelity judge.',
+      '',
+      'Your single task: judge whether the STYLIZED FRAME preserves the persona\'s facial identity from the REFERENCE IMAGE.',
+      '',
+      'What counts as identity:',
+      '  • Inter-ocular distance (eye spacing)',
+      '  • Nose geometry (length, bridge, nostrils)',
+      '  • Jawline and chin shape',
+      '  • Lip shape and proportions',
+      '  • Brow arch and forehead ratio',
+      '  • Ear placement and size',
+      '',
+      'What DOES NOT count as identity drift:',
+      '  • Lighting / color / grade differences (the stylization changes look intentionally)',
+      '  • Hair styling / makeup / wardrobe differences',
+      '  • Background / scene differences',
+      '  • Pose / expression / mouth-open vs closed',
+      '  • Stylized rendering style (cel-shade, painterly, etc.) — judge the underlying bone structure, not the rendering',
+      '',
+      'Scoring:',
+      '  100  — perfect identity preservation; could be the same actor in the same casting session',
+      '  85+  — acceptable; same person despite stylization',
+      '  70-84 — borderline; family member or close lookalike but not the same person',
+      '  <70  — clear identity drift; different person',
+      '',
+      'Hard gate: pass=true at 85+, pass=false below 85. NO middle ground.',
+      'Output ONLY the JSON verdict matching the schema. No preamble, no explanation outside the reasoning field.'
+    ].join('\n');
+
+    const userParts = [
+      { text: `Persona name: ${personaName}` },
+      { text: 'REFERENCE IMAGE (canonical identity portrait — what the persona\'s face SHOULD look like):' }
+    ];
+
+    // Attach reference image (CIP front view)
+    if (Buffer.isBuffer(personaReferenceImage)) {
+      userParts.push({
+        inline_data: { mime_type: personaReferenceMime, data: personaReferenceImage.toString('base64') }
+      });
+    } else if (typeof personaReferenceImage === 'string') {
+      userParts.push({
+        file_data: { file_uri: personaReferenceImage, mime_type: personaReferenceMime }
+      });
+    }
+
+    userParts.push({ text: 'STYLIZED FRAME (post-Aleph output — does this preserve the same facial identity?):' });
+
+    if (Buffer.isBuffer(stylizedFrameImage)) {
+      userParts.push({
+        inline_data: { mime_type: stylizedFrameMime, data: stylizedFrameImage.toString('base64') }
+      });
+    } else if (typeof stylizedFrameImage === 'string') {
+      userParts.push({
+        file_data: { file_uri: stylizedFrameImage, mime_type: stylizedFrameMime }
+      });
+    }
+
+    userParts.push({ text: 'Score identity_lock_score 0-100. Set pass=true at 85+. Output ONLY the JSON verdict.' });
+
+    return this._call({
+      systemPrompt,
+      userParts,
+      schema: POST_STYLIZATION_IDENTITY_SCHEMA,
+      checkpointLabel: 'post_stylization_identity'
     });
   }
 

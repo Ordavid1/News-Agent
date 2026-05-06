@@ -119,6 +119,9 @@ test('verdict schema — dimension_scores per-checkpoint keys match rubric', () 
   assert.deepEqual(BEAT_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
     'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
     'lighting_continuity', 'lens_continuity', 'camera_move_intent',
+    // 2026-05-01 — Director Agent verdict Rec 4: motivated camera grammar
+    // separate from delivery. Phantom Thread textbook.
+    'camera_move_motivation',
     'identity_lock', 'model_signature_check',
     // Phase 4 (2026-04-27) — natural product placement guardrails.
     'product_identity_lock', 'product_subtlety'
@@ -126,7 +129,15 @@ test('verdict schema — dimension_scores per-checkpoint keys match rubric', () 
   assert.deepEqual(EPISODE_VERDICT_SCHEMA.properties.dimension_scores.propertyOrdering, [
     'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
     'lut_consistency_cross_scene', 'transition_intent', 'subtitle_legibility_taste',
-    'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting'
+    'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting',
+    // 2026-05-01 — Director Agent verdict Rec 3 Phase A: 6 audio dimensions
+    // make the SonicSeriesBible enforceable from the grading side.
+    'audio_coherence_episode',
+    'dB_consistency_inter_beat',
+    'sfx_motivation_coherence',
+    'sound_design_intent_match',
+    'spectral_anchor_adherence',
+    'no_fly_list_violations'
   ]);
 });
 

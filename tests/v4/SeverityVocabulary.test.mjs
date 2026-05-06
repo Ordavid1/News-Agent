@@ -123,12 +123,21 @@ test('GREP CANARY — every quality-gate severity literal in services/v4 is cano
   // share the field name. Don't add entries casually — see the file's
   // doc comments for justification.
   const DOMAIN_ALLOWLIST = {
-    'PersonaVisualAnchor.js': new Set(['inversion', 'descriptor_mismatch'])
+    'PersonaVisualAnchor.js': new Set(['inversion', 'descriptor_mismatch']),
     // ↑ inversion classification for validateFluxPromptAgainstAnchor:
     //   'inversion' = HARD HALT (gender/age inverted vs anchor)
     //   'descriptor_mismatch' = splice corrective hint, proceed
     //   These are NOT consumed by Doctor / Director / any quality gate;
     //   they drive CharacterSheetDirector's identity-defense routing.
+    'VeoFailureKnowledge.mjs': new Set(['low', 'medium', 'high', 'critical'])
+    // ↑ Veo Failure-Learning Agent (2026-05-06). The severity field on each
+    //   VEO_FAILURE_SIGNATURES entry classifies a failure-PATTERN's impact
+    //   on the Veo generation pipeline (occurrence frequency × recovery cost).
+    //   It is NOT a quality-gate finding severity. The catalogue is consumed
+    //   only by VeoService.applyPreflightRules() and the Gemini system-prompt
+    //   block — never by Doctor / Director / Validator / runQualityGate. The
+    //   four-level scale matches the MCP's get_failure_signatures_for_model
+    //   contract so live signatures can be exported into static reference.
   };
 
   const violations = [];

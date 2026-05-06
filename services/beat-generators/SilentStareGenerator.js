@@ -36,7 +36,8 @@ class SilentStareGenerator extends BaseBeatGenerator {
     if (!persona) throw new Error(`beat ${beat.beat_id}: no persona resolved`);
 
     const duration = beat.duration_seconds || 3;
-    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene);
+    // V4 Tier 2.1 (2026-05-06) — pass `beat` for continuity breadcrumb.
+    const startFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat);
     if (!startFrameUrl) {
       throw new Error(`beat ${beat.beat_id}: no start frame for silent stare`);
     }
@@ -70,9 +71,16 @@ class SilentStareGenerator extends BaseBeatGenerator {
       ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
       : '';
 
+    // V4 Tier 2.2 (2026-05-06) — wardrobe + brand color join optional queue.
+    // SILENT_STARE is closeup-heavy where wardrobe shows; bumped above
+    // stylePrefix in the drop-priority order.
+    const wardrobeDirective = this._buildWardrobeDirective(persona);
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+
     // Optional sections in drop-priority order: nudge first (highest value when
-    // present), gaze second (high value, short), stylePrefix last.
-    const optionals = [directorNudge, gaze.trim(), stylePrefix].filter(Boolean);
+    // present), gaze second (high value, short), wardrobe third, brand-color
+    // fourth, stylePrefix last.
+    const optionals = [directorNudge, gaze.trim(), wardrobeDirective, brandColorDirective, stylePrefix].filter(Boolean);
     const optionalParts = [];
     let remaining = KLING_BUDGET - mandatory.length - 1;
     for (const opt of optionals) {

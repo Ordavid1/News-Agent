@@ -33,6 +33,17 @@ import { getProgressEmitter } from '../services/v4/ProgressEmitter.js';
 import { isBlockerOrCritical } from '../services/v4/severity.mjs';
 import { getVoiceLibrary, inferPersonaGender } from '../services/v4/VoiceAcquisition.js';
 import { resolveEpisodeLut } from '../services/v4/BrandKitLutMatcher.js';
+// V4 Tier 1 (2026-05-06) — Beat Lifecycle. Used by PATCH /beats/:beatId to
+// (a) accept `status` mutations under optimistic-concurrency control via
+// If-Match header, (b) implement the user-approve = promote-from-quarantine
+// contract that restores the most-recently-quarantined clip onto the
+// canonical beat row.
+import {
+  BEAT_STATUS,
+  BeatLifecycleError,
+  promoteFromQuarantine,
+  ensureLifecycleFields
+} from '../services/v4/BeatLifecycle.js';
 import {
   resolveBibleForStory,
   validateBible,
@@ -1083,6 +1094,33 @@ router.patch('/:id/episodes/:episodeId/beats/:beatId', v4PatchLimiter, csrfProte
     }
     if (!foundBeat) return res.status(404).json({ success: false, error: 'Beat not found' });
 
+    // V4 Tier 1 (2026-05-06) — backfill lifecycle fields on legacy beats so
+    // version + status checks below have something to compare against.
+    ensureLifecycleFields(foundBeat);
+
+    // V4 Tier 1 (2026-05-06) — optimistic concurrency. The Director Panel
+    // and the orchestrator can race on the same beat row (user clicks Save
+    // while a regenerate is in flight). If the client provides `If-Match:
+    // <version>`, we reject with 409 when the on-server version has moved
+    // — protecting against lost updates. Header is OPTIONAL for legacy
+    // clients that haven't been updated; when absent, we fall through to
+    // the legacy last-write-wins behavior.
+    const ifMatchRaw = req.get('If-Match');
+    if (ifMatchRaw !== undefined && ifMatchRaw !== null && ifMatchRaw !== '') {
+      const expectedVersion = Number.parseInt(ifMatchRaw, 10);
+      if (!Number.isFinite(expectedVersion)) {
+        return res.status(400).json({ success: false, error: 'If-Match header must be an integer (beat.version)' });
+      }
+      if (foundBeat.version !== expectedVersion) {
+        return res.status(409).json({
+          success: false,
+          error: 'beat version mismatch — refresh and retry',
+          expected: expectedVersion,
+          current: foundBeat.version
+        });
+      }
+    }
+
     const allowedFields = [
       'dialogue', 'expression_notes', 'action_prompt', 'lens', 'emotion',
       'duration_seconds', 'subject_focus', 'lighting_intent', 'camera_move',
@@ -1107,13 +1145,47 @@ router.patch('/:id/episodes/:episodeId/beats/:beatId', v4PatchLimiter, csrfProte
       }
     }
 
+    // V4 Tier 1 (2026-05-06) — status mutation. The Director Panel's
+    // "Approve" button on the awaiting_user_review modal POSTs
+    //   PATCH .../beats/:beatId  body: { status: 'ready' }
+    // When the current status is `hard_rejected`, this is the
+    // promote-from-quarantine path: restore the most recent quarantined
+    // clip onto the canonical row, set status='ready'. Other status
+    // transitions are intentionally NOT exposed to the route — the
+    // orchestrator owns generation states; the user only owns approve.
+    let promotedFromQuarantine = false;
+    if (typeof req.body.status === 'string') {
+      const desired = req.body.status;
+      if (desired === BEAT_STATUS.READY && foundBeat.status === BEAT_STATUS.HARD_REJECTED) {
+        try {
+          promoteFromQuarantine(foundBeat);
+          promotedFromQuarantine = true;
+          edited = true;
+        } catch (err) {
+          if (err instanceof BeatLifecycleError && err.code === 'no_restorable_attempt') {
+            return res.status(409).json({
+              success: false,
+              error: 'No quarantined clip to restore — trigger /regenerate to produce a new attempt',
+              code: err.code
+            });
+          }
+          throw err;
+        }
+      } else if (desired !== foundBeat.status) {
+        return res.status(400).json({
+          success: false,
+          error: `unsupported status transition '${foundBeat.status}' → '${desired}' via PATCH — use /regenerate or /reassemble`
+        });
+      }
+    }
+
     if (edited) {
       await updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
         scene_description: sceneGraph
       });
     }
 
-    res.json({ success: true, beat: foundBeat, edited });
+    res.json({ success: true, beat: foundBeat, edited, promotedFromQuarantine });
   } catch (error) {
     logger.error('Error patching beat:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to patch beat' });
@@ -1197,6 +1269,109 @@ router.post('/:id/episodes/:episodeId/reassemble', v4ReassembleLimiter, csrfProt
   } catch (error) {
     logger.error('Error reassembling episode:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to reassemble' });
+  }
+});
+
+/**
+ * POST /api/brand-stories/:id/episodes/:episodeId/enhance/aleph
+ *
+ * 2026-05-05 — Aleph Rec 2 Phase 3.
+ *
+ * Opt-in commercial-only post-completion stylization via Runway gen4_aleph.
+ * The user clicks "✨ Enhance with Aleph" in the Director Panel after a
+ * commercial episode finishes; this endpoint:
+ *
+ *   1. Validates the episode is commercial (genre/commercial_brief check)
+ *   2. Validates post_lut_intermediate_url exists (set during runV4Pipeline)
+ *   3. Validates not already enhanced (idempotent — UI shows toggle, not button)
+ *   4. Validates billing entitlement (when BRAND_STORY_ALEPH_BILLING_ENABLED=true;
+ *      no-op during free testing phase)
+ *   5. Returns 202 + spawns AlephEnhancementOrchestrator in background
+ *   6. Progress streams via existing SSE at /episodes/:episodeId/stream
+ *
+ * Architecture (Option B — Director Agent A2.1 amendment):
+ *   - Operates on post-LUT intermediate (graded video, NO music/cards/subs yet)
+ *   - Chunks into ≤8s segments with shared style prompt + reference image
+ *   - Identity hard gate (A2.2): pass at 85+, fail discards Aleph output
+ *   - Re-runs Stages 4-6 (music/cards/subs) on stylized output
+ *   - Saves as aleph_enhanced_video_url (sibling to final_video_url)
+ *
+ * Cost: ~$0.15/sec output × 60s commercial = ~$9 per enhancement (chunked).
+ * During free testing phase, no charge regardless of pass/fail. When billing
+ * enabled, identity-gate failure → automatic refund.
+ */
+router.post('/:id/episodes/:episodeId/enhance/aleph', v4ReassembleLimiter, csrfProtection, async (req, res) => {
+  try {
+    const episode = await getBrandStoryEpisodeById(req.params.episodeId, req.user.id);
+    if (!episode) return res.status(404).json({ success: false, error: 'Episode not found' });
+
+    // Eligibility gates (HTTP-layer — orchestrator-level checks happen too)
+    if (episode.status !== 'ready') {
+      return res.status(400).json({
+        success: false,
+        error: `Episode is ${episode.status}, not ready. Aleph enhancement only available on completed episodes.`
+      });
+    }
+    if (!episode.post_lut_intermediate_url) {
+      return res.status(400).json({
+        success: false,
+        error: 'Episode has no post-LUT intermediate. Regenerate the episode (commercial briefs only) to enable Aleph enhancement.'
+      });
+    }
+    if (episode.aleph_enhanced_video_url) {
+      return res.status(409).json({
+        success: false,
+        error: 'Episode already enhanced. The Director Panel toggle switches between original and enhanced views.',
+        aleph_enhanced_video_url: episode.aleph_enhanced_video_url
+      });
+    }
+
+    // Billing entitlement (deferred — disabled by default during testing).
+    // When BRAND_STORY_ALEPH_BILLING_ENABLED=true, check user.subscription
+    // for aleph_credits or pass-through Lemon Squeezy / Paddle SKU.
+    if (process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true') {
+      const hasEntitlement = req.user?.subscription?.aleph_credits > 0
+        || req.user?.subscription?.tier === 'enterprise';
+      if (!hasEntitlement) {
+        return res.status(403).json({
+          success: false,
+          error: 'Aleph enhancement requires Enterprise tier or Aleph credits. Current testing phase does not require entitlement — set BRAND_STORY_ALEPH_BILLING_ENABLED=false to enable free pilots.'
+        });
+      }
+    }
+
+    // Return 202 immediately — orchestrator runs in background, streams via SSE.
+    res.status(202).json({
+      success: true,
+      message: 'Aleph enhancement started. Subscribe to /episodes/:episodeId/stream for progress.',
+      episodeId: req.params.episodeId,
+      estimatedCostUsd: process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true'
+        ? 12.0 // flat surcharge ($10.80 cost + buffer)
+        : 0,   // free during testing
+      billingMode: process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true' ? 'charged' : 'free_pilot'
+    });
+
+    // Async kickoff — failures logged + persisted to aleph_job_metadata so UI
+    // can surface the failure mode without polling for an HTTP response that
+    // never comes.
+    brandStoryService.runAlephEnhancement(
+      req.params.id,
+      req.user.id,
+      req.params.episodeId,
+      { strength: typeof req.body?.strength === 'number' ? req.body.strength : 0.20 }
+    ).catch(err => {
+      logger.error(`Aleph enhancement failed: ${err.message}`);
+      updateBrandStoryEpisode(req.params.episodeId, req.user.id, {
+        aleph_job_metadata: {
+          status: 'failed_aleph_error',
+          error_message: err.message,
+          completed_at: new Date().toISOString()
+        }
+      }).catch(() => {});
+    });
+  } catch (error) {
+    logger.error('Error starting Aleph enhancement:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to start Aleph enhancement' });
   }
 });
 

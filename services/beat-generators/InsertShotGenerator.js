@@ -50,21 +50,20 @@ class InsertShotGenerator extends BaseBeatGenerator {
       beat, scene, previousBeat, personas, episodeContext
     });
 
-    // Start frame precedence for INSERT_SHOT:
-    //   1. Scene-Integrated Product Lock (SIPL) — product inside the scene world (BEST)
-    //   2. Subject reference image (when no scene master exists to integrate into)
-    //   3. Persona-locked first frame — when the beat features a persona
-    //   4. Previous endframe — transition continuity
-    //   5. Scene master — scene-level look fallback
-    //
-    // Subject ref no longer becomes a direct first_frame when SIPL is
-    // available — that's the Director's "studio limbo teleport" fix.
+    // V4 Tier 2.1 (2026-05-06) — unified canonical waterfall. INSERT_SHOT
+    // gets two opt-in synthesis frames (siplUrl from the Seedream
+    // pre-pass, subjectRefUrl from the user's product photo) that the
+    // picker slots into tier 3 (above bridge/endframe/scene-master) and
+    // tier 8 (below scene-master, above refStack) respectively. The
+    // siplUrl-first ordering is preserved (SIPL is INSERT's analog of
+    // persona-lock) but routed through the same picker so the breadcrumb
+    // surfaces consistently with other generators.
     const subjectRefs = episodeContext?.subjectReferenceImages || [];
-    const firstFrameUrl = siplUrl
-      || subjectRefs[0]
-      || personaLockUrl
-      || previousBeat?.endframe_url
-      || scene?.scene_master_url;
+    const firstFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat, {
+      personaLockUrl,
+      siplUrl,
+      subjectRefUrl: subjectRefs[0] || null
+    });
 
     if (!firstFrameUrl) {
       throw new Error(`beat ${beat.beat_id}: no start frame for INSERT_SHOT (need subject reference image)`);
@@ -99,6 +98,17 @@ class InsertShotGenerator extends BaseBeatGenerator {
     // fills the vertical axis with the product + its environmental context.
     const verticalDirective = this._buildVerticalFramingDirective(beat, 'veo');
 
+    // V4 Tier 2.2 (2026-05-06) — color hint + brand palette. INSERT shots
+    // often hold for 2-4s on the product so color cohesion with the
+    // surrounding beats matters. No wardrobe directive (INSERT is product-
+    // hero, not character).
+    const colorHint = this._buildPerModelColorHint('veo', episodeContext?.brandKit);
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+    // V4 Tier 3.1 (2026-05-06) — anti-reference. INSERT_SHOT specifically
+    // benefits — without it, two consecutive macro inserts on the same
+    // product look identical.
+    const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
@@ -106,8 +116,11 @@ class InsertShotGenerator extends BaseBeatGenerator {
       framingRecipe,
       `Lighting: ${lightingIntent}.`,
       `Camera: ${cameraMove}.`,
+      brandColorDirective,
+      antiRefDirective,
       'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
-      `Ambient: ${ambientSound}.`
+      `Ambient: ${ambientSound}.`,
+      colorHint
     ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo INSERT_SHOT (${duration}s, ${subjectFocus})`);
@@ -157,7 +170,13 @@ class InsertShotGenerator extends BaseBeatGenerator {
           subjectDescription: subjectDescriptionForFallback,
           stylePrefix
         },
-        regenerateSafeFirstFrame: safeRegenCallback
+        regenerateSafeFirstFrame: safeRegenCallback,
+        telemetry: {
+          userId: episodeContext?.userId,
+          episodeId: episodeContext?.episodeId,
+          beatId: beat.beat_id,
+          beatType: beat.type
+        }
       }
     });
 

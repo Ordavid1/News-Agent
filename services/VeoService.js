@@ -34,6 +34,8 @@
 import videoGenerationService from './VideoGenerationService.js';
 import winston from 'winston';
 import { isVeoContentFilterError, isImageContentFilterError, sanitizeTier1, sanitizeTier2 } from './v4/VeoPromptSanitizer.js';
+import VeoFailureCollector from './v4/VeoFailureCollector.js';
+import { getVeoFailureKnowledge } from './v4/VeoFailureGuidance.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -104,7 +106,13 @@ class VeoService {
       // to produce a safer reference frame (reduced refs + safe-mode prompt) before
       // falling all the way to text-only (tier3-no-image). If not provided, the
       // existing fast-jump to tier3 applies unchanged (back-compat).
-      regenerateSafeFirstFrame = null
+      regenerateSafeFirstFrame = null,
+      // telemetry: optional context the caller passes through for the Veo
+      // Failure-Learning Agent. The collector ignores missing fields gracefully —
+      // any non-empty subset is useful (a userId alone makes the row queryable
+      // per-tenant; a beatId + beatType makes it queryable per-cluster).
+      // Shape: { userId, episodeId, beatId, beatType }
+      telemetry = {}
       // generateAudio and tier are ignored on Vertex — Veo 3.1 Standard always
       // generates audio and is always the highest tier on this backend.
     } = options;
@@ -142,16 +150,47 @@ class VeoService {
     const sanitizationContext = options.sanitizationContext || {};
     const tier2Prompt = sanitizeTier2(sanitizationContext);
 
+    // ──────────────────────────────────────────────────────────
+    // Pre-flight rule pass — Veo Failure-Learning Agent (2026-05-06).
+    //
+    // Apply deterministic regex rewrites for known-bad phrasings BEFORE the
+    // first submission, not only after rejection. The knowledge file is
+    // regenerated nightly by VeoFailureKnowledgeBuilder from production
+    // failure telemetry. When the file is empty / facade fails to load,
+    // we fall through to the original prompt unchanged — the pre-flight
+    // pass MUST never block generation.
+    // ──────────────────────────────────────────────────────────
+    let preflightPrompt = prompt;
+    try {
+      const knowledge = await getVeoFailureKnowledge();
+      if (knowledge && typeof knowledge.applyPreflightRules === 'function') {
+        const { prompt: rewritten, rewrites } = knowledge.applyPreflightRules(prompt, {
+          modelId: 'veo-3.1-vertex',
+          personaNames
+        });
+        if (rewrites && rewrites.length > 0) {
+          const summary = rewrites.map(r => `${r.key}×${r.count}`).join(', ');
+          logger.info(`pre-flight rules rewrote prompt (${summary})`);
+          preflightPrompt = rewritten;
+        }
+      }
+    } catch (preflightErr) {
+      // Never block generation — log and continue with the original prompt.
+      logger.warn(`pre-flight rules unavailable (${preflightErr.message}) — using original prompt`);
+    }
+
     const attempts = [
       {
         label: 'original',
-        prompt,
+        prompt: preflightPrompt,
         firstFrame: firstFrameUrl,
         lastFrame: lastFrameUrl && firstFrameUrl ? lastFrameUrl : null
       },
       {
         label: 'tier1-sanitised',
-        prompt: sanitizeTier1(prompt, personaNames),
+        // Apply the pre-flight pass first (so any agent-learned rewrites
+        // carry into tier 1), then layer the static tier-1 sanitiser on top.
+        prompt: sanitizeTier1(preflightPrompt, personaNames),
         firstFrame: firstFrameUrl,
         lastFrame: null  // drop last frame on first text retry
       },
@@ -174,9 +213,12 @@ class VeoService {
     let result = null;
     let attemptIndex = 0;
     let _tier25Attempted = false; // guard: only one regen attempt per generateWithFrames call
+    const _t0 = Date.now();
+    let _attemptCount = 0; // including the original
 
     while (attemptIndex < attempts.length) {
       const attempt = attempts[attemptIndex];
+      _attemptCount++;
       try {
         result = await videoGenerationService.generateWithFirstLastFrame({
           firstImageUrl: attempt.firstFrame,
@@ -197,6 +239,26 @@ class VeoService {
         lastErr = err;
         if (!isVeoContentFilterError(err)) {
           // Non-safety errors bubble up immediately (429, network, auth, etc.)
+          // Record the non-safety failure so the agent learns these too
+          // (e.g. high_load, rate_limit, polling_timeout, auth) — fire-and-forget.
+          VeoFailureCollector.record({
+            userId: telemetry.userId,
+            episodeId: telemetry.episodeId,
+            beatId: telemetry.beatId,
+            beatType: telemetry.beatType,
+            error: err,
+            prompt,
+            personaNames,
+            hadFirstFrame: !!firstFrameUrl,
+            hadLastFrame: !!(lastFrameUrl && firstFrameUrl),
+            durationSec: clampedDuration,
+            aspectRatio,
+            modelAttempted: 'veo-3.1-vertex',
+            attemptTierReached: attempt.label,
+            recoverySucceeded: false,
+            attemptCount: _attemptCount,
+            totalDurationMs: Date.now() - _t0
+          }).catch(() => {});
           throw err;
         }
 
@@ -262,8 +324,29 @@ class VeoService {
     }
 
     if (!result) {
-      // All tiers refused (including text-only). Final error carries the
-      // original prompt for downstream diagnosis + quality_report.
+      // All tiers refused (including text-only). Record the hard failure
+      // for the Veo Failure-Learning Agent (fire-and-forget) BEFORE throwing,
+      // so a Director Agent halt cycle can't suppress the telemetry.
+      VeoFailureCollector.record({
+        userId: telemetry.userId,
+        episodeId: telemetry.episodeId,
+        beatId: telemetry.beatId,
+        beatType: telemetry.beatType,
+        error: lastErr,
+        prompt,
+        personaNames,
+        hadFirstFrame: !!firstFrameUrl,
+        hadLastFrame: !!(lastFrameUrl && firstFrameUrl),
+        durationSec: clampedDuration,
+        aspectRatio,
+        modelAttempted: 'veo-3.1-vertex',
+        attemptTierReached: 'hard_failed',
+        recoverySucceeded: false,
+        attemptCount: _attemptCount,
+        totalDurationMs: Date.now() - _t0
+      }).catch(() => {});
+
+      // Final error carries the original prompt for downstream diagnosis + quality_report.
       const finalErr = new Error(
         `Veo refused all sanitisation tiers including text-only (tier3-no-image). Original prompt first 180 chars: "${prompt.slice(0, 180)}"`
       );
@@ -272,13 +355,65 @@ class VeoService {
       throw finalErr;
     }
 
+    // Recovery telemetry — Veo accepted at a non-original tier. Captures the
+    // signal that "tier X works for failure mode Y", which is what makes the
+    // agent's prompt_avoid_phrases / prompt_safe_alternatives meaningful.
+    if (attemptUsed && attemptUsed !== 'original' && lastErr) {
+      VeoFailureCollector.record({
+        userId: telemetry.userId,
+        episodeId: telemetry.episodeId,
+        beatId: telemetry.beatId,
+        beatType: telemetry.beatType,
+        error: lastErr,
+        prompt,
+        personaNames,
+        hadFirstFrame: !!firstFrameUrl,
+        hadLastFrame: !!(lastFrameUrl && firstFrameUrl),
+        durationSec: clampedDuration,
+        aspectRatio,
+        modelAttempted: 'veo-3.1-vertex',
+        attemptTierReached: attemptUsed,
+        recoverySucceeded: true,
+        attemptCount: _attemptCount,
+        totalDurationMs: Date.now() - _t0
+      }).catch(() => {});
+    }
+
+    // 2026-05-06 — surface the REAL content-filter tier so beat generators
+    // can decide whether the result is anchor-safe. The previous hardcoded
+    // `fallbackTier: 1` made tier3-no-image (text-only, NO first-frame
+    // anchor) indistinguishable from tier1 success, which caused
+    // VeoActionGenerator to ship unanchored text-only output → guaranteed
+    // face drift → Director Agent hard_reject → episode halt.
+    //
+    // Mapping:
+    //   1 = original (with anchor) — clean success
+    //   2 = tier1-sanitised (with anchor) — minor prompt scrub, still anchored
+    //   3 = tier2-minimal (with anchor) — heavy scrub, still anchored
+    //   4 = tier2.5-regen-frame — caller's regen-frame callback recovered the anchor
+    //   5 = tier3-no-image — TEXT-ONLY fallback (NO ANCHOR; high identity-drift risk)
+    //
+    // Callers MUST treat tier === 5 as a content-filter persistent failure
+    // and route to a different model (Kling for action; OmniHuman for
+    // dialogue) rather than trust the unanchored Veo output.
+    const TIER_MAP = {
+      'original': 1,
+      'tier1-sanitised': 2,
+      'tier2-minimal': 3,
+      'tier2.5-regen-frame': 4,
+      'tier3-no-image': 5
+    };
+    const realFallbackTier = TIER_MAP[attemptUsed] || 1;
+    const usedFirstFrame = attemptUsed !== 'tier3-no-image';
+
     return {
       videoUrl: result.videoUrl,
       videoBuffer: result.videoBuffer,
       duration: result.duration,
       model: 'veo-3.1-vertex',
-      fallbackTier: 1,
-      sanitizationTier: attemptUsed // 'original' | 'tier1-sanitised' | 'tier2-minimal'
+      fallbackTier: realFallbackTier,
+      usedFirstFrame,
+      sanitizationTier: attemptUsed // 'original' | 'tier1-sanitised' | 'tier2-minimal' | 'tier2.5-regen-frame' | 'tier3-no-image'
     };
   }
 }

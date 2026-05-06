@@ -374,7 +374,18 @@ export function buildBeatRefStack({
 
   // 3. Location bible — reusing the master for a known location delivers the
   //    "same physical place renders the same way across scenes/episodes" promise.
-  if (beat?.location_hero === true && scene?.location_id && locationBible?.locations) {
+  //
+  // V4 Tier 2.5 (2026-05-06) — widened gate. Previously only fired when
+  // `beat.location_hero === true`, which narrowed reuse to beats Gemini
+  // explicitly flagged as "location matters here" — a tiny fraction. As a
+  // result, reused locations across scenes drifted visually (each scene
+  // generated a fresh Scene Master, ignoring the cached one). Per the
+  // Director's Tier 2.5 note, reuse now fires whenever scene.location_id
+  // resolves to a known location, regardless of the per-beat flag. The
+  // location_hero flag is now a WRITE-side gate ("this scene defines /
+  // refreshes the bible entry") not a read-side one. Falls back gracefully
+  // when the location is unknown.
+  if (scene?.location_id && locationBible?.locations) {
     const loc = locationBible.locations.find(l => l.id === scene.location_id);
     if (loc?.scene_master_url) refs.push(loc.scene_master_url);
     if (Array.isArray(loc?.reference_urls)) refs.push(...loc.reference_urls.slice(0, 1));
@@ -447,7 +458,17 @@ export async function buildPersonaLockedFirstFrame({
   // directive for an archetype-preserving directive.
   commercialBrief = null,
   uploadBuffer,
-  seed
+  seed,
+  // 2026-05-01 — Director Agent verdict A1.1 (Rec 1 amendment).
+  // Optional textual posture directive that REPLACES the default
+  // head-and-shoulders portrait composition language. Set to a kinetic
+  // posture (e.g. "mid-action posture: weight already shifted, one foot
+  // off ground, hand mid-arc, torso pre-rotated. NOT a portrait.") for
+  // ACTION_NO_DIALOGUE beats so Veo's first frame reads as 1/24th of a
+  // second already in motion (Drive elevator-fight ignition), not a
+  // yearbook photo. Defaults to null = portrait composition (current
+  // behavior for REACTION/INSERT/B_ROLL/VO_BROLL).
+  postureDirective = null
 }) {
   if (!Array.isArray(personas) || personas.length === 0) {
     throw new Error('buildPersonaLockedFirstFrame: at least one persona required');
@@ -514,9 +535,14 @@ export async function buildPersonaLockedFirstFrame({
   // V4 Phase 7 — identity directive split (same logic as generateSceneMasters).
   // Non-photoreal styles get archetype-preserving language; photoreal stays
   // on the existing facial-structure language.
-  const verticalDirective =
-    'VERTICAL 9:16 portrait composition. Character fills the vertical axis (head-and-shoulders to waist-up). ' +
-    'No letterbox, no wide cinemascope framing. Social-media vertical.';
+  // 2026-05-01 — A1.1: when caller passes a postureDirective, replace the
+  // default portrait composition language with kinetic-posture language.
+  // ACTION beats ride this branch; REACTION/INSERT/B_ROLL/VO_BROLL keep the
+  // default portrait (which is correct for those beat types).
+  const verticalDirective = postureDirective
+    ? `VERTICAL 9:16 composition. ${postureDirective} Character fills the vertical axis. No letterbox, no wide cinemascope framing. Social-media vertical.`
+    : 'VERTICAL 9:16 portrait composition. Character fills the vertical axis (head-and-shoulders to waist-up). ' +
+      'No letterbox, no wide cinemascope framing. Social-media vertical.';
   let identityDirective;
   if (isStylizedStrong(commercialBrief)) {
     const styleCategory = resolveStyleCategory(commercialBrief);

@@ -22,6 +22,12 @@
 
 import winston from 'winston';
 import { validateFluxPromptAgainstAnchor, VisualAnchorInversionError } from '../v4/PersonaVisualAnchor.js';
+import {
+  BEAT_STATUS,
+  ensureLifecycleFields,
+  transition as transitionBeatStatus
+} from '../v4/BeatLifecycle.js';
+import { buildContinuityDirective as _buildContinuityDirectiveImpl } from '../v4/ContinuitySheet.js';
 
 class BaseBeatGenerator {
   /**
@@ -126,7 +132,26 @@ class BaseBeatGenerator {
 
     // Mark beat as in-progress BEFORE the generation so status reflects
     // the active stage even if the caller inspects mid-flight.
-    beat.status = 'generating';
+    //
+    // V4 Tier 1 (2026-05-06) — route status mutation through BeatLifecycle so
+    // version + attempts_log + transition validity are enforced uniformly.
+    // Accept GENERATING from any current status (pending → first generate,
+    // generated → director-driven retake, hard_rejected → user regenerate,
+    // superseded → next attempt) — illegal moves throw and surface at the
+    // boundary instead of silently corrupting the beat row.
+    ensureLifecycleFields(beat);
+    if (beat.status !== BEAT_STATUS.GENERATING) {
+      try {
+        transitionBeatStatus(beat, BEAT_STATUS.GENERATING);
+      } catch (lifecycleErr) {
+        // Fail loud — an illegal transition means a caller above us has
+        // mishandled the beat row. This is a programming error worth
+        // surfacing immediately rather than producing a clip on a confused
+        // status.
+        this.logger.error(`beat ${beat.beat_id} lifecycle transition rejected: ${lifecycleErr.message}`);
+        throw lifecycleErr;
+      }
+    }
     beat.error_message = null;
 
     const startTime = Date.now();
@@ -159,11 +184,19 @@ class BaseBeatGenerator {
       beat.model_used = result.modelUsed;
       beat.cost_usd = result.costUsd || 0;
       beat.actual_duration_sec = result.durationSec;
-      beat.status = 'generated';
+      transitionBeatStatus(beat, BEAT_STATUS.GENERATED, { expectedFrom: BEAT_STATUS.GENERATING });
 
       return result;
     } catch (err) {
-      beat.status = 'failed';
+      // Best-effort transition to FAILED. The lifecycle layer rejects illegal
+      // moves (e.g. if we never reached GENERATING because the lifecycle call
+      // itself threw); fall back to direct status set so the failure metadata
+      // is still recorded for the caller's catch.
+      try {
+        transitionBeatStatus(beat, BEAT_STATUS.FAILED, { expectedFrom: BEAT_STATUS.GENERATING });
+      } catch (_) {
+        beat.status = BEAT_STATUS.FAILED;
+      }
       beat.error_message = err.message || String(err);
       this.logger.error(`✗ beat ${beat.beat_id} failed: ${beat.error_message}`);
       throw err;
@@ -305,19 +338,119 @@ class BaseBeatGenerator {
   }
 
   /**
-   * Pick the start frame for a beat from the reference stack. Order of
-   * preference: previous beat's endframe → scene master → first persona
-   * character sheet → nothing.
+   * V4 Tier 2.1 (2026-05-06) — Unified canonical first-frame waterfall.
+   *
+   * BEFORE: each of 8 generators (Reaction, Bridge, InsertShot, BRoll,
+   * VoiceoverBRoll, SilentStare, Action, VeoAction) picked its own order
+   * — persona-lock-first vs scene-master-first vs subject-natural-first
+   * vs SIPL-first — making per-generator continuity behavior inconsistent
+   * (a REACTION beat after a BRoll beat could anchor on a different
+   * priority than the BRoll itself, breaking the chain). The plan's
+   * single canonical waterfall fixes this.
+   *
+   * Waterfall priority (every generator goes through the same order):
+   *   1. beat.persona_locked_first_frame_url   (cached on beat — survives across runs)
+   *   2. opts.personaLockUrl                   (just synthesized this run)
+   *   3. opts.siplUrl                          (Seedream Scene-Integrated Product Lock — INSERT_SHOT)
+   *   4. opts.subjectNaturalUrl                (Seedream subject natural anchor — B_ROLL natural intent)
+   *   5. beat.bridge_from_scene_endframe_url   (Bridge beats only — prior scene's last frame)
+   *   6. previousBeat?.endframe_url            (THE canonical continuity chain)
+   *   7. scene?.scene_master_url               (FALLBACK — flags `previous_endframe_missing` when prevBeat existed)
+   *   8. opts.subjectRefUrl                    (InsertShot fallback — raw product photo)
+   *   9. refStack?.[0]
+   *
+   * BREADCRUMB (V4 Tier 2.1 Lens C / Lens E enabler):
+   *   Sets beat.continuity_fallback_reason whenever the picker drops below
+   *   the endframe-chain tier when a previous beat existed. The two values
+   *   the Director rubric (Tier 2.4) reads:
+   *     - 'previous_endframe_missing_scene_master_fallback'
+   *     - 'previous_endframe_missing_refstack_fallback'
+   *   Other reasons (persona_lock_used, sipl_used, subject_natural_used,
+   *   bridge_anchor_used, previous_endframe_used) are recorded for audit but
+   *   do NOT trigger continuity deductions — they're the legitimate
+   *   non-endframe paths.
+   *
+   * The signature stays backward-compatible: callers that pass only the old
+   * 3 args (refStack, previousBeat, scene) get the same minimum waterfall
+   * (steps 6-9) without breadcrumb. 8 generators are migrated to pass beat
+   * + opts so they all benefit from the unified contract.
    *
    * @param {Object[]} refStack - array of URLs, already ordered by the ref-stack builder
    * @param {Object} [previousBeat]
    * @param {Object} [scene]
+   * @param {Object} [beat] - the current beat (mutated with continuity_fallback_reason breadcrumb)
+   * @param {Object} [opts]
+   * @param {string|null} [opts.personaLockUrl] - persona-locked first frame just synthesized this run
+   * @param {string|null} [opts.siplUrl] - Scene-Integrated Product Lock (INSERT_SHOT)
+   * @param {string|null} [opts.subjectNaturalUrl] - subject natural anchor (B_ROLL natural intent)
+   * @param {string|null} [opts.subjectRefUrl] - raw subject reference (InsertShot fallback)
    * @returns {string|null}
    */
-  _pickStartFrame(refStack, previousBeat, scene) {
-    if (previousBeat?.endframe_url) return previousBeat.endframe_url;
-    if (scene?.scene_master_url) return scene.scene_master_url;
-    if (refStack && refStack.length > 0) return refStack[0];
+  _pickStartFrame(refStack, previousBeat, scene, beat = null, opts = {}) {
+    const setReason = (reason) => {
+      if (beat && reason) beat.continuity_fallback_reason = reason;
+    };
+    const clearReason = () => {
+      if (beat) beat.continuity_fallback_reason = null;
+    };
+
+    // Tier 1: persona-lock cached on the beat (idempotent across runs).
+    if (beat?.persona_locked_first_frame_url) {
+      setReason('persona_lock_used');
+      return beat.persona_locked_first_frame_url;
+    }
+    // Tier 2: persona-lock synthesized this run (caller already did the work).
+    if (opts.personaLockUrl) {
+      setReason('persona_lock_synthesized');
+      return opts.personaLockUrl;
+    }
+    // Tier 3: Scene-Integrated Product Lock for INSERT_SHOT.
+    if (opts.siplUrl) {
+      setReason('sipl_used');
+      return opts.siplUrl;
+    }
+    // Tier 4: Subject natural anchor for B_ROLL natural intent.
+    if (opts.subjectNaturalUrl) {
+      setReason('subject_natural_used');
+      return opts.subjectNaturalUrl;
+    }
+    // Tier 5: Bridge beats — prior scene's last endframe explicitly captured.
+    if (beat?.bridge_from_scene_endframe_url) {
+      setReason('bridge_anchor_used');
+      return beat.bridge_from_scene_endframe_url;
+    }
+    // Tier 6: THE canonical continuity chain — previous beat's endframe.
+    if (previousBeat?.endframe_url) {
+      setReason('previous_endframe_used');
+      return previousBeat.endframe_url;
+    }
+
+    // Below this line we're in fallback territory. If a previousBeat
+    // EXISTED but its endframe was missing (silent extraction failure
+    // previously), we set the diagnostic breadcrumb so Lens C (Tier 2.4)
+    // can deduct cross_beat_continuity. If there's no previousBeat (this
+    // is the scene's first beat), falling to scene_master is correct +
+    // expected — no breadcrumb.
+    const previousExpected = !!previousBeat;
+
+    // Tier 7: Scene Master.
+    if (scene?.scene_master_url) {
+      setReason(previousExpected ? 'previous_endframe_missing_scene_master_fallback' : 'scene_master_first_beat');
+      return scene.scene_master_url;
+    }
+    // Tier 8: InsertShot raw subject ref fallback.
+    if (opts.subjectRefUrl) {
+      setReason(previousExpected ? 'previous_endframe_missing_subject_ref_fallback' : 'subject_ref_fallback');
+      return opts.subjectRefUrl;
+    }
+    // Tier 9: Reference stack head.
+    if (refStack && refStack.length > 0) {
+      setReason(previousExpected ? 'previous_endframe_missing_refstack_fallback' : 'refstack_first_beat');
+      return refStack[0];
+    }
+
+    setReason(previousExpected ? 'previous_endframe_missing_text_only' : 'no_first_frame_text_only');
+    if (!beat) clearReason(); // legacy 3-arg callers should not see breadcrumbs
     return null;
   }
 
@@ -400,6 +533,205 @@ class BaseBeatGenerator {
     }
 
     return [GLOBAL, perType, modelNegative].filter(Boolean).join(' ').trim();
+  }
+
+  /**
+   * V4 Tier 2.2 (2026-05-06) — Per-model color hint.
+   *
+   * Different video models default to different color signatures. Without
+   * an explicit prompt-level normalization, Veo (warm tungsten by default)
+   * and Kling (cool/neutral daylight) produce visibly different grades
+   * within the SAME scene-master-anchored beat — a continuity break the
+   * post-production LUT can mask but not fix (LUT operates on rendered
+   * pixels; lighting-direction errors stay baked in).
+   *
+   * The hint is appended at the tail of the prompt where models honor it
+   * most strongly. Brand palette is interpolated when available so the
+   * grade leans toward the brand's identity colors WITHOUT overriding the
+   * scene's lighting motivation.
+   *
+   * @param {'kling' | 'veo' | 'seedream' | 'omnihuman' | 'generic'} modelHint
+   * @param {Object} [brandKit] - story.brand_kit (optional; used for palette interpolation)
+   * @returns {string} a short directive to append to the beat prompt
+   */
+  _buildPerModelColorHint(modelHint, brandKit = null) {
+    const palette = Array.isArray(brandKit?.color_palette)
+      ? brandKit.color_palette.slice(0, 4).map(c => c?.hex || c?.name).filter(Boolean)
+      : [];
+    const paletteFragment = palette.length > 0
+      ? ` Brand palette accents available: ${palette.join(', ')} — let them guide grade direction without overpowering scene lighting.`
+      : '';
+
+    switch ((modelHint || 'generic').toLowerCase()) {
+      case 'kling':
+        // Kling's defaults skew slightly cool / neutral. Reinforce the
+        // intent so multi-beat scenes keep a consistent key direction.
+        return `Color signature: neutral daylight 5200K-5800K, true-to-life skin tones, avoid amber wash unless practical-lit motivation is in frame.${paletteFragment}`;
+      case 'veo':
+        // Veo strongly biases toward tungsten warmth even on outdoor /
+        // daytime scenes — the most common cross-model continuity break.
+        // Tell it explicitly to inherit the prior beat's temperature.
+        return `Color signature: continuous with previous beat's color temperature; avoid Veo's default tungsten warm shift unless a practical lamp / firelight is visibly in scene.${paletteFragment}`;
+      case 'seedream':
+        return `Color palette: cohesive with scene-master endframe, lighting direction matches the master plate.${paletteFragment}`;
+      case 'omnihuman':
+        return `Color signature: portrait-grade neutral skin tones, soft key, no color cast.${paletteFragment}`;
+      default:
+        return paletteFragment ? paletteFragment.trim() : '';
+    }
+  }
+
+  /**
+   * V4 Tier 2.2 (2026-05-06) — Wardrobe directive.
+   *
+   * Persona's wardrobe_hint is stored on the Cast Bible at story creation
+   * but was previously never read by per-beat generators — wardrobe drift
+   * across beats relied entirely on character-sheet reference images,
+   * which Kling/Veo/Seedream often "interpret" rather than reproduce.
+   * Splicing wardrobe_hint into every persona-bearing prompt anchors the
+   * costume at the language layer too, defensively.
+   *
+   * Returns '' when persona has no wardrobe_hint OR when no persona is
+   * provided (caller responsibility to gate by persona presence).
+   *
+   * @param {Object} [persona]
+   * @returns {string}
+   */
+  _buildWardrobeDirective(persona) {
+    const hint = persona?.wardrobe_hint;
+    if (typeof hint !== 'string' || hint.trim().length === 0) return '';
+    return `Wardrobe: ${hint.trim()}`;
+  }
+
+  /**
+   * V4 Tier 2.5 (2026-05-06) — Continuity directive.
+   *
+   * Reads the scene's structured continuity_sheet (Tier 2.5 schema) and
+   * produces a short prompt addendum: "actor 0 holds laptop in left hand;
+   * lighting key from window_left; time of day: golden_hour."
+   *
+   * The directive is the LANGUAGE-LAYER complement to the persona-locked
+   * first frame and the unified _pickStartFrame waterfall. Together they
+   * give the model three reinforcement channels for continuity (image
+   * input, in-prompt visual state, and now structured scene state).
+   *
+   * Returns '' when the scene lacks a continuity_sheet — legacy episodes
+   * pass through untouched.
+   *
+   * @param {Object} scene
+   * @param {Object} beat
+   * @returns {string}
+   */
+  _buildContinuityDirective(scene, beat) {
+    try {
+      return _buildContinuityDirectiveImpl(scene, beat);
+    } catch {
+      // Defense in depth — never let a continuity-sheet quirk break the
+      // beat. Empty string falls through cleanly.
+      return '';
+    }
+  }
+
+  /**
+   * V4 Tier 3.1 (2026-05-06) — Anti-reference image for the unified
+   * coverage-slot mechanism.
+   *
+   * When generating beat N, pass the previous beat's endframe as a
+   * NEGATIVE reference image to the model so it doesn't reproduce the
+   * same composition. Combined with the schema-level coverage_slot +
+   * motion_vector adjacency rule (ScreenplayValidator Tier 3.1), this is
+   * the single highest-leverage architectural fix for the b-roll/action
+   * collapse symptom: the model sees BOTH "must differ in coverage" AND
+   * "do not reproduce this composition" — a two-pronged defense.
+   *
+   * Per-model strength (per Director note):
+   *   - Veo: 'strong' — Veo honors anti-references aggressively
+   *   - Kling: 'moderate' — Kling honors them less; strong setting confuses
+   *   - Seedream / OmniHuman: not supported (return null)
+   *
+   * Returns null when there's no previousBeat OR no usable endframe URL.
+   * Callers thread the result into their model API call (per-vendor
+   * field shape varies; not standardized at this layer).
+   *
+   * @param {Object} [previousBeat]
+   * @param {'kling' | 'veo' | 'seedream' | 'omnihuman'} modelHint
+   * @returns {{ url: string, strength: 'strong'|'moderate' } | null}
+   */
+  _buildPreviousBeatAntiReference(previousBeat, modelHint) {
+    if (process.env.V4_ANTI_REFERENCE === 'false') return null;
+    const url = previousBeat?.endframe_url;
+    if (!url || typeof url !== 'string') return null;
+    const m = String(modelHint || '').toLowerCase();
+    if (m === 'veo') return { url, strength: 'strong' };
+    if (m === 'kling') return { url, strength: 'moderate' };
+    return null; // Seedream / OmniHuman / unknown — anti-ref not supported
+  }
+
+  /**
+   * V4 Tier 3.1 — Anti-reference TEXT directive (the wired counterpart to
+   * _buildPreviousBeatAntiReference, which produces structured data).
+   *
+   * Both Kling V3 (via fal-ai/kling-video) and Veo 3.1 (via Vertex AI) ingest
+   * a single first-frame URL and a text prompt. Neither exposes a documented
+   * `negative_reference_image` field at the layer this codebase calls. The
+   * pragmatic wire-up is therefore via PROMPT LANGUAGE — a short directive
+   * appended to the tail of the prompt that explicitly forbids reproducing
+   * the prior beat's composition.
+   *
+   * Combined with Tier 3.1's coverage_slot + motion_vector adjacency rule
+   * (ScreenplayValidator), this gives the model a two-pronged defense
+   * against the b-roll/action collapse symptom: schema-level structural
+   * constraints (you MUST differ in coverage) + prompt-level instruction
+   * (do NOT reproduce that composition).
+   *
+   * Strength varies per model:
+   *   - Veo: 'strong' — Veo honors anti-language aggressively
+   *   - Kling: 'moderate' — Kling is more literal; over-strong wording confuses it
+   *
+   * Returns '' when no previousBeat is available, when previousBeat has no
+   * endframe (so there's no anchor to anti-reference against), or when the
+   * env flag V4_ANTI_REFERENCE_DIRECTIVE=false disables the feature.
+   *
+   * @param {Object} [previousBeat]
+   * @param {'kling' | 'veo' | 'seedream' | 'omnihuman'} modelHint
+   * @returns {string}
+   */
+  _buildPreviousBeatAntiReferenceDirective(previousBeat, modelHint) {
+    if (process.env.V4_ANTI_REFERENCE_DIRECTIVE === 'false') return '';
+    if (!previousBeat?.endframe_url) return '';
+    const m = String(modelHint || '').toLowerCase();
+    if (m === 'veo') {
+      return 'Anti-reference: this beat must NOT reproduce the composition of the previous beat. Differ in subject placement, camera angle, framing density, OR motion vector — at least one axis of visible difference is required.';
+    }
+    if (m === 'kling') {
+      return 'Anti-reference: vary composition from prior beat. Differ in subject scale or screen position.';
+    }
+    return '';
+  }
+
+  /**
+   * V4 Tier 2.2 (2026-05-06) — Brand color directive.
+   *
+   * Brand kit color palette previously fed only the LUT (post-hoc grade).
+   * Splicing it into the prompt as a soft directive nudges the model to
+   * include incidental brand colors in the frame — a sign on a wall, a
+   * cup in the foreground, a wardrobe accent — so the grade has something
+   * to land on. Phrased as ACCENT to avoid hero-prop product placement
+   * (Tier 3.4's narrative grammar handles that).
+   *
+   * Returns '' when brand_kit lacks a palette or when palette is empty.
+   *
+   * @param {Object} [episodeContext]
+   * @returns {string}
+   */
+  _buildBrandColorDirective(episodeContext) {
+    const palette = Array.isArray(episodeContext?.brandKit?.color_palette)
+      ? episodeContext.brandKit.color_palette.slice(0, 4)
+          .map(c => c?.hex || c?.name)
+          .filter(Boolean)
+      : [];
+    if (palette.length === 0) return '';
+    return `Brand palette accents (use sparingly, never logo-prominent): ${palette.join(', ')}.`;
   }
 
   /**
@@ -645,7 +977,7 @@ class BaseBeatGenerator {
    * @returns {Promise<string|null>} the first-frame URL to feed Veo, or null
    *   if the beat has no personas or persona lock is disabled.
    */
-  async _buildPersonaLockedFirstFrame({ beat, scene, previousBeat, personas, episodeContext }) {
+  async _buildPersonaLockedFirstFrame({ beat, scene, previousBeat, personas, episodeContext, postureDirective = null }) {
     if (process.env.V4_PERSONA_LOCK_FRAME === 'false') return null;
 
     const personasInBeat = this._resolvePersonasInBeat(beat, personas);
@@ -676,7 +1008,11 @@ class BaseBeatGenerator {
         // keeps "preserve EXACT facial structure". The brief lives on
         // episodeContext.commercial_brief (set by runV4Pipeline).
         commercialBrief: episodeContext.commercial_brief || null,
-        uploadBuffer: episodeContext.uploadBuffer
+        uploadBuffer: episodeContext.uploadBuffer,
+        // 2026-05-01 — A1.1 amendment. Subclasses can pass a kinetic posture
+        // directive (e.g. VeoActionGenerator) so the persona-lock still is
+        // born mid-action instead of as a portrait.
+        postureDirective
       });
       beat.persona_locked_first_frame_url = first_frame_url;
       this.logger.info(`[${beat.beat_id}] persona-locked first frame ready (${personasInBeat.length} persona(s))`);

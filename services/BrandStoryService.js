@@ -52,6 +52,7 @@ import {
 } from '../public/components/brandStoryPromptsV4.mjs';
 import klingFalService from './KlingFalService.js';
 import veoService from './VeoService.js';
+import { getVeoFailureKnowledge } from './v4/VeoFailureGuidance.js';
 import syncLipsyncFalService from './SyncLipsyncFalService.js';
 import seedreamFalService from './SeedreamFalService.js';
 import fluxFalService from './FluxFalService.js';
@@ -120,6 +121,29 @@ import {
   DirectorBlockingHaltError
 } from './v4/DirectorAgent.js';
 import { decideRetry as decideDirectorRetry } from './v4/DirectorRetryPolicy.js';
+import {
+  synthesizeRetakeDirective,
+  appendSynthHistory,
+  readSynthHistory,
+  patchSynthOutcome
+} from './v4/SmartSynth.js';
+// V4 Tier 1 (2026-05-06) — Beat Lifecycle Architecture. Single home for the
+// canonical beat status enum + quarantine + selectLiveBeats loader contract.
+// Loaders no longer trust raw `generated_video_url` as "is this beat live" —
+// they walk selectLiveBeats(sceneGraph) which filters on status ∈ {generated,
+// ready} AND non-null video_url. Hard-rejected escalations call
+// quarantineBeat() which moves the failed clip into beat.attempts_log and
+// nulls beat.generated_video_url, so the post-production pipeline cannot
+// pick up failed work no matter how many regenerate/reassemble cycles run.
+import {
+  BEAT_STATUS,
+  ensureLifecycleFields,
+  selectLiveBeats,
+  quarantineBeat,
+  promoteFromQuarantine,
+  supersedeBeat,
+  transition as transitionBeatStatus
+} from './v4/BeatLifecycle.js';
 import {
   callVertexGeminiJson,
   callVertexGeminiText,
@@ -2037,6 +2061,119 @@ Be SPECIFIC and EVOCATIVE. Avoid vague language. For a perfume: describe the bot
       .getPublicUrl(storagePath);
 
     return urlData.publicUrl;
+  }
+
+  /**
+   * 2026-05-05 — Rec 3 Phase A wiring helper.
+   *
+   * Pick the right MusicService method based on what Gemini emitted in the
+   * scene-graph. When Gemini emits a structured `music_composition_plan`
+   * (sections per scene with shared key + sustained pedal tone for
+   * cross-section continuity per the Sicario / Jóhann Jóhannsson model),
+   * route to MusicService.generateMusicWithCompositionPlan(). Otherwise
+   * fall through to the legacy flat-prompt path.
+   *
+   * Compositional failures (validator rejection on key drift, > 1 unique
+   * key without allow_key_changes, missing required section fields) fall
+   * back to the flat-prompt path automatically — episodes never fail on
+   * music; the bed is non-fatal.
+   *
+   * @param {Object} params
+   * @param {Object} params.sceneGraph - the screenplay scene-graph
+   * @param {number} params.totalDuration - target duration in seconds
+   * @param {Function} params.progress - (stage, detail) => void for SSE emit
+   * @returns {Promise<{ audioBuffer: Buffer, durationSec: number, format: string } | null>}
+   * @private
+   */
+  async _generateEpisodeMusic({ sceneGraph, totalDuration, progress }) {
+    const compositionPlan = sceneGraph?.music_composition_plan;
+    const musicBedIntent = sceneGraph?.music_bed_intent;
+    // V4 Tier 3.4 (2026-05-06) — movement-level music arc. When Gemini
+    // emits `music_arc: [{movement, intent, duration_hint_seconds?}, ...]`
+    // AND V4_MOVEMENT_MUSIC=true (default), translate it into a
+    // composition_plan and route through the existing per-section
+    // generation endpoint. This gives prestige shorts a real score
+    // architecture (Setup → Disturbance → Turn → Sting) instead of a
+    // single bed.
+    const musicArc = sceneGraph?.music_arc;
+    const movementMusicEnabled = String(process.env.V4_MOVEMENT_MUSIC || 'true').toLowerCase() !== 'false';
+
+    if (movementMusicEnabled && Array.isArray(musicArc) && musicArc.length > 0) {
+      try {
+        // Translate music_arc → composition_plan shape that
+        // generateMusicWithCompositionPlan already understands. Each
+        // movement becomes one section. Durations: respect explicit
+        // duration_hint_seconds per movement; for movements without one,
+        // distribute remaining duration evenly. Floor each section at 8s
+        // (the minimum the EL Music endpoint reliably honors).
+        const explicitDuration = musicArc
+          .map(m => Number(m?.duration_hint_seconds) || 0)
+          .reduce((a, b) => a + b, 0);
+        const movementsWithoutHint = musicArc.filter(m => !Number(m?.duration_hint_seconds)).length;
+        const remaining = Math.max(0, totalDuration - explicitDuration);
+        const sharedFallback = movementsWithoutHint > 0
+          ? Math.max(8, Math.round(remaining / movementsWithoutHint))
+          : 0;
+
+        const arcSections = musicArc.map(m => ({
+          name: m?.movement || 'unnamed_movement',
+          duration_seconds: Number(m?.duration_hint_seconds) || sharedFallback,
+          positive_local: m?.intent || '',
+          negative_local: ''
+        }));
+
+        const arcPlan = {
+          positive_global: musicBedIntent || arcSections[0]?.positive_local || 'cinematic instrumental score',
+          negative_global: 'no vocals, no lyrics',
+          key_or_modal_center: 'arc',
+          sections: arcSections
+        };
+        progress('music', `music_arc — ${arcSections.length} movements (${arcSections.map(s => s.name).join(' → ')}), ${arcSections.reduce((a, s) => a + s.duration_seconds, 0)}s total`);
+        const result = await musicService.generateMusicWithCompositionPlan({
+          compositionPlan: arcPlan,
+          options: { forceInstrumental: true }
+        });
+        return result;
+      } catch (err) {
+        // music_arc rejection → fall through to composition_plan / flat path.
+        logger.warn(`V4 Tier 3.4: music_arc generation failed (${err.message}) — falling back to composition_plan / flat-prompt`);
+      }
+    }
+
+    // Try composition_plan when Gemini emitted a non-trivial one.
+    if (compositionPlan && Array.isArray(compositionPlan.sections) && compositionPlan.sections.length > 0) {
+      try {
+        progress('music', `composition_plan music — ${compositionPlan.sections.length} sections, key=${compositionPlan.key_or_modal_center || 'unspecified'}`);
+        const result = await musicService.generateMusicWithCompositionPlan({
+          compositionPlan,
+          options: { forceInstrumental: true }
+        });
+        return result;
+      } catch (err) {
+        // composition_plan rejection (validator failure on key continuity, etc.)
+        // → fall through to flat-prompt. Log so the user can see Gemini emitted
+        // an invalid plan, but don't fail the episode.
+        logger.warn(`V4: composition_plan music failed (${err.message}) — falling back to flat-prompt music_bed_intent`);
+      }
+    }
+
+    // Flat-prompt fallback (legacy / default path).
+    if (musicBedIntent) {
+      try {
+        progress('music', `flat-prompt music bed (${totalDuration.toFixed(0)}s)`);
+        const result = await musicService.generateMusicBed({
+          musicBedIntent,
+          durationSec: totalDuration
+        });
+        return result;
+      } catch (err) {
+        logger.warn(`V4: music generation failed (non-fatal): ${err.message}`);
+        return null;
+      }
+    }
+
+    // No music intent at all — episode ships without a music bed (rare but legal).
+    return null;
   }
 
   // ═══════════════════════════════════════════════════
@@ -4615,8 +4752,18 @@ Respond with ONLY valid JSON:
                   pass: 'first',
                   ts: new Date().toISOString()
                 };
+                // V4 hotfix 2026-05-06 — Persist sceneGraph at halt so the
+                // in-memory scene_master_urls (populated by generateSceneMasters
+                // for the scenes that PASSED Lens B before this one failed)
+                // survive into the awaiting_user_review state. Without this,
+                // the persisted scene_description was the screenplay output —
+                // no URLs anywhere — and Edit & Retry resume regenerated all
+                // N scene masters instead of only the failed one. Lens C
+                // halts (5290-5294, 5520-5524) already do this; Lens B was
+                // the only checkpoint missing the write.
                 await updateBrandStoryEpisode(newEpisode.id, userId, {
                   status: 'awaiting_user_review',
+                  scene_description: sceneGraph,
                   director_report: directorReport
                 });
                 throw new DirectorBlockingHaltError({
@@ -4652,8 +4799,21 @@ Respond with ONLY valid JSON:
               // shadows on the principal's face") vs. the cheap concat
               // ("framing too wide; add character closer"). Set
               // V4_SMART_RETRY=false to fall back to cheap concat.
+              // V4 hotfix 2026-05-06 — Robust SmartSynth replaces the previous
+              // text-only blind-synth helper. Differences:
+              //   - Multimodal: passes the rejected scene_master_url AS AN IMAGE
+              //     plus the persona reference images that informed the original
+              //     render. Synth grounds the directive in what the model SEES
+              //     vs. what was requested, not just what the verdict said.
+              //   - Cross-attempt memory: feeds prior synth attempts (with
+              //     resulting scores) into the payload so the model is
+              //     instructed NOT to repeat directives that already failed.
+              //   - Regression detection: surfaces a `regression_warning` flag
+              //     when prior attempts show declining scores (e.g. 58→45→42)
+              //     so the synth stays conservative on the third attempt.
               let lensBRetryDirective = decision.nudgePromptDelta;
               let lensBEditedAnchor = null;
+              let lensBSynthResult = null;
               if (process.env.V4_SMART_RETRY !== 'false') {
                 progress('director:scene_master', `scene ${scene.scene_id} smart-retry: synthesizing director directive`, {
                   checkpoint: DIRECTOR_CHECKPOINTS.SCENE_MASTER,
@@ -4671,25 +4831,61 @@ Respond with ONLY valid JSON:
                     persona_names: (personas || []).map(p => p.name).filter(Boolean),
                     beat_count: Array.isArray(scene.beats) ? scene.beats.length : 0
                   };
-                  const synthB = await this._synthesizeEditFromContext({
+                  const personaRefUrls = (personas || [])
+                    .flatMap(p => Array.isArray(p?.reference_image_urls) ? p.reference_image_urls : [])
+                    .filter(Boolean);
+                  const refImages = [
+                    ...personaRefUrls.slice(0, 3).map(url => ({ url, role: 'persona_ref' })),
+                    ...subjectReferenceImages.slice(0, 2).map(url => ({ url, role: 'subject_ref' }))
+                  ];
+                  lensBSynthResult = await synthesizeRetakeDirective({
                     verdict: verdictB,
                     checkpoint: 'scene_master',
                     artifactId: scene.scene_id,
-                    artifactContent: sceneArtifactContent
+                    artifactUrl: scene.scene_master_url || null,
+                    artifactMimeType: 'image/png',
+                    artifactContent: sceneArtifactContent,
+                    referenceImages: refImages,
+                    priorAttempts: readSynthHistory({
+                      directorReport,
+                      checkpoint: 'scene_master',
+                      artifactId: scene.scene_id
+                    }),
+                    craftContext: {
+                      lut_id: lutId || null,
+                      visual_style_prefix: sceneGraph.visual_style_prefix || null,
+                      genre: story.subject?.genre || story.storyline?.genre || null,
+                      product_integration_style: story.product_integration_style || null
+                    },
+                    logPrefix: `SmartSynth:LensB:${scene.scene_id}`
                   });
-                  lensBRetryDirective = synthB.notes || decision.nudgePromptDelta;
-                  lensBEditedAnchor = synthB.edited_anchor || null;
-                  directorReport.scene_master[scene.scene_id + '_smart_retry'] = {
-                    source: synthB.source,
-                    directive: synthB.notes,
-                    edited_anchor: synthB.edited_anchor || null,
-                    attempted_at: new Date().toISOString()
-                  };
+                  lensBRetryDirective = lensBSynthResult.directive || decision.nudgePromptDelta;
+                  lensBEditedAnchor = lensBSynthResult.edited_anchor || null;
+                  appendSynthHistory({
+                    directorReport,
+                    checkpoint: 'scene_master',
+                    artifactId: scene.scene_id,
+                    synthResult: lensBSynthResult
+                  });
                   progress('director:scene_master',
-                    `scene ${scene.scene_id} smart-retry directive synthesized (source: ${synthB.source})`,
-                    { scene_id: scene.scene_id, smart_retry: true, synth_source: synthB.source }
+                    `scene ${scene.scene_id} smart-retry directive synthesized (source: ${lensBSynthResult.source}, refs=${lensBSynthResult.reference_image_count}, conf=${lensBSynthResult.confidence ?? '—'}, regression=${lensBSynthResult.regression_warning})`,
+                    {
+                      scene_id: scene.scene_id,
+                      smart_retry: true,
+                      synth_source: lensBSynthResult.source,
+                      synth_reference_count: lensBSynthResult.reference_image_count,
+                      synth_confidence: lensBSynthResult.confidence,
+                      regression_warning: lensBSynthResult.regression_warning,
+                      prior_attempt_count: lensBSynthResult.prior_attempt_count
+                    }
                   );
-                  if (synthB.edited_anchor) {
+                  if (lensBSynthResult.diagnosis) {
+                    progress('director:scene_master',
+                      `scene ${scene.scene_id} synth diagnosis: ${lensBSynthResult.diagnosis.slice(0, 200)}`,
+                      { scene_id: scene.scene_id, smart_retry: true }
+                    );
+                  }
+                  if (lensBSynthResult.edited_anchor) {
                     progress('director:scene_master',
                       `scene ${scene.scene_id} smart-retry: anchor rewritten by synthesis`,
                       { scene_id: scene.scene_id, smart_retry: true }
@@ -4758,6 +4954,18 @@ Respond with ONLY valid JSON:
                 });
                 directorReport.scene_master[scene.scene_id] = verdictB;
                 directorReport.retries = decision.nextRetriesState;
+                // V4 hotfix 2026-05-06 — patch the resulting_score back onto
+                // the most recent synth_history entry so the NEXT synth call
+                // (resume / 2nd Edit & Retry) sees that this directive scored
+                // X. That's what powers cross-attempt regression detection
+                // (58 → 45 → 42 → conservative directive on attempt 4).
+                patchSynthOutcome({
+                  directorReport,
+                  checkpoint: 'scene_master',
+                  artifactId: scene.scene_id,
+                  resultingScore: verdictB?.overall_score ?? null,
+                  resultingVerdict: verdictB?.verdict ?? null
+                });
                 progress('director:scene_master', `scene ${scene.scene_id} retry verdict: ${fmtVerdict(verdictB)}`, {
                   checkpoint: lensBLabel,
                   scene_id: scene.scene_id,
@@ -4785,8 +4993,15 @@ Respond with ONLY valid JSON:
                       pass: 'retry',
                       ts: new Date().toISOString()
                     };
+                    // V4 hotfix 2026-05-06 — same scene_description persist
+                    // as the first-attempt halt above (4680). Without this,
+                    // the user's Edit & Retry resume regenerates every scene
+                    // master from scratch (root cause of the 2026-05-06
+                    // production episode 4f2ec0dc producing 3 fresh Seedream
+                    // jobs on resume instead of skipping the 2 that passed).
                     await updateBrandStoryEpisode(newEpisode.id, userId, {
                       status: 'awaiting_user_review',
+                      scene_description: sceneGraph,
                       director_report: directorReport
                     });
                     throw new DirectorBlockingHaltError({
@@ -4934,6 +5149,7 @@ Respond with ONLY valid JSON:
 
           // Extract endframe for the next scene's anchoring
           let endframeUrl = null;
+          let montageEndframeError = null;
           try {
             const endframeBuffer = await extractBeatEndframe(result.videoBuffer);
             endframeUrl = await uploadBufferToStorage(
@@ -4944,12 +5160,23 @@ Respond with ONLY valid JSON:
             );
           } catch (err) {
             logger.warn(`montage endframe extraction failed: ${err.message}`);
+            montageEndframeError = err.message || String(err);
           }
 
-          // Mark all child beats as satisfied via this single call
+          // Mark all child beats as satisfied via this single call.
+          // V4 Tier 2.1 (2026-05-06) — when endframe extraction fails, mark
+          // EVERY child beat with continuity_chain_broken so downstream
+          // Lens C / Lens E (Tier 3.2) verdicts can deduct cross_beat_continuity
+          // and the user-facing badge surfaces the silent failure. Previously
+          // a montage endframe failure silently fell back to scene_master for
+          // the next scene's first beat with no audit trail.
           for (const beat of scene.beats) {
             beat.generated_video_url = publicUrl;
             beat.endframe_url = endframeUrl;
+            if (montageEndframeError) {
+              beat.continuity_chain_broken = true;
+              beat.endframe_extraction_error = montageEndframeError;
+            }
           }
           beatVideoBuffers.push(result.videoBuffer);
           beatMetadata.push({
@@ -5065,8 +5292,19 @@ Respond with ONLY valid JSON:
               'image/jpeg'
             );
             beat.endframe_url = endframeUrl;
+            // V4 Tier 2.1 (2026-05-06) — clear continuity flags on success
+            // (relevant for retake paths where prior attempt may have set
+            // them; idempotent for fresh runs).
+            beat.continuity_chain_broken = false;
+            beat.endframe_extraction_error = null;
           } catch (err) {
             logger.warn(`beat ${beat.beat_id} endframe extraction failed: ${err.message}`);
+            // V4 Tier 2.1 (2026-05-06) — surface the silent failure so the
+            // NEXT beat's _pickStartFrame breadcrumb (continuity_fallback_reason)
+            // and Lens C's cross_beat_continuity dimension (Tier 2.4) can act
+            // on it. Previously this fell back to scene_master with no signal.
+            beat.continuity_chain_broken = true;
+            beat.endframe_extraction_error = err.message || String(err);
           }
 
           // ─── Director Agent (Layer 3) — Lens C "Dailies" (per beat) ───
@@ -5225,6 +5463,22 @@ Respond with ONLY valid JSON:
                       pass: 'first',
                       ts: new Date().toISOString()
                     };
+                    // V4 Tier 1 (2026-05-06) — quarantine the failed clip
+                    // BEFORE persisting awaiting_user_review. quarantineBeat()
+                    // (a) snapshots beat.generated_video_url + endframe_url +
+                    // model_used + verdict into beat.attempts_log as the audit
+                    // record, (b) nulls beat.generated_video_url + endframe_url
+                    // on the canonical row, (c) flips beat.status →
+                    // 'hard_rejected'. Reassembly's selectLiveBeats() filter
+                    // then skips this beat entirely until the user clicks
+                    // Approve (which calls promoteFromQuarantine to restore
+                    // the snapshot) or Regenerate (which supersedes it). This
+                    // is the architectural fix that makes "10-beat reassemble
+                    // with the failed s2b4 still in the cut" impossible.
+                    quarantineBeat(beat, {
+                      verdict: verdictC,
+                      reason: `lens_c_first_attempt:${decision.reason || 'hard_reject'}`
+                    });
                     await updateBrandStoryEpisode(newEpisode.id, userId, {
                       status: 'awaiting_user_review',
                       scene_description: sceneGraph,
@@ -5268,8 +5522,14 @@ Respond with ONLY valid JSON:
                   // Set V4_SMART_RETRY=false to fall back to cheap concat
                   // (escape hatch for cost-conscious runs OR if Gemini synth
                   // quality regresses). Default: smart retry on.
+                  // V4 hotfix 2026-05-06 — Robust SmartSynth (see Lens B
+                  // wiring for the full rationale). For Lens C, the
+                  // multimodal artifact is the rendered beat's endframe
+                  // (the rejected video's last frame) — this is the
+                  // signal the Director's beat rubric scores against.
                   let retryDirective = decision.nudgePromptDelta;
                   let retryEditedDialogue = null;
+                  let lensCSynthResult = null;
                   if (process.env.V4_SMART_RETRY !== 'false') {
                     progress('director:beat', `beat ${beat.beat_id} smart-retry: synthesizing director directive`, {
                       checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
@@ -5290,25 +5550,66 @@ Respond with ONLY valid JSON:
                         scene_anchor: scene?.scene_visual_anchor_prompt || scene?.location || null,
                         ambient_bed_prompt: scene?.ambient_bed_prompt || null
                       };
-                      const synth = await this._synthesizeEditFromContext({
+                      const personaRefUrls = (personas || [])
+                        .flatMap(p => Array.isArray(p?.reference_image_urls) ? p.reference_image_urls : [])
+                        .filter(Boolean);
+                      const refImages = [
+                        // Scene master is the single most important visual
+                        // anchor for the beat — it's what the beat is supposed
+                        // to look-and-feel like.
+                        ...(scene?.scene_master_url ? [{ url: scene.scene_master_url, role: 'scene_master' }] : []),
+                        ...personaRefUrls.slice(0, 2).map(url => ({ url, role: 'persona_ref' }))
+                      ];
+                      lensCSynthResult = await synthesizeRetakeDirective({
                         verdict: verdictC,
                         checkpoint: 'beat',
                         artifactId: beat.beat_id,
-                        artifactContent
+                        // Use endframe_url as the multimodal artifact; it's
+                        // what the Lens C judge evaluates anyway.
+                        artifactUrl: beat.endframe_url || beat.generated_video_url || null,
+                        artifactMimeType: beat.endframe_url ? 'image/jpeg' : 'video/mp4',
+                        artifactContent,
+                        referenceImages: refImages,
+                        priorAttempts: readSynthHistory({
+                          directorReport,
+                          checkpoint: 'beat',
+                          artifactId: beat.beat_id
+                        }),
+                        craftContext: {
+                          beat_type: beat.type || null,
+                          duration_seconds: beat.duration_seconds || null,
+                          scene_id: scene?.scene_id || null,
+                          genre: story.subject?.genre || story.storyline?.genre || null
+                        },
+                        logPrefix: `SmartSynth:LensC:${beat.beat_id}`
                       });
-                      retryDirective = synth.notes;
-                      retryEditedDialogue = synth.edited_dialogue;
-                      directorReport.beat[beat.beat_id + '_smart_retry'] = {
-                        source: synth.source,
-                        directive: synth.notes,
-                        edited_dialogue: synth.edited_dialogue || null,
-                        attempted_at: new Date().toISOString()
-                      };
+                      retryDirective = lensCSynthResult.directive || decision.nudgePromptDelta;
+                      retryEditedDialogue = lensCSynthResult.edited_dialogue || null;
+                      appendSynthHistory({
+                        directorReport,
+                        checkpoint: 'beat',
+                        artifactId: beat.beat_id,
+                        synthResult: lensCSynthResult
+                      });
                       progress('director:beat',
-                        `beat ${beat.beat_id} smart-retry directive synthesized (source: ${synth.source})`,
-                        { beat_id: beat.beat_id, smart_retry: true, synth_source: synth.source }
+                        `beat ${beat.beat_id} smart-retry directive synthesized (source: ${lensCSynthResult.source}, refs=${lensCSynthResult.reference_image_count}, conf=${lensCSynthResult.confidence ?? '—'}, regression=${lensCSynthResult.regression_warning})`,
+                        {
+                          beat_id: beat.beat_id,
+                          smart_retry: true,
+                          synth_source: lensCSynthResult.source,
+                          synth_reference_count: lensCSynthResult.reference_image_count,
+                          synth_confidence: lensCSynthResult.confidence,
+                          regression_warning: lensCSynthResult.regression_warning,
+                          prior_attempt_count: lensCSynthResult.prior_attempt_count
+                        }
                       );
-                      if (synth.edited_dialogue) {
+                      if (lensCSynthResult.diagnosis) {
+                        progress('director:beat',
+                          `beat ${beat.beat_id} synth diagnosis: ${lensCSynthResult.diagnosis.slice(0, 200)}`,
+                          { beat_id: beat.beat_id, smart_retry: true }
+                        );
+                      }
+                      if (lensCSynthResult.edited_dialogue) {
                         progress('director:beat',
                           `beat ${beat.beat_id} smart-retry: dialogue rewritten by synthesis`,
                           { beat_id: beat.beat_id, smart_retry: true }
@@ -5385,8 +5686,14 @@ Respond with ONLY valid JSON:
                         `${beat.beat_id}-retake-end.jpg`,
                         'image/jpeg'
                       );
+                      // V4 Tier 2.1 (2026-05-06) — clear continuity flags on success.
+                      beat.continuity_chain_broken = false;
+                      beat.endframe_extraction_error = null;
                     } catch (endErr) {
                       logger.warn(`beat ${beat.beat_id} retake endframe extraction failed: ${endErr.message}`);
+                      // V4 Tier 2.1 (2026-05-06) — surface retake failure too.
+                      beat.continuity_chain_broken = true;
+                      beat.endframe_extraction_error = endErr.message || String(endErr);
                     }
 
                     // Re-judge with isRetry=true (Phase 7 / B5 — same lensCFn helper).
@@ -5415,6 +5722,15 @@ Respond with ONLY valid JSON:
                     directorReport.beat[beat.beat_id] = verdictC;
                     accumulateNotes(verdictC, `lens_c:beat:${beat.beat_id}:retry`);
                     directorReport.retries = decision.nextRetriesState;
+                    // V4 hotfix 2026-05-06 — patch resulting_score onto last
+                    // synth_history entry for cross-attempt regression detection.
+                    patchSynthOutcome({
+                      directorReport,
+                      checkpoint: 'beat',
+                      artifactId: beat.beat_id,
+                      resultingScore: verdictC?.overall_score ?? null,
+                      resultingVerdict: verdictC?.verdict ?? null
+                    });
                     progress('director:beat', `beat ${beat.beat_id} retry verdict: ${fmtVerdict(verdictC)}`, {
                       checkpoint: DIRECTOR_CHECKPOINTS.BEAT,
                       beat_id: beat.beat_id,
@@ -5455,6 +5771,19 @@ Respond with ONLY valid JSON:
                           pass: 'retry',
                           ts: new Date().toISOString()
                         };
+                        // V4 Tier 1 (2026-05-06) — quarantine the failed retake
+                        // before persisting awaiting_user_review. The retake
+                        // overwrote beatVideoBuffers[last] and beat.generated_video_url
+                        // earlier in this block (line ~5465), so the failed
+                        // CLIP currently on the canonical row IS the retake.
+                        // quarantineBeat snapshots it into attempts_log + nulls
+                        // the canonical URL so reassembly's selectLiveBeats
+                        // skips it. Audit log preserves both the verdict and
+                        // the retake's URL for the user-approve restore path.
+                        quarantineBeat(beat, {
+                          verdict: verdictC,
+                          reason: `lens_c_retry_attempt:retake_${verdictC?.verdict}`
+                        });
                         await updateBrandStoryEpisode(newEpisode.id, userId, {
                           status: 'awaiting_user_review',
                           scene_description: sceneGraph,
@@ -5497,6 +5826,84 @@ Respond with ONLY valid JSON:
             duration_seconds: beat.duration_seconds,
             actual_duration_sec: result.durationSec
           });
+
+          // V4 Tier 3.2 (2026-05-06) — LIVE Lens E "Continuity Supervisor".
+          // Runs AFTER Lens C accepts beat N and BEFORE we move to beat N+1
+          // (we still have previousBeat as the prior beat in scope). Fires
+          // ONLY within-scene; cross-scene continuity is owned by Lens F.
+          // Default promoted from `shadow` → `blocking` (2026-05-06).
+          if (directorAgent && previousBeat) {
+            try {
+              const { runContinuitySupervisor } = await import('./v4/ContinuitySupervisor.js');
+              const lensEResult = await runContinuitySupervisor({
+                directorAgent,
+                prevBeat: previousBeat,
+                currentBeat: beat,
+                scene,
+                prevSceneIdx: scene._sceneIdx ?? null,
+                currentSceneIdx: scene._sceneIdx ?? null,
+                progress
+              });
+
+              // V4 Tier 3.2 BLOCKING-MODE behavior. The verdict is already
+              // persisted on beat.lens_e_continuity_verdict by the helper.
+              // Here we act on it when the operational mode is blocking:
+              //   soft_reject → stamp director_nudge so a user-triggered
+              //                 regenerate carries the continuity hint
+              //                 (auto-retry inside the loop is a follow-up
+              //                 tier; the live SSE event already lets the
+              //                 user see the issue and click Regenerate)
+              //   hard_reject → quarantine the failing beat + persist
+              //                 awaiting_user_review (same contract Lens C
+              //                 uses on hard_reject)
+              if (!lensEResult?.skipped && lensEResult?.verdict && lensEResult.mode === 'blocking') {
+                const v = lensEResult.verdict;
+                const nudgeFromFindings = (Array.isArray(v.findings) ? v.findings : [])
+                  .map(f => f?.message)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .join(' ');
+                if (v.verdict === 'soft_reject' && nudgeFromFindings) {
+                  // Append (don't replace) any existing director_nudge so
+                  // Lens C and Lens E can both stamp guidance for the next
+                  // user-triggered regenerate.
+                  const existing = typeof beat.director_nudge === 'string' ? beat.director_nudge.trim() : '';
+                  beat.director_nudge = existing
+                    ? `${existing} CONTINUITY: ${nudgeFromFindings}`
+                    : `CONTINUITY: ${nudgeFromFindings}`;
+                  logger.info(`beat ${beat.beat_id} Lens E soft_reject — director_nudge stamped for user-triggered regenerate`);
+                } else if (v.verdict === 'hard_reject') {
+                  // Use the same quarantine contract as Lens C hard_reject.
+                  // Persist awaiting_user_review and halt — the user sees
+                  // the bad beat-pair in the Director Panel and decides
+                  // approve / regenerate / edit.
+                  logger.warn(`beat ${beat.beat_id} Lens E hard_reject — quarantining + escalating to user_review`);
+                  quarantineBeat(beat, {
+                    verdict: v,
+                    reason: 'lens_e_continuity_hard_reject'
+                  });
+                  await updateBrandStoryEpisode(newEpisode.id, userId, {
+                    status: 'awaiting_user_review',
+                    scene_description: sceneGraph,
+                    director_report: directorReport
+                  });
+                  throw new DirectorBlockingHaltError({
+                    checkpoint: 'continuity',
+                    verdict: v,
+                    artifactKey: beat.beat_id,
+                    reason: `Lens E continuity hard_reject — ${nudgeFromFindings || 'broken chain detected'}`
+                  });
+                }
+              }
+            } catch (lensEErr) {
+              // Defense in depth — Lens E failures must NEVER kill the
+              // beat unless they're a deliberate DirectorBlockingHaltError
+              // (which we re-throw to let the outer pipeline catch).
+              if (lensEErr instanceof DirectorBlockingHaltError) throw lensEErr;
+              logger.warn(`beat ${beat.beat_id} Lens E continuity supervisor threw (non-fatal): ${lensEErr.message}`);
+            }
+          }
+
           previousBeat = beat;
 
           // Persist beat-level progress so partial failures can resume
@@ -5647,7 +6054,17 @@ Respond with ONLY valid JSON:
                 `${bridgeBeat.beat_id}-end.jpg`,
                 'image/jpeg'
               );
-            } catch {}
+              // V4 Tier 2.1 (2026-05-06) — clear flags on bridge endframe success.
+              bridgeBeat.continuity_chain_broken = false;
+              bridgeBeat.endframe_extraction_error = null;
+            } catch (bridgeErr) {
+              // V4 Tier 2.1 (2026-05-06) — bridge endframe failures are
+              // particularly costly: the next scene's first beat depends on
+              // this frame for continuity. Surface so Lens E (Tier 3.2)
+              // continuity supervisor can deduct cross-scene continuity.
+              bridgeBeat.continuity_chain_broken = true;
+              bridgeBeat.endframe_extraction_error = bridgeErr.message || String(bridgeErr);
+            }
             beatVideoBuffers.push(result.videoBuffer);
             beatMetadata.push({
               beat_id: bridgeBeat.beat_id,
@@ -5695,25 +6112,33 @@ Respond with ONLY valid JSON:
     }
 
     // ─── Step 8: Music bed (ElevenLabs Music sized to assembled duration) ───
+    // 2026-05-05 — Rec 3 Phase A wiring. When Gemini emits a structured
+    // `music_composition_plan` (sections per scene with shared key + sustained
+    // pedal tone, the Sicario / Jóhannsson cross-section continuity model),
+    // route to MusicService.generateMusicWithCompositionPlan(). Otherwise
+    // fall through to the legacy flat-prompt path. Compositional failures
+    // (validator rejection, key drift) fall back to flat prompt automatically.
     let musicBedBuffer = null;
     let musicBedUrl = null;
     if (sceneGraph.music_bed_intent && musicService.isAvailable()) {
       const totalDuration = estimateEpisodeDuration(beatMetadata);
-      progress('music', `generating music bed (${totalDuration.toFixed(0)}s)`);
-      try {
-        const musicResult = await musicService.generateMusicBed({
-          musicBedIntent: sceneGraph.music_bed_intent,
-          durationSec: totalDuration
-        });
+      const musicResult = await this._generateEpisodeMusic({
+        sceneGraph,
+        totalDuration,
+        progress
+      });
+      if (musicResult) {
         musicBedBuffer = musicResult.audioBuffer;
-        musicBedUrl = await uploadBufferToStorage(
-          musicResult.audioBuffer,
-          'audio/v4-music',
-          `episode-${newEpisode.id}-music.mp3`,
-          'audio/mpeg'
-        );
-      } catch (err) {
-        logger.warn(`V4: music generation failed (non-fatal): ${err.message}`);
+        try {
+          musicBedUrl = await uploadBufferToStorage(
+            musicResult.audioBuffer,
+            'audio/v4-music',
+            `episode-${newEpisode.id}-music.mp3`,
+            'audio/mpeg'
+          );
+        } catch (err) {
+          logger.warn(`V4: music upload failed (non-fatal): ${err.message}`);
+        }
       }
     }
 
@@ -5728,29 +6153,27 @@ Respond with ONLY valid JSON:
     const brandLutId = story.brand_palette_lut_id || null;
     progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
-    // Build beatMetadata with dialogue fields so the subtitle burn-in + music
-    // ducking can use them. beatMetadata is currently a thin object, but the
-    // scene-graph beats (inside sceneGraph.scenes[].beats) carry the dialogue.
-    // Match index-for-index because beat generation iterated scenes in order.
-    const enrichedBeatMetadata = [];
-    let idx = 0;
-    for (const scene of sceneGraph.scenes) {
-      for (const beat of (scene.beats || [])) {
-        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
-        if (!beat.generated_video_url) continue;
-        const base = beatMetadata[idx] || {};
-        enrichedBeatMetadata.push({
-          ...base,
-          beat_id: beat.beat_id,
-          dialogue: beat.dialogue || null,
-          dialogues: beat.dialogues || null,
-          exchanges: beat.exchanges || null,
-          voiceover_text: beat.voiceover_text || null,
-          ambient_sound: beat.ambient_sound || null
-        });
-        idx++;
-      }
-    }
+    // V4 Tier 1 (2026-05-06) — walk selectLiveBeats(sceneGraph) so the
+    // enrichedBeatMetadata index aligns 1:1 with beatVideoBuffers under the
+    // same status filter the loaders use elsewhere. Previously the loop used
+    // a separate `idx` counter that incremented on `(!beat.generated_video_url)`
+    // — drifted by 1 when a quarantined beat sat between live beats.
+    // selectLiveBeats() unifies the filter; quarantineBeat() at the
+    // escalation sites nulls the canonical video_url, so live-set membership
+    // here matches what was pushed into beatVideoBuffers in the beat loop.
+    const liveBeatsForMeta = selectLiveBeats(sceneGraph);
+    const enrichedBeatMetadata = liveBeatsForMeta.map(({ beat }, i) => {
+      const base = beatMetadata[i] || {};
+      return {
+        ...base,
+        beat_id: beat.beat_id,
+        dialogue: beat.dialogue || null,
+        dialogues: beat.dialogues || null,
+        exchanges: beat.exchanges || null,
+        voiceover_text: beat.voiceover_text || null,
+        ambient_sound: beat.ambient_sound || null
+      };
+    });
 
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
@@ -5763,6 +6186,13 @@ Respond with ONLY valid JSON:
       cta_text: story.cta_text || story.storyline?.cta_text || null
     };
 
+    // 2026-05-05 — Aleph Rec 2: capture post-LUT intermediate ONLY for
+    // commercial episodes. Prestige series stay on the legacy path (no
+    // intermediate write — the Aleph button doesn't appear on prestige UI).
+    // The post-LUT bytes are graded video with no music/cards/subs baked
+    // in yet — exactly the Option B input shape Aleph operates on.
+    const captureAlephIntermediate = isCommercialGenre(story);
+
     const postProductionResult = await runPostProduction({
       beatVideoBuffers,
       beatMetadata: enrichedBeatMetadata,
@@ -5772,9 +6202,148 @@ Respond with ONLY valid JSON:
       sceneGraph: sceneGraph.scenes,
       sceneDescription: sceneGraph,
       episodeMeta,
-      burnSubtitles: true
+      burnSubtitles: true,
+      captureIntermediate: captureAlephIntermediate
     });
-    const finalVideoBuffer = postProductionResult.finalBuffer;
+    // V4 Tier 3.5 (2026-05-06) — `let` so the Lens F EDL re-assemble path
+    // below can reassign to the EDL'd cut. Replaces the prior `const`.
+    let finalVideoBuffer = postProductionResult.finalBuffer;
+
+    // V4 Tier 3.5 (2026-05-06) — LIVE Lens F "Editor Agent". Runs on the
+    // assembled final cut and emits a structured Edit Decision List
+    // (drop_beat / swap_beats / retime_beat / j_cut_audio). Default mode
+    // is `advisory` — EDL is emitted via SSE for the Director Panel to
+    // surface, but NOT auto-applied. Promotion to `blocking` (which would
+    // re-assemble in PostProduction stage 2.5 with the EDL applied)
+    // requires the criteria documented in DirectorAgent.judgeRoughCut.
+    //
+    // Failures are non-fatal. The episode still ships even if Lens F
+    // throws — Lens D screens the cut after.
+    // V4 Tier 3.5 (2026-05-06) — default promoted from `advisory` →
+    // `blocking` once EDL application landed end-to-end. `advisory` and
+    // `off` remain available for rollback. `blocking` mode applies the
+    // EDL (drop / swap / retime) and re-runs post-production with the
+    // mutated cut before Lens D screens it.
+    const lensFMode = String(process.env.V4_LENS_F_EDITOR_AGENT || 'blocking').toLowerCase();
+    if (directorAgent && lensFMode !== 'off') {
+      try {
+        // Compress the per-beat-pair Lens E verdicts into the summary the
+        // editor agent ingests (raw verdicts blow the multimodal budget).
+        const { buildContinuitySummary } = await import('./v4/ContinuitySupervisor.js');
+        const continuitySummary = buildContinuitySummary(sceneGraph);
+        const lensCSummary = directorReport.beat || {};
+        const lensFVerdict = await directorAgent.judgeRoughCut({
+          roughCutVideo: finalVideoBuffer,
+          roughCutMime: 'video/mp4',
+          sceneGraph,
+          lensCVerdicts: lensCSummary,
+          continuitySummary
+        });
+        // Stash the verdict + EDL on directorReport so the Panel can
+        // render it as the "Editor's notes" tab.
+        directorReport.editor_lens_f = {
+          verdict: lensFVerdict?.verdict || null,
+          overall_score: lensFVerdict?.overall_score || null,
+          dimension_scores: lensFVerdict?.dimension_scores || null,
+          findings: Array.isArray(lensFVerdict?.findings) ? lensFVerdict.findings.slice(0, 4) : null,
+          edl: lensFVerdict?.edl || null,
+          mode: lensFMode,
+          ts: new Date().toISOString()
+        };
+        progress('director:editor', `Lens F editor: ${lensFVerdict?.verdict || 'unknown'}${lensFVerdict?.edl ? ` (EDL: ${(lensFVerdict.edl.drop_beat?.length || 0)} drops, ${(lensFVerdict.edl.swap_beats?.length || 0)} swaps, ${(lensFVerdict.edl.retime_beat?.length || 0)} retimes, ${(lensFVerdict.edl.j_cut_audio?.length || 0)} J-cuts)` : ''}`, {
+          verdict: lensFVerdict?.verdict,
+          score: lensFVerdict?.overall_score,
+          mode: lensFMode,
+          edl: lensFVerdict?.edl || null
+        });
+        // V4 Tier 3.5 (2026-05-06) — blocking-mode EDL application.
+        // When the editor proposes drops / swaps / retimes AND the flag is
+        // `blocking`, apply the EDL to the scene-graph and trigger a single
+        // reassemble pass. The reassembled MP4 replaces finalVideoBuffer
+        // before Lens D screens it. Advisory mode (default for now)
+        // emits but doesn't apply.
+        const edl = lensFVerdict?.edl || null;
+        const hasMutations = edl && (
+          (Array.isArray(edl.drop_beat) && edl.drop_beat.length > 0) ||
+          (Array.isArray(edl.swap_beats) && edl.swap_beats.length > 0) ||
+          (Array.isArray(edl.retime_beat) && edl.retime_beat.length > 0)
+        );
+        if (lensFMode === 'blocking' && hasMutations) {
+          try {
+            const { applyEdl } = await import('./v4/EditDecisionList.js');
+            const applyResult = applyEdl(sceneGraph, edl, { reason: 'lens_f_blocking_apply' });
+            progress('director:editor', `Lens F EDL applied: ${applyResult.applied.dropped} dropped, ${applyResult.applied.swapped} swapped, ${applyResult.applied.retimed} retimed`, applyResult);
+            directorReport.editor_lens_f.applied = applyResult.applied;
+            directorReport.editor_lens_f.skipped = applyResult.skipped;
+
+            // Re-run post-production with the mutated scene-graph. The
+            // beat buffers we already loaded are still in scope; the
+            // status-based filter (Tier 1) will skip beats supersede'd by
+            // drop_beat. We need to rebuild beatVideoBuffers + beatMetadata
+            // from the post-EDL live set.
+            const { selectLiveBeats: _selectLiveBeats } = await import('./v4/BeatLifecycle.js');
+            const postEdlLive = _selectLiveBeats(sceneGraph);
+            // The orderly walk of selectLiveBeats also handles the
+            // swap_beats reordering since beats[] was mutated in place.
+            const postEdlBuffers = [];
+            const postEdlMetadata = [];
+            // Build a beat_id → buffer index map from the original
+            // beatVideoBuffers/beatMetadata (which were 1:1 with the
+            // pre-EDL liveBeatsForMeta).
+            const preEdlIndexById = new Map(
+              liveBeatsForMeta.map((entry, i) => [entry.beat.beat_id, i])
+            );
+            for (const { beat } of postEdlLive) {
+              const preIdx = preEdlIndexById.get(beat.beat_id);
+              if (preIdx == null) continue; // safety — shouldn't happen
+              postEdlBuffers.push(beatVideoBuffers[preIdx]);
+              postEdlMetadata.push({
+                ...(beatMetadata[preIdx] || {}),
+                beat_id: beat.beat_id,
+                duration_seconds: beat.duration_seconds // retime_beat updated this
+              });
+            }
+
+            if (postEdlBuffers.length > 0 && postEdlBuffers.length !== beatVideoBuffers.length) {
+              // Re-run post-production with the mutated buffers. We reuse
+              // the same enrichedBeatMetadata/episodeMeta/musicBedBuffer
+              // — the LUT, music, cards, subtitles all stay the same.
+              progress('director:editor', `Lens F EDL re-assembling cut (${postEdlBuffers.length} beats, was ${beatVideoBuffers.length})`);
+              const postEdlEnriched = postEdlLive.map(({ beat }, i) => ({
+                ...(postEdlMetadata[i] || {}),
+                beat_id: beat.beat_id,
+                dialogue: beat.dialogue || null,
+                dialogues: beat.dialogues || null,
+                exchanges: beat.exchanges || null,
+                voiceover_text: beat.voiceover_text || null,
+                ambient_sound: beat.ambient_sound || null
+              }));
+              const reassembled = await runPostProduction({
+                beatVideoBuffers: postEdlBuffers,
+                beatMetadata: postEdlEnriched,
+                episodeLutId,
+                brandLutId,
+                musicBedBuffer,
+                sceneGraph: sceneGraph.scenes,
+                sceneDescription: sceneGraph,
+                episodeMeta,
+                burnSubtitles: true
+              });
+              // Replace the final buffer so Lens D and the upload step
+              // see the EDL'd cut. We update both the result object AND
+              // the local finalVideoBuffer (which is `let` for this).
+              postProductionResult.finalBuffer = reassembled.finalBuffer;
+              postProductionResult.srtContent = reassembled.srtContent;
+              finalVideoBuffer = reassembled.finalBuffer;
+            }
+          } catch (edlErr) {
+            logger.warn(`Lens F EDL application threw (non-fatal): ${edlErr.message}`);
+          }
+        }
+      } catch (lensFErr) {
+        logger.warn(`Lens F editor agent threw (non-fatal in ${lensFMode} mode): ${lensFErr.message}`);
+      }
+    }
 
     // Upload the SRT separately so the UI can expose it as a download
     let subtitleUrl = null;
@@ -5788,6 +6357,25 @@ Respond with ONLY valid JSON:
         );
       } catch (err) {
         logger.warn(`V4: SRT upload failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // 2026-05-05 — Aleph Rec 2: upload the post-LUT intermediate (commercial
+    // only) so the enhancement endpoint has a stable source URL. Failure is
+    // non-fatal — the episode still ships; users just don't get the Aleph
+    // button until the next regenerate captures it.
+    let postLutIntermediateUrl = null;
+    if (postProductionResult.postLutIntermediateBuffer) {
+      try {
+        postLutIntermediateUrl = await uploadBufferToStorage(
+          postProductionResult.postLutIntermediateBuffer,
+          'videos/v4-post-lut-intermediate',
+          `episode-${newEpisode.episode_number}-post-lut.mp4`,
+          'video/mp4'
+        );
+        logger.info(`V4: post-LUT intermediate uploaded for Aleph (${postLutIntermediateUrl})`);
+      } catch (err) {
+        logger.warn(`V4: post-LUT intermediate upload failed (non-fatal — Aleph button unavailable for this episode): ${err.message}`);
       }
     }
 
@@ -6053,7 +6641,12 @@ Respond with ONLY valid JSON:
       status: finalEpisodeStatus,
       lut_id: episodeLutId,
       director_report: directorReport,
-      lens_d_auto_reassemble_attempted: lensDAutoReassembleAttempted
+      lens_d_auto_reassemble_attempted: lensDAutoReassembleAttempted,
+      // 2026-05-05 — Aleph Rec 2: stable source URL for the enhancement
+      // endpoint. Null on prestige stories (no Aleph button on UI). Null
+      // on commercial stories where the upload failed (logged above; Aleph
+      // button just hidden until next regenerate).
+      post_lut_intermediate_url: postLutIntermediateUrl
     });
 
     if (finalEpisodeStatus === 'ready') {
@@ -6170,10 +6763,16 @@ Respond with ONLY valid JSON:
       progress('director_nudge', `beat ${beatId} regenerating with director nudge (${overrides.directorNotes.length} chars)`);
     }
 
-    // Clear the generated state so downstream code knows to actually generate
-    targetBeat.generated_video_url = null;
-    targetBeat.endframe_url = null;
-    targetBeat.status = 'generating';
+    // V4 Tier 1 (2026-05-06) — supersede the prior attempt before regenerating.
+    // supersedeBeat() snapshots the current generated_video_url/endframe_url/
+    // model_used into beat.attempts_log (audit trail), nulls those fields on
+    // the canonical row, and bumps version. The subsequent BaseBeatGenerator
+    // run transitions superseded → generating cleanly. If the prior attempt
+    // had already been quarantined (status=hard_rejected), supersede records
+    // a fresh attempt for the audit trail without losing the quarantined
+    // entry — promoteFromQuarantine still finds the older entry by walking
+    // attempts_log in reverse.
+    supersedeBeat(targetBeat, { reason: 'user_or_director_regenerate' });
     targetBeat.error_message = null;
 
     // ─── Step 2: mark episode status ───
@@ -6200,12 +6799,40 @@ Respond with ONLY valid JSON:
     });
 
     const subjectReferenceImages = (story.subject?.reference_image_urls || []).filter(Boolean);
+
+    // V4 Tier 2.2 (2026-05-06) — eagerly load brand_kit so episodeContext
+    // can carry it into per-beat generators for the new color hint /
+    // wardrobe / brand-palette directives. Without this, the regenerate
+    // path produces beats with thinner prompt context than the primary
+    // runV4Pipeline path — observable continuity drift on the regenerated
+    // beat vs its neighbors. The legacy late-load at line ~6580 below
+    // remains for episodeMeta but reads from this same brandKitForRegen
+    // (we just hoist the load earlier).
+    let brandKitForRegen = null;
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        if (job?.brand_kit) brandKitForRegen = job.brand_kit;
+      } catch (err) {
+        logger.warn(`V4 regen: failed to early-load brand_kit (non-fatal): ${err.message}`);
+      }
+    }
+
     const episodeContext = {
       visual_style_prefix: sceneGraph.visual_style_prefix || '',
       storyId,
       episodeId,
       userId,
       subjectReferenceImages,
+      // V4 Tier 2.2 (2026-05-06) — rich context for the new prompt
+      // directives. Mirrors runV4Pipeline's episodeContext shape so beat
+      // generators behave identically on regen vs primary.
+      subject: story.subject || null,
+      genre: story.subject?.genre || story.storyline?.genre || '',
+      commercial_brief: story.commercial_brief || null,
+      subject_bible: story.subject?.subject_bible || story.subject_bible || null,
+      locationBible: story.location_bible || null,
+      brandKit: brandKitForRegen,
       defaultNarratorVoiceId: personas[0]?.elevenlabs_voice_id
         || pickFallbackVoiceIdForPersonaInList(personas, 0, { reason: 'v4_default_narrator' })
         || 'nPczCjzI2devNBz1zQrb',
@@ -6215,15 +6842,20 @@ Respond with ONLY valid JSON:
     };
 
     // ─── Step 4: assemble beatVideoBuffers in canonical scene order ───
-    // For every beat in the scene-graph: if it's the target, run it fresh;
-    // otherwise, fetch its existing Supabase URL and reuse the buffer.
-    // This preserves beat order and previousBeat chaining for endframes.
+    // V4 Tier 1 (2026-05-06) — for every beat in the scene-graph: if it's the
+    // target, run it fresh; otherwise, IF it's currently live (status ∈
+    // {generated, ready}) reuse its buffer; if it's quarantined / failed /
+    // pending, skip it — exactly as the reassemble loader does. Preserves
+    // beat order and previousBeat chaining for endframes. Tracks the parallel
+    // index list (liveBeatsKept) so enrichedBeatMetadata can't drift.
     const beatVideoBuffers = [];
     const beatMetadata = [];
+    const liveBeatsKept = []; // parallel to beatVideoBuffers
     const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
       this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
 
-    for (const scene of sceneGraph.scenes) {
+    for (let s = 0; s < sceneGraph.scenes.length; s++) {
+      const scene = sceneGraph.scenes[s];
       let previousBeat = null;
 
       // MONTAGE_SEQUENCE scenes are atomic — they don't support per-beat
@@ -6231,32 +6863,40 @@ Respond with ONLY valid JSON:
       // If the target beat is inside a montage scene, throw a clear error
       // rather than silently regenerating the whole montage.
       if (scene.type === 'montage') {
-        for (const beat of (scene.beats || [])) {
+        for (let b = 0; b < (scene.beats || []).length; b++) {
+          const beat = scene.beats[b];
           if (beat.beat_id === beatId) {
             throw new Error(`V4 regen: beat ${beatId} is inside a MONTAGE scene — montage scenes regenerate as a unit, not per-beat`);
           }
+          ensureLifecycleFields(beat);
+          if (beat.status !== BEAT_STATUS.GENERATED && beat.status !== BEAT_STATUS.READY) continue;
+          if (!beat.generated_video_url) continue;
           // Pull the existing montage video for non-target beats
-          if (beat.generated_video_url) {
-            const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
-            beatVideoBuffers.push(Buffer.from(cached.data));
-            beatMetadata.push({
-              beat_id: beat.beat_id,
-              model_used: beat.model_used,
-              duration_seconds: beat.duration_seconds,
-              actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
-            });
-            previousBeat = { endframe_url: beat.endframe_url };
-            break; // montage is one beat-equivalent, skip the rest
-          }
+          const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+          beatVideoBuffers.push(Buffer.from(cached.data));
+          beatMetadata.push({
+            beat_id: beat.beat_id,
+            model_used: beat.model_used,
+            duration_seconds: beat.duration_seconds,
+            actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+          });
+          liveBeatsKept.push({ scene, beat, scene_index: s, beat_index: b });
+          previousBeat = { endframe_url: beat.endframe_url };
+          break; // montage is one beat-equivalent, skip the rest
         }
         continue;
       }
 
-      for (const beat of (scene.beats || [])) {
+      for (let b = 0; b < (scene.beats || []).length; b++) {
+        const beat = scene.beats[b];
         if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        ensureLifecycleFields(beat);
 
         if (beat.beat_id === beatId) {
           // ─── This IS the target: regenerate ───
+          // supersedeBeat above already nulled video_url and bumped status to
+          // 'superseded'; the BaseBeatGenerator transition path will move it
+          // through generating → generated as the new clip lands.
           progress('regenerating_beat', `beat ${beatId} [${beat.type}]`);
           const refStack = buildBeatRefStack({ beat, scene, previousBeat, personas });
 
@@ -6289,8 +6929,15 @@ Respond with ONLY valid JSON:
               'image/jpeg'
             );
             beat.endframe_url = endframeUrl;
+            // V4 Tier 2.1 (2026-05-06) — clear continuity flags on regen success.
+            beat.continuity_chain_broken = false;
+            beat.endframe_extraction_error = null;
           } catch (err) {
             logger.warn(`V4 regen: endframe extraction failed for ${beat.beat_id}: ${err.message}`);
+            // V4 Tier 2.1 (2026-05-06) — same breadcrumb as primary path so
+            // the regenerated beat's drift is observable in Lens E.
+            beat.continuity_chain_broken = true;
+            beat.endframe_extraction_error = err.message || String(err);
           }
 
           beatVideoBuffers.push(result.videoBuffer);
@@ -6300,16 +6947,21 @@ Respond with ONLY valid JSON:
             duration_seconds: beat.duration_seconds,
             actual_duration_sec: result.durationSec
           });
+          liveBeatsKept.push({ scene, beat, scene_index: s, beat_index: b });
           previousBeat = beat;
           continue;
         }
 
-        // ─── Not the target: reuse the existing generated video ───
+        // ─── Not the target: reuse the existing live video ───
+        // V4 Tier 1 (2026-05-06) — status filter in addition to URL check.
+        // Failed / quarantined / superseded beats are invisible to assembly.
+        if (beat.status !== BEAT_STATUS.GENERATED && beat.status !== BEAT_STATUS.READY) {
+          logger.info(`V4 regen: beat ${beat.beat_id} status=${beat.status} — not in cut`);
+          continue;
+        }
         if (!beat.generated_video_url) {
-          // This beat failed on the original run and is missing — skip.
-          // Post-production will assemble without it, which matches the
-          // original episode's shape.
-          logger.warn(`V4 regen: beat ${beat.beat_id} has no generated_video_url — skipping`);
+          // This beat is "live" by status but has no URL — defense in depth.
+          logger.warn(`V4 regen: beat ${beat.beat_id} status=${beat.status} but has no generated_video_url — skipping`);
           continue;
         }
         try {
@@ -6321,6 +6973,7 @@ Respond with ONLY valid JSON:
             duration_seconds: beat.duration_seconds,
             actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
           });
+          liveBeatsKept.push({ scene, beat, scene_index: s, beat_index: b });
           previousBeat = { endframe_url: beat.endframe_url };
         } catch (err) {
           logger.warn(`V4 regen: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
@@ -6350,39 +7003,33 @@ Respond with ONLY valid JSON:
     }
     if (!musicBedBuffer && sceneGraph.music_bed_intent && musicService.isAvailable()) {
       const totalDuration = estimateEpisodeDuration(beatMetadata);
-      progress('music', `generating music bed (${totalDuration.toFixed(0)}s)`);
-      try {
-        const musicResult = await musicService.generateMusicBed({
-          musicBedIntent: sceneGraph.music_bed_intent,
-          durationSec: totalDuration
-        });
+      // 2026-05-05 — Rec 3 Phase A: composition_plan upgrade also applies to
+      // regenerate-beat path so re-runs benefit from the same music quality.
+      const musicResult = await this._generateEpisodeMusic({
+        sceneGraph,
+        totalDuration,
+        progress
+      });
+      if (musicResult) {
         musicBedBuffer = musicResult.audioBuffer;
-        musicBedUrl = await uploadBufferToStorage(
-          musicResult.audioBuffer,
-          'audio/v4-music',
-          `episode-${episodeId}-music-regen-${Date.now()}.mp3`,
-          'audio/mpeg'
-        );
-      } catch (err) {
-        logger.warn(`V4 regen: music gen failed (non-fatal): ${err.message}`);
+        try {
+          musicBedUrl = await uploadBufferToStorage(
+            musicResult.audioBuffer,
+            'audio/v4-music',
+            `episode-${episodeId}-music-regen-${Date.now()}.mp3`,
+            'audio/mpeg'
+          );
+        } catch (err) {
+          logger.warn(`V4 regen: music upload failed (non-fatal): ${err.message}`);
+        }
       }
     }
 
-    // V4 hotfix 2026-04-30 — load brand_kit for episodeMeta. Before this fix
-    // the regenerate-beat path referenced `brandKit` in episodeMeta below
-    // without ever loading it, throwing ReferenceError("brandKit is not defined")
-    // at the post-production call. Manual reassemble (reassembleEpisode) loaded
-    // it correctly; only this regenerate path was broken. The pattern mirrors
-    // runV4Pipeline's brand_kit load (lines 918-921).
-    let brandKit = null;
-    if (story.brand_kit_job_id) {
-      try {
-        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
-        if (job?.brand_kit) brandKit = job.brand_kit;
-      } catch (err) {
-        logger.warn(`V4 regen: failed to load brand_kit (non-fatal): ${err.message}`);
-      }
-    }
+    // V4 hotfix 2026-04-30 + V4 Tier 2.2 (2026-05-06) — brand_kit is now
+    // eagerly loaded into brandKitForRegen above (so episodeContext carries
+    // it to per-beat generators). episodeMeta below reuses the same value
+    // — single load per regenerate call.
+    const brandKit = brandKitForRegen;
 
     // ─── Step 6: enrich metadata for subtitles/ducking + re-run post-prod ───
     progress('post_production', 'reassembling episode with regenerated beat');
@@ -6395,25 +7042,25 @@ Respond with ONLY valid JSON:
     const brandLutId = story.brand_palette_lut_id || null;
     progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
-    const enrichedBeatMetadata = [];
-    let idx = 0;
-    for (const scene of sceneGraph.scenes) {
-      for (const beat of (scene.beats || [])) {
-        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
-        if (!beat.generated_video_url) continue;
-        const base = beatMetadata[idx] || {};
-        enrichedBeatMetadata.push({
-          ...base,
-          beat_id: beat.beat_id,
-          dialogue: beat.dialogue || null,
-          dialogues: beat.dialogues || null,
-          exchanges: beat.exchanges || null,
-          voiceover_text: beat.voiceover_text || null,
-          ambient_sound: beat.ambient_sound || null
-        });
-        idx++;
-      }
-    }
+    // V4 Tier 1 (2026-05-06) — walk the SAME status-filtered list
+    // (liveBeatsKept) we used to populate beatVideoBuffers. The previous
+    // code maintained a separate `idx` counter that incremented on a
+    // different filter than the buffer loop, producing per-beat dialogue/SFX
+    // metadata that drifted by 1 every time a beat between scenes was
+    // skipped. liveBeatsKept is 1:1 with beatVideoBuffers by construction,
+    // so the parallel index is the architectural fix.
+    const enrichedBeatMetadata = liveBeatsKept.map(({ beat }, i) => {
+      const base = beatMetadata[i] || {};
+      return {
+        ...base,
+        beat_id: beat.beat_id,
+        dialogue: beat.dialogue || null,
+        dialogues: beat.dialogues || null,
+        exchanges: beat.exchanges || null,
+        voiceover_text: beat.voiceover_text || null,
+        ambient_sound: beat.ambient_sound || null
+      };
+    });
 
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
@@ -6576,7 +7223,7 @@ Respond with ONLY valid JSON:
     const { supabaseAdmin } = await import('./supabase.js');
     const { data: episode, error } = await supabaseAdmin
       .from('brand_story_episodes')
-      .select('id, status, scene_description, director_report')
+      .select('id, status, scene_description, director_report, story_id')
       .eq('id', episodeId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -6589,34 +7236,26 @@ Respond with ONLY valid JSON:
     const dr = episode.director_report || {};
     const halt = dr.halt || {};
     const verdict = halt.verdict || null;
-    const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
     const checkpoint = halt.checkpoint || 'unknown';
     const artifactId = halt.scene_id || halt.beat_id || halt.artifactKey || null;
-
-    // ── Cheap layer: collect existing prompt_delta hints from findings ──
-    const promptDeltas = findings
-      .map(f => f?.remediation?.prompt_delta)
-      .filter(s => typeof s === 'string' && s.trim().length > 0);
-    const messages = findings.map(f => `- [${f.severity}] ${f.message}`).filter(Boolean).join('\n');
-
-    let cheapNotes;
-    if (promptDeltas.length > 0) {
-      cheapNotes = [
-        `Director-flagged issues at Lens ${checkpoint}${artifactId ? ` (${artifactId})` : ''}:`,
-        messages,
-        '',
-        'Apply these corrective directives to the next render:',
-        ...promptDeltas.map((d, i) => `${i + 1}. ${d}`)
-      ].filter(Boolean).join('\n');
-    } else if (messages) {
-      cheapNotes = `Director-flagged issues at Lens ${checkpoint}:\n${messages}\n\nAddress these in the next render.`;
-    } else {
-      cheapNotes = `Director halted at Lens ${checkpoint} but emitted no specific findings. Re-run with care.`;
-    }
-
-    // ── Find the failed artifact's content for the rich-layer Gemini call ──
-    let artifactContent = null;
     const sceneGraph = episode.scene_description || {};
+
+    // ── Locate the failed artifact + collect reference images ──
+    let artifactContent = null;
+    let artifactUrl = null;
+    let artifactMimeType = null;
+    const referenceImages = [];
+
+    // Pull the story so we can include subject/persona reference images.
+    const story = await getBrandStoryById(storyId, userId).catch(() => null);
+    const personas = Array.isArray(story?.persona_config?.personas)
+      ? story.persona_config.personas
+      : (story?.persona_config ? [story.persona_config] : []);
+    const personaRefUrls = personas
+      .flatMap(p => Array.isArray(p?.reference_image_urls) ? p.reference_image_urls : [])
+      .filter(Boolean);
+    const subjectRefUrls = (story?.subject?.reference_image_urls || []).filter(Boolean);
+
     if (checkpoint === 'beat' && halt.beat_id) {
       for (const scene of (sceneGraph.scenes || [])) {
         const beat = (scene.beats || []).find(b => b.beat_id === halt.beat_id);
@@ -6634,6 +7273,13 @@ Respond with ONLY valid JSON:
             scene_anchor: scene.scene_visual_anchor_prompt || scene.location || null,
             ambient_bed_prompt: scene.ambient_bed_prompt || null
           };
+          // Multimodal artifact: prefer endframe (what the Lens C judge saw)
+          // then fall back to the rendered video itself.
+          artifactUrl = beat.endframe_url || beat.generated_video_url || null;
+          artifactMimeType = beat.endframe_url ? 'image/jpeg' : 'video/mp4';
+          // Reference set for beats: scene_master (primary anchor) + persona refs.
+          if (scene.scene_master_url) referenceImages.push({ url: scene.scene_master_url, role: 'scene_master' });
+          for (const url of personaRefUrls.slice(0, 2)) referenceImages.push({ url, role: 'persona_ref' });
           break;
         }
       }
@@ -6651,231 +7297,76 @@ Respond with ONLY valid JSON:
             beat_id: b.beat_id, type: b.type, dialogue: b.dialogue
           }))
         };
+        artifactUrl = scene.scene_master_url || null;
+        artifactMimeType = 'image/png';
+        // Reference set for scene_master: persona refs + subject refs.
+        for (const url of personaRefUrls.slice(0, 3)) referenceImages.push({ url, role: 'persona_ref' });
+        for (const url of subjectRefUrls.slice(0, 2)) referenceImages.push({ url, role: 'subject_ref' });
       }
     }
 
-    // ── Rich layer: ask Vertex Gemini to cross-analyze and synthesize ──
-    let richResult = null;
-    try {
-      if (isVertexGeminiConfigured() && (findings.length > 0 || promptDeltas.length > 0)) {
-        const systemPrompt = [
-          'You are a film DIRECTOR resolving a halted V4 brand-story pipeline.',
-          'The Director Agent (Lens A/B/C/D rubric) flagged a halt at the checkpoint below.',
-          'Your job: synthesize ONE sharp, generator-actionable edit directive that addresses the CRITICAL findings, drawn from BOTH the verdict findings AND the actual artifact content.',
-          '',
-          'Output ONLY a JSON object with this shape (no markdown, no prose):',
-          '{',
-          '  "directive": "<2-4 sentences, generator-actionable, sharp directorial language; combines the most important findings into ONE coherent retake note>",',
-          '  "edited_anchor": "<for scene_master halts: a rewritten scene_visual_anchor_prompt that solves the flagged issues; null for non-scene halts>",',
-          '  "edited_dialogue": "<for beat halts where dialogue is the issue: a rewritten dialogue line; null otherwise>"',
-          '}',
-          '',
-          'Constraints:',
-          '- Directive MUST address all CRITICAL findings (do not drop any).',
-          '- Use cinematography vocabulary when relevant (lens choice, blocking, composition, light direction, performance).',
-          '- DO NOT add new unrelated craft directions; stay focused on what the verdict flagged.',
-          '- Edited anchor/dialogue should be drop-in replacements for the originals.'
-        ].join('\n');
+    // ── Delegate to the SmartSynth module (multimodal → text-rich → cheap) ──
+    const synth = await synthesizeRetakeDirective({
+      verdict,
+      checkpoint,
+      artifactId,
+      artifactUrl,
+      artifactMimeType,
+      artifactContent,
+      referenceImages,
+      priorAttempts: readSynthHistory({ directorReport: dr, checkpoint, artifactId }),
+      craftContext: {
+        lut_id: story?.brand_kit_lut_id || story?.locked_lut_id || null,
+        visual_style_prefix: sceneGraph.visual_style_prefix || null,
+        genre: story?.subject?.genre || story?.storyline?.genre || null,
+        product_integration_style: story?.product_integration_style || null
+      },
+      logPrefix: `P0.5:synthesizeDirectorReviewEdit:${episodeId}`
+    });
 
-        const userPayload = {
-          checkpoint,
-          artifact_id: artifactId,
-          verdict_score: verdict?.overall_score ?? null,
-          verdict_kind: verdict?.verdict ?? null,
-          findings: findings.map(f => ({
-            severity: f.severity,
-            dimension: f.dimension || null,
-            message: f.message,
-            evidence: f.evidence || null,
-            remediation_hint: f.remediation?.prompt_delta || null,
-            target: f.remediation?.target || null
-          })),
-          dimension_scores: verdict?.dimension_scores || null,
-          artifact: artifactContent
-        };
-
-        const parsed = await callVertexGeminiJson({
-          systemPrompt,
-          userPrompt: JSON.stringify(userPayload),
-          config: { temperature: 0.5, maxOutputTokens: 1024 },
-          timeoutMs: 30000
-        });
-        if (parsed && typeof parsed.directive === 'string' && parsed.directive.trim().length > 0) {
-          richResult = {
-            directive: parsed.directive.trim(),
-            edited_anchor: typeof parsed.edited_anchor === 'string' && parsed.edited_anchor.trim() ? parsed.edited_anchor.trim() : null,
-            edited_dialogue: typeof parsed.edited_dialogue === 'string' && parsed.edited_dialogue.trim() ? parsed.edited_dialogue.trim() : null
-          };
-        }
-      }
-    } catch (err) {
-      logger.warn(`[P0.5] synthesizeDirectorReviewEdit: rich layer failed (${err.message}) — falling back to cheap layer`);
-    }
-
-    if (richResult) {
-      // Compose final notes by combining the rich directive with the cheap
-      // findings list (so the audit trail shows both human-readable findings
-      // AND the synthesized directive).
-      const composedNotes = [
-        richResult.directive,
-        '',
-        '— Synthesized from director findings:',
-        messages
-      ].filter(Boolean).join('\n');
-      logger.info(`[P0.5] synthesizeDirectorReviewEdit ${episodeId}: rich layer succeeded (${composedNotes.length} chars)`);
-      return {
-        notes: composedNotes.slice(0, 4000),
-        edited_anchor: richResult.edited_anchor ? richResult.edited_anchor.slice(0, 4000) : null,
-        edited_dialogue: richResult.edited_dialogue ? richResult.edited_dialogue.slice(0, 4000) : null,
-        source: 'rich'
-      };
-    }
-
-    logger.info(`[P0.5] synthesizeDirectorReviewEdit ${episodeId}: cheap layer (${cheapNotes.length} chars)`);
-    return {
-      notes: cheapNotes.slice(0, 4000),
-      edited_anchor: null,
-      edited_dialogue: null,
-      source: 'cheap'
-    };
-  }
-
-  /**
-   * V4 Option C — Pure synthesis helper for the auto-smart-retry path.
-   *
-   * Same logic as `synthesizeDirectorReviewEdit` but takes the verdict +
-   * artifact context directly (in-memory) instead of reading from the DB.
-   * The auto-smart-retry path calls this from inside the Lens C beat-loop
-   * BEFORE the halt is persisted (because we're trying to RECOVER from the
-   * soft_reject, not surface it for user review).
-   *
-   * @param {Object}   params
-   * @param {Object}   params.verdict           - the failing Lens C/B/A verdict
-   * @param {string}   params.checkpoint        - 'beat' | 'scene_master' | 'screenplay' | etc.
-   * @param {string}   params.artifactId        - beat_id or scene_id (for log + payload)
-   * @param {Object}   [params.artifactContent] - in-memory artifact (beat or scene) — for the rich layer
-   * @returns {Promise<{ notes: string, edited_anchor: string|null, edited_dialogue: string|null, source: 'rich'|'cheap' }>}
-   */
-  async _synthesizeEditFromContext({ verdict, checkpoint, artifactId, artifactContent = null } = {}) {
+    // Compose final notes — keep the legacy "{directive}\n\n— Synthesized from
+    // director findings:\n{messages}" shape for the panel + audit trail. Add
+    // a diagnosis line if the synth produced one.
     const findings = Array.isArray(verdict?.findings) ? verdict.findings : [];
-
-    // Cheap layer
-    const promptDeltas = findings
-      .map(f => f?.remediation?.prompt_delta)
-      .filter(s => typeof s === 'string' && s.trim().length > 0);
-    const messages = findings.map(f => `- [${f.severity}] ${f.message}`).filter(Boolean).join('\n');
-
-    let cheapNotes;
-    if (promptDeltas.length > 0) {
-      cheapNotes = [
-        `Director-flagged issues at Lens ${checkpoint}${artifactId ? ` (${artifactId})` : ''}:`,
-        messages,
-        '',
-        'Apply these corrective directives to the next render:',
-        ...promptDeltas.map((d, i) => `${i + 1}. ${d}`)
-      ].filter(Boolean).join('\n');
-    } else if (messages) {
-      cheapNotes = `Director-flagged issues at Lens ${checkpoint}:\n${messages}\n\nAddress these in the next render.`;
-    } else {
-      cheapNotes = `Director halted at Lens ${checkpoint} but emitted no specific findings. Re-run with care.`;
+    const messages = findings.map(f => f && f.message ? `- [${f.severity || 'note'}] ${f.message}` : null).filter(Boolean).join('\n');
+    const composedParts = [synth.directive];
+    if (synth.diagnosis) composedParts.push('', `— Synth diagnosis: ${synth.diagnosis}`);
+    if (messages)        composedParts.push('', '— Synthesized from director findings:', messages);
+    if (synth.regression_warning) {
+      composedParts.push('', '⚠️ Regression detected — prior attempts have been scoring lower each time. This directive is intentionally conservative; consider giving the panel your own targeted note.');
     }
+    const composedNotes = composedParts.join('\n').slice(0, 4000);
 
-    // Rich layer — Gemini cross-analysis
-    let richResult = null;
-    try {
-      if (isVertexGeminiConfigured() && (findings.length > 0 || promptDeltas.length > 0)) {
-        const systemPrompt = [
-          'You are a film DIRECTOR resolving a halted V4 brand-story pipeline.',
-          'The Director Agent (Lens A/B/C/D rubric) flagged a halt at the checkpoint below.',
-          'Your job: synthesize ONE sharp, generator-actionable edit directive that addresses the CRITICAL findings, drawn from BOTH the verdict findings AND the actual artifact content.',
-          '',
-          'Output ONLY a JSON object with this shape (no markdown, no prose):',
-          '{',
-          '  "directive": "<2-4 sentences, generator-actionable, sharp directorial language; combines the most important findings into ONE coherent retake note>",',
-          '  "edited_anchor": "<for scene_master halts: a rewritten scene_visual_anchor_prompt that solves the flagged issues; null for non-scene halts>",',
-          '  "edited_dialogue": "<for beat halts where dialogue is the issue: a rewritten dialogue line; null otherwise>"',
-          '}',
-          '',
-          'Constraints:',
-          '- Directive MUST address all CRITICAL findings (do not drop any).',
-          '- Use cinematography vocabulary when relevant (lens choice, blocking, composition, light direction, performance).',
-          '- DO NOT add new unrelated craft directions; stay focused on what the verdict flagged.',
-          '- Edited anchor/dialogue should be drop-in replacements for the originals.'
-        ].join('\n');
+    logger.info(`[P0.5] synthesizeDirectorReviewEdit ${episodeId}: ${synth.source} (${composedNotes.length} chars, refs=${synth.reference_image_count}, conf=${synth.confidence ?? '—'}, regression=${synth.regression_warning})`);
 
-        const userPayload = {
-          checkpoint,
-          artifact_id: artifactId,
-          verdict_score: verdict?.overall_score ?? null,
-          verdict_kind: verdict?.verdict ?? null,
-          findings: findings.map(f => ({
-            severity: f.severity,
-            dimension: f.dimension || null,
-            message: f.message,
-            evidence: f.evidence || null,
-            remediation_hint: f.remediation?.prompt_delta || null,
-            target: f.remediation?.target || null
-          })),
-          dimension_scores: verdict?.dimension_scores || null,
-          artifact: artifactContent
-        };
-
-        // V4 hotfix 2026-04-30 — maxOutputTokens budget calibration.
-        //
-        // Original 1024 hit MAX_TOKENS in production: Gemini 3 Flash Preview's
-        // HIDDEN thinking consumed 981 tokens of the 1024 budget, leaving only
-        // 29 for visible candidate JSON → Vertex dropped the partial structured
-        // response. Same defect documented in DirectorAgent.js:60-143
-        // (thinkingLevel='minimal' silently ignored; hidden thinking takes
-        // ~87% of budget regardless). User-confirmed 2026-04-30: skip 8192
-        // first-attempt and go straight to 12288 to avoid the wasted call.
-        //
-        // 12288 budget @ thinkingLevel='low' → ~6000 hidden thinking + ~6288
-        // visible → directive + edited_anchor + edited_dialogue payload fits
-        // with comfortable margin (~600-800 chars actual, ~1200-1600 tokens).
-        const parsed = await callVertexGeminiJson({
-          systemPrompt,
-          userPrompt: JSON.stringify(userPayload),
-          config: {
-            temperature: 0.5,
-            maxOutputTokens: 12288,
-            thinkingLevel: 'low'
-          },
-          timeoutMs: 90000
-        });
-        if (parsed && typeof parsed.directive === 'string' && parsed.directive.trim().length > 0) {
-          richResult = {
-            directive: parsed.directive.trim(),
-            edited_anchor: typeof parsed.edited_anchor === 'string' && parsed.edited_anchor.trim() ? parsed.edited_anchor.trim() : null,
-            edited_dialogue: typeof parsed.edited_dialogue === 'string' && parsed.edited_dialogue.trim() ? parsed.edited_dialogue.trim() : null
-          };
-        }
-      }
-    } catch (err) {
-      logger.warn(`[P0.5/auto-smart-retry] _synthesizeEditFromContext: rich layer failed (${err.message}) — falling back to cheap layer`);
-    }
-
-    if (richResult) {
-      const composedNotes = [
-        richResult.directive,
-        '',
-        '— Synthesized from director findings:',
-        messages
-      ].filter(Boolean).join('\n');
-      return {
-        notes: composedNotes.slice(0, 4000),
-        edited_anchor: richResult.edited_anchor ? richResult.edited_anchor.slice(0, 4000) : null,
-        edited_dialogue: richResult.edited_dialogue ? richResult.edited_dialogue.slice(0, 4000) : null,
-        source: 'rich'
-      };
-    }
+    // Surface the synth result on the episode's directorReport so the panel
+    // can show the diagnosis without round-tripping. Note: this is a READ
+    // path (we don't persist the directive yet — that happens in resolveDirectorReview
+    // when the user actually applies it). Persisting confidence + diagnosis
+    // here would prematurely commit the synth attempt before user confirmation.
     return {
-      notes: cheapNotes.slice(0, 4000),
-      edited_anchor: null,
-      edited_dialogue: null,
-      source: 'cheap'
+      notes: composedNotes,
+      edited_anchor: synth.edited_anchor,
+      edited_dialogue: synth.edited_dialogue,
+      diagnosis: synth.diagnosis,
+      confidence: synth.confidence,
+      regression_warning: synth.regression_warning,
+      prior_attempt_count: synth.prior_attempt_count,
+      reference_image_count: synth.reference_image_count,
+      source: synth.source === 'multimodal_rich' ? 'rich'
+            : synth.source === 'text_rich'       ? 'rich'
+            : 'cheap',
+      source_detail: synth.source
     };
   }
+
+  // V4 hotfix 2026-05-06 — `_synthesizeEditFromContext` was retired here.
+  // All synthesis paths now go through `services/v4/SmartSynth.js`
+  // (synthesizeRetakeDirective). The new module is multimodal-first
+  // (passes the rejected image as a vision input), carries cross-attempt
+  // memory (priorAttempts), and detects regression patterns. Call sites:
+  // Lens B smart-retry (~line 4768), Lens C smart-retry (~line 5454),
+  // and `synthesizeDirectorReviewEdit` above.
 
   async resolveDirectorReview(storyId, userId, episodeId, decision = {}) {
     const { action, notes = null, edited_anchor = null, edited_dialogue = null } = decision;
@@ -6885,10 +7376,18 @@ Respond with ONLY valid JSON:
     }
 
     // Read the episode + verify ownership + halt state.
+    // V4 hotfix 2026-05-05 — `scene_description` MUST be in the SELECT.
+    // The Lens C in-place retry (and Lens B resume) below mutates the
+    // scene-graph in place to apply user notes / edited_dialogue / edited_anchor
+    // and clear failed-render artifacts before re-rendering. Without
+    // scene_description in the projection, the handler operates on `{}` and
+    // the beat/scene look-up fails: "edit_and_retry: beat <id> not found in
+    // episode scene_description" — which is exactly the production halt the
+    // user hit on episode ee43d799 / beat s1b1.
     const { supabaseAdmin } = await import('./supabase.js');
     const { data: episode, error: readErr } = await supabaseAdmin
       .from('brand_story_episodes')
-      .select('id, story_id, status, final_video_url, director_report, episode_number')
+      .select('id, story_id, status, final_video_url, director_report, episode_number, scene_description')
       .eq('id', episodeId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -6966,6 +7465,36 @@ Respond with ONLY valid JSON:
           halt_artifact_id: haltArtifactId
         }
       };
+
+      // V4 hotfix 2026-05-06 — Record the user-applied directive into
+      // synth_history BEFORE kicking the resume. This is what makes the
+      // NEXT synth call (auto-retry inside the resume, OR a 2nd Edit & Retry
+      // after another halt) aware that this directive was already tried.
+      // Without this, every resume re-synths from scratch as if no prior
+      // attempts had ever been made — and produces directives that drift
+      // toward the same failure pattern (the 58 → 45 → 42 production loop).
+      if ((notes || edited_anchor || edited_dialogue) && haltArtifactId) {
+        appendSynthHistory({
+          directorReport: updatedDirectorReport,
+          checkpoint: haltCheckpoint,
+          artifactId: haltArtifactId,
+          synthResult: {
+            directive: notes || null,
+            edited_anchor: edited_anchor || null,
+            edited_dialogue: edited_dialogue || null,
+            diagnosis: null,
+            source: 'user_edit_and_retry',
+            confidence: null,
+            regression_warning: false,
+            prior_attempt_count: readSynthHistory({
+              directorReport: dr,
+              checkpoint: haltCheckpoint,
+              artifactId: haltArtifactId
+            }).length,
+            reference_image_count: 0
+          }
+        });
+      }
 
       // ── Lens C beat in-place retry ──
       if (haltCheckpoint === 'beat' && halt.beat_id) {
@@ -7277,35 +7806,53 @@ Respond with ONLY valid JSON:
       error_message: null
     });
 
-    // ─── Step 2: download every beat's existing video ───
-    // Walk the scene-graph in canonical order, fetch each beat's buffer from
-    // its generated_video_url. We also collect beat metadata for the
-    // subtitle/SFX/ducking pipeline to consume.
+    // ─── Step 2: download every LIVE beat's existing video ───
+    // V4 Tier 1 (2026-05-06) — reassembly now goes through selectLiveBeats()
+    // which filters on beat.status ∈ {generated, ready} AND non-null
+    // generated_video_url. Walks beats in canonical (scene_index, beat_index)
+    // order and skips SPEED_RAMP_TRANSITION beats. Beats in any non-live
+    // status (pending, generating, failed, hard_rejected, superseded) are
+    // invisible to assembly even if they somehow have a URL — defense in
+    // depth on top of the quarantine contract that null-out URLs at the
+    // source. This is the architectural fix that made the "10-beat reassemble
+    // with the failed s2b4 still in the cut" symptom (logs.txt 2026-04-30)
+    // impossible.
+    //
+    // We hold the live-beat list as our SINGLE SOURCE OF TRUTH for the
+    // beatVideoBuffers / beatMetadata / enrichedBeatMetadata arrays — every
+    // index in those parallel arrays maps 1:1 to liveBeats[i]. Eliminates
+    // the index-drift class of bugs that used to plague enrichedBeatMetadata.
     progress('loading_beats', `fetching ${sceneGraph.scenes.length} scene(s) of existing beats`);
 
+    const liveBeats = selectLiveBeats(sceneGraph);
     const beatVideoBuffers = [];
     const beatMetadata = [];
+    const liveBeatsKept = []; // parallel to beatVideoBuffers — drops fetch failures
 
-    for (const scene of sceneGraph.scenes) {
-      for (const beat of (scene.beats || [])) {
-        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
-        if (!beat.generated_video_url) {
-          logger.warn(`V4 reassemble: beat ${beat.beat_id} has no generated_video_url — skipping`);
-          continue;
-        }
-        try {
-          const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
-          beatVideoBuffers.push(Buffer.from(cached.data));
-          beatMetadata.push({
-            beat_id: beat.beat_id,
-            model_used: beat.model_used,
-            duration_seconds: beat.duration_seconds,
-            actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
-          });
-        } catch (err) {
-          logger.warn(`V4 reassemble: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
-        }
+    for (const entry of liveBeats) {
+      const { beat } = entry;
+      try {
+        const cached = await axios.get(beat.generated_video_url, { responseType: 'arraybuffer', timeout: 60000 });
+        beatVideoBuffers.push(Buffer.from(cached.data));
+        beatMetadata.push({
+          beat_id: beat.beat_id,
+          model_used: beat.model_used,
+          duration_seconds: beat.duration_seconds,
+          actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
+        });
+        liveBeatsKept.push(entry);
+      } catch (err) {
+        logger.warn(`V4 reassemble: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
       }
+    }
+
+    // Log any beats the status filter quietly skipped — useful when debugging
+    // why the post-production count differs from the screenplay scene-graph
+    // count. A skipped beat is the right behavior; surfacing it in the log is
+    // the operator-friendly part.
+    const skippedBeatCount = (sceneGraph.scenes || []).reduce((acc, scn) => acc + (scn.beats || []).filter(b => b && b.type !== 'SPEED_RAMP_TRANSITION').length, 0) - liveBeats.length;
+    if (skippedBeatCount > 0) {
+      logger.info(`V4 reassemble: status filter skipped ${skippedBeatCount} non-live beat(s) (hard_rejected/superseded/failed/pending) — not in cut`);
     }
 
     if (beatVideoBuffers.length === 0) {
@@ -7331,21 +7878,24 @@ Respond with ONLY valid JSON:
 
     if (!musicBedBuffer && sceneGraph.music_bed_intent && musicService.isAvailable()) {
       const totalDuration = estimateEpisodeDuration(beatMetadata);
-      progress('music', `regenerating music bed (${totalDuration.toFixed(0)}s)`);
-      try {
-        const musicResult = await musicService.generateMusicBed({
-          musicBedIntent: sceneGraph.music_bed_intent,
-          durationSec: totalDuration
-        });
+      // 2026-05-05 — Rec 3 Phase A: composition_plan upgrade in reassemble path.
+      const musicResult = await this._generateEpisodeMusic({
+        sceneGraph,
+        totalDuration,
+        progress
+      });
+      if (musicResult) {
         musicBedBuffer = musicResult.audioBuffer;
-        musicBedUrl = await uploadBufferToStorage(
-          musicResult.audioBuffer,
-          'audio/v4-music',
-          `episode-${episodeId}-music-reassemble-${Date.now()}.mp3`,
-          'audio/mpeg'
-        );
-      } catch (err) {
-        logger.warn(`V4 reassemble: music gen failed (non-fatal): ${err.message}`);
+        try {
+          musicBedUrl = await uploadBufferToStorage(
+            musicResult.audioBuffer,
+            'audio/v4-music',
+            `episode-${episodeId}-music-reassemble-${Date.now()}.mp3`,
+            'audio/mpeg'
+          );
+        } catch (err) {
+          logger.warn(`V4 reassemble: music upload failed (non-fatal): ${err.message}`);
+        }
       }
     }
 
@@ -7360,25 +7910,27 @@ Respond with ONLY valid JSON:
     const brandLutId = story.brand_palette_lut_id || null;
     progress('post_production', `resolved LUT → ${episodeLutId}${brandLutId ? ` (+ brand trim ${brandLutId})` : ''}`);
 
-    const enrichedBeatMetadata = [];
-    let idx = 0;
-    for (const scene of sceneGraph.scenes) {
-      for (const beat of (scene.beats || [])) {
-        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
-        if (!beat.generated_video_url) continue;
-        const base = beatMetadata[idx] || {};
-        enrichedBeatMetadata.push({
-          ...base,
-          beat_id: beat.beat_id,
-          dialogue: beat.dialogue || null,
-          dialogues: beat.dialogues || null,
-          exchanges: beat.exchanges || null,
-          voiceover_text: beat.voiceover_text || null,
-          ambient_sound: beat.ambient_sound || null
-        });
-        idx++;
-      }
-    }
+    // V4 Tier 1 (2026-05-06) — enrichedBeatMetadata walks the SAME
+    // status-filtered list (liveBeatsKept) we used to populate beatVideoBuffers,
+    // not the raw scene-graph. The previous code maintained a separate `idx`
+    // counter that only incremented on the path-passing branch, so beats that
+    // survived the loader's filter but failed the enrichedBeatMetadata's
+    // independent filter (or vice-versa) drifted index by 1 silently —
+    // producing the symptom where dialogue text from beat N got applied as
+    // subtitle for beat N+1. Walking liveBeatsKept (which is already 1:1
+    // with beatVideoBuffers) makes index drift architecturally impossible.
+    const enrichedBeatMetadata = liveBeatsKept.map(({ beat }, i) => {
+      const base = beatMetadata[i] || {};
+      return {
+        ...base,
+        beat_id: beat.beat_id,
+        dialogue: beat.dialogue || null,
+        dialogues: beat.dialogues || null,
+        exchanges: beat.exchanges || null,
+        voiceover_text: beat.voiceover_text || null,
+        ambient_sound: beat.ambient_sound || null
+      };
+    });
 
     const episodeMeta = {
       series_title: story.storyline?.title || story.name || 'Untitled Series',
@@ -7436,6 +7988,194 @@ Respond with ONLY valid JSON:
   }
 
   /**
+   * 2026-05-05 — Aleph Rec 2 Phase 3.
+   *
+   * Run the user-triggered Aleph enhancement flow for a commercial episode.
+   * Triggered by POST /api/brand-stories/:id/episodes/:episodeId/enhance/aleph.
+   * Streams progress via the existing SSE emitter at /episodes/:episodeId/stream.
+   *
+   * Flow (delegated to AlephEnhancementOrchestrator):
+   *   1. Load post_lut_intermediate_url
+   *   2. Chunk into ≤8s segments aligned to scene boundaries
+   *   3. Stylize each chunk via Runway gen4_aleph (shared prompt + reference)
+   *   4. Concat stylized chunks
+   *   5. HARD GATE — Director Agent identity_lock judge (pass at 85+ per A2.2)
+   *   6. If pass: re-run Stages 4-6 (music/cards/subs); save as
+   *      aleph_enhanced_video_url (sibling to final_video_url, NOT replacement)
+   *   7. If fail: discard Aleph output, keep final_video_url, refund (when
+   *      billing enabled). Persist failure mode to aleph_job_metadata.
+   *
+   * Cost: ~$0.15/sec output × ~60s commercial ≈ $9 per enhancement (chunked).
+   * Free during testing phase (BRAND_STORY_ALEPH_BILLING_ENABLED=false).
+   */
+  async runAlephEnhancement(storyId, userId, episodeId, options = {}) {
+    let emitter = null;
+    try { emitter = getOrCreateProgressEmitter(episodeId); } catch {}
+
+    const progress = (stage, detail, extras = {}) => {
+      logger.info(`[AlephEnhance] ${stage}: ${detail}`);
+      if (emitter) { try { emitter.emit(stage, detail, extras); } catch {} }
+    };
+
+    progress('aleph_started', `episode=${episodeId}`);
+    const startTime = Date.now();
+
+    // ── Step 1: load story + episode + personas ──
+    const story = await getBrandStoryById(storyId, userId);
+    if (!story) throw new Error(`Aleph: story ${storyId} not found`);
+
+    const episode = await getBrandStoryEpisodeById(episodeId, userId);
+    if (!episode) throw new Error(`Aleph: episode ${episodeId} not found`);
+
+    if (!isCommercialGenre(story)) {
+      throw new Error('Aleph enhancement is commercial-only — story genre is not commercial');
+    }
+    if (!episode.post_lut_intermediate_url) {
+      throw new Error('Aleph: episode has no post_lut_intermediate_url (regenerate the episode first)');
+    }
+    if (episode.aleph_enhanced_video_url) {
+      throw new Error('Aleph: episode already enhanced — UI should be showing toggle, not re-running');
+    }
+
+    // Persist running status for UI to read.
+    await updateBrandStoryEpisode(episodeId, userId, {
+      aleph_job_metadata: {
+        status: 'running',
+        requested_at: new Date().toISOString(),
+        billing_status: process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true' ? 'pending' : 'free_pilot'
+      }
+    });
+
+    // Personas with CIP — required for the identity hard gate. Without CIP,
+    // the gate vacuously passes (B-roll commercial); with CIP, it gates.
+    const personas = Array.isArray(story.personas) ? story.personas : [];
+
+    // Brand kit — used for the Aleph style prompt construction.
+    let brandKit = {};
+    if (story.brand_kit_job_id) {
+      try {
+        const job = await getMediaTrainingJobById(story.brand_kit_job_id, userId);
+        if (job?.brand_kit) brandKit = job.brand_kit;
+      } catch (err) {
+        logger.warn(`Aleph: failed to load brand kit (non-fatal): ${err.message}`);
+      }
+    }
+
+    // Music bed — re-fetch from cached URL so the post-Aleph re-run has it.
+    let musicBedBuffer = null;
+    if (episode.music_bed_url) {
+      try {
+        const cached = await axios.get(episode.music_bed_url, { responseType: 'arraybuffer', timeout: 60000 });
+        musicBedBuffer = Buffer.from(cached.data);
+      } catch (err) {
+        logger.warn(`Aleph: failed to fetch cached music bed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // Beat metadata — reconstruct from scene_description so the music
+    // ducking + subtitles re-render correctly on the stylized output.
+    const sceneGraph = episode.scene_description || {};
+    const beatMetadata = [];
+    for (const scene of (sceneGraph.scenes || [])) {
+      for (const beat of (scene.beats || [])) {
+        if (beat.type === 'SPEED_RAMP_TRANSITION') continue;
+        beatMetadata.push({
+          beat_id: beat.beat_id,
+          model_used: beat.model_used,
+          duration_seconds: beat.duration_seconds,
+          actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds,
+          dialogue: beat.dialogue,
+          dialogues: beat.dialogues,
+          exchanges: beat.exchanges,
+          voiceover_text: beat.voiceover_text
+        });
+      }
+    }
+
+    // Episode meta — for title/end card re-render.
+    const episodeMeta = {
+      series_title: story.title || '',
+      episode_title: episode.title || '',
+      cliffhanger: episode.cliffhanger || '',
+      brand_kit: brandKit || null,
+      cta_text: story.cta_text || story.storyline?.cta_text || null
+    };
+
+    // ── Step 2: instantiate orchestrator + DirectorAgent ──
+    const directorAgent = new DirectorAgent();
+    if (!directorAgent.isAvailable()) {
+      throw new Error('Aleph: DirectorAgent not configured (Vertex AI credentials missing) — identity hard gate cannot run');
+    }
+
+    const uploadBufferToStorage = (buffer, subfolder, filename, mimeType) =>
+      this._uploadBufferToStorage(buffer, userId, subfolder, filename, mimeType);
+
+    const { default: AlephEnhancementOrchestrator } = await import('./v4/AlephEnhancementOrchestrator.js');
+    const orchestrator = new AlephEnhancementOrchestrator({
+      directorAgent,
+      uploadBufferToStorage,
+      progress
+    });
+
+    // ── Step 3: run orchestrator ──
+    const result = await orchestrator.enhance({
+      episode,
+      story,
+      personas,
+      brandKit,
+      beatMetadata,
+      musicBedBuffer,
+      episodeMeta,
+      options: { strength: options.strength ?? 0.20 }
+    });
+
+    const elapsedSec = (Date.now() - startTime) / 1000;
+
+    // ── Step 4: persist result ──
+    if (result.passed && result.alephEnhancedVideoUrl) {
+      await updateBrandStoryEpisode(episodeId, userId, {
+        aleph_enhanced_video_url: result.alephEnhancedVideoUrl,
+        aleph_job_metadata: {
+          status: 'succeeded',
+          task_ids: result.taskIds,
+          identity_lock_score: Math.round(result.identityScore),
+          cost_usd: Number(result.costUsd.toFixed(2)),
+          billing_status: process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true' ? 'charged' : 'free_pilot',
+          requested_at: new Date(startTime).toISOString(),
+          completed_at: new Date().toISOString(),
+          elapsed_sec: Math.round(elapsedSec)
+        }
+      });
+      progress('aleph_complete', `Cinema-grade enhancement saved (${elapsedSec.toFixed(0)}s, identity ${Math.round(result.identityScore)}/100)`, {
+        alephEnhancedVideoUrl: result.alephEnhancedVideoUrl,
+        identityScore: result.identityScore,
+        costUsd: result.costUsd
+      });
+      return { passed: true, alephEnhancedVideoUrl: result.alephEnhancedVideoUrl };
+    }
+
+    // Identity gate failure — keep final_video_url, refund (when billing on).
+    await updateBrandStoryEpisode(episodeId, userId, {
+      aleph_job_metadata: {
+        status: 'failed_identity_gate',
+        task_ids: result.taskIds,
+        identity_lock_score: Math.round(result.identityScore || 0),
+        cost_usd: Number((result.costUsd || 0).toFixed(2)),
+        billing_status: process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true' ? 'refunded' : 'free_pilot',
+        failure_reason: result.reason || 'identity_drift',
+        requested_at: new Date(startTime).toISOString(),
+        completed_at: new Date().toISOString(),
+        elapsed_sec: Math.round(elapsedSec)
+      }
+    });
+    progress('aleph_failed_identity_gate', `Identity drift detected (score ${Math.round(result.identityScore || 0)}/100). Original preserved. ${process.env.BRAND_STORY_ALEPH_BILLING_ENABLED === 'true' ? 'Refunded.' : ''}`, {
+      identityScore: result.identityScore,
+      reason: result.reason
+    });
+    return { passed: false, reason: result.reason };
+  }
+
+  /**
    * V4: Generate the scene-graph screenplay via Gemini using brandStoryPromptsV4.
    * Returns the parsed JSON scene-graph that the rest of the V4 pipeline consumes.
    *
@@ -7486,6 +8226,25 @@ Respond with ONLY valid JSON:
         }))
       : null;
 
+    // Veo Failure-Learning Agent (2026-05-06) — load the latest auto-learned
+    // guidance and project it into a system-prompt block. The block describes
+    // known Vertex AI Veo failure patterns Gemini must avoid at authorship time
+    // (e.g. "<persona>'s wrist" → content-filter rejection → forced Kling fallback).
+    // When the knowledge module is empty (cold start) or the import fails, the
+    // block is empty — the prompt renders unchanged.
+    let veoFailureGuidanceBlock = '';
+    try {
+      const knowledge = await getVeoFailureKnowledge();
+      if (knowledge && typeof knowledge.getGeminiSystemPromptBlock === 'function') {
+        veoFailureGuidanceBlock = knowledge.getGeminiSystemPromptBlock({
+          modelId: 'veo-3.1-vertex',
+          minSeverity: ['medium', 'high', 'critical']
+        });
+      }
+    } catch (failureKnowledgeErr) {
+      logger.warn(`Veo failure-knowledge unavailable (${failureKnowledgeErr.message}) — screenplay prompt rendered without guidance block`);
+    }
+
     const systemPrompt = getEpisodeSystemPromptV4(story.storyline, previousEpisodes, personas, {
       subject: story.subject,
       storyFocus: story.story_focus || 'product',
@@ -7529,7 +8288,9 @@ Respond with ONLY valid JSON:
         || (personas?.[0]?.language)
         || 'en',
       // V4 Phase 5b — genre LUT pool eliminates the legacy 8-LUT bypass.
-      genreLutPool
+      genreLutPool,
+      // Veo Failure-Learning Agent (2026-05-06) — auto-learned guidance block.
+      veoFailureGuidanceBlock
     });
 
     const userPrompt = getEpisodeUserPromptV4(story.storyline, lastCliffhanger, episodeNumber, {

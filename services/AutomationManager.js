@@ -138,11 +138,33 @@ class AutomationManager {
       this.performMaintenance();
     });
 
+    // Veo Failure-Learning Agent — nightly cluster + regen of
+    // services/v4/VeoFailureKnowledge.mjs from yesterday's veo_failure_log.
+    // Runs at 02:00 UTC (off-peak, after the daily-analytics job at 23:00).
+    // The runNightly() entry point is idempotent and never throws — it logs
+    // its own summary into automation_logs.
+    cron.schedule('0 2 * * *', async () => {
+      logger.info('📚 Running Veo Failure-Learning Agent (nightly)...');
+      try {
+        const mod = await import('./v4/VeoFailureKnowledgeBuilder.js');
+        const builder = mod.default || mod;
+        const result = await builder.runNightly();
+        if (result?.ok) {
+          logger.info(`✅ Veo Failure-Learning Agent done — ${result.signatures} active signatures, version ${result.version}`);
+        } else {
+          logger.warn(`⚠️ Veo Failure-Learning Agent reported error: ${result?.error || 'unknown'}`);
+        }
+      } catch (err) {
+        logger.warn(`Veo Failure-Learning Agent dispatch failed: ${err.message}`);
+      }
+    });
+
     logger.info('📅 Agent scheduler initialized:');
     logger.info(`   → Agent check: Every ${this.config.checkIntervalMinutes} minutes`);
     logger.info('   → Daily reset: Midnight UTC');
     logger.info('   → Daily analytics: 11 PM UTC');
     logger.info('   → Weekly maintenance: Sunday midnight UTC');
+    logger.info('   → Veo Failure-Learning Agent: 2 AM UTC');
   }
 
   /**

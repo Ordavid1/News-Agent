@@ -50,12 +50,15 @@ class BRollGenerator extends BaseBeatGenerator {
       ? await this._buildSceneIntegratedProductFrame({ beat, scene, episodeContext, intent: 'natural' })
       : null;
 
-    // B-roll anchor: persona-lock → subject natural → scene master → previous endframe → text-only.
-    const firstFrameUrl = personaLockUrl
-      || subjectNaturalUrl
-      || scene?.scene_master_url
-      || previousBeat?.endframe_url
-      || null;
+    // V4 Tier 2.1 (2026-05-06) — unified canonical first-frame waterfall.
+    // Local persona-lock + subject-natural pre-passes feed via opts; the rest
+    // of the priority order (cached persona-lock, bridge anchor, previous
+    // endframe, scene master, refStack) lives in BaseBeatGenerator. Sets
+    // beat.continuity_fallback_reason breadcrumb when fallback occurs.
+    const firstFrameUrl = this._pickStartFrame(refStack, previousBeat, scene, beat, {
+      personaLockUrl,
+      subjectNaturalUrl
+    });
 
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const location = beat.location || scene?.location || 'establishing shot';
@@ -88,6 +91,25 @@ class BRollGenerator extends BaseBeatGenerator {
     // Subject locking — when subject_present, reinforce appearance at the prompt level.
     const subjectDirective = this._buildSubjectPresenceDirective(beat, episodeContext);
 
+    // V4 Tier 2.2 (2026-05-06) — per-model color hint, persona wardrobe,
+    // brand palette directives. Spliced near the prompt tail where models
+    // honor them most strongly. All return '' when their inputs are absent
+    // so the join+filter eliminates them cleanly.
+    const personasInBeat = this._resolvePersonasInBeat(beat, personas);
+    const colorHint = this._buildPerModelColorHint('veo', episodeContext?.brandKit);
+    const wardrobeDirective = personasInBeat.length > 0
+      ? this._buildWardrobeDirective(personasInBeat[0])
+      : '';
+    const brandColorDirective = this._buildBrandColorDirective(episodeContext);
+    // V4 Tier 2.5 (2026-05-06) — scene-level continuity sheet (props,
+    // lighting key, time of day). Empty string when scene lacks the sheet.
+    const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Tier 3.1 (2026-05-06) — anti-reference directive. Tells Veo not to
+    // reproduce the prior beat's composition, killing the b-roll/action
+    // collapse symptom from the prompt-language layer (schema-level
+    // adjacency rule lives in ScreenplayValidator).
+    const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
@@ -96,9 +118,14 @@ class BRollGenerator extends BaseBeatGenerator {
       `Atmosphere: ${atmosphere}.`,
       `Camera: ${cameraMove}.`,
       identityDirective,
+      wardrobeDirective,
+      continuityDirective,
       subjectDirective,
+      brandColorDirective,
+      antiRefDirective,
       'No visible characters speaking — pure environment (unless persona explicitly flagged above).',
-      `Ambient audio: ${ambientSound}.`
+      `Ambient audio: ${ambientSound}.`,
+      colorHint
     ].filter(Boolean).join(' '), beat);
 
     this.logger.info(`[${beat.beat_id}] Veo B_ROLL (${duration}s${firstFrameUrl ? ', anchored' : ', text-only'})`);
@@ -140,7 +167,13 @@ class BRollGenerator extends BaseBeatGenerator {
           subjectDescription: atmosphere,
           stylePrefix
         },
-        regenerateSafeFirstFrame: safeRegenCallback
+        regenerateSafeFirstFrame: safeRegenCallback,
+        telemetry: {
+          userId: episodeContext?.userId,
+          episodeId: episodeContext?.episodeId,
+          beatId: beat.beat_id,
+          beatType: beat.type
+        }
       }
     });
 

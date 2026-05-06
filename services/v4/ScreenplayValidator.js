@@ -660,6 +660,377 @@ function checkEmotionalHoldEarned(sceneGraph, issues) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-05-05 — Director Agent Rec 4 + Rec 1 enforcement.
+//
+// Three validators that close the loop on the new Gemini schema fields
+// added to brandStoryPromptsV4.mjs (CRITICAL RULES 11b + 11c). Without
+// these, Gemini may emit beats without the new fields and the Director
+// Agent's `camera_move_motivation` rubric scores low for reasons that
+// could have been pre-prevented at the screenplay layer.
+//
+// All three are WARNING-level. The Doctor pass auto-patches them in the
+// next iteration, so Gemini is nudged toward compliance episode-over-episode
+// without hard-rejecting the screenplay (which would block production).
+// ─────────────────────────────────────────────────────────────────────────
+
+// Heuristic: detect lock-off camera_move strings. The vocab that's
+// demonstrably "no camera movement" — `camera_move_motivation` semantics
+// require `emotional_hold_reason` instead of `camera_motivation_reason`
+// for these beats.
+const LOCK_OFF_CAMERA_PATTERNS = /\b(locked.?off|static|no\s+(camera\s+)?move(ment)?|fixed|hold)\b/i;
+
+// Heuristic: detect complex camera grammar that should stay on Kling V3 Pro
+// (per the routing_hint in v4-beat-recipes.yaml). When these appear in
+// beat.camera_move or beat.camera_notes for ACTION_NO_DIALOGUE beats, NEVER
+// route to VeoActionGenerator — Veo's camera_control_limits failure
+// signature applies (severity 2, documented in veo3.yaml dossier).
+const COMPLEX_CAMERA_PATTERNS = /\b(dutch|vertigo|anamorphic|whip[-\s]?pan|speed[-_\s]?ramp|lens[-_\s]?flare|crash[-_\s]?zoom)\b/i;
+
+/**
+ * Rec 4 enforcement #1 — `camera_motivation_reason` per non-locked beat.
+ *
+ * Director Agent's `camera_move_motivation` rubric grades whether the
+ * camera move is EARNED by the beat's emotional logic. Without explicit
+ * `camera_motivation_reason` text, the judge can only infer from the
+ * rendered video — which means scores will be lower because the rubric
+ * has nothing to verify against. This validator pushes Gemini to emit
+ * the reasoning at screenplay time.
+ *
+ * Triggers when: beat has a non-empty `camera_move` AND that move is NOT
+ * a lock-off AND `camera_motivation_reason` is missing or generic.
+ */
+function checkCameraMotivationReason(sceneGraph, issues) {
+  const minWords = 4; // "for emphasis" (2 words) is too generic; require ≥4
+  const GENERIC_PHRASES = /\b(emphasis|cinematic|dynamic|stylish|cool|interesting|nice)\b/i;
+
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      const cameraMove = (beat.camera_move || '').trim();
+      if (!cameraMove) continue;
+      if (LOCK_OFF_CAMERA_PATTERNS.test(cameraMove)) continue; // lock-offs use emotional_hold_reason
+
+      const reason = (beat.camera_motivation_reason || '').trim();
+      if (!reason) {
+        issues.push({
+          id: 'camera_motivation_reason_missing',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `Beat has camera_move "${cameraMove.slice(0, 50)}" but no camera_motivation_reason — Director Agent will score camera_move_motivation low.`,
+          hint: 'Add a one-sentence camera_motivation_reason explaining what emotional turn or revelation earns this move (Phantom Thread textbook). Example: "push-in earned by the protagonist finally seeing what they refused to see".'
+        });
+        continue;
+      }
+
+      const reasonWords = reason.split(/\s+/).filter(Boolean).length;
+      if (reasonWords < minWords) {
+        issues.push({
+          id: 'camera_motivation_reason_too_short',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `camera_motivation_reason is too short (${reasonWords} words) — Director Agent expects a clear emotional/dramatic justification.`,
+          hint: `Expand to ≥${minWords} words naming the EMOTIONAL TURN this move serves, not the move itself.`
+        });
+        continue;
+      }
+
+      if (GENERIC_PHRASES.test(reason) && reasonWords < 8) {
+        issues.push({
+          id: 'camera_motivation_reason_generic',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `camera_motivation_reason uses generic language ("${reason.slice(0, 60)}") — name the specific emotional turn, not the desired feel.`,
+          hint: 'Replace generic words like "emphasis" / "cinematic" / "dynamic" with the specific dramatic event (revelation, surprise, isolation, ritual stillness).'
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Rec 4 enforcement #2 — `emotional_hold_reason` per lock-off beat.
+ *
+ * Lock-offs are directorial choices — refusal to flinch, ritual stillness,
+ * gravity-as-spectacle (Sony Bravia "Balls"). Without an emotional_hold_reason,
+ * Director Agent scores the lock as unmotivated. Triggers when: camera is
+ * locked OR `emotional_hold` flag is true, AND emotional_hold_reason is
+ * missing or generic.
+ */
+function checkEmotionalHoldReason(sceneGraph, issues) {
+  const minWords = 4;
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      const cameraMove = (beat.camera_move || '').trim();
+      const isLockOff = !cameraMove || LOCK_OFF_CAMERA_PATTERNS.test(cameraMove);
+      const hasHoldFlag = beat.emotional_hold === true;
+      // Only nudge for beats where the lock/hold is explicit. Beats with no
+      // camera_move at all on B_ROLL etc. shouldn't be flagged — the
+      // emotional_hold flag is the authored signal that lock-off is
+      // intentional. So: trigger ONLY when emotional_hold === true OR
+      // when an explicit "locked-off" string is in camera_move.
+      const triggered = hasHoldFlag || (cameraMove && LOCK_OFF_CAMERA_PATTERNS.test(cameraMove));
+      if (!triggered) continue;
+
+      const reason = (beat.emotional_hold_reason || '').trim();
+      if (!reason) {
+        issues.push({
+          id: 'emotional_hold_reason_missing',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `Beat is a lock-off / emotional hold but has no emotional_hold_reason — Director Agent will score camera_move_motivation low.`,
+          hint: 'Add a one-sentence emotional_hold_reason naming WHY the camera holds — resignation, refusal to flinch, ritual stillness, the character refusing to be moved by the line. Sicario tunnel / Sony Bravia "Balls" model.'
+        });
+        continue;
+      }
+      const reasonWords = reason.split(/\s+/).filter(Boolean).length;
+      if (reasonWords < minWords) {
+        issues.push({
+          id: 'emotional_hold_reason_too_short',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `emotional_hold_reason is too short (${reasonWords} words) — Director Agent expects a clear directorial justification.`,
+          hint: `Expand to ≥${minWords} words naming the directorial CHOICE the hold serves.`
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Rec 1 enforcement — `preferred_generator` routing for ACTION beats.
+ *
+ * The routing_hint in v4-beat-recipes.yaml documents WHEN to set
+ * preferred_generator='VeoActionGenerator' (clean kinetic action ≤ 8s
+ * without complex camera grammar). When a beat fits the criteria but
+ * Gemini didn't set the override, surface a warning so the Doctor pass
+ * can patch it. This is the difference between "Veo class is registered"
+ * and "Veo is actually used for action".
+ *
+ * Detection logic:
+ *   IF beat.type === 'ACTION_NO_DIALOGUE'
+ *   AND duration_seconds ≤ 8
+ *   AND requires_text_rendering !== true
+ *   AND camera_move/camera_notes does NOT contain complex grammar
+ *   AND preferred_generator !== 'VeoActionGenerator'
+ *   → emit warning suggesting the override.
+ *
+ * Inverse case (Veo override but beat doesn't fit criteria) also emits a
+ * warning so we don't silently route long-form action to a model that
+ * caps at 8s.
+ */
+function checkPreferredGeneratorRouting(sceneGraph, issues) {
+  for (const scene of sceneGraph.scenes || []) {
+    for (const beat of scene.beats || []) {
+      if (beat.type !== 'ACTION_NO_DIALOGUE') continue;
+
+      const duration = Number(beat.duration_seconds) || 5;
+      const requiresTextRendering = beat.requires_text_rendering === true;
+      const cameraGrammar = `${beat.camera_move || ''} ${beat.camera_notes || ''}`;
+      const hasComplexCamera = COMPLEX_CAMERA_PATTERNS.test(cameraGrammar);
+      const preferredGenerator = beat.preferred_generator || null;
+
+      const fitsVeoCriteria =
+        duration <= 8 &&
+        !requiresTextRendering &&
+        !hasComplexCamera;
+
+      // Forward direction: fits criteria, but no Veo override → suggest it.
+      if (fitsVeoCriteria && preferredGenerator !== 'VeoActionGenerator') {
+        issues.push({
+          id: 'preferred_generator_veo_recommended',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `ACTION_NO_DIALOGUE beat (${duration}s, simple camera) should set preferred_generator: "VeoActionGenerator" — Veo's first-frame anchoring eliminates Kling V3 Pro's documented face_drift_in_action (frame 60+).`,
+          hint: 'Set "preferred_generator": "VeoActionGenerator" on this beat. Veo runs FREE via Vertex (vs $1.12 Kling per 5s) AND produces stable identity across the clip.'
+        });
+        continue;
+      }
+
+      // Inverse direction: Veo override set but beat exceeds Veo's 8s cap or
+      // names complex camera → warn that Veo will approximate instead of
+      // delivering precisely. The Doctor should re-route back to Kling.
+      if (preferredGenerator === 'VeoActionGenerator' && !fitsVeoCriteria) {
+        const reasons = [];
+        if (duration > 8) reasons.push(`duration ${duration}s exceeds Veo's 8s ceiling`);
+        if (requiresTextRendering) reasons.push('requires_text_rendering true (Veo text rendering weaker than Kling)');
+        if (hasComplexCamera) reasons.push('complex camera grammar named (Veo approximates Dutch/vertigo/whip-pan/speed-ramp)');
+
+        issues.push({
+          id: 'preferred_generator_veo_misrouted',
+          severity: 'warning',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `Beat sets preferred_generator: "VeoActionGenerator" but doesn't fit Veo criteria — ${reasons.join('; ')}.`,
+          hint: 'Either remove preferred_generator (route to Kling V3 Pro) OR adjust the beat to fit (≤8s, no text rendering, simple camera move).'
+        });
+      }
+    }
+  }
+}
+
+/**
+ * V4 Tier 2.3 (2026-05-06) — Cross-beat continuity rules.
+ *
+ * Five rules, each producing a structured issue (severity escalates to
+ * 'critical' when V4_STRICT_CONTINUITY=true). Defense in depth on top of
+ * Tier 1's quarantine contract — even if a code path forgets to call
+ * quarantineBeat(), this validator catches the impossible state at
+ * screenplay validation time.
+ */
+function checkCrossBeatContinuity(sceneGraph, personas, options, issues) {
+  const strict = process.env.V4_STRICT_CONTINUITY === 'true';
+  const escalate = strict ? 'critical' : 'warning';
+  const scenes = Array.isArray(sceneGraph?.scenes) ? sceneGraph.scenes : [];
+  const personaWardrobeHints = new Set(
+    (Array.isArray(personas) ? personas : [])
+      .map(p => p?.wardrobe_hint && String(p.wardrobe_hint).trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const locationBibleIds = new Set(
+    (sceneGraph?.location_bible?.locations || []).map(l => l?.id).filter(Boolean)
+  );
+
+  // Rule 1: duplicate beat_id across the entire episode.
+  const seenBeatIds = new Map(); // beat_id → first sceneIdx/beatIdx
+  for (let s = 0; s < scenes.length; s++) {
+    const beats = scenes[s]?.beats || [];
+    for (let b = 0; b < beats.length; b++) {
+      const id = beats[b]?.beat_id;
+      if (!id) continue;
+      if (seenBeatIds.has(id)) {
+        const prev = seenBeatIds.get(id);
+        issues.push({
+          id: 'duplicate_beat_id',
+          severity: escalate,
+          scope: `beat:${id}`,
+          message: `Duplicate beat_id "${id}" found at scene ${s} beat ${b} — first seen at scene ${prev.s} beat ${prev.b}. Beat IDs must be unique across the episode.`,
+          hint: 'Rename one of the beats to a unique identifier (e.g. s2b3a, s2b3b). Duplicates break Tier 1\'s status filter and reassembly ordering.'
+        });
+      } else {
+        seenBeatIds.set(id, { s, b });
+      }
+    }
+  }
+
+  // Rule 2: status='hard_rejected' AND generated_video_url present (impossible state).
+  for (const scene of scenes) {
+    for (const beat of (scene.beats || [])) {
+      if (beat?.status === 'hard_rejected' && beat.generated_video_url) {
+        issues.push({
+          id: 'hard_rejected_with_live_video_url',
+          severity: 'critical',
+          scope: `beat:${beat.beat_id || '?'}`,
+          message: `Beat ${beat.beat_id} is status='hard_rejected' but still carries generated_video_url (${beat.generated_video_url.slice(0, 80)}...). The quarantine contract requires the URL to be null when status is hard_rejected.`,
+          hint: 'Run BeatLifecycle.quarantineBeat() to move the URL into attempts_log and null the canonical row. The reassembly loader will skip the beat once status is correct.'
+        });
+      }
+    }
+  }
+
+  // Rule 3: continuity_chain_broken=true on adjacent beats — surfaces silent
+  //         endframe-extraction failures upstream of Lens C.
+  for (const scene of scenes) {
+    const beats = (scene.beats || []).filter(b => b && b.type !== 'SPEED_RAMP_TRANSITION');
+    for (let i = 1; i < beats.length; i++) {
+      const prev = beats[i - 1];
+      if (prev?.continuity_chain_broken === true) {
+        issues.push({
+          id: 'continuity_chain_broken_adjacent',
+          severity: 'warning',
+          scope: `beat:${beats[i].beat_id || '?'}`,
+          message: `Beat ${beats[i].beat_id} follows beat ${prev.beat_id} whose endframe extraction failed (continuity_chain_broken=true, error: ${prev.endframe_extraction_error || 'unknown'}). The next beat's first-frame falls back to scene_master, breaking visual continuity.`,
+          hint: 'Re-run the previous beat to refresh its endframe, OR accept the scene-master fallback (Lens C will deduct cross_beat_continuity).'
+        });
+      }
+    }
+  }
+
+  // Rule 4: scene.location_id reused but no location_bible match.
+  if (locationBibleIds.size > 0) {
+    const locationIdCounts = new Map();
+    for (const scene of scenes) {
+      if (typeof scene?.location_id !== 'string' || !scene.location_id) continue;
+      locationIdCounts.set(scene.location_id, (locationIdCounts.get(scene.location_id) || 0) + 1);
+    }
+    for (const [locId, count] of locationIdCounts) {
+      if (count > 1 && !locationBibleIds.has(locId)) {
+        issues.push({
+          id: 'location_id_reused_no_bible_match',
+          severity: 'warning',
+          scope: `scene:${locId}`,
+          message: `Location id "${locId}" is reused across ${count} scenes but doesn't appear in story.location_bible.locations[]. The reused scenes will generate fresh Scene Masters that visually drift.`,
+          hint: 'Add a location bible entry with id: "' + locId + '" so subsequent scenes reuse the cached scene_master_url.'
+        });
+      }
+    }
+  }
+
+  // Rule 5: persona wardrobe reference in beat but persona has no wardrobe_hint.
+  if (personaWardrobeHints.size > 0) {
+    for (const scene of scenes) {
+      for (const beat of (scene.beats || [])) {
+        const refStr = String(beat?.wardrobe_hint || '').trim().toLowerCase();
+        if (refStr && !personaWardrobeHints.has(refStr)) {
+          issues.push({
+            id: 'beat_wardrobe_no_persona_match',
+            severity: 'warning',
+            scope: `beat:${beat.beat_id || '?'}`,
+            message: `Beat ${beat.beat_id} references wardrobe "${refStr}" but no persona carries that wardrobe_hint. Generators won't splice the wardrobe directive — costume continuity relies entirely on character-sheet refs.`,
+            hint: 'Either move the wardrobe description onto the relevant persona\'s wardrobe_hint OR remove the per-beat field.'
+          });
+        }
+      }
+    }
+  }
+}
+
+/**
+ * V4 Tier 3.1 (2026-05-06) — Coverage-slot + motion-vector within-scene
+ * adjacency rule. The single highest-leverage architectural fix per the
+ * Hollywood Director's critique: makes B_ROLL_ESTABLISHING and
+ * ACTION_NO_DIALOGUE collapsing onto "the same shot" structurally
+ * impossible by forcing different coverage / motion across consecutive
+ * beats in the same scene.
+ *
+ * Scope: WITHIN-SCENE ONLY (per Director note). Cross-scene wide-to-wide
+ * is a scene cut, not a defect.
+ *
+ * Severity: warning by default (so legacy episodes that don't carry the
+ * new fields don't break); blocking when V4_STRICT_CONTINUITY=true.
+ */
+function checkCoverageSlotAdjacency(sceneGraph, issues) {
+  const strict = process.env.V4_STRICT_CONTINUITY === 'true';
+  const escalate = strict ? 'critical' : 'warning';
+  const scenes = Array.isArray(sceneGraph?.scenes) ? sceneGraph.scenes : [];
+
+  for (const scene of scenes) {
+    const beats = (scene.beats || []).filter(b => b && b.type !== 'SPEED_RAMP_TRANSITION');
+    for (let i = 1; i < beats.length; i++) {
+      const a = beats[i - 1];
+      const b = beats[i];
+      // coverage_slot adjacency
+      if (a?.coverage_slot && b?.coverage_slot && a.coverage_slot === b.coverage_slot) {
+        issues.push({
+          id: 'coverage_slot_adjacency_violation',
+          severity: escalate,
+          scope: `beat:${b.beat_id || '?'}`,
+          message: `Beat ${b.beat_id} and previous beat ${a.beat_id} both use coverage_slot="${a.coverage_slot}" within the same scene. Consecutive beats must differ in coverage to avoid the b-roll/action collapse symptom.`,
+          hint: `Change one beat's coverage_slot to a different value (e.g. wide → cowboy → close → insert). Allowed values: wide, cowboy, single_a, single_b, two_shot, close, insert, pov, cutaway.`
+        });
+      }
+      // motion_vector adjacency
+      if (a?.motion_vector && b?.motion_vector && a.motion_vector === b.motion_vector) {
+        issues.push({
+          id: 'motion_vector_adjacency_violation',
+          severity: escalate,
+          scope: `beat:${b.beat_id || '?'}`,
+          message: `Beat ${b.beat_id} and previous beat ${a.beat_id} both use motion_vector="${a.motion_vector}" within the same scene. Consecutive beats must differ in motion to avoid visual monotony.`,
+          hint: `Change one beat's motion_vector to a different value (e.g. push_in → static → drift_left → rack_focus). Allowed: static, drift_left, drift_right, push_in, pull_out, whip_left, whip_right, rack_focus.`
+        });
+      }
+    }
+  }
+}
+
 function checkOneGreatLinePrinciple(sceneGraph, options, issues) {
   let bareShort = 0;
   const lines = countAllDialogueLines(sceneGraph);
@@ -1705,6 +2076,37 @@ export function validateScreenplay(sceneGraph, storyline = {}, personas = [], op
   checkSubtextCoverage(repaired, issues);
   checkOneGreatLinePrinciple(repaired, options, issues);
   checkEmotionalHoldEarned(repaired, issues);
+  // 2026-05-05 — Rec 1 + Rec 4 enforcement. Three validators that close
+  // the loop on the new Gemini schema fields. All warning-level — the
+  // Doctor pass auto-patches them so Gemini learns to comply over time
+  // without hard-rejecting the screenplay.
+  checkCameraMotivationReason(repaired, issues);
+  checkEmotionalHoldReason(repaired, issues);
+  checkPreferredGeneratorRouting(repaired, issues);
+  // V4 Tier 2.3 (2026-05-06) — cross-beat continuity rules. Defense in
+  // depth on top of Tier 1's quarantine contract. Five rules:
+  //   1. Duplicate beat_id in same episode → ERROR (regression-test for
+  //      the Tier 1 bug class — should be impossible after status filter
+  //      but cheap to assert here too).
+  //   2. status='hard_rejected' AND generated_video_url!==null → ERROR
+  //      (the impossible state that produced the original symptom).
+  //   3. continuity_chain_broken=true on adjacent beats → WARNING (Lens C
+  //      will already deduct, but surface in screenplay validator too so
+  //      the user sees it pre-flight).
+  //   4. scene.location_id reused but no location_bible match → WARNING
+  //      (signal that the user's wardrobe / set should be pulled from
+  //      the bible, but it's missing).
+  //   5. persona.wardrobe_hint referenced in beat.wardrobe_hint string
+  //      but persona doesn't carry one → WARNING.
+  // Blocking when V4_STRICT_CONTINUITY=true; warning-only otherwise.
+  checkCrossBeatContinuity(repaired, personas, options, issues);
+  // V4 Tier 3.1 (2026-05-06) — coverage_slot + motion_vector adjacency.
+  // Within a scene, two consecutive beats must NOT share coverage_slot or
+  // motion_vector — that's the structural fix that makes B_ROLL and
+  // ACTION collapse impossible (the user's reported symptom).
+  // Cross-scene wide-to-wide is fine (it's a scene cut). Warning by
+  // default; blocking when V4_STRICT_CONTINUITY=true.
+  checkCoverageSlotAdjacency(repaired, issues);
   checkIntensityRamp(repaired, storyline, issues);
   checkMouthOcclusion(repaired, issues);
   checkPersonaIndexCoverage(repaired, personas, issues);

@@ -209,6 +209,14 @@ export const SCENE_MASTER_VERDICT_SCHEMA = buildSchema('scene_master', [
 export const BEAT_VERDICT_SCHEMA = buildSchema('beat', [
   'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
   'lighting_continuity', 'lens_continuity', 'camera_move_intent',
+  // Director Agent verdict 2026-05-01 — Rec 4: motivated camera grammar is
+  // separate from delivery. camera_move_intent grades "did the push-in
+  // actually push?" (delivery). camera_move_motivation grades "should there
+  // have been a push-in at all?" (Phantom Thread textbook — every move
+  // motivated by character interiority). The rubric flagged this as the
+  // single biggest Higgsfield-gap closer. Score 100 on locked beats with
+  // declared emotional_hold_reason.
+  'camera_move_motivation',
   'identity_lock', 'model_signature_check',
   // Phase 4 — natural product placement guardrails. These dimensions are
   // scored 100 (N/A pass-through) when the beat is not product-bearing
@@ -219,7 +227,19 @@ export const BEAT_VERDICT_SCHEMA = buildSchema('beat', [
 export const EPISODE_VERDICT_SCHEMA = buildSchema('episode', [
   'rhythm', 'music_dialogue_ducking_feel', 'sonic_continuity',
   'lut_consistency_cross_scene', 'transition_intent', 'subtitle_legibility_taste',
-  'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting'
+  'title_endcard_taste', 'cross_scene_continuity', 'cliffhanger_sting',
+  // Director Agent verdict 2026-05-01 — Rec 3 Phase A: 6 audio dimensions
+  // make the SonicSeriesBible enforceable from the grading side. Without
+  // these, the bible is a contract that nothing measures. The first 4 grade
+  // the unified-mix architecture (if/when Phase B ships); the last 2
+  // enforce the bible's load-bearing invariants (spectral_anchor presence
+  // + no-fly-list absence) regardless of Phase B status.
+  'audio_coherence_episode',
+  'dB_consistency_inter_beat',
+  'sfx_motivation_coherence',
+  'sound_design_intent_match',
+  'spectral_anchor_adherence',
+  'no_fly_list_violations'
 ]);
 
 // Phase 6 — COMMERCIAL genre verdict schemas (replaces Lens A and Lens D for
@@ -260,12 +280,130 @@ export const COMMERCIAL_SCENE_MASTER_VERDICT_SCHEMA = buildSchema('commercial_sc
 export const COMMERCIAL_BEAT_VERDICT_SCHEMA = buildSchema('commercial_beat', [
   'performance_credibility', 'lipsync_integrity', 'eyeline_blocking',
   'art_direction_consistency', 'framing_intent', 'camera_move_intent',
+  // Director Agent verdict 2026-05-01 — Rec 4: motivated camera grammar
+  // applies to commercial work too. Phantom Thread / Sicario / The Bear
+  // commercial beats are recognized by their camera authorship — every
+  // dolly is justified by the brief's emotional curve.
+  'camera_move_motivation',
   'identity_lock_stylized', 'model_signature_check',
   'product_identity_lock', 'product_subtlety'
 ]);
+
+// V4 Tier 3.2 (2026-05-06) — Lens E Continuity Supervisor verdict schema.
+// 5 dimensions: wardrobe / props / lighting_motivation / eyeline / screen_direction.
+// Same shape contract as the other lenses (verdict + dimension_scores +
+// findings + commendations + retry_authorization + judge_model + latency).
+export const CONTINUITY_VERDICT_SCHEMA = buildSchema('continuity', [
+  'wardrobe', 'props', 'lighting_motivation', 'eyeline', 'screen_direction'
+]);
+
+// V4 Tier 3.5 (2026-05-06) — Lens F Editor Agent verdict schema.
+// Authorized to emit a structured Edit Decision List (EDL) on the assembled
+// rough cut. Dimensions evaluate the CUT, not individual beats:
+//   - pace_per_act (does the cut breathe at the right rate per movement)
+//   - bridge_quality (do scene-to-scene transitions land)
+//   - rhythm_variation (avoid mechanical "every beat is 4s" feel)
+//   - dialogue_landing (do exchange beats land their punctuation)
+//   - cliffhanger_sting (does the final beat earn its end card)
+// EDL itself lives on the verdict's `edl` field (added below).
+export const ROUGH_CUT_EDL_SCHEMA = (() => {
+  const base = buildSchema('rough_cut', [
+    'pace_per_act', 'bridge_quality', 'rhythm_variation', 'dialogue_landing', 'cliffhanger_sting'
+  ]);
+  // Extend with the EDL field — the editor's authored cut decisions.
+  base.properties.edl = {
+    type: 'object',
+    description: 'Edit Decision List authored by Lens F. Applied in PostProduction stage 2.5 before the LUT.',
+    additionalProperties: false,
+    propertyOrdering: ['drop_beat', 'swap_beats', 'retime_beat', 'j_cut_audio'],
+    properties: {
+      drop_beat: {
+        type: 'array',
+        description: 'Beat ids to drop from the final cut (do not earn their runtime).',
+        items: { type: 'string' },
+        maxItems: 4
+      },
+      swap_beats: {
+        type: 'array',
+        description: 'Pairs of beat ids to swap order in the final assembly.',
+        items: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 2,
+          maxItems: 2
+        },
+        maxItems: 3
+      },
+      retime_beat: {
+        type: 'array',
+        description: 'Per-beat ±0.5s retime nudges to tighten / loosen the cut.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          propertyOrdering: ['beat_id', 'delta_seconds'],
+          properties: {
+            beat_id: { type: 'string' },
+            delta_seconds: { type: 'number', minimum: -0.5, maximum: 0.5 }
+          }
+        },
+        maxItems: 6
+      },
+      j_cut_audio: {
+        type: 'array',
+        description: 'Audio of beat N+1 starts under beat N tail (J-cut). lead_seconds is how far before the cut the audio enters.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          propertyOrdering: ['from_beat', 'into_beat', 'lead_seconds'],
+          properties: {
+            from_beat: { type: 'string' },
+            into_beat: { type: 'string' },
+            lead_seconds: { type: 'number', minimum: 0.1, maximum: 1.5 }
+          }
+        },
+        maxItems: 4
+      }
+    }
+  };
+  return base;
+})();
 
 export const VERDICT_ENUMS = Object.freeze({
   verdict: VERDICT_ENUM,
   severity: SEVERITY_ENUM,
   action: ACTION_ENUM
 });
+
+// 2026-05-05 — Aleph Rec 2 Phase 3 hard-gate schema. NOT part of the §7
+// verdict contract. Single-dimension Vertex Gemini call that judges
+// whether a stylized frame preserves the persona's CIP identity. Used by
+// AlephEnhancementOrchestrator after gen4_aleph stylization to decide
+// whether to ship the stylized output (pass at 85+) or discard and ship
+// the original (Director Agent A2.2 amendment hard gate).
+//
+// Tiny schema = tiny token budget = fast verdict (~10-30s vs 60-120s for
+// full Lens C). The orchestrator runs this 1-3 times against representative
+// stylized frames and averages the scores.
+export const POST_STYLIZATION_IDENTITY_SCHEMA = {
+  type: 'object',
+  required: ['identity_lock_score', 'pass', 'reasoning'],
+  propertyOrdering: ['identity_lock_score', 'pass', 'reasoning'],
+  additionalProperties: false,
+  properties: {
+    identity_lock_score: {
+      type: 'integer',
+      minimum: 0,
+      maximum: 100,
+      description: 'How well does the stylized face preserve the reference persona\'s bone geometry, eye spacing, nose/jawline/lip shape, brow arch? 100=perfect, 85+=acceptable, <85=identity drift.'
+    },
+    pass: {
+      type: 'boolean',
+      description: 'true when score >= 85; false otherwise. Hard gate boundary per Director Agent A2.2.'
+    },
+    reasoning: {
+      type: 'string',
+      maxLength: 200,
+      description: 'One sentence — what facial features match or drift. No preamble.'
+    }
+  }
+};

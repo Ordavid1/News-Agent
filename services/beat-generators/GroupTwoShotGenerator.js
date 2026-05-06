@@ -329,11 +329,29 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
       }
     }
 
+    // V4 Tier 2.1 (2026-05-06) — DOCUMENTED EXCEPTION to the unified
+    // _pickStartFrame waterfall. GroupTwoShot prefers scene_master OVER
+    // previous endframe because two-shots need both characters in frame:
+    // the scene-master Seedream panel is staged for multi-character
+    // composition, while the previous endframe (typically a single-character
+    // closeup) won't show the second speaker. Continuity is preserved via
+    // Kling Omni's element binding (both personas in elements[]). Set
+    // continuity_fallback_reason directly so Lens C / Lens E still see why
+    // we diverged from the canonical chain.
     const startFrameUrl = scene?.scene_master_url
       || previousBeat?.endframe_url
       || elements[0]?.frontal_image_url;
     if (!startFrameUrl) {
       throw new Error(`beat ${beat.beat_id}: no start frame available`);
+    }
+    if (scene?.scene_master_url) {
+      beat.continuity_fallback_reason = previousBeat
+        ? 'group_twoshot_prefers_scene_master_over_endframe'
+        : 'scene_master_first_beat';
+    } else if (previousBeat?.endframe_url) {
+      beat.continuity_fallback_reason = 'previous_endframe_used';
+    } else {
+      beat.continuity_fallback_reason = 'group_twoshot_persona_element_fallback';
     }
 
     // Splice @Element1/@Element2 tokens into the prompt so Kling binds the

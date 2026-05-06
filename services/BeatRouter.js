@@ -22,6 +22,7 @@ import {
   ReactionGenerator,
   InsertShotGenerator,
   ActionGenerator,
+  VeoActionGenerator,
   MontageSequenceGenerator,
   BRollGenerator,
   VoiceoverBRollGenerator,
@@ -78,6 +79,16 @@ const GENERATOR_NAME_MAP = {
   ReactionGenerator,
   InsertShotGenerator,
   ActionGenerator,
+  // 2026-05-01 — Rec 1: Veo 3.1 Standard (Vertex AI, FREE) variant for
+  // ACTION_NO_DIALOGUE. Opt-in per-beat via
+  // beat.preferred_generator='VeoActionGenerator'. Solves Kling V3 Pro's
+  // documented face_drift_in_action (frame 60+) by using Veo's first-frame
+  // anchoring + mid-action persona-locked still (Director Agent A1.1).
+  // Routing hint in v4-beat-recipes.yaml steers Gemini: use Veo for clean
+  // kinetic action ≤8s without complex camera moves; stay on Kling for
+  // long single-takes (≥9s) and complex camera grammar (Dutch tilt /
+  // anamorphic / vertigo zoom).
+  VeoActionGenerator,
   BRollGenerator,
   VoiceoverBRollGenerator,
   TextOverlayCardGenerator,
@@ -354,6 +365,54 @@ class BeatRouter {
 
     const entry = ROUTING[beat.type];
     if (!entry) return null;
+
+    // 2026-05-05 — Rec 1 autonomous Veo routing (post-validator).
+    //
+    // The validator + Doctor pass set `preferred_generator` on NEW screenplays,
+    // but legacy/regenerate paths bypass that pass — the beat is loaded from
+    // DB and routed with whatever fields it had at write time. Without this
+    // auto-route, an action beat regenerated from an episode authored before
+    // 2026-05-05 falls through to default ActionGenerator (Kling V3 Pro) and
+    // pays the face_drift_in_action tax.
+    //
+    // Logic: when ACTION_NO_DIALOGUE has no explicit preferred_generator AND
+    // the beat fits Veo criteria (per v4-beat-recipes.yaml routing_hint),
+    // route to VeoActionGenerator automatically. Beats with complex camera
+    // grammar, requires_text_rendering, or duration > 8s stay on Kling.
+    //
+    // Opt-out: BRAND_STORY_AUTO_VEO_ACTION_ROUTING=false (default true).
+    // Director Panel can still force Kling by explicitly setting
+    // beat.preferred_generator='ActionGenerator'.
+    if (
+      beat.type === 'ACTION_NO_DIALOGUE'
+      && entry.generator === ActionGenerator
+      && !beat.preferred_generator
+      && String(process.env.BRAND_STORY_AUTO_VEO_ACTION_ROUTING || 'true').toLowerCase() !== 'false'
+    ) {
+      const duration = Number(beat.duration_seconds) || 5;
+      const requiresTextRendering = beat.requires_text_rendering === true;
+      const cameraGrammar = `${beat.camera_move || ''} ${beat.camera_notes || ''}`;
+      // Same complex-camera detection vocabulary as ScreenplayValidator's
+      // checkPreferredGeneratorRouting. Keep these two in sync — they implement
+      // the same routing rule from different sides (validator nudges Gemini at
+      // write-time; this auto-routes at read-time for legacy beats).
+      const COMPLEX_CAMERA_RX = /\b(dutch|vertigo|anamorphic|whip[-\s]?pan|speed[-_\s]?ramp|lens[-_\s]?flare|crash[-_\s]?zoom)\b/i;
+      const hasComplexCamera = COMPLEX_CAMERA_RX.test(cameraGrammar);
+
+      const fitsVeoCriteria =
+        duration <= 8 &&
+        !requiresTextRendering &&
+        !hasComplexCamera;
+
+      if (fitsVeoCriteria) {
+        logger.info(`auto-routing beat ${beat.beat_id || '?'} (ACTION_NO_DIALOGUE, ${duration}s, simple camera) to VeoActionGenerator (no preferred_generator set; legacy/regenerate path)`);
+        return {
+          GeneratorClass: VeoActionGenerator,
+          mode: 'auto_veo_routing',
+          originalType: beat.type
+        };
+      }
+    }
 
     return {
       GeneratorClass: entry.generator,
