@@ -6932,6 +6932,27 @@ Respond with ONLY valid JSON:
           } : undefined,
           storyFocus: isCommercialEp ? 'commercial' : (story.story_focus || 'drama')
         });
+        // V4 Phase 11 (2026-05-07) — scoped retake target_beats derivation.
+        // Lens D's verdict schema now exposes target_beats[] which Gemini may
+        // populate when findings carry beat-level scope. When the model omits
+        // it (older prompts, partial output), derive deterministically from
+        // findings: any finding whose scope == "beat:<id>" contributes its
+        // beat_id to target_beats. The Director Panel surfaces target_beats
+        // as a "retake N flagged beats" affordance powered by the existing
+        // single-beat regenerate endpoint.
+        if (verdictD && typeof verdictD === 'object') {
+          if (!Array.isArray(verdictD.target_beats) || verdictD.target_beats.length === 0) {
+            const derived = new Set();
+            for (const finding of (verdictD.findings || [])) {
+              const scope = String(finding?.scope || '');
+              const m = scope.match(/^beat:(.+)$/);
+              if (m && m[1]) derived.add(m[1].trim());
+            }
+            if (derived.size > 0) {
+              verdictD.target_beats = Array.from(derived).slice(0, 8);
+            }
+          }
+        }
         directorReport.episode = verdictD;
         accumulateNotes(verdictD, 'lens_d:episode');
         progress('director:episode', `episode: ${fmtVerdict(verdictD)}`, {
@@ -6939,7 +6960,8 @@ Respond with ONLY valid JSON:
           mode: lensDMode,
           verdict: verdictD?.verdict,
           score: verdictD?.overall_score,
-          findings: (verdictD?.findings || []).length
+          findings: (verdictD?.findings || []).length,
+          target_beats: Array.isArray(verdictD?.target_beats) ? verdictD.target_beats.length : 0
         });
       } catch (dirErr) {
         logger.warn(`V4 Director Agent Lens D (${lensDLabel}) failed (non-fatal): ${dirErr.message}`);
@@ -10526,10 +10548,24 @@ Respond with ONLY valid JSON:
     const existingLedger = story.storyline.emotional_intensity_ledger && typeof story.storyline.emotional_intensity_ledger === 'object'
       ? { ...story.storyline.emotional_intensity_ledger }
       : {};
+    // V4 Phase 11 (2026-05-07) — persona physical-state ledger. Tracks
+    // observable physical changes per persona per episode so multi-episode
+    // arcs can carry continuity that the existing text-only story_so_far
+    // recap couldn't capture: wardrobe rip from Ep 2 still visible in Ep 3,
+    // bruise from Ep 1 still healing through Ep 4, etc. Without this, the
+    // screenplay writer is blind to physical continuity and the visual
+    // models default to "fresh persona" each episode.
+    //
+    // Structure: { [personaIdx]: { [episodeNumber]: "wounded arm, limping" } }
+    // Rolling cap of 8 episodes per persona to keep prompt budget bounded.
+    const existingPhysicalState = story.storyline.persona_physical_state_ledger && typeof story.storyline.persona_physical_state_ledger === 'object'
+      ? JSON.parse(JSON.stringify(story.storyline.persona_physical_state_ledger))
+      : {};
 
     const updatedKeyframes = [...existingKeyframes];
     const updatedVoiceSamples = existingVoiceSamples;
     const updatedLedger = existingLedger;
+    const updatedPhysicalState = existingPhysicalState;
 
     // Explicit V4 gate — see plan
     // .claude/plans/regarding-this-infrastructure-i-magical-flame.md.
@@ -10629,6 +10665,72 @@ Respond with ONLY valid JSON:
       updatedLedger[String(episode.episode_number)] = closingIntensity;
     }
 
+    // V4 Phase 11 (2026-05-07) — persona physical-state extraction.
+    // Walk this episode's beats looking for textual signals that the model
+    // gave a persona a persistent physical change (injury, wardrobe damage,
+    // intoxication, fatigue, post-fight state, etc.). These signals come
+    // from the screenplay's expression_notes / action_notes / blocking_notes
+    // / closing_state where the writer's room described what happened.
+    // Stored per-persona-per-episode so multi-episode arcs can read "the
+    // bruise from ep 3 is still here in ep 4". Heuristic — keyword-based,
+    // no LLM call. Future #10b enhancement could promote this to a Gemini
+    // pass that reads structured closing_state extracted by ClosingStateExtractor.
+    if (v4Scenes && v4Scenes.length > 0) {
+      const PHYSICAL_KEYWORDS = /\b(wounded|injured|bruised|bleeding|cut|scarred|limp(?:ing)?|broken|sprained|bandaged|torn|ripped|stained|soaked|wet|dripping|blood-?(?:stained|soaked|covered)|exhausted|spent|worn|disheveled|fatigued|burned|scorched|drunk|inebriated|intoxicated|hungover|sober(?:ing)?|haircut|shaved|tied[- ]back|disguised|tattoo|fresh-?ink)\b/i;
+      const personaObservations = {};
+      for (const sc of v4Scenes) {
+        for (const beat of sc.beats || []) {
+          const personaIndexes = [];
+          if (typeof beat.persona_index === 'number') personaIndexes.push(beat.persona_index);
+          if (Array.isArray(beat.persona_indexes)) personaIndexes.push(...beat.persona_indexes);
+          if (personaIndexes.length === 0) continue;
+
+          const fields = [
+            beat.expression_notes,
+            beat.action_notes,
+            beat.blocking_notes,
+            beat.action,
+            beat.closing_state?.closing_action_detail,
+            beat.closing_state?.closing_emotional_detail
+          ].filter(s => typeof s === 'string' && s.length > 0);
+
+          for (const txt of fields) {
+            const match = txt.match(PHYSICAL_KEYWORDS);
+            if (!match) continue;
+            const window = txt.slice(
+              Math.max(0, match.index - 12),
+              Math.min(txt.length, match.index + match[0].length + 24)
+            ).trim();
+            for (const idx of personaIndexes) {
+              const idxKey = String(idx);
+              if (!personaObservations[idxKey]) personaObservations[idxKey] = new Set();
+              personaObservations[idxKey].add(window.replace(/\s+/g, ' '));
+            }
+          }
+        }
+      }
+      // Persist this episode's observations per persona (cap to 3 per ep
+      // to keep prompt budget bounded; rolling cap of 8 episodes per persona).
+      const epKey = String(episode.episode_number);
+      for (const [idxKey, obsSet] of Object.entries(personaObservations)) {
+        const top3 = Array.from(obsSet).slice(0, 3).join('; ');
+        if (top3) {
+          if (!updatedPhysicalState[idxKey]) updatedPhysicalState[idxKey] = {};
+          updatedPhysicalState[idxKey][epKey] = top3;
+          // Rolling cap — keep last 8 episodes per persona
+          const epNumbers = Object.keys(updatedPhysicalState[idxKey])
+            .map(n => Number(n))
+            .filter(n => Number.isFinite(n))
+            .sort((a, b) => a - b);
+          if (epNumbers.length > 8) {
+            for (const oldEp of epNumbers.slice(0, epNumbers.length - 8)) {
+              delete updatedPhysicalState[idxKey][String(oldEp)];
+            }
+          }
+        }
+      }
+    }
+
     // Also track the latest visual_style_prefix for cross-episode continuity
     const updatedStoryline = {
       ...story.storyline,
@@ -10637,7 +10739,9 @@ Respond with ONLY valid JSON:
       last_emotional_state: scene.emotional_state || '',
       previously_on_keyframes: updatedKeyframes,
       character_voice_samples: updatedVoiceSamples,
-      emotional_intensity_ledger: updatedLedger
+      emotional_intensity_ledger: updatedLedger,
+      // V4 Phase 11 — per-persona physical-state evolution channel.
+      persona_physical_state_ledger: updatedPhysicalState
     };
 
     await updateBrandStory(storyId, userId, { storyline: updatedStoryline });

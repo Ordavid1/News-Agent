@@ -72,6 +72,13 @@ function buildSchema(checkpointValue, dimensionKeys) {
       'findings',
       'commendations',
       'retry_authorization',
+      // V4 Phase 11 (2026-05-07) — scoped retake. When findings have
+      // beat-level scope, the model populates target_beats with the
+      // unique beat_ids so the Director Panel can surface a "Retake N
+      // flagged beats" affordance (existing single-beat regenerate
+      // endpoint already supports this). OPTIONAL — Lens A/B/C verdicts
+      // typically don't need it; Lens D / commercial Lens D need it most.
+      'target_beats',
       'judge_model',
       'latency_ms',
       'cost_usd'
@@ -171,7 +178,13 @@ function buildSchema(checkpointValue, dimensionKeys) {
                 // direction itself is the continuity contract).
                 target: {
                   type: 'string',
-                  enum: ['anchor', 'composition', 'performance', 'identity', 'continuity', 'style']
+                  // V4 Phase 11 (2026-05-07) — `prop_continuity` promoted to
+                  // first-class target. Distinguishes "props vanished / moved
+                  // between cuts" from generic continuity drift (lighting,
+                  // wardrobe, eyeline). The Director Panel can surface a
+                  // dedicated "Prop continuity flag" badge instead of the
+                  // generic continuity catch-all.
+                  enum: ['anchor', 'composition', 'performance', 'identity', 'continuity', 'prop_continuity', 'style']
                 }
               }
             }
@@ -188,6 +201,22 @@ function buildSchema(checkpointValue, dimensionKeys) {
       retry_authorization: {
         type: 'boolean',
         description: 'true = caller may auto-retry once with the prompt_deltas above; false = escalate to user.'
+      },
+      // V4 Phase 11 (2026-05-07) — scoped retake target list. When findings
+      // identify specific beats by scope ("beat:s2b3"), populate this array
+      // with the unique beat_ids so the orchestrator / Director Panel can
+      // re-render only the offending beats instead of the whole episode.
+      // Most useful on Lens D (Picture Lock) where a 30-60s commercial would
+      // otherwise need full regeneration on a single bad beat. Empty array
+      // means no scoped retakes — the verdict is global / structural.
+      target_beats: {
+        type: 'array',
+        description: 'Unique beat_ids referenced in findings whose scope == "beat:<id>". Empty when verdict is global. The Director Panel surfaces this as a "retake N flagged beats" affordance.',
+        maxItems: 8,
+        items: {
+          type: 'string',
+          maxLength: 40
+        }
       },
       judge_model: { type: 'string' },
       latency_ms: { type: 'integer' },

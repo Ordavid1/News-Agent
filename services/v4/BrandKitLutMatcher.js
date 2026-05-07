@@ -201,6 +201,45 @@ export function getGenreLutPool(genre) {
 }
 
 /**
+ * V4 Phase 11 (2026-05-07) — story-level LUT family pool.
+ *
+ * For multi-episode prestige series, the LUT FAMILY is the show — episodes
+ * MUST stay inside the family or the binge-format viewer reads "different
+ * show" between episodes. Per Director Agent's mandate, story creation
+ * declares a `lut_family_ids` array (subset of the creative pool) that
+ * constrains every episode's pick to those family members. When unset, this
+ * function falls through to the genre pool (existing behavior).
+ *
+ * Resolution:
+ *   1. story.lut_family_ids is a non-empty array of strings → return the
+ *      intersection with the creative pool (only known IDs survive).
+ *   2. otherwise → genre pool (current behavior).
+ *
+ * Backwards-compatible: legacy stories without lut_family_ids see no change.
+ *
+ * @param {Object} story - { lut_family_ids?: string[], subject?: { genre }, storyline?: { genre } }
+ * @returns {Array} LUT spec entries available for this story
+ */
+export function getStoryLutPool(story) {
+  const family = story?.lut_family_ids;
+  if (Array.isArray(family) && family.length > 0) {
+    const pool = getCreativePool();
+    const familySet = new Set(family.map(id => String(id).trim()).filter(Boolean));
+    const filtered = pool.filter(l => familySet.has(l.id));
+    if (filtered.length > 0) {
+      logger.info(`getStoryLutPool: lut_family_ids active (${familySet.size} declared, ${filtered.length} resolved in pool)`);
+      return filtered;
+    }
+    logger.warn(
+      `getStoryLutPool: lut_family_ids declared but none resolved in creative pool — falling through to genre pool. ` +
+      `Declared: [${family.join(', ')}]`
+    );
+  }
+  const genre = story?.subject?.genre || story?.storyline?.genre || null;
+  return getGenreLutPool(genre);
+}
+
+/**
  * Get the default LUT for a genre (the entry marked is_default_for_genre).
  * Returns null if no default exists for that genre.
  */

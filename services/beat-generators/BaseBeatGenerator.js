@@ -1401,6 +1401,29 @@ class BaseBeatGenerator {
     // Lazy import to avoid circular module-load between BaseBeatGenerator and KlingFalService.
     const { buildKlingElementsFromPersonas, buildKlingSubjectElement } = await import('../KlingFalService.js');
 
+    // V4 Phase 11 (2026-05-07) — translate Veo-grammar prompt to Kling grammar.
+    // Each generator's caller built a "Kling-friendly" variant before this
+    // call, but those variants are still lightly-edited Veo prose. The
+    // translator strips Veo-only frame-anchoring momentum phrases, compresses
+    // verbose lens directives, and (optionally) runs a Gemini Flash semantic
+    // translation pass when V4_VEO_TO_KLING_GEMINI_TRANSLATE=true. Without
+    // this, fallback beats read as a different cinematographer mid-episode.
+    // Cached by hash; falls through to original prompt on translator failure.
+    let translatedPrompt = prompt;
+    try {
+      const { translateVeoPromptToKling } = await import('../v4/VeoToKlingTranslator.js');
+      translatedPrompt = await translateVeoPromptToKling({
+        prompt,
+        beatType: beatTypeLabel || beat?.type || 'unknown',
+        logPrefix: beat?.beat_id || '?'
+      });
+    } catch (translatorErr) {
+      this.logger.warn(
+        `[${beat?.beat_id || '?'}] Veo→Kling translator threw (${translatorErr.message}) — using original prompt verbatim`
+      );
+      translatedPrompt = prompt;
+    }
+
     // Kling clamps action beats to [3, 15]s. Most Veo beats run [2, 8]s, so
     // ensure 3s minimum for Kling.
     const klingDuration = Math.max(3, Math.min(15, duration || 5));
@@ -1442,7 +1465,7 @@ class BaseBeatGenerator {
     const result = await kling.generateActionBeat({
       startFrameUrl,
       elements,
-      prompt,
+      prompt: translatedPrompt,
       options: {
         duration: klingDuration,
         aspectRatio: '9:16',

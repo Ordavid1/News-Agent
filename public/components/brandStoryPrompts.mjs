@@ -884,7 +884,29 @@ export function _buildPreviousEpisodesBlock(storyline, previousEpisodes) {
       })()
     : '';
 
-  const continuityMemory = `${storySoFar}${keyframes}${voiceSamples}${ledger}`;
+  // V4 Phase 11 (2026-05-07) — persona physical-state ledger. Renders the
+  // running per-persona physical-change observations across episodes (wounds,
+  // wardrobe damage, intoxication, fatigue, etc.) so the screenplay writer
+  // KNOWS that, e.g., "Mark has a bandaged left hand" must persist into the
+  // current episode. Without this, the writer treats every episode as a
+  // physical reset and the visual continuity fails on multi-ep arcs.
+  const physicalStateLedger = storyline.persona_physical_state_ledger
+    && typeof storyline.persona_physical_state_ledger === 'object'
+    && Object.keys(storyline.persona_physical_state_ledger).length > 0
+    ? `\nPERSONA PHYSICAL STATE LEDGER (carry these forward — DO NOT reset on a fresh episode opening):\n${Object.entries(storyline.persona_physical_state_ledger).map(([idx, byEp]) => {
+        if (!byEp || typeof byEp !== 'object') return '';
+        const personaName = storyline.characters?.[Number(idx)]?.name || `Persona ${Number(idx) + 1}`;
+        const sortedEps = Object.entries(byEp)
+          .map(([ep, obs]) => [Number(ep), String(obs || '')])
+          .filter(([n, o]) => Number.isFinite(n) && o.length > 0)
+          .sort((a, b) => a[0] - b[0]);
+        if (sortedEps.length === 0) return '';
+        const trail = sortedEps.map(([ep, obs]) => `Ep${ep}: ${obs}`).join(' → ');
+        return `  [${idx}] ${personaName}: ${trail}`;
+      }).filter(Boolean).join('\n')}\n`
+    : '';
+
+  const continuityMemory = `${storySoFar}${keyframes}${voiceSamples}${ledger}${physicalStateLedger}`;
 
   return `PREVIOUSLY ON "${storyline.title || 'the series'}":\n${continuityMemory}${earlierBlock}${lastDetail}`;
 }
