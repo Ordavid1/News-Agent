@@ -95,14 +95,28 @@ class ReactionGenerator extends BaseBeatGenerator {
     // least one axis (subject placement, angle, framing density).
     const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
 
+    // V4 Phase 11 (2026-05-07) — REACTION beats are the SINGLE most prior-
+    // beat-dependent beat type — a reaction is BY DEFINITION a response to
+    // the prior moment. Without closing_state, the model renders a generic
+    // closeup of the requested expression instead of the active read of the
+    // prior line. Compact mode keeps the splice tight.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       'Tight closeup on the character in frame.',
       framingRecipe,
       identityDirective,
       wardrobeDirective,
       continuityDirective,
+      priorBeatContinuity,
       subjectDirective,
       brandColorDirective,
       antiRefDirective,
@@ -160,10 +174,13 @@ class ReactionGenerator extends BaseBeatGenerator {
       const klingReactionPrompt = this._appendDirectorNudge([
         verticalDirective,
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         'Tight closeup on the character. Silent beat, no dialogue.',
         framingRecipe,
         identityDirective,
         wardrobeDirective,
+        priorBeatContinuity,
         `Emotional arc: ${expressionArc}.`,
         'Micro-expression emphasis, shallow depth of field, intimate framing.'
       ].filter(Boolean).join(' '), beat);

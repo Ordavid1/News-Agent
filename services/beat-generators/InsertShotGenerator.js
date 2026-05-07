@@ -109,15 +109,30 @@ class InsertShotGenerator extends BaseBeatGenerator {
     // product look identical.
     const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
 
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. INSERT_SHOT
+    // benefits from knowing the prior beat's emotional state so the macro
+    // hold reads as the right kind of "settle" — a held-breath insert vs
+    // a sigh-of-relief insert have different emotional weight.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay (the
+    // surrounding beats' atmosphere informs the macro insert's color cast
+    // and ambient palette).
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
+
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       `Tight closeup on ${subjectFocus}.`,
       framingRecipe,
       `Lighting: ${lightingIntent}.`,
       `Camera: ${cameraMove}.`,
       brandColorDirective,
       antiRefDirective,
+      priorBeatContinuity,
       'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
       `Ambient: ${ambientSound}.`,
       colorHint
@@ -203,10 +218,13 @@ class InsertShotGenerator extends BaseBeatGenerator {
       const klingInsertPrompt = this._appendDirectorNudge([
         verticalDirective,
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         `Macro insert shot of ${subjectFocus}.`,
         framingRecipe,
         `Lighting: ${lightingIntent}.`,
         `Camera: ${cameraMove}.`,
+        priorBeatContinuity,
         'Extreme detail, product hero shot, cinematic macro feel, shallow depth of field.',
         ambientSound ? `Ambient: ${ambientSound}.` : ''
       ].filter(Boolean).join(' '), beat);

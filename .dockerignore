@@ -1,0 +1,105 @@
+# Repo-wide Docker build context excludes.
+# Goal: minimize build context size (faster uploads to Cloud Build) and
+# guarantee no secrets / dev artifacts ever land inside the image.
+
+# Dependencies — installed fresh inside the image
+node_modules/
+**/node_modules/
+
+# Secrets — NEVER ship these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local logs (also excluded by .gitignore but enforce here too)
+*.log
+logs.txt
+logs1.txt
+*logs.txt
+linkedinlogs.txt
+twitterlogs.txt
+hebrew-search.log
+trend-analyzer.log
+app.log
+server.log
+
+# WhatsApp bridge has its own Dockerfile + build context — exclude entirely
+# from the main image so its source/auth_store don't bloat the main app image.
+whatsapp-bridge-service/
+
+# IDE / editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Git internals
+.git/
+.gitignore
+.gitattributes
+
+# Claude / Cursor / agent metadata
+.claude/
+.agent/
+.agents/
+.mcp.json
+CLAUDE.md
+claude_help.md
+skills-lock.json
+
+# Render-era files (kept in repo for reference, but no need in image)
+render.yaml
+
+# Plans / docs / scratch
+*.md
+!README.md
+PLAN_*.md
+PROFIT_*.md
+demo-page.md
+Cost\ Analysis.md
+NEWS_API_SETUP.md
+mainappsevermjs.txt
+
+# Tests + fixtures
+tests/
+test/
+test-*
+**/test-*.md
+
+# Build artifacts
+dist/
+build/
+*.cache
+.cache/
+!.dockerignore
+
+# Local Playwright/Puppeteer profile from interactive runs
+.playwright-mcp/
+
+# Database snapshots / scratch
+*.db
+*.sqlite
+*.sqlite3
+tmp/
+temp/
+.tmp/
+
+# Models folder (per .gitignore)
+models/
+
+# Python venv (if present)
+venv/
+__pycache__/
+
+# Docker meta — no point shipping a Dockerfile inside the image
+Dockerfile
+**/Dockerfile
+
+# CI config — not needed at runtime
+cloudbuild.yaml
+.github/

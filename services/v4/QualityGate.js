@@ -163,10 +163,18 @@ export async function runQualityGate({
         message: `Beat ${beat?.beat_id}: ffprobe reported 0×0 dimensions — file is likely corrupt.`
       });
     } else if (arDrift > THRESHOLDS.aspectTolerance) {
+      // 2026-05-07 — Director Agent prestige mandate: aspect_mismatch escalated
+      // from warning to critical. Off-aspect generator output is the #1 visual
+      // tell of "AI commercial" — letterbox bars (or blur-fill compensation)
+      // signal "this was filmed wide and cropped" to viewers, the antithesis
+      // of native prestige vertical. Critical severity fails the gate so
+      // Director Lens C / Panel surface the caution and downstream consumers
+      // (auto-retry, scoped retake) can act. The threshold (10% drift) is
+      // unchanged — only the severity is upgraded.
       issues.push({
         id: 'aspect_mismatch',
-        severity: 'warning',
-        message: `Beat ${beat?.beat_id}: ${metrics.widthPx}×${metrics.heightPx} (AR=${metrics.aspectRatio.toFixed(3)}) differs from 9:16. Blur-fill adapts, but source framing was off.`
+        severity: 'critical',
+        message: `Beat ${beat?.beat_id}: ${metrics.widthPx}×${metrics.heightPx} (AR=${metrics.aspectRatio.toFixed(3)}) differs from 9:16 by ${(arDrift * 100).toFixed(0)}%. Off-aspect generator output is a prestige-grade defect — retake required, do not ship via blur-fill.`
       });
     }
 

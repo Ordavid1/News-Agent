@@ -154,12 +154,23 @@ class VeoActionGenerator extends BaseBeatGenerator {
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
     // V4 Tier 2.5 (2026-05-06) — scene continuity sheet.
     const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. Action beats
+    // benefit from inheriting the prior beat's emotional charge — the kinetic
+    // motion should READ as the discharge of a held state, not a generic
+    // action register.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
     // V4 Tier 3.1 (2026-05-06) — anti-reference directive (Veo-strength).
     const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
 
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       kineticOpeningHint,
       actionPrompt,
       cameraNotes,
@@ -167,6 +178,7 @@ class VeoActionGenerator extends BaseBeatGenerator {
       identityDirective,
       wardrobeDirective,
       continuityDirective,
+      priorBeatContinuity,
       subjectDirective,
       brandColorDirective,
       antiRefDirective,
@@ -274,9 +286,12 @@ class VeoActionGenerator extends BaseBeatGenerator {
       const klingPrompt = this._appendDirectorNudge([
         verticalDirectiveKling,
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         actionPrompt,
         cameraNotes,
         identityDirectiveKling,
+        priorBeatContinuity,
         ambientSound ? `Ambient: ${ambientSound}` : ''
       ].filter(Boolean).join('. '), beat);
 

@@ -84,13 +84,31 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
       : '';
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
 
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. Bridges are
+    // SPECIFICALLY transitions; the prior scene's closing emotional state +
+    // eyeline + breath determines whether this bridge feels like an exhale
+    // or a held breath, an escape or a procession. Without it, all bridges
+    // tend toward the model's default "soft transition" register.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay. Bridges
+    // straddle scenes so the next-scene anchor (rather than the current)
+    // is what they should target — but `scene` here is the originating
+    // scene per the orchestrator contract, which is acceptable: anchor
+    // tone signals what this bridge is moving AWAY from.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
+
     const prompt = this._appendDirectorNudge([
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       'Scene bridge — connective transit shot.',
       framingRecipe,
       visualPrompt,
       wardrobeDirective,
       brandColorDirective,
+      priorBeatContinuity,
       'Seamless movement, no dialogue.',
       `Ambient: ${ambientSound}.`,
       colorHint
@@ -145,10 +163,13 @@ class BridgeBeatGenerator extends BaseBeatGenerator {
 
       const klingBridgePrompt = this._appendDirectorNudge([
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         'Scene bridge — connective transit shot.',
         framingRecipe,
         visualPrompt,
         wardrobeDirective,
+        priorBeatContinuity,
         'Seamless movement, no dialogue.',
         `Ambient: ${ambientSound}.`
       ].filter(Boolean).join(' '), beat);

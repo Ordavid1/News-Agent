@@ -104,6 +104,19 @@ class BRollGenerator extends BaseBeatGenerator {
     // V4 Tier 2.5 (2026-05-06) — scene-level continuity sheet (props,
     // lighting key, time of day). Empty string when scene lacks the sheet.
     const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. B_ROLL is
+    // typically a wider environment shot but the prior beat's mood/eyeline
+    // STILL signals what tone the establishing carries — a charged-silence
+    // closeup before a B_ROLL should establish a charged environment, not
+    // a serene one.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay. The DP brief
+    // (lighting/palette/atmosphere) + the scene's audio register are
+    // particularly load-bearing for B_ROLL since establishing shots are
+    // ALL atmosphere.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive (lens/coverage/motion).
+    const dpDirective = this._buildDpDirective(beat);
     // V4 Tier 3.1 (2026-05-06) — anti-reference directive. Tells Veo not to
     // reproduce the prior beat's composition, killing the b-roll/action
     // collapse symptom from the prompt-language layer (schema-level
@@ -113,6 +126,8 @@ class BRollGenerator extends BaseBeatGenerator {
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       `Establishing shot: ${location}.`,
       framingIntent,
       `Atmosphere: ${atmosphere}.`,
@@ -120,6 +135,7 @@ class BRollGenerator extends BaseBeatGenerator {
       identityDirective,
       wardrobeDirective,
       continuityDirective,
+      priorBeatContinuity,
       subjectDirective,
       brandColorDirective,
       antiRefDirective,
@@ -194,12 +210,15 @@ class BRollGenerator extends BaseBeatGenerator {
       const klingBrollPrompt = this._appendDirectorNudge([
         verticalDirective,
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         `Establishing shot: ${location}.`,
         framingIntent,
         `Atmosphere: ${atmosphere}.`,
         `Camera: ${cameraMove}.`,
         identityDirective,
         wardrobeDirective,
+        priorBeatContinuity,
         'No characters speaking — pure environment shot.',
         `Ambient: ${ambientSound}.`
       ].filter(Boolean).join(' '), beat);

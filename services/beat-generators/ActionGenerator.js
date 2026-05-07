@@ -70,17 +70,36 @@ class ActionGenerator extends BaseBeatGenerator {
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
     // V4 Tier 2.5 (2026-05-06) — scene continuity sheet (props/lighting/time).
     const continuityDirective = this._buildContinuityDirective(scene, beat);
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state continuity. Compact
+    // mode for Kling's prompt budget. Tells the model what performance state
+    // the prior beat ended in so this action beat picks up the chain instead
+    // of rendering a fresh take.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay. Surfaces the
+    // DP brief's lighting/palette/atmosphere + the scene's audio register
+    // so the beat is rendered IN the scene's specific look, not a generic
+    // "kinetic action" register.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive. Consolidates
+    // beat.lens / focal_length_hint / coverage_slot / camera_temperament /
+    // motion_vector / subject_presence into a single line so the generator
+    // gets explicit lens character instead of falling back to its model
+    // prior (Kling V3 defaults to music-video shallow-DoF).
+    const dpDirective = this._buildDpDirective(beat);
     // V4 Tier 3.1 (2026-05-06) — anti-reference directive. Kling-strength.
     const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'kling');
 
     const prompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       actionPrompt,
       cameraNotes,
       identityDirective,
       wardrobeDirective,
       continuityDirective,
+      priorBeatContinuity,
       subjectDirective,
       brandColorDirective,
       antiRefDirective,

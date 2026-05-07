@@ -338,6 +338,314 @@ class BaseBeatGenerator {
   }
 
   /**
+   * V4 Phase 11 (2026-05-07) — closing-state continuity directive.
+   *
+   * Build a structured "CONTINUITY FROM PREVIOUS BEAT" block from the
+   * previous beat's extracted closing_state (see services/v4/ClosingStateExtractor.js).
+   * Subclasses call this in their _doGenerate prompt assembly and splice
+   * the returned string into the model prompt.
+   *
+   * Returns an empty string when:
+   *   - previousBeat is null (first beat of scene)
+   *   - previousBeat.closing_state is missing (extractor offline / failed)
+   *   - all closing_state fields are 'unspecified' (extractor returned nothing useful)
+   *
+   * The directive describes WHAT the next beat must inherit, not WHERE the
+   * camera was. Pixels carry geometry; this carries intent (emotional state,
+   * subject position, action state, eyeline target, breath, last spoken line).
+   *
+   * @param {Object} [previousBeat]
+   * @param {Object} [opts]
+   * @param {'verbose'|'compact'} [opts.mode='verbose']
+   *   - 'verbose' — multi-line block (~250-400 chars) for Veo / Seedream-pass
+   *     prompts that have plenty of token budget.
+   *   - 'compact' — single-line ~80-150 char summary for Kling-budgeted
+   *     generators (CinematicDialogue, GroupTwoShot, Action, TalkingHead).
+   * @returns {string} directive text suitable for prepending/splicing into a
+   *   beat prompt, or '' when not applicable
+   */
+  _buildContinuityFromPreviousBeat(previousBeat, opts = {}) {
+    const cs = previousBeat?.closing_state;
+    if (!cs || typeof cs !== 'object') return '';
+    const mode = opts.mode === 'compact' ? 'compact' : 'verbose';
+
+    // Skip when every enum is 'unspecified' AND no detail/dialogue — nothing useful
+    // to inject. Saves prompt budget on beats that legitimately had no clear
+    // closing state (e.g. a fade-to-black ending).
+    const hasSignal =
+      (cs.closing_emotional_state && cs.closing_emotional_state !== 'unspecified') ||
+      (cs.closing_subject_position && cs.closing_subject_position !== 'unspecified') ||
+      (cs.closing_action_state && cs.closing_action_state !== 'unspecified') ||
+      (cs.closing_eyeline_target && cs.closing_eyeline_target !== 'unspecified') ||
+      (cs.breath_state && cs.breath_state !== 'unspecified') ||
+      (cs.closing_emotional_detail && cs.closing_emotional_detail.length > 0) ||
+      (cs.closing_action_detail && cs.closing_action_detail.length > 0) ||
+      (cs.last_dialogue_line && cs.last_dialogue_line.length > 0);
+    if (!hasSignal) return '';
+
+    if (mode === 'compact') {
+      // Single-line summary for Kling-budgeted prompts. Ordered by signal
+      // value: emotional state and action are the most actionable for the
+      // model; position/eyeline/breath are bonus when there's room. Last
+      // dialogue is excluded from compact (the prior_speaker_dialogue_tail
+      // already covers SHOT_REVERSE_SHOT children; non-SRS dialogue beats
+      // need it less).
+      const parts = [];
+      if (cs.closing_emotional_state && cs.closing_emotional_state !== 'unspecified') {
+        parts.push(cs.closing_emotional_state.replace(/_/g, ' '));
+      }
+      if (cs.closing_action_state && cs.closing_action_state !== 'unspecified') {
+        parts.push(cs.closing_action_state.replace(/_/g, ' '));
+      }
+      if (cs.closing_eyeline_target && cs.closing_eyeline_target !== 'unspecified') {
+        parts.push(`eyeline ${cs.closing_eyeline_target.replace(/_/g, ' ')}`);
+      }
+      if (cs.breath_state && cs.breath_state !== 'unspecified') {
+        parts.push(`breath ${cs.breath_state.replace(/_/g, ' ')}`);
+      }
+      if (parts.length === 0) return '';
+      return `Continue from prior beat (${parts.join(', ')}) — same continuous moment, no reset.`;
+    }
+
+    const lines = [];
+    lines.push('## CONTINUITY FROM PREVIOUS BEAT (the chain you must continue — DO NOT RESET):');
+    lines.push('The prior beat ended in this state. Continue the performance arc forward — do not start fresh.');
+
+    if (cs.closing_subject_position && cs.closing_subject_position !== 'unspecified') {
+      lines.push(`  • Subject position: ${cs.closing_subject_position.replace(/_/g, ' ')}`);
+    }
+    if (cs.closing_action_state && cs.closing_action_state !== 'unspecified') {
+      const detail = cs.closing_action_detail ? ` (${cs.closing_action_detail})` : '';
+      lines.push(`  • Action state: ${cs.closing_action_state.replace(/_/g, ' ')}${detail}`);
+    }
+    if (cs.closing_eyeline_target && cs.closing_eyeline_target !== 'unspecified') {
+      lines.push(`  • Eyeline aimed: ${cs.closing_eyeline_target.replace(/_/g, ' ')}`);
+    }
+    if (cs.closing_emotional_state && cs.closing_emotional_state !== 'unspecified') {
+      const detail = cs.closing_emotional_detail ? ` — ${cs.closing_emotional_detail}` : '';
+      lines.push(`  • Emotional state: ${cs.closing_emotional_state.replace(/_/g, ' ')}${detail}`);
+    }
+    if (cs.breath_state && cs.breath_state !== 'unspecified') {
+      lines.push(`  • Breath: ${cs.breath_state.replace(/_/g, ' ')}`);
+    }
+    if (cs.last_dialogue_line && cs.last_dialogue_line.length > 0) {
+      lines.push(`  • Last spoken line: "${cs.last_dialogue_line}"`);
+    }
+
+    lines.push('Open this beat as the moment that follows. The audience must read this as one continuous performance, not a fresh take.');
+    return lines.join('\n');
+  }
+
+  /**
+   * V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay propagation.
+   *
+   * The screenplay scene-graph emits `scene.scene_visual_anchor_prompt` — a
+   * rich 80-150 word DP-grade brief covering location + time of day + lighting
+   * + color palette + character blocking + wardrobe + atmosphere + film stock.
+   * Today this brief drives Scene Master generation (Seedream pre-pass) but
+   * does NOT reach the per-beat video prompts. The episode's `sonic_world`
+   * carries scene-specific ambient overlays (`scene_variations[].overlay`)
+   * that similarly never reach the beat audio register.
+   *
+   * Both signals are available on the orchestrator's `scene` and the
+   * `episodeContext` / scene-graph sonic_world structures. This helper
+   * extracts the matching overlay + a condensed scene-anchor summary so
+   * generators can splice them into their model prompts. The result tells
+   * the model the LOOK and the SONIC REGISTER of the scene, not just the
+   * location string.
+   *
+   * Two modes:
+   *  - 'compact' (default for Kling-budget generators) — single line
+   *    "Scene look: <truncated anchor>. Sonic register: <overlay>." Aim
+   *    ~150-220 chars total.
+   *  - 'verbose' (for Veo prompts with generous budget) — multi-line block
+   *    with the full scene_visual_anchor_prompt + sonic overlay + sonic
+   *    base palette context.
+   *
+   * Returns empty string when neither anchor nor sonic overlay is available.
+   *
+   * @param {Object} scene
+   * @param {Object} [episodeContext]
+   * @param {Object} [opts]
+   * @param {'verbose'|'compact'} [opts.mode='compact']
+   * @returns {string}
+   */
+  _buildSceneAnchorDirective(scene, episodeContext = null, opts = {}) {
+    const mode = opts.mode === 'verbose' ? 'verbose' : 'compact';
+    const anchor = scene?.scene_visual_anchor_prompt;
+    const synopsis = scene?.scene_synopsis;
+    const sonicOverlay = this._resolveSonicOverlayForScene(scene, episodeContext);
+    const sonicBase = this._resolveSonicBaseForEpisode(episodeContext);
+
+    if (!anchor && !synopsis && !sonicOverlay) return '';
+
+    if (mode === 'compact') {
+      const parts = [];
+      // Truncate anchor aggressively in compact mode — Kling budget is tight.
+      // Aim ~120 chars max; preserve the LIGHTING + COLOR PALETTE substrings
+      // when present (those are the most cinematically actionable signals).
+      if (anchor) {
+        const condensed = this._condenseSceneAnchor(anchor, 130);
+        if (condensed) parts.push(`Scene look: ${condensed}`);
+      } else if (synopsis) {
+        parts.push(`Scene: ${String(synopsis).slice(0, 140)}`);
+      }
+      if (sonicOverlay) {
+        parts.push(`Sonic register: ${String(sonicOverlay).slice(0, 90)}`);
+      }
+      if (parts.length === 0) return '';
+      return parts.join('. ') + '.';
+    }
+
+    // Verbose
+    const lines = [];
+    lines.push('## SCENE LOOK & ATMOSPHERE (DP brief — match this register):');
+    if (anchor) {
+      lines.push(String(anchor).slice(0, 700));
+    } else if (synopsis) {
+      lines.push(`Synopsis: ${String(synopsis).slice(0, 400)}`);
+    }
+    if (sonicOverlay || sonicBase) {
+      lines.push('');
+      lines.push('## SCENE SONIC OVERLAY (audio register the visuals must support):');
+      if (sonicBase) lines.push(`Episode bed: ${String(sonicBase).slice(0, 220)}`);
+      if (sonicOverlay) lines.push(`Scene overlay: ${String(sonicOverlay).slice(0, 220)}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * Internal — pick the sonic_world overlay that matches the current scene
+   * by scene_id. Returns the overlay string or null.
+   */
+  _resolveSonicOverlayForScene(scene, episodeContext) {
+    const sceneId = scene?.scene_id;
+    if (!sceneId) return null;
+    // Sonic_world lives on the screenplay scene-graph root, threaded through
+    // episodeContext.sonic_world by the orchestrator (when present). Defense:
+    // also check episodeContext.sceneGraph.sonic_world for older orchestrator
+    // shapes during the migration window.
+    const sw = episodeContext?.sonic_world
+      || episodeContext?.sceneGraph?.sonic_world
+      || null;
+    if (!sw || !Array.isArray(sw.scene_variations)) return null;
+    const variation = sw.scene_variations.find(v => v && v.scene_id === sceneId);
+    return (variation && typeof variation.overlay === 'string') ? variation.overlay.trim() : null;
+  }
+
+  /**
+   * Internal — episode-wide sonic base palette (the always-on bed). Used by
+   * verbose mode only since it's fixed for the entire episode.
+   */
+  _resolveSonicBaseForEpisode(episodeContext) {
+    const sw = episodeContext?.sonic_world
+      || episodeContext?.sceneGraph?.sonic_world
+      || null;
+    if (!sw) return null;
+    return (typeof sw.base_palette === 'string') ? sw.base_palette.trim() : null;
+  }
+
+  /**
+   * V4 Phase 11 (2026-05-07) — DP directive consolidation.
+   *
+   * The screenplay scene-graph already emits structured DP fields per beat:
+   *   - beat.lens             (e.g., "85mm" — dialogue beats)
+   *   - beat.focal_length_hint (e.g., "14mm" | "24mm" | "35mm" | "50mm" | "85mm" | "macro" — V4 Tier 3.1)
+   *   - beat.coverage_slot    (wide | cowboy | single_a | single_b | two_shot | close | insert | pov | cutaway)
+   *   - beat.camera_temperament (handheld | locked | dolly | gimbal)
+   *   - beat.motion_vector    (static | drift_left | drift_right | push_in | pull_out | whip_left | whip_right | rack_focus)
+   *   - beat.framing          (free-form, e.g., "tight_closeup")
+   *   - beat.subject_presence (primary_in | primary_out | primary_off_screen_audible)
+   *
+   * Today these fields are scattered across generator-specific reads —
+   * CinematicDialogue uses beat.lens; ActionGenerator reads camera_notes;
+   * BRoll consults framing — so the same DP intent reaches the model at
+   * different fidelity per beat type. The Director Agent's prestige
+   * mandate calls for a UNIFIED DP directive that surfaces every available
+   * structured field consistently across all generators, so the generators
+   * stop falling back to model priors (Veo defaults to social-content
+   * medium-wide, Kling V3 to music-video shallow-DoF — visible mismatch
+   * across cuts).
+   *
+   * This helper produces a single-line "DP: 85mm, single_b, locked, static"
+   * style directive that every generator splices into its prompt. Empty
+   * string when no structured fields are populated (so it's a no-op for
+   * legacy beat objects that predate the structured schema).
+   *
+   * @param {Object} beat
+   * @returns {string}
+   */
+  _buildDpDirective(beat) {
+    if (!beat || typeof beat !== 'object') return '';
+    const parts = [];
+
+    // Lens / focal length — prefer explicit `lens` over `focal_length_hint`
+    // because lens is hand-authored on dialogue beats while focal_length_hint
+    // is the Tier 3.1 enum. When both present, lens wins.
+    if (typeof beat.lens === 'string' && beat.lens.trim()) {
+      parts.push(beat.lens.trim());
+    } else if (typeof beat.focal_length_hint === 'string' && beat.focal_length_hint.trim()) {
+      parts.push(beat.focal_length_hint.trim());
+    }
+
+    // Coverage slot — the screenplay's structural shot-list label.
+    if (typeof beat.coverage_slot === 'string' && beat.coverage_slot.trim()) {
+      parts.push(beat.coverage_slot.replace(/_/g, ' ').trim());
+    } else if (typeof beat.framing === 'string' && beat.framing.trim()) {
+      // Fallback to free-form framing when coverage_slot absent.
+      parts.push(beat.framing.replace(/_/g, ' ').trim());
+    }
+
+    // Camera temperament — handheld / locked / dolly / gimbal.
+    if (typeof beat.camera_temperament === 'string' && beat.camera_temperament.trim()) {
+      parts.push(beat.camera_temperament.trim());
+    }
+
+    // Motion vector — static / drift / push / pull / whip / rack.
+    if (typeof beat.motion_vector === 'string' && beat.motion_vector.trim()) {
+      parts.push(beat.motion_vector.replace(/_/g, ' ').trim());
+    }
+
+    // Subject presence — primary_in / primary_out / primary_off_screen_audible.
+    if (typeof beat.subject_presence === 'string' && beat.subject_presence.trim()) {
+      parts.push(`subject ${beat.subject_presence.replace(/_/g, ' ').trim()}`);
+    }
+
+    if (parts.length === 0) return '';
+    return `DP: ${parts.join(', ')}.`;
+  }
+
+  /**
+   * Internal — condense a long scene anchor prose blob to ~maxChars while
+   * preserving the most cinematic signals. Heuristic: prefer sentences that
+   * mention light/lighting/lit/illumin/key, color/palette/grade, time-of-day
+   * markers (dawn, dusk, golden, blue, night, noon), or atmosphere markers
+   * (smoke, mist, dust, rain). Falls back to the head of the prose.
+   */
+  _condenseSceneAnchor(anchor, maxChars = 130) {
+    if (typeof anchor !== 'string' || anchor.length === 0) return '';
+    if (anchor.length <= maxChars) return anchor.trim();
+    const sentences = anchor.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
+    if (sentences.length === 0) return anchor.slice(0, maxChars).trim();
+
+    const cinematicKeywords = /\b(light|lit|illumin|key|fill|kicker|color|palette|grade|tone|dawn|dusk|golden|blue hour|night|noon|smoke|mist|dust|rain|fog|haze|practical|ambient|tungsten|fluorescent|sodium|silhouette|backlit|shadow|halation|bloom)\b/i;
+    const scored = sentences
+      .map((s, i) => ({ s, score: (cinematicKeywords.test(s) ? 100 : 0) - i }))
+      .sort((a, b) => b.score - a.score);
+
+    let out = '';
+    for (const { s } of scored) {
+      const candidate = out ? `${out} ${s.trim()}` : s.trim();
+      if (candidate.length > maxChars) {
+        if (out) break;
+        return s.slice(0, maxChars).trim();
+      }
+      out = candidate;
+    }
+    return out;
+  }
+
+  /**
    * V4 Tier 2.1 (2026-05-06) — Unified canonical first-frame waterfall.
    *
    * BEFORE: each of 8 generators (Reaction, Bridge, InsertShot, BRoll,

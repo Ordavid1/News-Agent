@@ -1,0 +1,37 @@
+# Bridge service Docker build context excludes.
+
+node_modules/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# CRITICAL: never bake the local Baileys auth state into the image.
+# The container expects /data/auth_store as a mount (bind-mount locally
+# or Persistent Disk on GCE).
+auth_store/
+
+# Logs
+*.log
+logs/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Render-era config
+render.yaml
+
+# Docker meta
+Dockerfile
+.dockerignore

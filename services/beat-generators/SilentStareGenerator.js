@@ -77,10 +77,20 @@ class SilentStareGenerator extends BaseBeatGenerator {
     const wardrobeDirective = this._buildWardrobeDirective(persona);
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
 
-    // Optional sections in drop-priority order: nudge first (highest value when
-    // present), gaze second (high value, short), wardrobe third, brand-color
-    // fourth, stylePrefix last.
-    const optionals = [directorNudge, gaze.trim(), wardrobeDirective, brandColorDirective, stylePrefix].filter(Boolean);
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. SILENT_STARE is
+    // a held moment that ONLY makes sense as a continuation of the prior
+    // beat's tension. Without prior closing_state, the model picks a generic
+    // "thoughtful pause"; with it, the stare carries the specific charge of
+    // the line that just landed.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay (compact).
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
+
+    // Optional sections in drop-priority order: nudge, prior-beat continuity,
+    // DP directive, scene anchor, gaze, wardrobe, brand-color, style.
+    const optionals = [directorNudge, priorBeatContinuity, dpDirective, sceneAnchorDirective, gaze.trim(), wardrobeDirective, brandColorDirective, stylePrefix].filter(Boolean);
     const optionalParts = [];
     let remaining = KLING_BUDGET - mandatory.length - 1;
     for (const opt of optionals) {

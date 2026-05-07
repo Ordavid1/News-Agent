@@ -352,8 +352,30 @@ export function buildBeatRefStack({
 
   for (const idx of personaIndexes) {
     const persona = personas[idx];
+    // 2026-05-07 — Director Agent prestige mandate: CIP (Canonical Identity
+    // Portrait) is now included in the DEFAULT ref stack as the highest-
+    // priority persona ref. Previously CIP only fed the persona-locked
+    // first-frame pre-pass (Veo identity anchor, see buildPersonaLockedFirstFrame
+    // at line 489). That meant Kling-routed beats (dialogue, group two-shot,
+    // talking head closeup, action) drew identity from the diverse magazine-
+    // shot reference_image_urls, which produces averaged-face drift past
+    // beat 3-4. Promoting the front-facing CIP into every beat's ref stack
+    // gives Kling the same single-face ground truth the persona-locked
+    // first-frame uses — face stability across the whole episode.
+    //
+    // Order: 1 CIP front-view first (priority slot), then up to 2 legacy
+    // reference views (hero + closeup). Total 3 refs per persona, dedupe
+    // catches overlaps. Falls back to reference_image_urls only when CIP
+    // is unauthored (legacy personas / opt-out).
+    const cip = Array.isArray(persona?.canonical_identity_urls)
+      ? persona.canonical_identity_urls
+      : null;
+    if (cip && cip.length > 0) {
+      // Front view = first canonical entry (per CharacterSheetDirector convention)
+      refs.push(cip[0]);
+    }
     if (persona?.reference_image_urls?.length) {
-      // Add up to 2 views per persona (hero + closeup) — leaves room for other refs
+      // Up to 2 views per persona (hero + closeup) — dedupe caught at the end
       refs.push(...persona.reference_image_urls.slice(0, 2));
     }
   }

@@ -77,23 +77,30 @@ function cleanup(paths) {
 function normalizeVideo(inputPath, outputPath, options = {}) {
   const { applyCorrectionLut = null, nativeAudioGain = 1.0 } = options;
 
-  // Phase 6.5 — BLUR-FILL normalization replaces raw black-bar letterbox.
+  // 2026-05-07 — Director Agent prestige mandate: blur-fill defaults to OFF.
   //
-  // The legacy black-bar pad produced visible letterbox position jumps
-  // between beats when source aspect ratios varied (16:9 → L/R bars,
-  // 1:1 → all-around bars). Viewers read that as "aspect ratio jumping
-  // between beats" even though the output was consistently 1080×1920.
+  // Blur-fill (split + boxblur background + foreground overlay) was added
+  // in Phase 6.5 to mask off-aspect generator output more gracefully than
+  // raw black bars. It DOES look smoother than letterbox in mixed-aspect
+  // episodes — but at the prestige bar it's a tell. The blurred ambient
+  // background reads to viewers as "this was filmed wide and cropped" —
+  // the antithesis of native vertical composition. Real prestige work is
+  // composed for the destination aspect at the camera, not patched in post.
   //
-  // Industry-standard fix: split the input into two copies. The background
-  // copy is scaled UP (crop-to-fill) and heavily blurred + desaturated,
-  // then the foreground (aspect-preserved) copy is overlaid on top. The
-  // result: no black bars, no visible letterbox jumps, fills the 9:16
-  // frame with an ambient blur of the shot itself. This is how TikTok
-  // Reels, Instagram, and YouTube Shorts handle mixed-aspect sources.
+  // The correct fix is upstream aspect correctness. QC8 now fails the gate
+  // on aspect_mismatch (severity 'critical' as of 2026-05-07), which lets
+  // Director Lens C trigger retake; the existing Lens C blocking mode then
+  // re-renders the beat at proper 9:16 instead of compensating downstream.
   //
-  // Opt-out via env var V4_BLUR_FILL=false to preserve legacy black bars
-  // (debugging / nostalgia).
-  const USE_BLUR_FILL = process.env.V4_BLUR_FILL !== 'false';
+  // V4_BLUR_FILL=true remains as a safety-net opt-in for operators who
+  // need the legacy behavior (cost-sensitive runs where retakes are too
+  // expensive, or pipelines where Lens C is in shadow mode).
+  //
+  // Default (V4_BLUR_FILL unset or 'false'): off-aspect beats fall through
+  // to the legacy letterbox path (scale-decrease + black pad). The visible
+  // bars are the cinema-honest signal that something needs to be retaken
+  // — not silently masked.
+  const USE_BLUR_FILL = process.env.V4_BLUR_FILL === 'true';
 
   const vfChain = [];
   if (USE_BLUR_FILL) {

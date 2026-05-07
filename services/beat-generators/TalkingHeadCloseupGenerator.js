@@ -85,7 +85,24 @@ class TalkingHeadCloseupGenerator extends BaseBeatGenerator {
     const stylePrefix = episodeContext?.visual_style_prefix || '';
     const expressionHint = beat.expression_notes ? ` ${beat.expression_notes}.` : '';
     const emotionHint = beat.emotion ? ` ${beat.emotion} tone.` : '';
-    const prompt = this._appendDirectorNudge(`${stylePrefix}${emotionHint}${expressionHint}`.trim(), beat);
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state, compact. OmniHuman's
+    // prompt is just a stylistic register hint; the closing-state cue tells
+    // the model whether the talking head is opening fresh or continuing a held
+    // moment from the prior beat.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay (compact).
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
+    const promptParts = [
+      stylePrefix,
+      emotionHint,
+      expressionHint,
+      dpDirective ? ` ${dpDirective}` : '',
+      sceneAnchorDirective ? ` ${sceneAnchorDirective}` : '',
+      priorBeatContinuity ? ` ${priorBeatContinuity}` : ''
+    ].filter(Boolean);
+    const prompt = this._appendDirectorNudge(promptParts.join('').trim(), beat);
 
     this.logger.info(`[${beat.beat_id}] Stage B: OmniHuman 1.5`);
     const ohResult = await omniHuman.generateTalkingHead({

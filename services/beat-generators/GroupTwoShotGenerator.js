@@ -283,6 +283,14 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
     const directorNudge = (typeof beat?.director_nudge === 'string' && beat.director_nudge.trim().length > 0)
       ? `DIRECTOR'S NOTE (retake): ${beat.director_nudge.trim()}`
       : '';
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state, compact mode for
+    // Kling's 512-char budget. Two-shot dialogue is exchange-heavy; prior
+    // beat tone informs whose register escalates and whose holds.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay (compact).
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
     const twoShotSections = [
       { priority: 'mandatory', text: dialogueHint },
       { priority: 'mandatory', text: verticalDirective },
@@ -290,6 +298,9 @@ class GroupTwoShotGenerator extends BaseBeatGenerator {
       { priority: 'mandatory', text: blockingHint },
       { priority: 'high',      text: directorNudge },
       { priority: 'high',      text: subtextHint.trim() },
+      { priority: 'high',      text: priorBeatContinuity },
+      { priority: 'high',      text: dpDirective },
+      { priority: 'medium',    text: sceneAnchorDirective },
       { priority: 'medium',    text: emotionHint.trim() },
       { priority: 'low',       text: stylePrefix }
     ].filter(s => s.text && s.text.length > 0);

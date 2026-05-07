@@ -67,6 +67,7 @@ import {
 } from './v4/StoryboardHelpers.js';
 import { runQualityGate } from './v4/QualityGate.js';
 import { isBlockerOrCritical } from './v4/severity.mjs';
+import { attachClosingStateToBeat } from './v4/ClosingStateExtractor.js';
 import {
   acquirePersonaVoicesForStory,
   pickFallbackVoiceIdForPersonaInList
@@ -5211,7 +5212,14 @@ Respond with ONLY valid JSON:
       // Generic buffer uploader — used by Phase 2's persona-locked first frame
       // helper (Seedream PNG → Supabase) and any future beat-level intermediate
       // artifacts that need a public URL.
-      uploadBuffer: uploadBufferToStorage
+      uploadBuffer: uploadBufferToStorage,
+      // V4 Phase 11 (2026-05-07) — sonic_world propagation. Beat generators
+      // splice the matching `scene_variations[].overlay` into their model
+      // prompt so the visual register matches the scene's audio bed (e.g.,
+      // an industrial-hum scene gets visuals tuned to that texture, not a
+      // generic register). Episode-wide `base_palette` available in verbose
+      // mode for Veo prompts that have budget for the full DP brief.
+      sonic_world: sceneGraph?.sonic_world || null
     };
 
     // ─── Phase 6 (2026-04-28) — commercial scene-failure halt guardrail ───
@@ -5234,6 +5242,17 @@ Respond with ONLY valid JSON:
     // one beat produced a video). Called after each scene to detect failure.
     const countSceneBeatsWithVideo = (scn) =>
       (scn.beats || []).filter(b => b.generated_video_url && b.status !== 'failed').length;
+
+    // V4 Phase 11 (2026-05-07) — closing-state propagation. After every
+    // successful endframe extraction we capture the SEMANTIC closing state
+    // of the beat (emotional state, subject position, action state, eyeline
+    // target, breath, last dialogue line) via Vertex Gemini Flash multimodal.
+    // The next beat inherits this via `previousBeat.closing_state`, which
+    // BaseBeatGenerator splices into the model prompt as a CONTINUITY FROM
+    // PREVIOUS BEAT directive. Pixels carry geometry; fields carry intent.
+    // Never blocks the pipeline — attachClosingStateToBeat swallows all
+    // failures internally and falls through to legacy endframe-only
+    // continuity.
 
     // Sequential generation within scenes to support endframe chaining,
     // parallel between scenes for speed.
@@ -5323,7 +5342,19 @@ Respond with ONLY valid JSON:
             duration_seconds: result.durationSec,
             actual_duration_sec: result.durationSec
           });
-          previousBeat = { endframe_url: endframeUrl };
+
+          // V4 Phase 11 (2026-05-07) — closing-state for the montage's last
+          // beat. A montage compiles N child beats into a single Kling call,
+          // so the "end of the montage scene" is best represented by the LAST
+          // child beat's authored intent + the rendered endframe. The next
+          // scene's first beat consumes this via previousBeat.closing_state.
+          let montageClosingState = null;
+          const lastMontageBeat = scene.beats?.[scene.beats.length - 1] || null;
+          if (lastMontageBeat && !montageEndframeError) {
+            await attachClosingStateToBeat({ beat: lastMontageBeat, scene, personas });
+            montageClosingState = lastMontageBeat.closing_state || null;
+          }
+          previousBeat = { endframe_url: endframeUrl, closing_state: montageClosingState };
         } catch (err) {
           logger.error(`montage scene ${scene.scene_id} failed: ${err.message}`);
           for (const beat of scene.beats) {
@@ -5355,7 +5386,15 @@ Respond with ONLY valid JSON:
               duration_seconds: beat.duration_seconds,
               actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
             });
-            previousBeat = { endframe_url: beat.endframe_url };
+            // V4 Phase 11 (2026-05-07) — preserve closing_state on resume.
+            // If the beat was rendered + closing-state-extracted on a prior
+            // run, beat.closing_state is already persisted in scene_description.
+            // Forward it so the next beat keeps inheriting performance state
+            // across server restarts / partial-resume paths.
+            previousBeat = {
+              endframe_url: beat.endframe_url,
+              closing_state: beat.closing_state || null
+            };
             continue;
           } catch (err) {
             logger.warn(`beat ${beat.beat_id} cached fetch failed, regenerating: ${err.message}`);
@@ -5444,6 +5483,15 @@ Respond with ONLY valid JSON:
             beat.continuity_chain_broken = true;
             beat.endframe_extraction_error = err.message || String(err);
           }
+
+          // V4 Phase 11 (2026-05-07) — closing-state extraction. Captures
+          // the semantic end-of-beat performance state (emotional state,
+          // subject position, action state, eyeline, breath, last dialogue)
+          // from the just-rendered endframe. Persisted on beat.closing_state;
+          // the next beat reads it via previousBeat.closing_state and the
+          // BaseBeatGenerator splices a CONTINUITY FROM PREVIOUS BEAT block
+          // into the model prompt. Non-blocking — null on any failure.
+          await attachClosingStateToBeat({ beat, scene, personas });
 
           // ─── Director Agent (Layer 3) — Lens C "Dailies" (per beat) ───
           // Runs AFTER QC8 deterministic gate. Multimodal: endframe + scene
@@ -5833,6 +5881,14 @@ Respond with ONLY valid JSON:
                       beat.continuity_chain_broken = true;
                       beat.endframe_extraction_error = endErr.message || String(endErr);
                     }
+
+                    // V4 Phase 11 (2026-05-07) — re-extract closing_state on
+                    // the retake's endframe. The first attempt's closing_state
+                    // (if extracted) is now stale because the retake replaced
+                    // the rendered video; the next beat must inherit the
+                    // RETAKE's actual closing geometry/intent, not the
+                    // failed first attempt's.
+                    await attachClosingStateToBeat({ beat, scene, personas });
 
                     // Re-judge with isRetry=true (Phase 7 / B5 — same lensCFn helper).
                     verdictC = await lensCFn({
@@ -6316,6 +6372,12 @@ Respond with ONLY valid JSON:
               bridgeBeat.continuity_chain_broken = true;
               bridgeBeat.endframe_extraction_error = bridgeErr.message || String(bridgeErr);
             }
+            // V4 Phase 11 (2026-05-07) — closing-state for the bridge.
+            // The bridge has no on-screen persona by construction so the
+            // closing_state is mostly geometric (subject_position, action_state)
+            // — but the next scene's first beat still benefits from knowing
+            // "the camera ended pushing right" so it can open consistently.
+            await attachClosingStateToBeat({ beat: bridgeBeat, scene, personas });
             beatVideoBuffers.push(result.videoBuffer);
             beatMetadata.push({
               beat_id: bridgeBeat.beat_id,
@@ -7244,7 +7306,11 @@ Respond with ONLY valid JSON:
             actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
           });
           liveBeatsKept.push({ scene, beat, scene_index: s, beat_index: b });
-          previousBeat = { endframe_url: beat.endframe_url };
+          // V4 Phase 11 — preserve persisted closing_state on regen reuse.
+          previousBeat = {
+            endframe_url: beat.endframe_url,
+            closing_state: beat.closing_state || null
+          };
           break; // montage is one beat-equivalent, skip the rest
         }
         continue;
@@ -7303,6 +7369,12 @@ Respond with ONLY valid JSON:
             beat.endframe_extraction_error = err.message || String(err);
           }
 
+          // V4 Phase 11 (2026-05-07) — re-extract closing_state on regen.
+          // The replaced beat clip has new geometry/intent; downstream
+          // assembly + future regens of the NEXT beat must read the FRESH
+          // closing state, not stale state from the failed clip.
+          await attachClosingStateToBeat({ beat, scene, personas });
+
           beatVideoBuffers.push(result.videoBuffer);
           beatMetadata.push({
             beat_id: beat.beat_id,
@@ -7337,7 +7409,11 @@ Respond with ONLY valid JSON:
             actual_duration_sec: beat.actual_duration_sec || beat.duration_seconds
           });
           liveBeatsKept.push({ scene, beat, scene_index: s, beat_index: b });
-          previousBeat = { endframe_url: beat.endframe_url };
+          // V4 Phase 11 — preserve persisted closing_state on regen reuse.
+          previousBeat = {
+            endframe_url: beat.endframe_url,
+            closing_state: beat.closing_state || null
+          };
         } catch (err) {
           logger.warn(`V4 regen: failed to fetch beat ${beat.beat_id} from ${beat.generated_video_url}: ${err.message}`);
         }

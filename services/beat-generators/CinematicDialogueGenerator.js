@@ -242,6 +242,25 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
     const wardrobeDirective = this._buildWardrobeDirective(persona);
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
 
+    // V4 Phase 11 (2026-05-07) — closing-state continuity directive (compact).
+    // The prior beat's extracted closing_state (emotional state, action,
+    // eyeline, breath) is summarized into a single line ~80-150 chars so it
+    // fits inside Kling's 512-char prompt budget alongside dialogue + framing
+    // + identity. Without this, every dialogue cut reads as a reset of the
+    // performance arc — the model is asked to render a fresh closeup with
+    // no awareness of where the prior moment left the actor's read.
+    const continuityDirective = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay (compact).
+    // Surfaces the DP brief's lighting/palette + sonic register so dialogue
+    // closeups land IN the scene's specific look, not a generic register.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive (lens/coverage/motion).
+    // Dialogue beats most often emit `beat.lens` (e.g. "85mm") so this is
+    // primarily a consolidation: the DP line replaces ad-hoc lensHint reads
+    // with a single budget-friendly directive that includes coverage_slot
+    // and motion_vector when the screenplay authored them.
+    const dpDirective = this._buildDpDirective(beat);
+
     // Priority-ordered sections. Mandatory ones come first and can never be
     // dropped; optional ones are tried in order and skipped when the budget
     // is spent.
@@ -256,6 +275,17 @@ class CinematicDialogueGenerator extends BaseBeatGenerator {
       // priority so it survives the 480-char Kling budget; condensed phrasing
       // keeps it under ~200 chars in typical cases.
       { priority: 'high',      text: priorContextHint.trim() },
+      // V4 Phase 11 — performance-arc continuity. High priority because cut-
+      // to-cut performance reset is the keystone defect this is fixing.
+      { priority: 'high',      text: continuityDirective },
+      // V4 Phase 11 — scene anchor + sonic register. Medium priority — the
+      // identity + framing fields above carry the dialogue beat's mandatory
+      // shape; scene look is enriching context that survives if there's room.
+      { priority: 'medium',    text: sceneAnchorDirective },
+      // V4 Phase 11 — structured DP directive (replaces low-priority lensHint
+      // with a richer line). Medium-high because lens/coverage/motion are
+      // load-bearing for "this beat looks like the right cinematographer".
+      { priority: 'high',      text: dpDirective },
       { priority: 'high',      text: emotionHint.trim() },
       { priority: 'medium',    text: expressionHint.trim() },
       { priority: 'medium',    text: actionHint.trim() },

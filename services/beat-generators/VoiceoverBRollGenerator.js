@@ -130,10 +130,20 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
     const brandColorDirective = this._buildBrandColorDirective(episodeContext);
     // V4 Tier 3.1 (2026-05-06) — anti-reference (Veo-strength).
     const antiRefDirective = this._buildPreviousBeatAntiReferenceDirective(previousBeat, 'veo');
+    // V4 Phase 11 (2026-05-07) — prior-beat closing-state. V.O. B-roll
+    // benefits from the prior beat's emotional charge so the establishing
+    // shot's tone matches the moment that just happened on-screen.
+    const priorBeatContinuity = this._buildContinuityFromPreviousBeat(previousBeat, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — scene anchor + sonic overlay.
+    const sceneAnchorDirective = this._buildSceneAnchorDirective(scene, episodeContext, { mode: 'compact' });
+    // V4 Phase 11 (2026-05-07) — structured DP directive.
+    const dpDirective = this._buildDpDirective(beat);
 
     const veoPrompt = this._appendDirectorNudge([
       verticalDirective,
       stylePrefix,
+      sceneAnchorDirective,
+      dpDirective,
       `B-roll of ${location}.`,
       `Camera: ${cameraMove}.`,
       identityDirective,
@@ -141,6 +151,7 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       subjectDirective,
       brandColorDirective,
       antiRefDirective,
+      priorBeatContinuity,
       'Atmospheric and evocative.',
       'Ambient sound bed only (natural environment).',
       colorHint
@@ -190,10 +201,13 @@ class VoiceoverBRollGenerator extends BaseBeatGenerator {
       const klingVoBrollPrompt = this._appendDirectorNudge([
         verticalDirective,
         stylePrefix,
+        sceneAnchorDirective,
+        dpDirective,
         `B-roll of ${location}.`,
         `Camera: ${cameraMove}.`,
         identityDirective,
         wardrobeDirective,
+        priorBeatContinuity,
         'Atmospheric and evocative, no characters speaking.',
         'Ambient sound bed only (natural environment).'
       ].filter(Boolean).join(' '), beat);
