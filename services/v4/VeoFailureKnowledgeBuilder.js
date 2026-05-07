@@ -523,14 +523,29 @@ async function _writeKnowledgeFile(activeSignatures) {
 async function _logRunSummary(kind, summary) {
   if (!isConfigured() || !supabaseAdmin) return;
   try {
-    // The automation_logs table is created by other migrations and used by
-    // AutomationManager.logAgentAutomation. We use it directly here for one-line
-    // run summaries. Schema is permissive (JSONB context), so we use the same shape.
+    // The automation_logs table has a CHECK constraint on `type` requiring
+    // one of: info | warning | error | success. We use 'success' for
+    // healthy runs and 'error' for failures; the run-kind ('nightly' /
+    // 'incremental' / '*_error') and structured summary go into `metadata`.
+    // The original implementation passed e.g. 'veo_failure_agent_nightly'
+    // as `type`, which violated the CHECK and silently dropped the insert.
+    const isError = kind.endsWith('_error') || (summary && typeof summary === 'object' && 'error' in summary);
+    const type = isError ? 'error' : 'success';
+    const errorMessage = isError
+      ? (typeof summary?.error === 'string' ? summary.error : 'Veo failure-agent run reported an error')
+      : null;
+    // `context` is TEXT, not JSONB — keep it human-readable; structured
+    // detail belongs in `metadata`.
+    const contextLine = `veo_failure_agent_${kind}: ${summary && typeof summary === 'object'
+      ? `signatures=${summary.active ?? '?'}, version=${summary.version ?? '?'}, in_window=${summary.failures_in_window ?? '?'}`
+      : ''}`;
     await supabaseAdmin.from('automation_logs').insert({
-      type: `veo_failure_agent_${kind}`,
+      type,
       timestamp: new Date().toISOString(),
-      context: summary
-    }).select().maybeSingle();
+      error_message: errorMessage,
+      context: contextLine,
+      metadata: { kind: `veo_failure_agent_${kind}`, ...summary }
+    });
   } catch (err) {
     // Swallow — summary logging is best-effort.
     logger.warn(`automation_logs write failed: ${err.message}`);

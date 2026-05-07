@@ -1140,13 +1140,11 @@ router.get('/brand-voice/profiles/:id', async (req, res) => {
  */
 router.post('/brand-voice/profiles', async (req, res) => {
   try {
+    // adAccountId is optional — null means user-scoped (Brand Arena flow).
     const adAccountId = await resolveAdAccountId(req);
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'No ad account selected. Please select an ad account first.' });
-    }
 
     const { name, days, platforms, purchaseId } = req.body;
-    logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, adAccount=${adAccountId}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
+    logger.info(`[BrandVoice] POST /profiles - user=${req.user.id}, scope=${adAccountId || 'user'}, name="${name}", platforms=${platforms ? JSON.stringify(platforms) : 'all'}, days=${days || 180}`);
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Profile name is required' });
@@ -1363,14 +1361,14 @@ router.post('/brand-voice/generate', async (req, res) => {
         });
       }
 
-      // Pre-flight: verify ad account and trained model exist before generating text
+      // Pre-flight: verify a trained default model exists (user-scoped — Brand Arena).
+      // Falls back to any selected ad account's default if no user-scoped default is set.
       const preflightAdAccount = await getSelectedAdAccount(req.user.id);
-      if (!preflightAdAccount) {
-        return res.status(400).json({ error: 'No ad account selected. Please select an ad account in Brand Media first.' });
-      }
-      const preflightDefaultJob = await mediaAssetService.getDefaultTrainingJob(req.user.id, preflightAdAccount.id);
+      const preflightDefaultJob =
+        await mediaAssetService.getDefaultTrainingJob(req.user.id, null) ||
+        (preflightAdAccount ? await mediaAssetService.getDefaultTrainingJob(req.user.id, preflightAdAccount.id) : null);
       if (!preflightDefaultJob) {
-        return res.status(400).json({ error: 'No trained model available. Train a model in Brand Media first.' });
+        return res.status(400).json({ error: 'No trained model available. Train a model in Brand Assets first.' });
       }
     }
 
@@ -1407,62 +1405,60 @@ router.post('/brand-voice/generate', async (req, res) => {
       }
     }));
 
-    // If generating with image, use asset image gen credits (shared pool with Brand Media)
+    // If generating with image, use asset image gen credits (shared pool with Brand Assets)
     if (generateWithImage && postsWithIds[0]?.id) {
       try {
-        // Get the user's selected ad account
+        // Look up the user's default training model — try user-scoped first (Brand Arena),
+        // then fall back to the selected ad account's default for legacy users.
         const adAccount = await getSelectedAdAccount(req.user.id);
-        if (!adAccount) {
-          logger.warn(`[BrandVoice] No ad account selected — skipping image generation`);
+        const defaultJob =
+          await mediaAssetService.getDefaultTrainingJob(req.user.id, null) ||
+          (adAccount ? await mediaAssetService.getDefaultTrainingJob(req.user.id, adAccount.id) : null);
+
+        if (!defaultJob) {
+          logger.warn(`[BrandVoice] No default training model — skipping image generation`);
           postsWithIds[0].imageError = true;
-          postsWithIds[0].imageErrorMessage = 'No ad account selected. Please select an ad account in Brand Media first.';
+          postsWithIds[0].imageErrorMessage = 'No trained model available. Train a model in Brand Assets first.';
         } else {
-          // Get the default LoRA model
-          const defaultJob = await mediaAssetService.getDefaultTrainingJob(req.user.id, adAccount.id);
-          if (!defaultJob) {
-            logger.warn(`[BrandVoice] No default training model — skipping image generation`);
-            postsWithIds[0].imageError = true;
-            postsWithIds[0].imageErrorMessage = 'No trained model available. Train a model in Brand Media first.';
-          } else {
-            // Generate an image prompt from the post text using the brand voice profile
-            const profile = await getBrandVoiceProfileById(profileId, req.user.id);
-            const imagePrompt = await brandVoiceService.generateImagePrompt(
-              postsWithIds[0].text,
-              defaultJob.trigger_word,
-              profile?.profile_data || {}
-            );
+          // Generate an image prompt from the post text using the brand voice profile
+          const profile = await getBrandVoiceProfileById(profileId, req.user.id);
+          const imagePrompt = await brandVoiceService.generateImagePrompt(
+            postsWithIds[0].text,
+            defaultJob.trigger_word,
+            profile?.profile_data || {}
+          );
 
-            // Generate the image using the LoRA model (pass through user's generation preferences)
-            const generatedMedia = await mediaAssetService.generateImage(
-              req.user.id,
-              adAccount.id,
-              imagePrompt,
-              defaultJob.id,
-              {
-                loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
-                guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
-                aspectRatio: aspectRatio || undefined
-              }
-            );
+          // Generate the image, scoped to the same ad_account_id as the trained model
+          // (which may be null for user-scoped Brand Arena models).
+          const generatedMedia = await mediaAssetService.generateImage(
+            req.user.id,
+            defaultJob.ad_account_id,
+            imagePrompt,
+            defaultJob.id,
+            {
+              loraScale: loraScale != null ? parseFloat(loraScale) : undefined,
+              guidanceScale: guidanceScale != null ? parseFloat(guidanceScale) : undefined,
+              aspectRatio: aspectRatio || undefined
+            }
+          );
 
-            // Consume 1 image generation credit
-            await consumeAssetImageGenCredit(req.user.id);
+          // Consume 1 image generation credit
+          await consumeAssetImageGenCredit(req.user.id);
 
-            // Attach image URL to the post response
-            postsWithIds[0].imageUrl = generatedMedia.public_url;
+          // Attach image URL to the post response
+          postsWithIds[0].imageUrl = generatedMedia.public_url;
 
-            // Get updated credit count for response
-            const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
-            postsWithIds[0].creditsRemaining = creditsAfter;
+          // Get updated credit count for response
+          const { totalRemaining: creditsAfter } = await getAssetImageGenCredits(req.user.id);
+          postsWithIds[0].creditsRemaining = creditsAfter;
 
-            // Update the DB record with the image
-            await updateBrandVoiceGeneratedPost(postsWithIds[0].id, req.user.id, {
-              image_url: generatedMedia.public_url,
-              generated_media_id: generatedMedia.id
-            });
+          // Update the DB record with the image
+          await updateBrandVoiceGeneratedPost(postsWithIds[0].id, req.user.id, {
+            image_url: generatedMedia.public_url,
+            generated_media_id: generatedMedia.id
+          });
 
-            logger.info(`[BrandVoice] Image generated successfully: ${generatedMedia.public_url}, credits remaining: ${creditsAfter}`);
-          }
+          logger.info(`[BrandVoice] Image generated successfully: ${generatedMedia.public_url}, credits remaining: ${creditsAfter}`);
         }
       } catch (imageErr) {
         // Image generation failed — still return the text post
@@ -1531,16 +1527,14 @@ router.delete('/brand-voice/generated/:postId', async (req, res) => {
  */
 router.post('/media-assets/upload', mediaUpload.array('images', 20), async (req, res) => {
   try {
-    const { adAccountId } = req.body;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId is required' });
-    }
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const adAccountId = req.body.adAccountId || null;
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    logger.info(`[MediaAssets] POST /upload - user=${req.user.id}, account=${adAccountId}, files=${req.files.length}`);
+    logger.info(`[MediaAssets] POST /upload - user=${req.user.id}, scope=${adAccountId || 'user'}, files=${req.files.length}`);
 
     const results = [];
     const errors = [];
@@ -1572,10 +1566,8 @@ router.post('/media-assets/upload', mediaUpload.array('images', 20), async (req,
  */
 router.get('/media-assets', async (req, res) => {
   try {
-    const { adAccountId } = req.query;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId query parameter is required' });
-    }
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const adAccountId = req.query.adAccountId || null;
 
     const assets = await mediaAssetService.getAssets(req.user.id, adAccountId);
     const count = assets.length;
@@ -1616,10 +1608,9 @@ router.delete('/media-assets/:id', async (req, res) => {
  */
 router.post('/media-assets/training/start', async (req, res) => {
   try {
-    const { adAccountId, name, purchaseId, generationModel } = req.body;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId is required' });
-    }
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const { name, purchaseId, generationModel } = req.body;
+    const adAccountId = req.body.adAccountId || null;
 
     // Validate session name
     const sessionName = (name || '').trim();
@@ -1689,10 +1680,9 @@ router.post('/media-assets/training/start', async (req, res) => {
  */
 router.get('/media-assets/training/status', async (req, res) => {
   try {
-    const { adAccountId, jobId } = req.query;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId query parameter is required' });
-    }
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const { jobId } = req.query;
+    const adAccountId = req.query.adAccountId || null;
 
     let job = null;
 
@@ -1727,10 +1717,8 @@ router.get('/media-assets/training/status', async (req, res) => {
  */
 router.get('/media-assets/training/history', async (req, res) => {
   try {
-    const { adAccountId } = req.query;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId query parameter is required' });
-    }
+    // adAccountId is optional — null/undefined returns all of the user's training jobs (Brand Arena)
+    const adAccountId = req.query.adAccountId || null;
 
     const jobs = await mediaAssetService.getTrainingJobs(req.user.id, adAccountId);
     res.json({ jobs });
@@ -1747,12 +1735,11 @@ router.get('/media-assets/training/history', async (req, res) => {
 router.put('/media-assets/training/:id/set-default', async (req, res) => {
   try {
     const { id } = req.params;
-    const { adAccountId } = req.body;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId is required' });
-    }
+    // adAccountId is accepted for backward compatibility but ignored — defaults
+    // are now per-user, not per-ad-account.
+    const adAccountId = req.body.adAccountId || null;
 
-    logger.info(`[MediaAssets] PUT /training/${id}/set-default - user=${req.user.id}, account=${adAccountId}`);
+    logger.info(`[MediaAssets] PUT /training/${id}/set-default - user=${req.user.id}, scope=${adAccountId || 'user'}`);
 
     const job = await mediaAssetService.setDefaultTrainingJob(id, req.user.id, adAccountId);
     res.json({ success: true, job });
@@ -1770,10 +1757,8 @@ router.put('/media-assets/training/:id/set-default', async (req, res) => {
 router.post('/media-assets/training/:id/analyze-brand-kit', async (req, res) => {
   try {
     const { id } = req.params;
-    const { adAccountId } = req.body;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId is required' });
-    }
+    // adAccountId no longer required — the training job is scoped to the user;
+    // its own ad_account_id (if any) is read from the row below.
 
     // Fetch the job to get training image URLs
     const job = await getMediaTrainingJobById(id, req.user.id);
@@ -1808,10 +1793,8 @@ router.post('/media-assets/training/:id/analyze-brand-kit', async (req, res) => 
 router.delete('/media-assets/training/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const adAccountId = req.query.adAccountId;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId query parameter is required' });
-    }
+    // adAccountId is accepted for backward compatibility but unused — the
+    // training job is identified solely by its id (scoped to req.user.id).
 
     logger.info(`[MediaAssets] DELETE /training/${id} - user=${req.user.id}`);
 
@@ -1834,9 +1817,11 @@ router.delete('/media-assets/training/:id', async (req, res) => {
  */
 router.post('/media-assets/generate', async (req, res) => {
   try {
-    const { adAccountId, prompt, trainingJobId, loraScale, guidanceScale, numOutputs, aspectRatio, brandPromptStyle } = req.body;
-    if (!adAccountId || !prompt) {
-      return res.status(400).json({ error: 'adAccountId and prompt are required' });
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const { prompt, trainingJobId, loraScale, guidanceScale, numOutputs, aspectRatio, brandPromptStyle } = req.body;
+    const adAccountId = req.body.adAccountId || null;
+    if (!prompt) {
+      return res.status(400).json({ error: 'prompt is required' });
     }
     if (!trainingJobId) {
       return res.status(400).json({ error: 'trainingJobId is required — select a trained model first' });
@@ -1897,9 +1882,11 @@ router.post('/media-assets/generate', async (req, res) => {
  */
 router.post('/media-assets/edit', async (req, res) => {
   try {
-    const { adAccountId, mediaId, editPrompt, editModel } = req.body;
-    if (!adAccountId || !mediaId || !editPrompt) {
-      return res.status(400).json({ error: 'adAccountId, mediaId, and editPrompt are required' });
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
+    const { mediaId, editPrompt, editModel } = req.body;
+    const adAccountId = req.body.adAccountId || null;
+    if (!mediaId || !editPrompt) {
+      return res.status(400).json({ error: 'mediaId and editPrompt are required' });
     }
 
     // Credit gate
@@ -1959,10 +1946,9 @@ router.get('/media-assets/generation-credits', async (req, res) => {
  */
 router.get('/media-assets/generated', async (req, res) => {
   try {
-    const { adAccountId, trainingJobId } = req.query;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'adAccountId query parameter is required' });
-    }
+    // adAccountId is optional — null/undefined returns all of the user's generated media (Brand Arena)
+    const { trainingJobId } = req.query;
+    const adAccountId = req.query.adAccountId || null;
 
     let media;
     if (trainingJobId) {
@@ -2041,8 +2027,8 @@ router.get('/playable-content/templates', async (req, res) => {
  */
 router.post('/playable-content/generate', async (req, res) => {
   try {
+    // adAccountId is optional — null/undefined means user-scoped (Brand Arena)
     const {
-      adAccountId,
       trainingJobId,
       templateId,
       contentType,
@@ -2052,9 +2038,10 @@ router.post('/playable-content/generate', async (req, res) => {
       storyOptions,
       generationMode
     } = req.body;
+    const adAccountId = req.body.adAccountId || null;
 
-    if (!adAccountId || !trainingJobId || !templateId || !contentType || !title) {
-      return res.status(400).json({ error: 'Missing required fields: adAccountId, trainingJobId, templateId, contentType, title' });
+    if (!trainingJobId || !templateId || !contentType || !title) {
+      return res.status(400).json({ error: 'Missing required fields: trainingJobId, templateId, contentType, title' });
     }
 
     // Validate template exists

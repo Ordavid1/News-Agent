@@ -8,6 +8,12 @@
 //
 // Run with: node --test tests/v4/VeoFailureKnowledge.test.mjs
 
+// Mark the env as 'test' BEFORE importing the collector so the collector's
+// production-telemetry guard short-circuits. Without this, every test run
+// inserts synthetic 'test-beat-*' rows into the prod veo_failure_log table
+// and pollutes the nightly clustering pass.
+process.env.NODE_ENV = 'test';
+
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs/promises';
@@ -247,9 +253,7 @@ describe('VeoFailureCollector.classifyFailure — error → failure_mode + signa
 // ─────────────────────────────────────────────────────────────────────
 
 describe('VeoFailureCollector.record — never throws, never blocks', () => {
-  test('returns {ok: false} when Supabase is not configured (test env), no throw', async () => {
-    // Without SUPABASE_URL/keys set, the collector should return {ok:false}
-    // and not throw. We rely on the test runner being invoked without those vars.
+  test('NODE_ENV=test short-circuits with reason=test_env_skipped (no DB write)', async () => {
     _resetThresholdStateForTests();
     const result = await VeoFailureCollector.record({
       beatId: 'test-beat-1',
@@ -257,24 +261,30 @@ describe('VeoFailureCollector.record — never throws, never blocks', () => {
       error: new Error('test error — should be classified as other'),
       prompt: 'a clean test prompt'
     });
-    // Either {ok:false} (no Supabase) or {ok:true, id:'...'} (real Supabase) —
-    // both are acceptable; what matters is no throw.
-    assert.ok(result && typeof result === 'object');
-    assert.ok(typeof result.ok === 'boolean');
+    assert.deepEqual(result, { ok: false, reason: 'test_env_skipped' });
   });
 
-  test('truncates long prompts and error messages defensively', async () => {
+  test('VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES override re-enables the write path', async () => {
     _resetThresholdStateForTests();
-    const longPrompt = 'x'.repeat(10000);
-    const longErr = new Error('y'.repeat(10000));
-    // Should not throw regardless of whether DB write succeeds
-    const result = await VeoFailureCollector.record({
-      beatId: 'test-beat-2',
-      beatType: 'INSERT_SHOT',
-      error: longErr,
-      prompt: longPrompt
-    });
-    assert.ok(result && typeof result === 'object');
+    process.env.VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES = 'true';
+    try {
+      const longPrompt = 'x'.repeat(10000);
+      const longErr = new Error('y'.repeat(10000));
+      // With the override on, the collector enters the real path. Without
+      // Supabase credentials, it short-circuits with {ok:false} (no reason).
+      // What matters: never throws, returns a well-formed object.
+      const result = await VeoFailureCollector.record({
+        beatId: 'test-beat-2',
+        beatType: 'INSERT_SHOT',
+        error: longErr,
+        prompt: longPrompt
+      });
+      assert.ok(result && typeof result === 'object');
+      assert.equal(typeof result.ok, 'boolean');
+      assert.notEqual(result.reason, 'test_env_skipped');
+    } finally {
+      delete process.env.VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES;
+    }
   });
 });
 

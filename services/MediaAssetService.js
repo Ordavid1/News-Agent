@@ -179,7 +179,10 @@ class MediaAssetService {
 
     const ext = file.originalname.split('.').pop().toLowerCase();
     const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const storagePath = `${userId}/${adAccountId}/uploads/${uniqueName}`;
+    // When ad_account_id is null (Brand Arena, user-scoped flow), fall back to
+    // the user_id for the second path segment so the path stays unique.
+    const scopeKey = adAccountId || userId;
+    const storagePath = `${userId}/${scopeKey}/uploads/${uniqueName}`;
 
     // Upload to Supabase Storage
     const { error: uploadError } = await supabaseAdmin.storage
@@ -210,7 +213,7 @@ class MediaAssetService {
       mime_type: file.mimetype
     });
 
-    logger.info(`Uploaded asset ${asset.id} for account ${adAccountId}`);
+    logger.info(`Uploaded asset ${asset.id} for scope ${adAccountId || `user:${userId}`}`);
     return { ...asset, warning };
   }
 
@@ -269,10 +272,14 @@ class MediaAssetService {
       throw new Error('Replicate model owner not configured. Set REPLICATE_MODEL_OWNER environment variable.');
     }
 
-    // Concurrency guard: only one active training per account at a time
+    // Scope key for derived names/paths. When adAccountId is null (Brand Arena,
+    // user-scoped flow) we fall back to the userId so paths/model names stay unique.
+    const scopeKey = adAccountId || userId;
+
+    // Concurrency guard: only one active training per scope at a time
     const activeJob = await getActiveMediaTrainingJob(userId, adAccountId);
     if (activeJob) {
-      throw new Error('A training is already in progress for this account. Please wait for it to complete.');
+      throw new Error('A training is already in progress. Please wait for it to complete.');
     }
 
     // Gather NEW image URLs — exclude any already snapshotted by existing models
@@ -300,22 +307,22 @@ class MediaAssetService {
     // Upload zip to Replicate Files API
     logger.info(`Uploading training zip (${(zipBuffer.length / 1024).toFixed(1)} KB) to Replicate...`);
     const uploadedFile = await this.replicate.files.create(zipBuffer, {
-      filename: `training-${adAccountId}.zip`,
+      filename: `training-${scopeKey}.zip`,
       content_type: 'application/zip'
     });
     const inputImagesUrl = uploadedFile.urls.get;
     logger.info(`Training zip uploaded: ${inputImagesUrl}`);
 
     // Create or ensure destination model exists
-    const modelName = `media-lora-${adAccountId.replace(/-/g, '').slice(0, 16)}`;
+    const modelName = `media-lora-${scopeKey.replace(/-/g, '').slice(0, 16)}`;
     const replicateModelName = `${this.replicateOwner}/${modelName}`;
     await this._ensureDestinationModel(modelName);
 
     // Get latest trainer version
     const trainerVersion = await this._getLatestTrainerVersion();
 
-    // Generate a trigger word from the account ID
-    const triggerWord = `BRAND${adAccountId.replace(/-/g, '').slice(0, 6).toUpperCase()}`;
+    // Generate a trigger word from the scope key (ad_account_id or user_id)
+    const triggerWord = `BRAND${scopeKey.replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 
     // Resolve training preset — all types map to unified 'brand' preset
     const validType = TRAINING_PRESETS[trainingType] ? trainingType : 'brand';
@@ -931,7 +938,7 @@ class MediaAssetService {
 
       // Upload to Supabase Storage
       const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
-      const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+      const storagePath = `${userId}/${adAccountId || userId}/generated/${uniqueName}`;
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
@@ -1163,7 +1170,7 @@ class MediaAssetService {
 
       // Upload to Supabase Storage
       const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
-      const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+      const storagePath = `${userId}/${adAccountId || userId}/generated/${uniqueName}`;
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
@@ -1600,8 +1607,8 @@ class MediaAssetService {
         const maskBuffer = await this._generateMask(metadata.width, metadata.height, region);
 
         await this.ensureBucket();
-        const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
-        const tmpMaskPath = `${userId}/${adAccountId}/brand-kit/tmp-edit-mask-${crypto.randomUUID().slice(0, 8)}.png`;
+        const tmpSourcePath = `${userId}/${adAccountId || userId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
+        const tmpMaskPath = `${userId}/${adAccountId || userId}/brand-kit/tmp-edit-mask-${crypto.randomUUID().slice(0, 8)}.png`;
         const sourcePng = await sharp(sourceBuffer).png().toBuffer();
 
         await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
@@ -1625,7 +1632,7 @@ class MediaAssetService {
       } else {
         // NANO BANANA PRO — reference-based editing, no mask needed
         await this.ensureBucket();
-        const tmpSourcePath = `${userId}/${adAccountId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
+        const tmpSourcePath = `${userId}/${adAccountId || userId}/brand-kit/tmp-edit-src-${crypto.randomUUID().slice(0, 8)}.png`;
         const sourcePng = await sharp(sourceBuffer).png().toBuffer();
         await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(tmpSourcePath, sourcePng, { contentType: 'image/png', upsert: false });
         tmpPaths.push(tmpSourcePath);
@@ -1665,7 +1672,7 @@ class MediaAssetService {
     // Upload final result
     await this.ensureBucket();
     const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-    const storagePath = `${userId}/${adAccountId}/generated/${uniqueName}`;
+    const storagePath = `${userId}/${adAccountId || userId}/generated/${uniqueName}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
@@ -2595,7 +2602,7 @@ Rules:
         .toBuffer();
 
       // Upload crop to temporary path for rembg
-      const tmpPath = `${userId}/${adAccountId}/brand-kit/${jobId}/tmp-${crypto.randomUUID()}.png`;
+      const tmpPath = `${userId}/${adAccountId || userId}/brand-kit/${jobId}/tmp-${crypto.randomUUID()}.png`;
       await this.ensureBucket();
       const { error: tmpUploadErr } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
@@ -2659,7 +2666,7 @@ Rules:
 
       // Upload final transparent PNG with unique name to avoid cache/overwrite issues
       const uniqueId = crypto.randomUUID().slice(0, 8);
-      const finalPath = `${userId}/${adAccountId}/brand-kit/${jobId}/${detection.type}-${index}-${uniqueId}.png`;
+      const finalPath = `${userId}/${adAccountId || userId}/brand-kit/${jobId}/${detection.type}-${index}-${uniqueId}.png`;
       const { error: uploadErr } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
         .upload(finalPath, finalBuffer, { contentType: 'image/png', upsert: false });

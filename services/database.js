@@ -3431,12 +3431,16 @@ export async function getAllPublishedPosts(userId, { days = 90, limit = 500 } = 
  * Get all media assets for a user's ad account
  */
 export async function getUserMediaAssets(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_assets')
     .select('*')
-    .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting media assets:', error);
@@ -3508,11 +3512,16 @@ export async function deleteMediaAsset(assetId, userId) {
  * Count media assets for a user's ad account
  */
 export async function countMediaAssets(userId, adAccountId) {
-  const { count, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_assets')
     .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId);
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { count, error } = await query;
 
   if (error) {
     logger.error('Error counting media assets:', error);
@@ -3528,12 +3537,18 @@ export async function countMediaAssets(userId, adAccountId) {
  * Called after training job creation to prevent cross-model image pollution.
  */
 export async function clearMediaAssetsPool(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_assets')
     .delete()
-    .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .select('id');
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  } else {
+    query = query.is('ad_account_id', null);
+  }
+
+  const { data, error } = await query.select('id');
 
   if (error) {
     logger.error('Error clearing media assets pool:', error);
@@ -3567,12 +3582,16 @@ export async function getMediaTrainingJobById(jobId, userId) {
  * Get all training jobs for an ad account, ordered newest first
  */
 export async function getMediaTrainingJobs(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_training_jobs')
     .select('*')
-    .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting media training jobs:', error);
@@ -3586,13 +3605,17 @@ export async function getMediaTrainingJobs(userId, adAccountId) {
  * Get the active (status='training') job for an account, if any
  */
 export async function getActiveMediaTrainingJob(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_training_jobs')
     .select('*')
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .eq('status', 'training')
-    .maybeSingle();
+    .eq('status', 'training');
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     logger.error('Error getting active media training job:', error);
@@ -3660,16 +3683,19 @@ export async function updateMediaTrainingJob(jobId, userId, updates) {
 }
 
 /**
- * Set a training job as the default for its ad account.
- * Unsets any existing default for the same account first.
+ * Set a training job as the default for the user.
+ * Unsets any existing default(s) across all of the user's training jobs first
+ * (defaults are now per-user, not per-ad-account, since brand creatives moved
+ * out of Meta's ad_account scope into the user-scoped Brand Arena).
+ *
+ * The third argument is accepted for backward compatibility but ignored.
  */
-export async function setDefaultTrainingJob(jobId, userId, adAccountId) {
-  // Unset existing default(s) for this account
+export async function setDefaultTrainingJob(jobId, userId, _adAccountId) {
+  // Unset existing default(s) across the entire user
   const { error: unsetError } = await supabaseAdmin
     .from('media_training_jobs')
     .update({ is_default: false, updated_at: new Date().toISOString() })
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
     .eq('is_default', true);
 
   if (unsetError) {
@@ -3683,7 +3709,6 @@ export async function setDefaultTrainingJob(jobId, userId, adAccountId) {
     .update({ is_default: true, updated_at: new Date().toISOString() })
     .eq('id', jobId)
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
     .eq('status', 'completed')
     .select()
     .single();
@@ -3760,14 +3785,18 @@ export async function deleteMediaTrainingJob(jobId, userId) {
  * Get the default training job for an ad account (is_default=true, status='completed')
  */
 export async function getDefaultTrainingJob(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('media_training_jobs')
     .select('*')
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
     .eq('is_default', true)
-    .eq('status', 'completed')
-    .maybeSingle();
+    .eq('status', 'completed');
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     logger.error('Error getting default training job:', error);
@@ -3781,12 +3810,16 @@ export async function getDefaultTrainingJob(userId, adAccountId) {
  * Get generated media for an ad account
  */
 export async function getGeneratedMedia(userId, adAccountId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('generated_media')
     .select('*')
-    .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .order('created_at', { ascending: false });
+    .eq('user_id', userId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting generated media:', error);
@@ -3800,13 +3833,19 @@ export async function getGeneratedMedia(userId, adAccountId) {
  * Get generated media filtered by a specific training job
  */
 export async function getGeneratedMediaByJobId(userId, adAccountId, trainingJobId) {
-  const { data, error } = await supabaseAdmin
+  // training_job_id is the primary scope; ad_account_id is no longer required
+  // since the training job itself encodes the user/account context.
+  let query = supabaseAdmin
     .from('generated_media')
     .select('*')
     .eq('user_id', userId)
-    .eq('ad_account_id', adAccountId)
-    .eq('training_job_id', trainingJobId)
-    .order('created_at', { ascending: false });
+    .eq('training_job_id', trainingJobId);
+
+  if (adAccountId) {
+    query = query.eq('ad_account_id', adAccountId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     logger.error('Error getting generated media by job ID:', error);

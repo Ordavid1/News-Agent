@@ -51,6 +51,15 @@ function updateAffiliateTierBadge() {
 }
 
 async function initAffiliate() {
+    // Idempotent — Affiliate is now invoked from `showMarketingTab('affiliate')`
+    // which can fire on every visit. The first call performs the full init;
+    // subsequent calls only refresh the tier badge so the plan label stays current.
+    if (window.__affiliateInited) {
+        updateAffiliateTierBadge();
+        return;
+    }
+    window.__affiliateInited = true;
+
     // Update tier badge
     updateAffiliateTierBadge();
 

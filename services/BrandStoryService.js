@@ -6969,20 +6969,48 @@ Respond with ONLY valid JSON:
       }
     }
 
-    const completedEpisode = await updateBrandStoryEpisode(newEpisode.id, userId, {
+    // V4 hotfix 2026-05-07 — Defensive split write to survive schema drift.
+    // Production hit `Could not find the 'post_lut_intermediate_url' column`
+    // (PGRST204) when the Aleph migration hadn't been applied to the DB —
+    // and that error blocked the ENTIRE final-write, leaving the episode
+    // stranded after a successful render. The Aleph URL is an OPTIONAL
+    // commercial-only stylization input, never on the critical ship path;
+    // it should never block a fully-rendered episode from being marked
+    // ready. Now: write the core ship payload first (cannot fail without
+    // a real schema problem), then attempt the optional Aleph URL write
+    // separately. A failure on the optional write logs a warning and the
+    // episode still ships.
+    const corePayload = {
       scene_description: sceneGraph,
       final_video_url: finalVideoUrl,
       subtitle_url: subtitleUrl,
       status: finalEpisodeStatus,
       lut_id: episodeLutId,
       director_report: directorReport,
-      lens_d_auto_reassemble_attempted: lensDAutoReassembleAttempted,
-      // 2026-05-05 — Aleph Rec 2: stable source URL for the enhancement
-      // endpoint. Null on prestige stories (no Aleph button on UI). Null
-      // on commercial stories where the upload failed (logged above; Aleph
-      // button just hidden until next regenerate).
-      post_lut_intermediate_url: postLutIntermediateUrl
-    });
+      lens_d_auto_reassemble_attempted: lensDAutoReassembleAttempted
+    };
+    const completedEpisode = await updateBrandStoryEpisode(newEpisode.id, userId, corePayload);
+
+    // Optional Aleph stable-source URL (only relevant for commercial stories
+    // where the post-LUT intermediate was successfully uploaded — null
+    // elsewhere). If the column doesn't exist (migration not yet applied),
+    // log + skip. The episode is still marked ready/awaiting_review and
+    // the Aleph button will hide until the next regenerate or the
+    // migration is applied.
+    if (postLutIntermediateUrl) {
+      try {
+        await updateBrandStoryEpisode(newEpisode.id, userId, {
+          post_lut_intermediate_url: postLutIntermediateUrl
+        });
+      } catch (alephWriteErr) {
+        logger.warn(
+          `V4: post_lut_intermediate_url write failed (non-fatal — episode ships without Aleph button): ${alephWriteErr.message}` +
+          (alephWriteErr.message?.includes('schema cache') || alephWriteErr.message?.includes("Could not find")
+            ? ' — Aleph migration not applied to this DB; run supabase/migrations/add_aleph_enhancement_columns.sql to enable Aleph enhancement.'
+            : '')
+        );
+      }
+    }
 
     if (finalEpisodeStatus === 'ready') {
       progress('complete', `Episode ${newEpisode.episode_number} ready: ${finalVideoUrl}`);

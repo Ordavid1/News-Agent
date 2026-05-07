@@ -530,6 +530,15 @@ function showTab(tabName) {
         requestAnimationFrame(() => toggleSubscriptionPanel(true));
     }
 
+    // Legacy alias: AE Affiliate is now a Marketing Pro+ sub-tab.
+    // Old links (?tab=affiliate) still resolve.
+    if (tabName === 'affiliate') {
+        tabName = 'marketing';
+        requestAnimationFrame(() => {
+            if (typeof window.showMarketingTab === 'function') window.showMarketingTab('affiliate');
+        });
+    }
+
     // Scope to profile-level tabs only (exclude marketing sub-tabs)
     const tabsWrapper = document.getElementById('tabsScrollWrapper');
 
@@ -565,6 +574,11 @@ function showTab(tabName) {
     // Load analytics dashboard when analytics tab is shown
     if (tabName === 'analytics' && typeof window.loadAnalyticsSection === 'function') {
         window.loadAnalyticsSection();
+    }
+
+    // Bootstrap Brand Arena's first sub-tab on activation.
+    if (tabName === 'brandarena' && typeof window.showBrandArenaTab === 'function') {
+        window.showBrandArenaTab('brandvoice');
     }
 }
 

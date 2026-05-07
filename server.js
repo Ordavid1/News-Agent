@@ -1060,6 +1060,41 @@ async function initializeServices() {
     logger.info(`🤖 Automation enabled: ${process.env.AUTOMATION_ENABLED === 'true' ? 'YES' : 'NO'}`);
     logger.info(`⚙️  Background workers: ${workersEnabled ? 'ENABLED' : 'DISABLED'}`);
 
+    // V4 hotfix 2026-05-06 — Pipeline startup recovery. The V4 pipeline
+    // (`runV4Pipeline`) is an in-memory async chain. When the server
+    // restarts mid-pipeline (Render auto-deploy / OOM / panic / manual
+    // restart), the in-memory Promise dies with the JS runtime; the
+    // episode row is left stranded in a transient status with NO process
+    // working on it. The frontend polling loop sees the transient status
+    // and shows the spinner forever. This recovery scans for those
+    // orphaned episodes on boot and kicks `runV4Pipeline` resume mode for
+    // each, so they finish cleanly instead of getting stuck. Anti-thrash
+    // via `directorReport.recovery_attempts` (cap 3, then mark failed).
+    //
+    // Set V4_STARTUP_RECOVERY=false to disable (e.g. during incident
+    // forensics where you want orphans preserved as-is).
+    if (process.env.V4_STARTUP_RECOVERY !== 'false') {
+      try {
+        const { recoverInflightV4Episodes } = await import('./services/v4/PipelineStartupRecovery.js');
+        const { default: brandStoryService } = await import('./services/BrandStoryService.js');
+        // Run in the BACKGROUND — don't block server-ready on it. The
+        // recovery itself fires-and-forgets each resume, so this just
+        // does the orphan scan + kick. Failures are logged but never
+        // crash the server.
+        recoverInflightV4Episodes({ brandStoryService })
+          .then((result) => {
+            logger.info(`[StartupRecovery] scan complete: ${JSON.stringify(result)}`);
+          })
+          .catch((err) => {
+            logger.error(`[StartupRecovery] scan failed (non-fatal): ${err.message}`);
+          });
+      } catch (err) {
+        logger.error(`[StartupRecovery] failed to load module (non-fatal): ${err.message}`);
+      }
+    } else {
+      logger.info('[StartupRecovery] disabled via V4_STARTUP_RECOVERY=false');
+    }
+
   } catch (error) {
     serverState.status = 'error';
     serverState.error = error.message;

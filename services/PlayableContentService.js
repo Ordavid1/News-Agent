@@ -454,7 +454,7 @@ class PlayableContentService {
 
       // Phase 7: Upload to storage
       this._emitProgress(userId, sessionKey, 'uploading', 'Saving to storage...');
-      const basePath = `${userId}/${adAccountId}/playable-content/${contentId}`;
+      const basePath = `${userId}/${adAccountId || userId}/playable-content/${contentId}`;
 
       const previewUrl = await this._uploadToStorage(`${basePath}/preview.html`, previewHtml, 'text/html');
 
@@ -595,7 +595,7 @@ class PlayableContentService {
 
       // Phase 7: Upload to storage
       this._emitProgress(userId, sessionKey, 'uploading', 'Saving to storage...');
-      const basePath = `${userId}/${adAccountId}/playable-content/${contentId}`;
+      const basePath = `${userId}/${adAccountId || userId}/playable-content/${contentId}`;
 
       const previewUrl = await this._uploadToStorage(`${basePath}/preview.html`, previewHtml, 'text/html');
 

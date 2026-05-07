@@ -231,13 +231,24 @@ class VeoActionGenerator extends BaseBeatGenerator {
         `[${beat.beat_id}] ${fallbackReason} — falling back to Kling V3 Pro for action beat`
       );
 
+      // Veo Failure-Learning Agent (2026-05-07 fix) — prefer the UNDERLYING
+      // Vertex error message over the local wrapper. The wrapper text
+      // ("Veo content filter persistent — all anchored tiers refused") doesn't
+      // match any of the collector's failure-signature regexes, so without
+      // this propagation 22/32 prod rows landed as failure_mode='other' with
+      // empty error_signatures — which then produced two junk clusters during
+      // the nightly agent run. The underlying err.originalError.message
+      // contains the verbatim Vertex wording (e.g. "violate Vertex AI's usage
+      // guidelines") which classifies correctly as content_filter_prompt.
+      const underlyingMessage = err?.originalError?.message || err?.message || fallbackReason;
+
       VeoFailureCollector.record({
         userId: episodeContext?.userId,
         episodeId: episodeContext?.episodeId,
         beatId: beat.beat_id,
         beatType: beat.type,
-        error: err,
-        errorMessage: fallbackReason,
+        error: err.originalError || err,
+        errorMessage: underlyingMessage,
         prompt,
         personaNames,
         hadFirstFrame: !!resolvedFirstFrame,

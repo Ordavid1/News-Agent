@@ -748,12 +748,22 @@ function showMarketingTab(tabName) {
     const selectedTab = document.getElementById(`mkt-tab-${tabName}`);
     if (selectedTab) selectedTab.classList.add('tab-active');
 
-    // Relocate Ad Accounts selector into the active tab's title row as the rightmost action
-    mountAdAccountsInActiveTitleRow(selectedContent);
+    // Affiliate sub-tab is independent of Meta — hide the Ad Accounts selector
+    // entirely while it's active. For all other Marketing sub-tabs, mount the
+    // selector into the active tab's title row.
+    const adAccountWrapper = document.getElementById('adAccountDropdownWrapper');
+    if (tabName === 'affiliate') {
+        if (adAccountWrapper) adAccountWrapper.classList.add('hidden');
+    } else {
+        if (adAccountWrapper) adAccountWrapper.classList.remove('hidden');
+        mountAdAccountsInActiveTitleRow(selectedContent);
+    }
 
-    // Brand Story is gated to Business-tier users only — enforce *before* the ad-account
-    // check so non-Business users always see the upgrade gate, regardless of ad-account state.
-    if (tabName === 'brandstory' && !enforceBrandStoryTierAccess()) {
+    // Affiliate doesn't need an ad account; bootstrap it and bail before the
+    // ad-account guard below.
+    if (tabName === 'affiliate') {
+        if (typeof window.initAffiliate === 'function') window.initAffiliate();
+        if (typeof window.showAffiliateSubTab === 'function') window.showAffiliateSubTab('credentials');
         return;
     }
 
@@ -779,18 +789,6 @@ function showMarketingTab(tabName) {
             break;
         case 'rules':
             loadRules();
-            break;
-        case 'brandvoice':
-            loadBrandVoiceProfiles();
-            break;
-        case 'mediaassets':
-            loadMediaAssets();
-            break;
-        case 'playables':
-            loadPlayables();
-            break;
-        case 'brandstory':
-            loadBrandStories();
             break;
     }
 }
@@ -2651,18 +2649,15 @@ async function loadBrandVoiceProfiles() {
     // If viewing a profile detail, don't reload the list
     if (detailEl && !detailEl.classList.contains('hidden')) return;
 
-    if (!selectedAdAccount) {
-        if (loadingEl) loadingEl.classList.add('hidden');
-        if (listEl) listEl.innerHTML = '';
-        if (emptyEl) emptyEl.classList.remove('hidden');
-        return;
-    }
-
     if (loadingEl) loadingEl.classList.remove('hidden');
     if (emptyEl) emptyEl.classList.add('hidden');
 
+    // Brand Arena (decoupled from ad accounts) returns the user's full profile list when
+    // adAccountId is omitted. Legacy callers may still pass selectedAdAccount.id.
+    const adAccountQuery = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
+
     try {
-        const response = await apiGet(`/api/marketing/brand-voice/profiles?adAccountId=${selectedAdAccount.id}`);
+        const response = await apiGet(`/api/marketing/brand-voice/profiles${adAccountQuery}`);
         brandVoiceProfiles = response.profiles || [];
 
         if (loadingEl) loadingEl.classList.add('hidden');
@@ -4237,19 +4232,16 @@ async function deleteBvHistoryPost(postId) {
  * Load all media assets data for the selected ad account.
  */
 async function loadMediaAssets() {
-    if (!selectedAdAccount) {
-        showToast('Please select an ad account first', 'error');
-        return;
-    }
-
-    const acctId = selectedAdAccount.id;
+    // Brand Arena (decoupled): omit adAccountId to load the user's full pool.
+    // Legacy callers with selectedAdAccount keep filtering on it.
+    const adAccountQuery = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
 
     // Load assets, training history, and active training status
     // Generated media is loaded on-demand when a model is selected
     const [assetsResult, historyResult, activeResult] = await Promise.allSettled([
-        apiGet(`/api/marketing/media-assets?adAccountId=${acctId}`),
-        apiGet(`/api/marketing/media-assets/training/history?adAccountId=${acctId}`),
-        apiGet(`/api/marketing/media-assets/training/status?adAccountId=${acctId}`)
+        apiGet(`/api/marketing/media-assets${adAccountQuery}`),
+        apiGet(`/api/marketing/media-assets/training/history${adAccountQuery}`),
+        apiGet(`/api/marketing/media-assets/training/status${adAccountQuery}`)
     ]);
 
     // Assets
@@ -6062,8 +6054,6 @@ let playableState = {
  * Load the Playables tab: populate job selector, fetch templates.
  */
 async function loadPlayables() {
-    if (!selectedAdAccount) return;
-
     const jobSelect = document.getElementById('playableJobSelect');
     const noBrandKit = document.getElementById('playableNoBrandKit');
     const contentTypeToggle = document.getElementById('playableContentTypeToggle');
@@ -6075,9 +6065,12 @@ async function loadPlayables() {
     // Reset panels
     [configPanel, progressPanel, previewPanel].forEach(p => p?.classList.add('hidden'));
 
+    // Brand Arena (decoupled): omit adAccountId to list all user trainings.
+    const adAccountQuery = selectedAdAccount ? `?adAccountId=${selectedAdAccount.id}` : '';
+
     // Load training jobs for the job selector
     try {
-        const resp = await apiGet(`/api/marketing/media-assets/training/history?adAccountId=${selectedAdAccount.id}`);
+        const resp = await apiGet(`/api/marketing/media-assets/training/history${adAccountQuery}`);
         const jobs = (resp.jobs || []).filter(j => j.brand_kit && j.status === 'completed');
 
         if (jobs.length === 0) {

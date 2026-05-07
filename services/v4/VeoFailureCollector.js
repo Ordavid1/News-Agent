@@ -196,6 +196,15 @@ async function _fireIncrementalRegen(signatureTag) {
  * @returns {Promise<{ok: boolean, id?: string, failureMode?: string}>}
  */
 async function record(params = {}) {
+  // Gate test-runner writes out of production telemetry. The unit-test suite
+  // exercises record() with synthetic fixtures; without this guard those
+  // fixtures land in the prod `veo_failure_log` table and pollute the
+  // nightly clustering pass (observed 2026-05-07: 'test-beat-1', 'test-beat-2'
+  // rows produced two junk signatures). NODE_ENV is set to 'test' by `node --test`
+  // out of the box; tests that need to exercise the DB path can override it.
+  if (process.env.NODE_ENV === 'test' && process.env.VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES !== 'true') {
+    return { ok: false, reason: 'test_env_skipped' };
+  }
   if (!isConfigured() || !supabaseAdmin) {
     // Supabase isn't wired up (local dev / test runner). Never block — just
     // skip silently. Tests that want to observe the call should stub this
