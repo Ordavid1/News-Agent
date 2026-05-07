@@ -1,0 +1,82 @@
+# cloudbuild-main.yaml
+#
+# Cloud Build pipeline for the saas-main service + v4-pipeline Job.
+# Triggered on every push to master (excluding pure-bridge-only changes —
+# see ignored_files on the trigger).
+#
+# Each build:
+#   1. Builds the main image (Dockerfile at repo root)
+#   2. Tags it $SHORT_SHA and latest, pushes both
+#   3. Rolls saas-main service to the new revision (env / secrets preserved)
+#   4. Updates v4-pipeline Job to the same image (next execution uses it)
+#
+# What it deliberately DOESN'T do:
+#   - Touch the bridge VM (separate trigger handles bridge-only changes)
+#   - Modify env vars or secrets (those are managed out-of-band)
+#   - Run tests (add a `npm test` step here when you're ready to gate on tests)
+#
+# Cost: ~3 min per build on E2_HIGHCPU_8. First 120 build-minutes/day are free.
+
+substitutions:
+  _REGION: us-west1
+  _AR_REPO: us-west1-docker.pkg.dev/$PROJECT_ID/saas
+  _SERVICE: saas-main
+  _JOB: v4-pipeline
+
+steps:
+  # --- 1. Build the main image, dual-tagged $SHORT_SHA + latest ---
+  - id: build-main
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_AR_REPO}/main:$SHORT_SHA
+      - --tag=${_AR_REPO}/main:latest
+      - --file=Dockerfile
+      - .
+
+  # --- 2. Push both tags ---
+  - id: push-main
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_AR_REPO}/main
+    waitFor: [build-main]
+
+  # --- 3. Roll saas-main to the new image ---
+  - id: deploy-service
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - ${_SERVICE}
+      - --image=${_AR_REPO}/main:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+    waitFor: [push-main]
+
+  # --- 4. Update v4-pipeline Job (next execution uses new image) ---
+  - id: update-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - ${_JOB}
+      - --image=${_AR_REPO}/main:$SHORT_SHA
+      - --region=${_REGION}
+      - --quiet
+    waitFor: [push-main]
+
+images:
+  - ${_AR_REPO}/main:$SHORT_SHA
+  - ${_AR_REPO}/main:latest
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s

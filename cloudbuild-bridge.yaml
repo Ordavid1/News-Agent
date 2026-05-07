@@ -1,0 +1,76 @@
+# cloudbuild-bridge.yaml
+#
+# Cloud Build pipeline for the WhatsApp bridge VM (wa-bridge-vm).
+# Triggered ONLY when files under whatsapp-bridge-service/ change — see
+# included_files on the trigger. This is intentional: a saas-main change
+# should not bounce the bridge container and risk a brief WhatsApp
+# reconnection.
+#
+# Each build:
+#   1. Builds the bridge image from whatsapp-bridge-service/Dockerfile
+#   2. Tags it $SHORT_SHA and latest, pushes both
+#   3. Resets the bridge VM (gcloud compute instances reset) — the VM's
+#      startup script pulls the :latest tag from AR and recreates the
+#      container. Baileys reconnects automatically using the persisted
+#      auth_store on the attached PD.
+#
+# Why reset (not SSH+restart):
+#   - Single gcloud call, simplest IAM (just compute.instanceAdmin.v1)
+#   - Startup script is the one source of truth for the container config
+#   - PD auth_store survives the reboot (it's a separate disk)
+#   - Trade-off: ~30-60s WhatsApp disconnect on each bridge deploy. Baileys
+#     handles this gracefully — incoming messages queue at WhatsApp's side.
+#
+# Cost: ~1 min per build (image is small). First 120 build-min/day free.
+
+substitutions:
+  _REGION: us-west1
+  _ZONE: us-west1-b
+  _AR_REPO: us-west1-docker.pkg.dev/$PROJECT_ID/saas
+  _VM: wa-bridge-vm
+
+steps:
+  # --- 1. Build the bridge image (Alpine, tiny) ---
+  - id: build-bridge
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_AR_REPO}/bridge:$SHORT_SHA
+      - --tag=${_AR_REPO}/bridge:latest
+      - --file=whatsapp-bridge-service/Dockerfile
+      - whatsapp-bridge-service
+
+  # --- 2. Push both tags ---
+  - id: push-bridge
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_AR_REPO}/bridge
+    waitFor: [build-bridge]
+
+  # --- 3. Reset the VM. Startup script re-runs and pulls :latest. ---
+  # Note: the VM's startup script must reference the :latest tag for this to
+  # roll the container automatically — see /tmp/wa-bridge-startup.sh which
+  # is uploaded to instance metadata.
+  - id: reset-vm
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - compute
+      - instances
+      - reset
+      - ${_VM}
+      - --zone=${_ZONE}
+      - --quiet
+    waitFor: [push-bridge]
+
+images:
+  - ${_AR_REPO}/bridge:$SHORT_SHA
+  - ${_AR_REPO}/bridge:latest
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 600s
