@@ -130,6 +130,33 @@ function normalizeVideo(inputPath, outputPath, options = {}) {
     vfChain.push(`lut3d='${applyCorrectionLut}'`);
   }
 
+  // V4 Phase 11 (2026-05-07) — grain unification.
+  //
+  // After per-model color neutralize, every beat receives the same film-grain
+  // overlay at consistent intensity. Two reasons:
+  //   1. Veo and Kling have different skin rendering, motion-blur curves, and
+  //      sensor texture. Color correction LUT masks color delta but cannot
+  //      reconcile texture/grain. A unified grain floor on every beat blurs
+  //      those signatures into a single perceived "show grade."
+  //   2. Real prestige work has grain — natively-clean digital sources read
+  //      as "AI render" in 30 seconds. Even TV-grade dramas master with at
+  //      minimum 16mm-feel grain. Adding a small amount uniformly puts the
+  //      output in the same family as broadcast TV, not webcam.
+  //
+  // FFmpeg's `noise=alls=N:allf=t+u` is the standard temporal+uniform noise
+  // filter. alls=8 is moderate (visible at 1080p, not heavy enough to
+  // perceptibly degrade SSIM); allf=t+u is "temporal" (re-rolled per frame
+  // — eliminates fixed-pattern noise) plus "uniform" (gaussian-like, not
+  // sparse).
+  //
+  // Set V4_GRAIN_UNIFICATION=false to disable (debugging or specific
+  // brand requirements where natively-clean digital is desired).
+  const USE_GRAIN_UNIFICATION = process.env.V4_GRAIN_UNIFICATION !== 'false';
+  if (USE_GRAIN_UNIFICATION) {
+    const grainIntensity = Number(process.env.V4_GRAIN_INTENSITY) || 8;
+    vfChain.push(`noise=alls=${grainIntensity}:allf=t+u`);
+  }
+
   // Force EXACT constant frame rate on the output. The fps=${OUTPUT_FPS}
   // filter alone isn't enough — some beats (particularly Sync Lipsync v3
   // outputs) can still carry a 30000/1001 (29.97fps) tbr through to the
@@ -1755,23 +1782,81 @@ function mixMusicBed(inputPath, musicPath, outputPath, options = {}) {
 }
 
 /**
- * Music bed mix with beat-aware dialogue ducking.
+ * V4 Phase 11 (2026-05-07) — pace-aware mix profile selector.
  *
- * Builds a time-varying volume expression for the music track so it ducks
- * down (-24dB) during beats that have dialogue and swells back to the normal
- * bed level (-18dB) during silent / b-roll / action beats. Smooth transitions
- * at the boundaries via a short ramp (~300ms).
+ * The director's prestige mandate calls for sidechain ducking that matches
+ * the EPISODE's overall pace register, not a single hardcoded profile.
  *
- * ffmpeg volume expression format:
- *   volume='if(between(t,2.0,6.0),0.06,0.126)':eval=frame
+ * Profile selection rules:
+ *   - majority of beats marked emotional_hold → 'drama' profile (long
+ *     release so music swells naturally back during the held silence)
+ *   - majority of beats with pace_hint='fast'|'kinetic'|'tight' → 'action'
+ *     profile (tight attack/release; music ducks fast under dialogue)
+ *   - default → 'standard' profile (balanced)
  *
- * ─ 0.126 ≈ -18dB (nominal bed)
- * ─ 0.06  ≈ -24dB (ducked under dialogue)
- * ─ between(t,start,end) → 1 during dialogue windows
+ * Returns a sidechaincompress parameter object.
+ */
+function _resolveMixProfile(beatMetadata) {
+  if (!Array.isArray(beatMetadata) || beatMetadata.length === 0) {
+    return { name: 'standard', threshold: 0.04, ratio: 6, attack: 20, release: 400 };
+  }
+  let emoHoldCount = 0;
+  let kineticCount = 0;
+  let total = 0;
+  for (const beat of beatMetadata) {
+    if (!beat) continue;
+    total++;
+    if (beat.emotional_hold === true) emoHoldCount++;
+    const pace = String(beat.pace_hint || '').toLowerCase().trim();
+    if (pace === 'fast' || pace === 'kinetic' || pace === 'tight') kineticCount++;
+  }
+  if (total === 0) {
+    return { name: 'standard', threshold: 0.04, ratio: 6, attack: 20, release: 400 };
+  }
+  const emoHoldRatio = emoHoldCount / total;
+  const kineticRatio = kineticCount / total;
+
+  if (emoHoldRatio >= 0.4) {
+    // Drama profile — gentler ratio, slower release. Music breathes back
+    // during the held silence rather than snapping back the moment the
+    // line ends. This is what gives prestige drama mixes their patience.
+    return { name: 'drama', threshold: 0.05, ratio: 4, attack: 50, release: 700 };
+  }
+  if (kineticRatio >= 0.4) {
+    // Action profile — tight attack, short release. Music ducks aggressively
+    // under dialogue then snaps back during cuts. This matches action-show
+    // mix grammar where music is felt as energy underneath, not contemplation.
+    return { name: 'action', threshold: 0.03, ratio: 8, attack: 8, release: 200 };
+  }
+  return { name: 'standard', threshold: 0.04, ratio: 6, attack: 20, release: 400 };
+}
+
+/**
+ * V4 Phase 11 (2026-05-07) — Music bed mix with sidechain compression.
  *
- * Nested `if(..., if(..., ...))` lets us cover multiple dialogue windows in
- * one expression. For N dialogue beats we build N nested ifs, falling through
- * to the nominal bed level.
+ * Replaces the legacy time-window volume-keyframe ducking with FFmpeg's
+ * `sidechaincompress` filter, keyed off the main audio track (which carries
+ * dialogue, ambient, and beat-level SFX after assembly). The result:
+ *
+ *   - Music ducks DYNAMICALLY when dialogue is loud, settles when quiet —
+ *     the duck envelope follows the actual vocal RMS curve, not hardcoded
+ *     -6dB switches at beat-metadata windows.
+ *   - Soft dialogue barely ducks (lets the music breathe under intimate
+ *     scenes); loud dialogue ducks deeply (lets the line cut through).
+ *   - Pacing-aware attack/release profile matches the episode's overall
+ *     mood register (drama / action / standard).
+ *   - The duck "breathes" with the consonant-vowel rhythm of speech,
+ *     eliminating the "explainer-video VO duck" feel of the time-window
+ *     approach.
+ *
+ * The director's audio mandate: "foreign-language viewers can identify
+ * Better Call Saul from 5 seconds of audio with the picture off." Sidechain
+ * compression is the technical foundation of that mix grammar. We had the
+ * metadata; the post-production layer was willfully blind. No longer.
+ *
+ * Set V4_LEGACY_DUCKING=true to fall back to the old time-window approach
+ * (escape hatch for cost-conscious runs OR if a specific brand mix
+ * regresses under sidechain).
  *
  * @param {string} inputPath
  * @param {string} musicPath
@@ -1779,7 +1864,102 @@ function mixMusicBed(inputPath, musicPath, outputPath, options = {}) {
  * @param {Array} beatMetadata - ordered beats with dialogue + actual_duration_sec
  */
 function mixMusicBedWithDucking(inputPath, musicPath, outputPath, beatMetadata) {
-  // Walk beats to find the time windows where dialogue is playing.
+  if (process.env.V4_LEGACY_DUCKING === 'true') {
+    return _legacyTimeWindowDucking(inputPath, musicPath, outputPath, beatMetadata);
+  }
+
+  // Detect whether the episode has any dialogue at all. If not, no point
+  // running sidechain — flat mix at nominal bed level.
+  const bedLevel = Math.pow(10, -18 / 20).toFixed(3);  // -18dB ≈ 0.126
+  const hasAnyDialogue = Array.isArray(beatMetadata) && beatMetadata.some(b => !!(
+    b?.dialogue
+    || (Array.isArray(b?.dialogues) && b.dialogues.some(Boolean))
+    || (Array.isArray(b?.exchanges) && b.exchanges.some(e => e?.dialogue))
+    || b?.voiceover_text
+  ));
+
+  if (!hasAnyDialogue) {
+    logger.info(`no dialogue beats detected → flat music mix (no sidechain needed)`);
+    mixMusicBed(inputPath, musicPath, outputPath);
+    return;
+  }
+
+  const profile = _resolveMixProfile(beatMetadata);
+
+  try {
+    const videoDurationSec = probeDurationSec(inputPath);
+
+    // Filter graph:
+    //   1. Bring music up to nominal bed level (-18dB), pad to video length.
+    //   2. Tap a copy of main audio as the sidechain key.
+    //   3. sidechaincompress: ducks [music] when [key] exceeds threshold.
+    //      The key must be the SAME duration as music for sidechain to track,
+    //      so we apad both. The final amix combines the original main audio
+    //      (full level, not ducked) with the dynamically-ducked music.
+    //
+    // Why feed the FULL main mix as the sidechain key rather than just the
+    // dialogue stem: at this stage the assembled audio (0:a) is the only
+    // signal we have — dialogue is already mixed with ambient + SFX by the
+    // beat-level assembly. The full mix is dominated by dialogue when present
+    // (dialogue is the loudest element after LUFS normalize), so sidechain
+    // tracking remains accurate. A future #5b enhancement would keep the
+    // dialogue stem separate end-to-end so sidechain is keyed purely on
+    // speech — that's a bigger architectural change.
+    const filterComplex = [
+      `[1:a]volume=${bedLevel},apad[bedraw]`,
+      `[0:a]asplit=2[mainpass][skey]`,
+      `[bedraw][skey]sidechaincompress=threshold=${profile.threshold}:ratio=${profile.ratio}:attack=${profile.attack}:release=${profile.release}:makeup=1[bedducked]`,
+      `[mainpass]apad[main]`,
+      `[main][bedducked]amix=inputs=2:duration=longest:dropout_transition=0[aout]`
+    ].join(';');
+
+    execFileSync('ffmpeg', [
+      '-y',
+      '-i', inputPath,
+      '-i', musicPath,
+      '-filter_complex', filterComplex,
+      '-map', '0:v',
+      '-map', '[aout]',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-t', videoDurationSec.toFixed(3),
+      outputPath
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+    logger.info(
+      `mixed music bed with sidechain compression (profile=${profile.name}, ` +
+      `threshold=${profile.threshold}, ratio=${profile.ratio}, attack=${profile.attack}ms, ` +
+      `release=${profile.release}ms) — clamped to video duration ${videoDurationSec.toFixed(2)}s`
+    );
+  } catch (err) {
+    logger.warn(`sidechain music mix failed: ${err.message} — falling back to legacy time-window ducking`);
+    try {
+      _legacyTimeWindowDucking(inputPath, musicPath, outputPath, beatMetadata);
+    } catch (fallbackErr) {
+      logger.warn(`legacy ducking also failed: ${fallbackErr.message} — falling through to flat mix`);
+      try {
+        mixMusicBed(inputPath, musicPath, outputPath);
+      } catch (flatErr) {
+        logger.warn(`flat music mix also failed: ${flatErr.message} — outputting without music`);
+        fs.copyFileSync(inputPath, outputPath);
+      }
+    }
+  }
+}
+
+/**
+ * Legacy time-window ducking — preserved as an escape hatch behind the
+ * V4_LEGACY_DUCKING=true env flag. Builds a time-varying volume expression
+ * for the music track (dynamic-keyframe approach) ducking down to -24dB
+ * during dialogue windows and swelling back to -18dB during silent / b-roll /
+ * action beats with a 0.3s ease.
+ *
+ * Default off post-2026-05-07. Sidechain compression (above) is now the
+ * primary path because it follows actual vocal RMS dynamics rather than
+ * binary metadata-window switches.
+ */
+function _legacyTimeWindowDucking(inputPath, musicPath, outputPath, beatMetadata) {
   const duckedLevel = Math.pow(10, -24 / 20).toFixed(3); // -24dB ≈ 0.063
   const bedLevel = Math.pow(10, -18 / 20).toFixed(3);    // -18dB ≈ 0.126
 
@@ -1803,47 +1983,21 @@ function mixMusicBedWithDucking(inputPath, musicPath, outputPath, beatMetadata) 
   }
 
   if (dialogueWindows.length === 0) {
-    logger.info(`no dialogue windows detected → flat music mix`);
+    logger.info(`[legacy] no dialogue windows detected → flat music mix`);
     mixMusicBed(inputPath, musicPath, outputPath);
     return;
   }
 
-  // Build nested if() expression: during any dialogue window → duckedLevel, else → bedLevel.
-  // Use a 0.3s ease at each boundary so ducks feel natural instead of clicking.
-  // We cheat the ease: duck with a slightly wider window to give the ramp-in + ramp-out room.
   const easeSec = 0.3;
   const duckExpr = dialogueWindows
     .map(w => `between(t,${(w.start - easeSec).toFixed(2)},${(w.end + easeSec).toFixed(2)})`)
     .join('+');
 
-  // volume = bed - (bed - ducked) * clip(duckExpr, 0, 1)
-  // Simplified: `if(${duckExpr}, ${duckedLevel}, ${bedLevel})`
-  // We use the if() form because ffmpeg's between() returns 0/1, and summed
-  // between()s > 0 means we're in at least one dialogue window.
   const volumeExpr = `if(gt(${duckExpr}\\,0)\\,${duckedLevel}\\,${bedLevel})`;
 
   try {
-    // Probe the video duration so we can clamp the output audio to MATCH.
-    // The previous implementation used `-shortest` which trimmed the output
-    // to the shortest stream — if upstream xfade/acrossfade produced an audio
-    // stream shorter than the video (e.g. because a scene's ambient-bed apply
-    // emitted audio shorter than its video), `-shortest` chopped the entire
-    // episode to the short-audio length. On 2026-04-23 this silently dropped
-    // 9.6s of video during the music-mix stage. Caught by the duration trace:
-    //   after stage 3: 27.16s   → after stage 4 (music mix): 17.57s
-    //
-    // Fix: explicitly cap the OUTPUT to the video stream's duration using `-t`
-    // so an audio-short upstream cannot truncate the video. If audio ends
-    // early, amix pads with silence under the ducked music bed — acceptable
-    // (and far better than losing content).
     const videoDurationSec = probeDurationSec(inputPath);
-
-    // Add apad on the mixed bus so audio padding is guaranteed past end of
-    // the original audio stream. Without apad, amix stops producing samples
-    // once both inputs end — but we pass duration=longest and let music fill
-    // the tail. Belt-and-braces: -t caps the whole thing to the video length.
     const filterComplex = `[1:a]volume='${volumeExpr}':eval=frame,apad[music];[0:a]apad[main];[main][music]amix=inputs=2:duration=longest:dropout_transition=0[aout]`;
-
     execFileSync('ffmpeg', [
       '-y',
       '-i', inputPath,
@@ -1857,14 +2011,13 @@ function mixMusicBedWithDucking(inputPath, musicPath, outputPath, beatMetadata) 
       '-t', videoDurationSec.toFixed(3),
       outputPath
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
-
-    logger.info(`mixed music bed with dialogue ducking (${dialogueWindows.length} window${dialogueWindows.length > 1 ? 's' : ''}) — clamped to video duration ${videoDurationSec.toFixed(2)}s`);
+    logger.info(`[legacy] mixed music bed with time-window ducking (${dialogueWindows.length} window${dialogueWindows.length > 1 ? 's' : ''}) — clamped to video duration ${videoDurationSec.toFixed(2)}s`);
   } catch (err) {
-    logger.warn(`ducked music mix failed: ${err.message} — falling back to flat mix`);
+    logger.warn(`[legacy] ducked music mix failed: ${err.message} — falling back to flat mix`);
     try {
       mixMusicBed(inputPath, musicPath, outputPath);
     } catch (fallbackErr) {
-      logger.warn(`flat music mix also failed: ${fallbackErr.message} — outputting without music`);
+      logger.warn(`[legacy] flat music mix also failed: ${fallbackErr.message} — outputting without music`);
       fs.copyFileSync(inputPath, outputPath);
     }
   }
@@ -2991,3 +3144,8 @@ export {
   SCENE_OVERLAY_POST_TAIL_SEC,
   SCENE_OVERLAY_RAMP_SEC
 };
+
+// Phase 11 (2026-05-07) — exported for unit testing the sidechain mix profile
+// selector. Pure function (no I/O) — picks { name, threshold, ratio, attack,
+// release } based on episode pacing register inferred from beat metadata.
+export { _resolveMixProfile };

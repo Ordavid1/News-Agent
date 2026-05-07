@@ -79,18 +79,30 @@ const baseBeatVerdict = {
   dimension_scores: { identity_fidelity: 30, composition: 80 }
 };
 
-// Force cheap-only layer by stripping the Vertex credentials env var that
+// Force cheap-only layer by stripping the Vertex credentials env vars that
 // `isVertexGeminiConfigured()` checks. Saves the values so we can restore.
+//
+// 2026-05-07 fix — VertexGemini.js's _resolveProjectLocation() reads
+// `GCP_PROJECT_ID` (not GOOGLE_CLOUD_PROJECT_ID). The test was previously
+// only deleting GOOGLE_CLOUD_PROJECT_ID, which meant the cheap-layer path
+// fired only by accident on shells that happened not to have GCP_PROJECT_ID
+// set. When Node's runtime auto-loads .env via dotenv (transitively through
+// any import chain that touches services/supabase.js), GCP_PROJECT_ID
+// becomes sticky and the offline path stops firing. Both env vars must be
+// unset for the test to be deterministic.
 function withoutVertex(fn) {
   const saved = {
+    GCP_PROJECT_ID: process.env.GCP_PROJECT_ID,
     GOOGLE_CLOUD_PROJECT_ID: process.env.GOOGLE_CLOUD_PROJECT_ID,
     GOOGLE_APPLICATION_CREDENTIALS_JSON: process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
     GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS
   };
+  delete process.env.GCP_PROJECT_ID;
   delete process.env.GOOGLE_CLOUD_PROJECT_ID;
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
   return Promise.resolve(fn()).finally(() => {
+    if (saved.GCP_PROJECT_ID !== undefined) process.env.GCP_PROJECT_ID = saved.GCP_PROJECT_ID;
     if (saved.GOOGLE_CLOUD_PROJECT_ID !== undefined) process.env.GOOGLE_CLOUD_PROJECT_ID = saved.GOOGLE_CLOUD_PROJECT_ID;
     if (saved.GOOGLE_APPLICATION_CREDENTIALS_JSON !== undefined) process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON = saved.GOOGLE_APPLICATION_CREDENTIALS_JSON;
     if (saved.GOOGLE_APPLICATION_CREDENTIALS !== undefined) process.env.GOOGLE_APPLICATION_CREDENTIALS = saved.GOOGLE_APPLICATION_CREDENTIALS;

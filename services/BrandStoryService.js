@@ -6296,28 +6296,112 @@ Respond with ONLY valid JSON:
       const locationsDiffer = nextSceneForBridge
         && _normLoc(scene) && _normLoc(nextSceneForBridge)
         && _normLoc(scene) !== _normLoc(nextSceneForBridge);
+
+      // V4 Phase 11 (2026-05-07) — composite bridge trigger.
+      //
+      // Per Director Agent's prestige mandate, location-string mismatch is
+      // necessary but NOT sufficient. Same-location time-of-day jumps
+      // (kitchen morning → kitchen evening) and same-location mood jumps
+      // (calm-procedural → high-charge confrontation) ALSO need bridges or
+      // the cut reads as a continuity error.
+      //
+      // We support three bridge-need signals, any one of which fires the
+      // auto-bridge:
+      //   1. Distinct locations (existing — unchanged)
+      //   2. Distinct time-of-day — extracted heuristically from
+      //      scene_visual_anchor_prompt prose (the Gemini-authored DP brief
+      //      reliably mentions "dawn", "morning", "golden hour", "dusk",
+      //      "night", etc.) when no structured scene.time_of_day field
+      //      exists. Structured field wins when both present.
+      //   3. Emotional intensity delta ≥ 2 (on a 1-10 scale) when both
+      //      scenes carry scene.emotional_intensity. Falls back to no-op
+      //      when the field is unauthored.
+      const _extractTimeOfDay = (s) => {
+        if (typeof s?.time_of_day === 'string' && s.time_of_day.trim()) {
+          return s.time_of_day.trim().toLowerCase();
+        }
+        const anchor = String(s?.scene_visual_anchor_prompt || '').toLowerCase();
+        // Order matters — match the most specific markers first so 'golden hour'
+        // wins over 'morning'.
+        const markers = [
+          'midnight', 'late night', 'pre-dawn', 'dawn', 'sunrise',
+          'early morning', 'morning', 'midday', 'noon', 'afternoon',
+          'late afternoon', 'golden hour', 'magic hour', 'dusk', 'sunset',
+          'twilight', 'evening', 'night'
+        ];
+        for (const m of markers) {
+          if (anchor.includes(m)) return m;
+        }
+        return null;
+      };
+      const timeOfDayA = _extractTimeOfDay(scene);
+      const timeOfDayB = _extractTimeOfDay(nextSceneForBridge);
+      const timeOfDayDiffers = !!(timeOfDayA && timeOfDayB && timeOfDayA !== timeOfDayB);
+
+      const intensityA = Number(scene?.emotional_intensity);
+      const intensityB = Number(nextSceneForBridge?.emotional_intensity);
+      const intensityDelta = (Number.isFinite(intensityA) && Number.isFinite(intensityB))
+        ? Math.abs(intensityA - intensityB)
+        : 0;
+      const moodDiffers = intensityDelta >= 2;
+
+      const bridgeReason = locationsDiffer
+        ? 'distinct locations'
+        : (timeOfDayDiffers
+            ? `time-of-day jump (${timeOfDayA} → ${timeOfDayB})`
+            : (moodDiffers ? `mood-delta ${intensityDelta} (${intensityA} → ${intensityB})` : null));
+
       const shouldAutoBridge =
         autoBridgeEnabled &&
         nextSceneForBridge &&
         !scene.bridge_to_next &&
-        locationsDiffer;
+        (locationsDiffer || timeOfDayDiffers || moodDiffers);
       if (shouldAutoBridge) {
+        // Bridge type adapts to the trigger reason:
+        //   - location_change → ESTABLISHING (transit/walk shot)
+        //   - time_of_day_change → INSERT_SHOT (a beat that visually marks
+        //     time passing — clock, sky, light shift)
+        //   - mood_delta → SILENT_STARE / B_ROLL (hold a beat that lets the
+        //     viewer feel the register change)
+        const bridgeKind = locationsDiffer
+          ? 'B_ROLL_ESTABLISHING'
+          : (timeOfDayDiffers ? 'INSERT_SHOT' : 'B_ROLL_ESTABLISHING');
+        const bridgeFraming = locationsDiffer
+          ? 'bridge_transit'
+          : (timeOfDayDiffers ? 'time_marker_insert' : 'mood_marker_broll');
+        const bridgeVisualPrompt = locationsDiffer
+          ? (
+              `Transit shot connecting "${scene.location || 'previous location'}" to ` +
+              `"${nextSceneForBridge.location || 'next location'}". ` +
+              'Smooth movement, naturalistic lighting register matching the originating scene\'s ambient mood. ' +
+              'No persona on-screen; environmental B-roll only. Veo first-frame anchored to the scene endframe; ' +
+              'last-frame hint is the next scene\'s master.'
+            )
+          : (timeOfDayDiffers
+              ? (
+                  `Time-of-day marker insert: visual cue that the world has moved from ${timeOfDayA} to ${timeOfDayB}. ` +
+                  'Could be a clock, sky shift, lights coming on, sun position, or other diegetic time signal. ' +
+                  'No persona on-screen; symbolic insert. Naturalistic lighting that reads as the new time.'
+                )
+              : (
+                  `Mood-shift marker: a held environmental beat that lets the viewer FEEL the register change ` +
+                  `from intensity ${intensityA} to ${intensityB}. Atmospheric, no dialogue, naturalistic lighting register ` +
+                  'matching the destination scene\'s mood.'
+                ));
+
         scene.bridge_to_next = {
-          framing: 'bridge_transit',
+          type: bridgeKind,
+          framing: bridgeFraming,
           duration_seconds: 2.5,
-          visual_prompt:
-            `Transit shot connecting "${scene.location || 'previous location'}" to ` +
-            `"${nextSceneForBridge.location || 'next location'}". ` +
-            'Smooth movement, naturalistic lighting register matching the originating scene\'s ambient mood. ' +
-            'No persona on-screen; environmental B-roll only. Veo first-frame anchored to the scene endframe; ' +
-            'last-frame hint is the next scene\'s master.',
+          visual_prompt: bridgeVisualPrompt,
           ambient_sound: scene.ambient_bed_prompt || '',
-          _auto_generated: true
+          _auto_generated: true,
+          _trigger_reason: bridgeReason
         };
         logger.info(
           `[V4Pipeline] auto-bridge: scene ${scene.scene_id || `s${sceneIdxForBridge}`} → ` +
           `${nextSceneForBridge.scene_id || `s${sceneIdxForBridge + 1}`} ` +
-          `(distinct locations) — synthesizing default bridge_to_next spec`
+          `(${bridgeReason}) — synthesizing default bridge_to_next spec`
         );
       }
 
@@ -6484,7 +6568,13 @@ Respond with ONLY valid JSON:
         dialogues: beat.dialogues || null,
         exchanges: beat.exchanges || null,
         voiceover_text: beat.voiceover_text || null,
-        ambient_sound: beat.ambient_sound || null
+        ambient_sound: beat.ambient_sound || null,
+        // V4 Phase 11 (2026-05-07) — pace + emotional hold flow into the
+        // sidechain mix profile selector (drama / action / standard) that
+        // chooses sidechaincompress attack/release per the episode's overall
+        // pacing register. Previously these were dead code in PostProduction.
+        pace_hint: beat.pace_hint || null,
+        emotional_hold: beat.emotional_hold === true
       };
     });
 
@@ -6629,7 +6719,10 @@ Respond with ONLY valid JSON:
                 dialogues: beat.dialogues || null,
                 exchanges: beat.exchanges || null,
                 voiceover_text: beat.voiceover_text || null,
-                ambient_sound: beat.ambient_sound || null
+                ambient_sound: beat.ambient_sound || null,
+                // V4 Phase 11 — pace + emotional hold for sidechain profile.
+                pace_hint: beat.pace_hint || null,
+                emotional_hold: beat.emotional_hold === true
               }));
               const reassembled = await runPostProduction({
                 beatVideoBuffers: postEdlBuffers,
