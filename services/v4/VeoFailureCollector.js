@@ -113,35 +113,68 @@ export function classifyFailure(message, err = null) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Incremental-regen threshold tracking (in-process, debounced per key)
+// Incremental-regen threshold tracking
+//
+// 2026-05-07 PIVOT: previous design used an in-memory Map (_recentBySig) to
+// count failures per signature in a 60-min sliding window. On Cloud Run with
+// autoscaling, failures distribute across instances → no single instance ever
+// reaches the threshold → incremental regen never fires.
+//
+// New design: SELECT count(*) FROM veo_failure_log WHERE error_signatures &&
+// ARRAY[$sig] AND created_at > now() - 60min. Each instance does its own
+// count after each successful insert. The fleet-wide count is authoritative;
+// no cross-instance signaling needed.
+//
+// Per-instance debounce (_lastTriggerBySig) is retained as a cost-control
+// floor — across the fleet we may fire 2-3 incremental runs per hour vs 1
+// in the old single-instance world, but Gemini cost is one call per run
+// (negligible). Per-instance debounce ensures one instance doesn't spam.
 // ─────────────────────────────────────────────────────────────────────
 
 const INCREMENTAL_THRESHOLD = parseInt(process.env.VEO_FAILURE_INCREMENTAL_THRESHOLD || '10', 10);
 const INCREMENTAL_WINDOW_MS = parseInt(process.env.VEO_FAILURE_INCREMENTAL_WINDOW_MS || String(60 * 60 * 1000), 10);
 const INCREMENTAL_DEBOUNCE_MS = parseInt(process.env.VEO_FAILURE_INCREMENTAL_DEBOUNCE_MS || String(60 * 60 * 1000), 10);
 
-// signatureTag → [timestamps] (sliding window, trimmed on each touch)
-const _recentBySig = new Map();
-// signatureTag → last regen-trigger timestamp (debounce)
+// signatureTag → last regen-trigger timestamp (per-instance debounce only).
+// In-memory across instances is acceptable: worst case the fleet fires 1
+// extra incremental run per signature per hour, vs the alternative of a
+// shared lock that would re-introduce single-instance assumptions.
 const _lastTriggerBySig = new Map();
 
-function _trackAndMaybeTrigger(signatures) {
+/**
+ * Cluster-wide threshold check via SQL. Replaces the in-memory window count
+ * the old _trackAndMaybeTrigger used. Cost: one COUNT query per signature in
+ * `signatures`, after each successful insert. The veo_failure_log_signatures_gin
+ * index makes the && containment check O(log n).
+ *
+ * @param {string[]} signatures
+ * @returns {Promise<string|null>} signature tag that tripped the threshold, or null
+ */
+async function _checkThresholdViaDb(signatures) {
   if (!signatures || signatures.length === 0) return null;
-  const now = Date.now();
-
+  if (!isConfigured() || !supabaseAdmin) return null;
+  const sinceIso = new Date(Date.now() - INCREMENTAL_WINDOW_MS).toISOString();
   for (const sig of signatures) {
-    const arr = _recentBySig.get(sig) || [];
-    arr.push(now);
-    // Trim the window
-    while (arr.length > 0 && (now - arr[0]) > INCREMENTAL_WINDOW_MS) arr.shift();
-    _recentBySig.set(sig, arr);
-
-    if (arr.length >= INCREMENTAL_THRESHOLD) {
-      const last = _lastTriggerBySig.get(sig) || 0;
-      if (now - last >= INCREMENTAL_DEBOUNCE_MS) {
-        _lastTriggerBySig.set(sig, now);
-        return sig; // first eligible signature wins (one regen per write)
+    try {
+      const { count, error } = await supabaseAdmin
+        .from('veo_failure_log')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', sinceIso)
+        .contains('error_signatures', [sig]);
+      if (error) {
+        logger.warn(`threshold count query failed for ${sig}: ${error.message}`);
+        continue;
       }
+      if ((count || 0) >= INCREMENTAL_THRESHOLD) {
+        const last = _lastTriggerBySig.get(sig) || 0;
+        if (Date.now() - last >= INCREMENTAL_DEBOUNCE_MS) {
+          _lastTriggerBySig.set(sig, Date.now());
+          logger.info(`threshold tripped (fleet count=${count}) for signature='${sig}'`);
+          return sig; // first eligible signature wins
+        }
+      }
+    } catch (err) {
+      logger.warn(`threshold check threw for ${sig}: ${err.message}`);
     }
   }
   return null;
@@ -281,13 +314,17 @@ async function record(params = {}) {
       `signatures=[${signatures.join(',')}])`
     );
 
-    // Threshold check — fire incremental regen in the background.
-    const trippedSig = _trackAndMaybeTrigger(signatures);
-    if (trippedSig) {
-      _fireIncrementalRegen(trippedSig).catch(err => {
-        logger.warn(`incremental regen background error: ${err.message}`);
+    // Threshold check via SQL — fleet-wide count across all Cloud Run
+    // instances. Fire incremental regen in the background if tripped.
+    _checkThresholdViaDb(signatures)
+      .then(trippedSig => {
+        if (trippedSig) {
+          return _fireIncrementalRegen(trippedSig);
+        }
+      })
+      .catch(err => {
+        logger.warn(`threshold/incremental background error: ${err.message}`);
       });
-    }
 
     return { ok: true, id: data?.id, failureMode };
   } catch (err) {
@@ -297,12 +334,11 @@ async function record(params = {}) {
 }
 
 /**
- * Test-only helper. Resets the in-process threshold-tracking state. Kept
- * unexported from the default object so it doesn't appear in production
- * call sites — pull it explicitly in tests.
+ * Test-only helper. Resets the per-instance debounce state. Kept unexported
+ * from the default object so it doesn't appear in production call sites —
+ * pull it explicitly in tests.
  */
 export function _resetThresholdStateForTests() {
-  _recentBySig.clear();
   _lastTriggerBySig.clear();
 }
 

@@ -19,8 +19,8 @@ const logger = winston.createLogger({
     })
   ),
   transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'trend-analyzer.log' })
+    new winston.transports.Console()
+    // File transport removed: stdout → Cloud Logging on Cloud Run.
   ]
 });
 

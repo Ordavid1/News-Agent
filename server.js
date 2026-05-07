@@ -48,6 +48,7 @@ import affiliateRoutes from './routes/affiliate.js';
 import supportRoutes from './routes/support.js';
 import feedRoutes from './routes/feed.js';
 import brandStoryRoutes from './routes/brand-stories.js';
+import internalCronRoutes from './routes/internal-cron.js';
 console.log('[STARTUP] Routes loaded');
 
 // Import middleware
@@ -91,8 +92,9 @@ const logger = winston.createLogger({
     })
   ),
   transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'app.log' })
+    new winston.transports.Console()
+    // File transport removed: on Cloud Run the root FS is in-memory tmpfs and
+    // would silently consume RAM for no benefit. Cloud Logging captures stdout.
   ]
 });
 
@@ -959,6 +961,11 @@ app.use('/api/affiliate', authenticateToken, csrfProtection, affiliateRoutes); /
 app.use('/api/support', supportRoutes); // Support chat (public, no auth — rate limited in router)
 app.use('/api/feed', feedRoutes);       // Public feed — no auth required, rate limited in router
 app.use('/api/brand-stories', brandStoryRoutes); // Brand Story video series (auth handled in router)
+
+// Internal cron — invoked by Cloud Scheduler with OIDC tokens.
+// Auth is enforced inside the router (verifyOidcMiddleware against
+// INTERNAL_CRON_ALLOWED_INVOKERS + INTERNAL_CRON_AUD).
+app.use('/internal/cron', internalCronRoutes);
 
 // SECURITY: Disable test routes in production
 if (process.env.NODE_ENV === 'production') {

@@ -403,6 +403,16 @@ export function isWorkerRunning() {
 }
 
 /**
+ * Run one tick worth of work, regardless of whether the in-process worker is
+ * started. Used by Cloud Scheduler → /internal/cron/posting-tick on Cloud Run
+ * where node-cron / setInterval are disabled in favor of external scheduling.
+ */
+export async function runOnce() {
+  await queueScheduledPosts();
+  await processQueue();
+}
+
+/**
  * Queue a post for immediate publishing
  * @param {string} postId - Post ID to publish
  * @param {string[]} platforms - Platforms to publish to
@@ -449,5 +459,6 @@ export default {
   isWorkerRunning,
   queuePost,
   processQueue,
-  queueScheduledPosts
+  queueScheduledPosts,
+  runOnce
 };

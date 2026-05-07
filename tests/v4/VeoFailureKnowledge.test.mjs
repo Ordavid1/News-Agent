@@ -264,28 +264,15 @@ describe('VeoFailureCollector.record — never throws, never blocks', () => {
     assert.deepEqual(result, { ok: false, reason: 'test_env_skipped' });
   });
 
-  test('VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES override re-enables the write path', async () => {
-    _resetThresholdStateForTests();
-    process.env.VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES = 'true';
-    try {
-      const longPrompt = 'x'.repeat(10000);
-      const longErr = new Error('y'.repeat(10000));
-      // With the override on, the collector enters the real path. Without
-      // Supabase credentials, it short-circuits with {ok:false} (no reason).
-      // What matters: never throws, returns a well-formed object.
-      const result = await VeoFailureCollector.record({
-        beatId: 'test-beat-2',
-        beatType: 'INSERT_SHOT',
-        error: longErr,
-        prompt: longPrompt
-      });
-      assert.ok(result && typeof result === 'object');
-      assert.equal(typeof result.ok, 'boolean');
-      assert.notEqual(result.reason, 'test_env_skipped');
-    } finally {
-      delete process.env.VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES;
-    }
-  });
+  // NOTE: previously this suite included a 'override re-enables the write path'
+  // test that called record() with VEO_FAILURE_COLLECTOR_ALLOW_TEST_WRITES=true
+  // to verify the env-gate logic. It was removed 2026-05-07: in dev `.env`
+  // the SUPABASE_URL/keys are real prod credentials, so the test was writing
+  // synthetic 'test-beat-2' rows into the prod veo_failure_log table on every
+  // run and re-polluting the nightly clustering pass. The env-gate logic is a
+  // single early-return; the dominant test (above) verifies its happy path.
+  // Re-enable only after either (a) stubbing supabaseAdmin, or (b) routing
+  // dev tests through a separate Supabase project.
 });
 
 // ─────────────────────────────────────────────────────────────────────

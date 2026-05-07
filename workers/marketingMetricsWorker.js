@@ -78,11 +78,11 @@ async function getUsersNeedingMetricsSync() {
 }
 
 /**
- * Main worker tick - runs on interval
+ * The actual per-tick work — separated from workerTick so that Cloud
+ * Scheduler (via runOnce) can drive it without the inline-worker isRunning
+ * guard tripping when in-process workers are disabled.
  */
-async function workerTick() {
-  if (!isRunning) return;
-
+async function _doTickWork() {
   try {
     const userIds = await getUsersNeedingMetricsSync();
 
@@ -124,6 +124,16 @@ async function workerTick() {
   } catch (error) {
     logger.error('[MarketingMetrics] Worker tick error:', error);
   }
+}
+
+/**
+ * Main worker tick — gated on isRunning so a leftover setInterval doesn't
+ * fire after stopWorker. Inline-worker mode (RUN_INLINE_WORKERS=true) uses
+ * this; Cloud Scheduler mode calls _doTickWork directly via runOnce().
+ */
+async function workerTick() {
+  if (!isRunning) return;
+  await _doTickWork();
 }
 
 /**
@@ -172,8 +182,17 @@ export function isWorkerRunning() {
   return isRunning;
 }
 
+/**
+ * Run one tick worth of work — invoked by Cloud Scheduler hitting
+ * /internal/cron/marketing-metrics-tick when in-process workers are disabled.
+ */
+export async function runOnce() {
+  await _doTickWork();
+}
+
 export default {
   startWorker,
   stopWorker,
-  isWorkerRunning
+  isWorkerRunning,
+  runOnce
 };

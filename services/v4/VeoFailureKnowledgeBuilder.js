@@ -24,14 +24,13 @@
 // LLM call rather than one-call-per-cluster to keep the spend bounded
 // regardless of how many failure modes the day produces.
 
-import fs from 'fs/promises';
 import winston from 'winston';
 import { supabaseAdmin, isConfigured } from '../supabase.js';
 import {
   callVertexGeminiJson,
   isVertexGeminiConfigured
 } from './VertexGemini.js';
-import { invalidateCache, getKnowledgeFilePath } from './VeoFailureGuidance.js';
+import { invalidateCache } from './VeoFailureGuidance.js';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -350,7 +349,20 @@ async function _upsertSignatures(signatures, clusters) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Step 5 — Regenerate services/v4/VeoFailureKnowledge.mjs
+// Step 5 — (DEPRECATED) Regenerate services/v4/VeoFailureKnowledge.mjs
+//
+// 2026-05-07 PIVOT: the runtime read path (VeoFailureGuidance.js) now reads
+// active signatures directly from `veo_failure_signatures` with a 5-min
+// per-instance TTL cache. The old behaviour wrote a regenerated .mjs file
+// on every nightly run; on Cloud Run with autoscaling, only one instance
+// would see the rewrite and a redeploy would wipe it.
+//
+// We KEEP the helpers below (_formatSignatureForFile / _renderKnowledgeFile)
+// so that a future build-time regen (e.g. a CI step that updates the
+// checked-in .mjs once a week to refresh the cold-start seed) can reuse
+// the same projection logic. They are no longer called from runNightly()
+// or runIncremental() — those just upsert to the DB and signal cache
+// invalidation on the local instance.
 // ─────────────────────────────────────────────────────────────────────
 
 function _formatSignatureForFile(sig) {
@@ -498,22 +510,18 @@ export default {
 `;
 }
 
-async function _writeKnowledgeFile(activeSignatures) {
+/**
+ * Compute a deterministic version stamp for the run. Kept as the value the
+ * caller exposes via summary + automation_logs so dashboards stay readable.
+ * No file is written — the runtime path reads from the DB.
+ */
+function _computeRunStamp(activeCount) {
   const now = new Date();
   const version = `${now.getUTCFullYear()}.${String(now.getUTCMonth() + 1).padStart(2, '0')}.${String(now.getUTCDate()).padStart(2, '0')}.${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}`;
   const lastUpdated = now.toISOString();
-  const filePath = getKnowledgeFilePath();
-  const content = _renderKnowledgeFile({ activeSignatures, version, lastUpdated });
-
-  // Atomic write — write to .tmp then rename, so a partial write never
-  // leaves a half-formed module on disk.
-  const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, content, 'utf8');
-  await fs.rename(tmpPath, filePath);
-  invalidateCache();
-
-  logger.info(`wrote ${filePath} (version=${version}, ${activeSignatures.length} signatures)`);
-  return { version, lastUpdated, count: activeSignatures.length };
+  invalidateCache(); // local-instance cache flush so next call refetches DB
+  logger.info(`run complete (version=${version}, ${activeCount} active signatures in DB)`);
+  return { version, lastUpdated, count: activeCount };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -582,7 +590,7 @@ async function runNightly() {
     // Re-fetch active signatures (post-upsert) — that's the source of truth
     // we project into the .mjs file.
     const active = await _fetchExistingSignatures();
-    const written = await _writeKnowledgeFile(active);
+    const written = _computeRunStamp(active.length);
 
     const summary = {
       kind: 'nightly',
@@ -632,7 +640,7 @@ async function runIncremental(signatureTag) {
     await _upsertSignatures(proposed, clusters);
 
     const active = await _fetchExistingSignatures();
-    const written = await _writeKnowledgeFile(active);
+    const written = _computeRunStamp(active.length);
 
     const summary = {
       kind: 'incremental',

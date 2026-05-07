@@ -718,17 +718,92 @@ router.post('/:id/generate-episode', csrfProtection, async (req, res) => {
     // Return accepted — pipeline runs async
     res.json({ success: true, message: 'Episode generation started' });
 
-    // Run pipeline in background (don't await in the request handler).
-    // Log only the concise error message — the pipeline itself already
-    // logs detailed errors for the specific stage that failed.
-    brandStoryService.runEpisodePipeline(storyId, userId).catch(err => {
-      logger.error(`Background episode pipeline failed for story ${storyId}: ${err.message}`);
-    });
+    // Two execution modes:
+    //   1) Inline (default, USE_V4_JOB=false): run pipeline in this Node
+    //      process. Works fine for short pipelines but caps at the Cloud
+    //      Run service request timeout (60min max).
+    //   2) Cloud Run Job (USE_V4_JOB=true): trigger a separate Cloud Run
+    //      Job execution via the run.googleapis.com API. The job has its
+    //      own memory/cpu sizing and a 24h max timeout. The HTTP route
+    //      returns immediately; the job runs in a separate execution.
+    const useJob = process.env.USE_V4_JOB === 'true' && (process.env.BRAND_STORY_PIPELINE === 'v4');
+    if (useJob) {
+      triggerV4PipelineJob(storyId, userId).catch(err => {
+        logger.error(`Failed to enqueue V4 job for story ${storyId}: ${err.message}`);
+      });
+    } else {
+      // Run pipeline in background (don't await in the request handler).
+      // Log only the concise error message — the pipeline itself already
+      // logs detailed errors for the specific stage that failed.
+      brandStoryService.runEpisodePipeline(storyId, userId).catch(err => {
+        logger.error(`Background episode pipeline failed for story ${storyId}: ${err.message}`);
+      });
+    }
   } catch (error) {
     logger.error('Error starting episode generation:', error);
     res.status(500).json({ success: false, error: 'Failed to start episode generation' });
   }
 });
+
+/**
+ * Trigger an execution of the v4-pipeline Cloud Run Job with STORY_ID
+ * and USER_ID env-var overrides. Uses the Cloud Run service's attached
+ * service account (newseracc) to authenticate via metadata-server tokens.
+ *
+ * Required Cloud Run env on the saas-main service:
+ *   GCP_PROJECT_ID  (already set)
+ *   V4_JOB_REGION   (defaults to us-west1)
+ *   V4_JOB_NAME     (defaults to v4-pipeline)
+ *
+ * Required IAM: the Cloud Run service SA needs roles/run.developer
+ * (or run.invoker scoped to the v4-pipeline job).
+ */
+async function triggerV4PipelineJob(storyId, userId) {
+  const project = process.env.GCP_PROJECT_ID;
+  const region = process.env.V4_JOB_REGION || 'us-west1';
+  const jobName = process.env.V4_JOB_NAME || 'v4-pipeline';
+
+  if (!project) throw new Error('GCP_PROJECT_ID is required for V4 job trigger');
+
+  // Mint an OAuth access token from the metadata server. On Cloud Run
+  // this returns a token for the attached service account; locally it
+  // returns whichever ADC is configured.
+  const tokenResp = await fetch(
+    'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
+    { headers: { 'Metadata-Flavor': 'Google' } }
+  );
+  if (!tokenResp.ok) {
+    throw new Error(`metadata server token fetch failed: ${tokenResp.status}`);
+  }
+  const { access_token } = await tokenResp.json();
+
+  const url = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/jobs/${jobName}:run`;
+  const body = {
+    overrides: {
+      containerOverrides: [{
+        env: [
+          { name: 'STORY_ID', value: storyId },
+          { name: 'USER_ID', value: userId }
+        ]
+      }]
+    }
+  };
+
+  const runResp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${access_token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!runResp.ok) {
+    const errText = await runResp.text().catch(() => '');
+    throw new Error(`Cloud Run Jobs run failed (${runResp.status}): ${errText.slice(0, 500)}`);
+  }
+  const op = await runResp.json();
+  logger.info(`[V4-job] enqueued story=${storyId} user=${userId} operation=${op?.name || 'unknown'}`);
+}
 
 /**
  * GET /api/brand-stories/:id/episodes

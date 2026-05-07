@@ -91,8 +91,28 @@ export function isWorkerRunning() {
   return isRunning;
 }
 
+/**
+ * Run one tick worth of work — invoked by Cloud Scheduler hitting
+ * /internal/cron/marketing-rules-tick when in-process workers are disabled.
+ */
+export async function runOnce() {
+  try {
+    const result = await marketingRulesEngine.evaluateAllRules();
+    if (result.triggered > 0) {
+      logger.info(`[MarketingRules] ${result.triggered} rules triggered out of ${result.evaluated} evaluated`);
+    } else {
+      logger.debug(`[MarketingRules] ${result.evaluated} rules evaluated, none triggered`);
+    }
+    return result;
+  } catch (error) {
+    logger.error(`[MarketingRules] runOnce error: ${error.message}`);
+    throw error;
+  }
+}
+
 export default {
   startWorker,
   stopWorker,
-  isWorkerRunning
+  isWorkerRunning,
+  runOnce
 };

@@ -89,6 +89,15 @@ const MAX_AUTO_RESUME_ATTEMPTS = 3;
 // during a single boot (e.g. if the orchestrator imports this module from
 // two paths). Resets on process restart, which is correct: a fresh boot
 // SHOULD always re-scan for orphans.
+//
+// Cluster-wide guard for max-instances > 1: NOT YET IMPLEMENTED.
+// pg_try_advisory_lock doesn't survive PgBouncer's transaction pooling
+// (Supabase default), so it's not safe here. When we bump Cloud Run
+// max-instances past 1, add a TTL'd row-lock table:
+//   CREATE TABLE system_recovery_locks (lock_name text PK, holder_id text,
+//     acquired_at timestamptz, expires_at timestamptz);
+// + an SQL function that atomically clears-stale-then-inserts. Until then,
+// max-instances=1 prevents the race entirely.
 let _hasRunOnce = false;
 const _kickedInThisProcess = new Set();
 

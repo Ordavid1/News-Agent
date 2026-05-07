@@ -17,9 +17,10 @@ const auditLogger = winston.createLogger({
           return `${timestamp} [AUDIT] ${level}: ${message} ${Object.keys(meta).length ? JSON.stringify(meta) : ''}`;
         })
       )
-    }),
-    // In production, add file transport or external logging service
-    new winston.transports.File({ filename: 'audit.log' })
+    })
+    // File transport removed. On Cloud Run, audit lines go to Cloud Logging
+    // via stdout — filter with `jsonPayload.message:"AUDIT"` or build an
+    // exclusion sink if you want them in a dedicated bucket.
   ]
 });
 

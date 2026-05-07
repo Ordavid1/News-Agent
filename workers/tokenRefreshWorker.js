@@ -365,6 +365,15 @@ export function isWorkerRunning() {
 }
 
 /**
+ * Run one tick worth of work — invoked by Cloud Scheduler hitting
+ * /internal/cron/token-refresh-tick when in-process workers are disabled.
+ */
+export async function runOnce() {
+  await queueExpiringConnections();
+  await processQueue();
+}
+
+/**
  * Manually trigger a refresh for a specific connection
  * @param {string} connectionId - Connection ID to refresh
  */
@@ -392,5 +401,6 @@ export default {
   isWorkerRunning,
   triggerRefresh,
   processQueue,
-  queueExpiringConnections
+  queueExpiringConnections,
+  runOnce
 };

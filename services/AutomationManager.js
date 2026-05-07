@@ -98,11 +98,22 @@ class AutomationManager {
   }
 
   /**
-   * Initialize the agent-driven scheduler
-   * Replaces all hardcoded platform-specific schedules
+   * Initialize the agent-driven scheduler.
+   *
+   * On Render and any single-instance deployment we register node-cron
+   * timers in-process. On Cloud Run with autoscaling, the same timer would
+   * fire once per instance — so we gate this behind LEGACY_CRON_ENABLED.
+   * When the flag is off, Cloud Scheduler hits the /internal/cron/* HTTP
+   * endpoints in routes/internal-cron.js, which call the per-tick methods
+   * below directly. Same logic, single firing across the whole deployment.
    */
   initializeAgentScheduler() {
-    logger.info('📅 Initializing agent-driven scheduler...');
+    const legacyCronEnabled = process.env.LEGACY_CRON_ENABLED !== 'false';
+    if (!legacyCronEnabled) {
+      logger.info('📅 Agent scheduler: in-process cron DISABLED (LEGACY_CRON_ENABLED=false). Cloud Scheduler drives /internal/cron/* instead.');
+      return;
+    }
+    logger.info('📅 Initializing agent-driven scheduler (in-process cron)...');
 
     // Main agent processing loop - runs every N minutes
     cron.schedule(`*/${this.config.checkIntervalMinutes} * * * *`, () => {
@@ -110,21 +121,10 @@ class AutomationManager {
     });
 
     // Daily reset of agent post counts at midnight UTC
-    cron.schedule('0 0 * * *', async () => {
-      logger.info('🔄 Resetting daily agent post counts...');
-      try {
-        await resetDailyAgentPosts();
-        logger.info('✅ Daily agent post counts reset successfully');
-      } catch (error) {
-        logger.error('❌ Failed to reset daily agent counts:', error.message);
-      }
-    });
+    cron.schedule('0 0 * * *', () => this.runDailyResetTick());
 
     // Rate limiter cleanup at midnight
-    cron.schedule('0 0 * * *', () => {
-      logger.info('🧹 Cleaning up rate limiter...');
-      this.rateLimiter.cleanup();
-    });
+    cron.schedule('0 0 * * *', () => this.runRateLimiterCleanupTick());
 
     // Daily analytics at 11 PM
     cron.schedule('0 23 * * *', () => {
@@ -138,26 +138,8 @@ class AutomationManager {
       this.performMaintenance();
     });
 
-    // Veo Failure-Learning Agent — nightly cluster + regen of
-    // services/v4/VeoFailureKnowledge.mjs from yesterday's veo_failure_log.
-    // Runs at 02:00 UTC (off-peak, after the daily-analytics job at 23:00).
-    // The runNightly() entry point is idempotent and never throws — it logs
-    // its own summary into automation_logs.
-    cron.schedule('0 2 * * *', async () => {
-      logger.info('📚 Running Veo Failure-Learning Agent (nightly)...');
-      try {
-        const mod = await import('./v4/VeoFailureKnowledgeBuilder.js');
-        const builder = mod.default || mod;
-        const result = await builder.runNightly();
-        if (result?.ok) {
-          logger.info(`✅ Veo Failure-Learning Agent done — ${result.signatures} active signatures, version ${result.version}`);
-        } else {
-          logger.warn(`⚠️ Veo Failure-Learning Agent reported error: ${result?.error || 'unknown'}`);
-        }
-      } catch (err) {
-        logger.warn(`Veo Failure-Learning Agent dispatch failed: ${err.message}`);
-      }
-    });
+    // Veo Failure-Learning Agent — nightly at 02:00 UTC.
+    cron.schedule('0 2 * * *', () => this.runVeoFailureLearningTick());
 
     logger.info('📅 Agent scheduler initialized:');
     logger.info(`   → Agent check: Every ${this.config.checkIntervalMinutes} minutes`);
@@ -165,6 +147,45 @@ class AutomationManager {
     logger.info('   → Daily analytics: 11 PM UTC');
     logger.info('   → Weekly maintenance: Sunday midnight UTC');
     logger.info('   → Veo Failure-Learning Agent: 2 AM UTC');
+  }
+
+  /**
+   * Per-tick handlers — also called by /internal/cron/* HTTP endpoints when
+   * Cloud Scheduler is the source of truth. Each is idempotent and logs
+   * its own success/error.
+   */
+  async runDailyResetTick() {
+    logger.info('🔄 Resetting daily agent post counts...');
+    try {
+      await resetDailyAgentPosts();
+      logger.info('✅ Daily agent post counts reset successfully');
+    } catch (error) {
+      logger.error(`❌ Failed to reset daily agent counts: ${error.message}`);
+      throw error;
+    }
+  }
+
+  runRateLimiterCleanupTick() {
+    logger.info('🧹 Cleaning up rate limiter...');
+    this.rateLimiter.cleanup();
+  }
+
+  async runVeoFailureLearningTick() {
+    logger.info('📚 Running Veo Failure-Learning Agent (nightly)...');
+    try {
+      const mod = await import('./v4/VeoFailureKnowledgeBuilder.js');
+      const builder = mod.default || mod;
+      const result = await builder.runNightly();
+      if (result?.ok) {
+        logger.info(`✅ Veo Failure-Learning Agent done — ${result.signatures} active signatures, version ${result.version}`);
+      } else {
+        logger.warn(`⚠️ Veo Failure-Learning Agent reported error: ${result?.error || 'unknown'}`);
+      }
+      return result;
+    } catch (err) {
+      logger.warn(`Veo Failure-Learning Agent dispatch failed: ${err.message}`);
+      throw err;
+    }
   }
 
   /**
